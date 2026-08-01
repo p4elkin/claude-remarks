@@ -1372,14 +1372,29 @@ class RemarksToolWindowFactory : ToolWindowFactory {
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] confirm no source file is ever written to: `grep -rn "WriteCommandAction\|setText\|insertString" src/` returns nothing
-- [ ] confirm the anchoring module has no platform dependency:
+- [x] confirm no source file is ever written to: `grep -rn "WriteCommandAction\|setText\|insertString" src/` returns nothing
+      *(no matches, exit 1)*
+- [x] confirm the anchoring module has no platform dependency:
       `grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/anchor/` returns nothing
-- [ ] confirm remarks are never dropped: every path in `resolveAnchor` returns a result carrying
+      *(no matches, exit 1 — `Anchoring.kt` imports only `java.security.MessageDigest`)*
+- [x] confirm remarks are never dropped: every path in `resolveAnchor` returns a result carrying
       line numbers, and no code path removes a remark except `RemarkStore.remove`
-- [ ] run the full test suite: `./gradlew test`
-- [ ] run `./gradlew verifyPlugin` and read the report for any compatibility problem against 2025.2
-- [ ] run `./gradlew buildPlugin` and confirm a zip appears under `build/distributions/`
+      *(all six `return` sites in `resolveAnchor` — Anchoring.kt lines 73, 76, 81, 87, 95, 98 —
+      yield `Orphaned`, `Exact` or `Relocated`, each carrying line numbers. A repo-wide grep for
+      `remove|clear|delete` in `src/main/kotlin/` finds removal only in `RemarkStore.remove` ->
+      `RemarksState.removeRemark`; `RemarkResolver.resolveAll` and the tool window both `map`
+      over the full list without filtering.)*
+- [x] run the full test suite: `./gradlew test` *(forced with `--rerun`: 19 tests — 17 anchoring,
+      2 store — 0 failures, 0 errors)*
+- [x] run `./gradlew verifyPlugin` and read the report for any compatibility problem against 2025.2
+      *(verdict `Compatible` against IC-252.28539.97, 18 classes verified, no problems section in
+      `build/reports/pluginVerifier/IC-252.28539.97/report.html` — the plugin renders as
+      `pluginOk`/`updateOk`. Also reports "can probably be enabled or disabled without IDE restart".
+      The `(failed)` lines in `dependencies.txt` are optional dependencies of IDEA's own bundled
+      plugins that only exist in Ultimate — Docker, Pythonid, `com.intellij.modules.ultimate` —
+      not anything this plugin declares.)*
+- [x] run `./gradlew buildPlugin` and confirm a zip appears under `build/distributions/`
+      *(`build/distributions/claude-remarks-0.1.0.zip`, 36 KB)*
 
 ### Task 9: Write the design doc and the readme
 
