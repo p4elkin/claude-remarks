@@ -889,7 +889,7 @@ private fun contextMatchesAt(anchor: Anchor, lines: List<String>, start: Int, sp
 
 **Model:** haiku
 
-- [ ] create `RemarkState.kt`:
+- [x] create `RemarkState.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.model
@@ -923,8 +923,8 @@ class RemarkState : BaseState() {
 }
 ```
 
-- [ ] run `./gradlew compileKotlin` — must succeed before task 6
-- [ ] commit
+- [x] run `./gradlew compileKotlin` — must succeed before task 6
+- [x] commit
 
 ### Task 6: The store service, with a serialization round-trip test
 
