@@ -7,8 +7,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 /**
- * The parts of the resolver that need no project: the join/split pair the debug action and
- * the resolver share, and how a stored remark is read back as an anchor.
+ * The parts of the resolver that need no project: the join/split pair from ContextFormat.kt
+ * that the debug action and the resolver share, and how a stored remark is read back as an
+ * anchor. The parts that do need a project are in ResolveAllTest.
  */
 class RemarkResolverTest {
 
@@ -42,12 +43,12 @@ class RemarkResolverTest {
      */
     @Test
     fun `one blank line of context survives being assigned to a remark`() {
-        val remark = RemarkState().also {
-            it.contextBefore = joinContext(listOf(""))
-            it.contextAfter = joinContext(listOf("", "tail"))
-        }
+        val stored = remark(
+            contextBefore = joinContext(listOf("")),
+            contextAfter = joinContext(listOf("", "tail")),
+        )
 
-        val anchor = anchorOf(remark)
+        val anchor = anchorOf(stored)
 
         assertEquals(listOf(""), anchor.contextBefore)
         assertEquals(listOf("", "tail"), anchor.contextAfter)
@@ -66,15 +67,15 @@ class RemarkResolverTest {
 
     @Test
     fun `a stored remark reads back as its anchor`() {
-        val remark = RemarkState().also {
-            it.startLine = 3
-            it.endLine = 5
-            it.textHash = "abcdef0123456789"
-            it.contextBefore = joinContext(listOf("line a", "line b"))
-            it.contextAfter = joinContext(listOf("line c"))
-        }
+        val stored = remark(
+            startLine = 3,
+            endLine = 5,
+            textHash = "abcdef0123456789",
+            contextBefore = joinContext(listOf("line a", "line b")),
+            contextAfter = joinContext(listOf("line c")),
+        )
 
-        val anchor = anchorOf(remark)
+        val anchor = anchorOf(stored)
 
         assertEquals(3, anchor.startLine)
         assertEquals(5, anchor.endLine)

@@ -1,6 +1,7 @@
 package dev.sasha.clauderemarks.anchor
 
 import java.security.MessageDigest
+import java.util.HexFormat
 
 /** Number of lines kept above and below the anchored range. */
 const val CONTEXT_LINES = 3
@@ -41,7 +42,7 @@ fun hashLines(lines: List<String>): String {
         digest.update(line.trim().toByteArray(Charsets.UTF_8))
         digest.update('\n'.code.toByte())
     }
-    return digest.digest().joinToString("") { "%02x".format(it) }.take(16)
+    return HexFormat.of().formatHex(digest.digest()).take(16)
 }
 
 fun captureAnchor(
@@ -93,16 +94,19 @@ fun resolveAnchor(
         return AnchorResult.Exact(anchor.startLine, anchor.endLine)
     }
 
-    // First pass: the text is unchanged but sits somewhere else.
-    candidatesNear(anchor.startLine, starts, radius).forEach { start ->
-        if (blockHashAt(start) == anchor.textHash) {
-            return AnchorResult.Relocated(start, start + span)
+    // First pass: the text is unchanged but sits somewhere else. The stored position is left
+    // out, because candidatesNear yields it first and the check above just hashed it.
+    candidatesNear(anchor.startLine, starts, radius).filter { it != anchor.startLine }
+        .forEach { start ->
+            if (blockHashAt(start) == anchor.textHash) {
+                return AnchorResult.Relocated(start, start + span)
+            }
         }
-    }
 
-    // Second pass: the text itself was edited, but what surrounds it did not move.
+    // Second pass: the text itself was edited, but what surrounds it did not move. This one does
+    // start at the stored position: that is where an edited-in-place block is found.
     candidatesNear(anchor.startLine, starts, radius).forEach { start ->
-        if (contextMatchAt(anchor, lines, start, span)) {
+        if (contextMatchesAt(anchor, lines, start, span)) {
             return AnchorResult.Relocated(start, start + span)
         }
     }
@@ -137,7 +141,7 @@ private fun candidatesNear(origin: Int, range: IntRange, radius: Int): Sequence<
  * At least one matched context line must be non-blank, otherwise a run of empty lines would
  * match everywhere in the file.
  */
-private fun contextMatchAt(anchor: Anchor, lines: List<String>, start: Int, span: Int): Boolean {
+private fun contextMatchesAt(anchor: Anchor, lines: List<String>, start: Int, span: Int): Boolean {
     var matchedSomethingReal = false
 
     val before = anchor.contextBefore

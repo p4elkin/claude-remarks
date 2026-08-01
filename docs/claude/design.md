@@ -59,7 +59,7 @@ The list property uses this annotation:
 val remarks by list<RemarkState>()
 ```
 
-**This annotation is critical.** Without `@get:XCollection(style = XCollection.Style.v2)`, the entire list serializes to an empty element and every remark is silently lost on IDE restart, with no error logged. See `RemarkStoreSerializationTest` in the test suite — it is the regression guard for this exact trap.
+**This annotation is critical.** Without `@get:XCollection(style = XCollection.Style.v2)`, the entire list serializes to an empty element and every remark is silently lost on IDE restart, with no error logged. See `RemarkStoreStateTest` in the test suite — it is the regression guard for this exact trap.
 
 The mutators (`addRemark`, `removeRemark`) live on the state class, not on the store, because
 `incrementModificationCount()` is protected: it is only reachable from inside a `BaseState`
@@ -71,7 +71,7 @@ compares the list's own `modCount` against the last one it saw, and `BaseState` 
 counts on top of its own. So adding or removing a remark already marks the state dirty, and
 removing the `incrementModificationCount()` calls does not lose data. They are kept because they
 are one cheap line that makes every mutation mark the state changed without having to reason about
-what the property tracker sees. `RemarkStoreSerializationTest` asserts the modification count goes
+what the property tracker sees. `RemarkStoreStateTest` asserts the modification count goes
 up after an add and after a real remove, and stays put when `removeRemark` is given an unknown id.
 
 All three methods (`addRemark`, `removeRemark`, `snapshot`) are `@Synchronized` on the state
@@ -131,7 +131,9 @@ An `Anchor` holds:
 
 - `Exact(startLine, endLine)`: The lines at the stored numbers still hash to the same text.
 - `Relocated(startLine, endLine)`: The text moved elsewhere, or it changed but the surrounding lines stayed the same.
-- `Orphaned(staleStartLine, staleEndLine)`: Could not find the text or its context nearby. Reports the original numbers so you can see what is stale.
+- `Orphaned(startLine, endLine)`: Could not find the text or its context nearby. The numbers are the stored ones, so you can see what is stale.
+
+All three carry `startLine` and `endLine`, declared on the `AnchorResult` interface itself. That is what lets `describe()` read a position off any result without a `when` over the three types.
 
 ### The Two-Pass Search
 
@@ -221,8 +223,10 @@ one entry point. It must run inside a read action and off the EDT, because it re
   for the whole sweep. Each remark can cost a SHA-256 over every candidate position in the radius.
 
 Context lines are stored as one newline-joined string, with **one extra newline written in front of
-the first line**, and `joinContext` / `splitContext` are the pair that converts. Null means "no
-context at all"; anything else is a marker plus the lines.
+the first line**, and `joinContext` / `splitContext` are the pair that converts. They live in
+`store/ContextFormat.kt`, not in the resolver: the editor action writes with one of them and the
+resolver reads with the other, so neither side owns the format. Null means "no context at all";
+anything else is a marker plus the lines.
 
 That leading newline looks pointless and is not. `RemarkState.contextBefore` and `contextAfter` are
 declared with `BaseState.string()`, which resolves to `NormalizedStringStoredProperty`, and its

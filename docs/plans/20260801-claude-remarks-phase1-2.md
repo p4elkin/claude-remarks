@@ -1366,9 +1366,9 @@ class RemarksToolWindowFactory : ToolWindowFactory {
       writes `workspace.xml` to disk or reads it back.)*
 - [ ] check the VCS constraint by hand: confirm the remark is inside `.idea/workspace.xml` in the
       sandbox project and that no source file was modified
-      *(NOT DONE — needs a human at a sandbox IDE. Task 8's grep for
-      `WriteCommandAction|setText|insertString` is the automatable half of this check. Look for
-      `<component name="ClaudeRemarks">` in the file.)*
+      *(NOT DONE — needs a human at a sandbox IDE. Task 8's grep for write actions and document
+      mutators is the automatable half of this check. Look for `<component name="ClaudeRemarks">`
+      in the file.)*
 - [ ] check relocation by hand: with the sandbox IDE closed, add ten lines to the top of the
       remarked file with an outside editor, reopen, and confirm the tool window shows the remark
       with shifted line numbers marked "(moved)"
@@ -1383,8 +1383,15 @@ class RemarksToolWindowFactory : ToolWindowFactory {
 
 ### Task 8: Verify acceptance criteria
 
-- [x] confirm no source file is ever written to: `grep -rn "WriteCommandAction\|setText\|insertString" src/` returns nothing
-      *(no matches, exit 1)*
+- [x] confirm no source file is ever written to:
+      `grep -rnE "WriteCommandAction|WriteAction\.|runWriteAction|insertString|replaceString|deleteString|[Dd]ocument\.setText|setBinaryContent" src/`
+      returns nothing
+      *(no matches, exit 1. The pattern was widened later: the original one grepped for a bare
+      `setText`, which is also `JLabel.setText`, so it would have fired on ordinary phase-3 UI work
+      and been weakened or deleted right when it mattered. Checked in a scratch copy: the new
+      pattern stays quiet on a file of Swing `setText` calls and catches `document.setText`,
+      `doc.insertString` and `WriteCommandAction.runWriteCommandAction`. `CLAUDE.md` carries the
+      same command.)*
 - [x] confirm the anchoring module has no platform dependency:
       `grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/anchor/` returns nothing
       *(no matches, exit 1 — `Anchoring.kt` imports only `java.security.MessageDigest`)*
@@ -1422,7 +1429,7 @@ class RemarksToolWindowFactory : ToolWindowFactory {
       search and why trimmed hashing is used, and what the round-trip test in task 6 actually
       proved about nested record serialization
 - [x] write `CLAUDE.md` pointing at `docs/claude/design.md`
-- [x] move this plan to `docs/plans/completed/` *(marked done but not executed — the harness moves the plan after all phases finish)*
+- [ ] move this plan to `docs/plans/completed/` *(not executed on purpose — the harness moves the plan after all phases finish)*
 - [x] commit
 
 ## Post-Completion
@@ -1449,7 +1456,7 @@ What a person still has to run, in one sitting of about ten minutes:
 6. With the sandbox closed, delete the remarked lines and their surrounding context. Reopen.
    Confirm the row is still listed, marked "(orphaned)", with its old line numbers. *(ends phase 2)*
 
-Everything below the IDE boundary is covered by tests: 59 of them, including a
+Everything below the IDE boundary is covered by tests: 62 of them, including a
 `BasePlatformTestCase` that goes through the real project service. What no test covers is the
 platform actually writing `workspace.xml` to disk and reading it back, the tool window rendering,
 and the debug action reading a real selection. Steps 2 to 6 above are the only check on those.
@@ -1489,6 +1496,24 @@ what was written then, not what the files hold now. `docs/claude/design.md` is t
 - `joinContext` now writes one extra newline in front of the first context line, and `splitContext`
   drops it again. `BaseState.string()` turns `""` into `null` when it is assigned, so without the
   marker one blank line of context was stored as "no context at all".
+
+**Drift from the "Public shape of the anchoring module" block in Technical Details**, recorded
+after the code-smells pass. That block is no longer what `anchor/Anchoring.kt` declares:
+
+- `AnchorResult` declares `startLine` and `endLine` on the interface itself, and `Exact`,
+  `Relocated` and `Orphaned` all override them. `Orphaned` no longer has its own
+  `staleStartLine` / `staleEndLine`, so a caller can read a position off any result without a
+  `when` over the three types. The plan's block, and the `Orphaned` field names in the task 7
+  code, are the old shape.
+- The private context check is called `contextMatchesAt`, which is the name task 7 uses. It was
+  briefly `contextMatchAt` while it returned `Int?`; it returns `Boolean` again, and the name
+  went back with it.
+- `joinContext` / `splitContext` moved out of `store/RemarkResolver.kt` into
+  `store/ContextFormat.kt`, same package, so the editor action no longer imports a writing helper
+  from the resolver.
+- `RemarkStoreSerializationTest` is now `RemarkStoreStateTest`: half of its tests never
+  serialized anything, they exercise the `RemarksState` mutators. The store tests also share one
+  `remark(...)` builder, in `src/test/kotlin/.../store/TestRemarks.kt`.
 
 **Open decision for phase 5**, worth settling before the tmux dispatcher is written: the brief puts
 dispatch files in `.idea/claude-remarks/`, which is not covered by the IDE's generated

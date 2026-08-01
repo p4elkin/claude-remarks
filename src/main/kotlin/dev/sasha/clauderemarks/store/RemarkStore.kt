@@ -37,34 +37,14 @@ class RemarkStore : SimplePersistentStateComponent<RemarkStore.RemarksState>(Rem
         @get:XCollection(style = XCollection.Style.v2)
         val remarks by list<RemarkState>()
 
-        // The mutators live here, not on RemarkStore. BaseState.incrementModificationCount()
-        // is protected, so it is only reachable from inside a BaseState subclass. Calling it
-        // as state.incrementModificationCount() from RemarkStore does not compile.
-        //
-        // The list property does track structural changes by itself (ListStoredProperty watches
-        // the list's own modCount), so this is not the only thing that marks the state dirty.
-        // It is called on every mutation anyway, because that is one cheap line against silent
-        // data loss, and because a change we make to a remark already in the list is not
-        // something we want to have to reason about.
-        //
-        // The three methods are synchronized on the same object, which keeps the plugin's own
-        // callers apart: the tool window snapshots from a pooled thread while the editor action
-        // adds on the EDT, and the backing list is a plain ArrayList subclass with no thread
-        // safety of its own. A read action does not help here, it guards platform data, not ours.
-        //
-        // This lock does NOT make the list safe in general, and the biggest reader is not ours.
-        // The platform's state serializer reads `remarks` straight off the object returned by
-        // getState(), without taking this lock, and it runs off the EDT when the workspace is
-        // saved. A save that lands while a remark is being added can still throw
-        // ConcurrentModificationException and lose that one save of workspace.xml.
-        // Overriding getState() to hand the serializer a copy was checked and does not work:
-        // SimplePersistentStateComponent.getState() is FINAL (confirmed with javap against the
-        // 2025.2 jars), and its getStateModificationCount() is final too and reads the live
-        // object. Even if it were open, RemarkStore.add() goes through the same getter, so a
-        // copy-returning getState() would write every new remark into a throwaway.
-        // ponytail: the real fix is a different storage shape — drop SimplePersistentStateComponent
-        // for a plain PersistentStateComponent and swap an immutable list on every write. Phase 3
-        // work if a save ever actually fails.
+        // The mutators live here, not on RemarkStore: BaseState.incrementModificationCount() is
+        // protected, so only a BaseState subclass can reach it. @Synchronized keeps the plugin's
+        // own two callers apart (the tool window snapshots from a pooled thread, the editor
+        // action adds on the EDT), and does NOT cover the platform's serializer, which reads the
+        // live list without this lock.
+        // ponytail: a workspace save racing an add can still throw ConcurrentModificationException.
+        // Why that is left alone, and what the real fix would cost, is in docs/claude/design.md
+        // under "How Remarks are Persisted".
         @Synchronized
         fun addRemark(remark: RemarkState) {
             remarks.add(remark)
@@ -85,8 +65,11 @@ class RemarkStore : SimplePersistentStateComponent<RemarkStore.RemarksState>(Rem
 
     fun all(): List<RemarkState> = state.snapshot()
 
-    fun add(remark: RemarkState) = state.addRemark(remark)
+    fun add(remark: RemarkState) {
+        state.addRemark(remark)
+    }
 
+    /** No production caller yet: phase 3 is where deleting a remark from the tool window lands. */
     fun remove(id: String): Boolean = state.removeRemark(id)
 
     companion object {

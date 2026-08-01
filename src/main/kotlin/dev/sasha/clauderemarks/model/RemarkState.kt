@@ -2,8 +2,11 @@ package dev.sasha.clauderemarks.model
 
 import com.intellij.openapi.components.BaseState
 
+/** Persisted and round-trip tested, but nothing sets it yet: phase 3's inline input is the first
+ *  place a person picks a tag. The debug action always leaves it null. */
 enum class RemarkTag { BUG, QUESTION, REFACTOR, NOTE }
 
+/** SENT is written by the dispatch step in phase 5. Until then every remark stays PENDING. */
 enum class RemarkStatus { PENDING, SENT }
 
 /**

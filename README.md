@@ -48,17 +48,17 @@ Run all tests:
 ./gradlew test
 ```
 
-59 tests: 27 for anchoring (how remarks stay pointed at the right lines after edits), 10 for storage round-trips, 4 for the store service, 5 for the resolver helpers, 3 for resolving stored remarks against real files, 5 for the selection line math, 5 for the tool window row text.
+62 tests: 28 for anchoring (how remarks stay pointed at the right lines after edits), 10 for the stored state (the XML round trip and the list mutators), 6 for the resolver helpers, 6 for the tool window row text, 5 for the selection line math, 4 for the store service, 3 for resolving stored remarks against real files.
 
-All of them are plain JUnit except `RemarkStoreServiceTest`, which starts a light IDE fixture through `BasePlatformTestCase` to check the service wiring.
+Most are plain JUnit and run in milliseconds. Three classes start a light IDE fixture through `BasePlatformTestCase` and are slower: `RemarkStoreServiceTest` (the real project service), `ResolveAllTest` (stored remarks resolved against real files) and `SelectedLinesTest` (the selection line math against a real `Document`).
 
-The tool window itself and the debug action have no automated tests. They are checked by hand in a sandbox IDE, as the plan's Testing Strategy describes.
+The tool window itself and the debug action's `update`/`actionPerformed` have no automated tests. They still need a person at a sandbox IDE.
 
 ## Architecture
 
 - `src/main/kotlin/dev/sasha/clauderemarks/anchor/`: Pure Kotlin, no platform imports. Logic for hashing lines and finding anchored text after files change.
 - `src/main/kotlin/dev/sasha/clauderemarks/model/`: The `RemarkState` record and its enums (`RemarkTag`, `RemarkStatus`).
-- `src/main/kotlin/dev/sasha/clauderemarks/store/`: `RemarkStore.kt`, the project service that persists remarks to `.idea/workspace.xml`, and `RemarkResolver.kt`, which finds the project root and turns stored remarks into rows for the tool window.
+- `src/main/kotlin/dev/sasha/clauderemarks/store/`: `RemarkStore.kt`, the project service that persists remarks to `.idea/workspace.xml`; `RemarkResolver.kt`, which finds the project root and turns stored remarks into rows for the tool window; and `ContextFormat.kt`, which says how context lines are written into a remark and read back.
 - `src/main/kotlin/dev/sasha/clauderemarks/ui/`: The tool window UI that lists remarks.
 - `src/main/kotlin/dev/sasha/clauderemarks/action/`: The debug action (temporary, replaced in phase 3).
 

@@ -1,5 +1,6 @@
 package dev.sasha.clauderemarks.store
 
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
@@ -11,6 +12,8 @@ import dev.sasha.clauderemarks.anchor.Anchor
 import dev.sasha.clauderemarks.anchor.AnchorResult
 import dev.sasha.clauderemarks.anchor.resolveAnchor
 import dev.sasha.clauderemarks.model.RemarkState
+
+private val LOG = Logger.getInstance("dev.sasha.clauderemarks.store.RemarkResolver")
 
 data class ResolvedRemark(val remark: RemarkState, val result: AnchorResult)
 
@@ -45,30 +48,46 @@ fun resolveAll(root: VirtualFile?, remarks: List<RemarkState>): List<ResolvedRem
         // One cancellation point per remark, so a pending write does not wait for the whole
         // sweep: each remark can cost a SHA-256 over every candidate position in the radius.
         ProgressManager.checkCanceled()
-        ResolvedRemark(remark, if (root == null) staleOf(remark) else resolveOne(root, remark))
+        ResolvedRemark(
+            remark,
+            if (root == null) refuse(remark, "the project root did not resolve")
+            else resolveOne(root, remark),
+        )
     }
 
-private fun staleOf(remark: RemarkState) =
-    AnchorResult.Orphaned(remark.startLine, remark.endLine)
+/**
+ * Marks a remark stale, keeping its stored line numbers, and says in the log why.
+ *
+ * Five different refusals all end as the same orphaned row, so the reason exists nowhere else.
+ * Debug level: nothing is printed until someone turns the category on.
+ */
+private fun refuse(remark: RemarkState, why: String): AnchorResult {
+    LOG.debug("remark ${remark.id} (${remark.path}): $why")
+    return AnchorResult.Orphaned(remark.startLine, remark.endLine)
+}
 
 private fun resolveOne(root: VirtualFile, remark: RemarkState): AnchorResult {
-    val stale = staleOf(remark)
-    val path = remark.path ?: return stale
+    val path = remark.path ?: return refuse(remark, "no path stored")
 
     // findRelativeFile takes the root FIRST, then each path segment as its own vararg:
     // findRelativeFile(VirtualFile, String...). Passing "a/b/Foo.kt" as a single element
     // finds nothing, and passing (path, root) does not compile.
-    val file = VfsUtil.findRelativeFile(root, *path.split('/').toTypedArray()) ?: return stale
+    val file = VfsUtil.findRelativeFile(root, *path.split('/').toTypedArray())
+        ?: return refuse(remark, "no file under the project root at that path")
 
     // findRelativeFile walks ".." through getParent(), so a hand-edited workspace.xml could
     // otherwise point a remark at any file on the machine.
-    if (!VfsUtilCore.isAncestor(root, file, false)) return stale
+    if (!VfsUtilCore.isAncestor(root, file, false)) {
+        return refuse(remark, "the stored path climbs out of the project root")
+    }
 
-    val document = FileDocumentManager.getInstance().getDocument(file) ?: return stale
+    val document = FileDocumentManager.getInstance().getDocument(file)
+        ?: return refuse(remark, "the file has no Document (binary, or too large)")
     return resolveAnchor(anchorOf(remark), document.text.split("\n"))
 }
 
-/** The stored fields of a remark, read back as the anchor they were captured from. */
+/** The stored fields of a remark, read back as the anchor they were captured from. Context is
+ *  decoded with splitContext, from ContextFormat.kt. */
 fun anchorOf(remark: RemarkState) = Anchor(
     startLine = remark.startLine,
     endLine = remark.endLine,
@@ -76,27 +95,3 @@ fun anchorOf(remark: RemarkState) = Anchor(
     contextBefore = splitContext(remark.contextBefore),
     contextAfter = splitContext(remark.contextAfter),
 )
-
-/**
- * Context is stored as one newline-joined string, with one extra newline in front of the
- * first line. Null means no context at all.
- *
- * The leading newline is not decoration. RemarkState.contextBefore/contextAfter go through
- * BaseState.string(), which is a NormalizedStringStoredProperty: its setter turns an empty
- * string into null on assignment, before anything is even written to XML. Without the extra
- * newline, one blank line of context would join to "", store as null, and read back as no
- * context at all — which quietly switches off that side of the context search. A remark on
- * the last real line of a file that ends with a newline hits exactly that case, because
- * document.text.split("\n") ends with an empty line.
- */
-fun joinContext(lines: List<String>): String? =
-    if (lines.isEmpty()) null else lines.joinToString("\n", prefix = "\n")
-
-/**
- * removePrefix, not drop(1). Every other stored field here is treated as untrusted, and this
- * one is no different: a string without the marker (an older workspace.xml, or one edited by
- * hand) would otherwise lose its first context line, and a one-line context would come back as
- * emptyList() — which switches that side of the context search off with nothing to show for it.
- */
-fun splitContext(stored: String?): List<String> =
-    if (stored.isNullOrEmpty()) emptyList() else stored.removePrefix("\n").split("\n")

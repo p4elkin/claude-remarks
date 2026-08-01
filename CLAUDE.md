@@ -25,8 +25,15 @@ Phases 3-5 (inline input, gutter, prompts, dispatch) are deferred.
    stays clean.
 
    ```bash
-   grep -rn "WriteCommandAction\|setText\|insertString" src/                 # must find nothing
+   grep -rnE "WriteCommandAction|WriteAction\.|runWriteAction|insertString|replaceString|deleteString|[Dd]ocument\.setText|setBinaryContent" src/   # must find nothing
    ```
+
+   A bare `setText(` is deliberately not in that pattern: it is also `JLabel.setText` and
+   `JTextField.setText`, so a guard built on it fires on ordinary UI work and gets deleted at
+   exactly the moment it would protect something. Every real write instead needs a write action
+   (the first three alternatives) or one of the document and file mutators (the rest). Checked
+   both ways: the pattern stays quiet on a file full of Swing `setText` calls, and it does catch
+   `document.setText(...)`, `doc.insertString(...)` and `WriteCommandAction.runWriteCommandAction`.
 
 Both greps must exit with status 1 (no matches).
 
@@ -37,7 +44,8 @@ src/main/kotlin/dev/sasha/clauderemarks/
   anchor/Anchoring.kt          hashing, capture, the two-pass resolve. No platform imports.
   model/RemarkState.kt         the persisted record, plus RemarkTag and RemarkStatus
   store/RemarkStore.kt         @Service project component, state in workspace.xml
-  store/RemarkResolver.kt      projectRoot, resolveAll, and the anchor join/split helpers
+  store/RemarkResolver.kt      projectRoot, resolveAll, and anchorOf
+  store/ContextFormat.kt       joinContext/splitContext, how context lines are stored
   ui/RemarksToolWindowFactory.kt   the list, the Refresh button, and describe()
   action/AddDebugRemarkAction.kt   throwaway phase 2 entry point (editor popup menu), plus
                                    selectedLines(), the selection-to-line-range math

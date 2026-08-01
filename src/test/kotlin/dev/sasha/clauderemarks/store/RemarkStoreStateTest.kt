@@ -10,7 +10,12 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class RemarkStoreSerializationTest {
+/**
+ * The nested state class RemarkStore.RemarksState, on its own: what survives a write and read
+ * cycle through XML, and what its three mutators do. The service wiring around it is
+ * RemarkStoreServiceTest.
+ */
+class RemarkStoreStateTest {
 
     @Test
     fun `every field survives a write and read cycle`() {
@@ -155,30 +160,4 @@ class RemarkStoreSerializationTest {
         JDOMUtil.load(JDOMUtil.write(XmlSerializer.serialize(state))),
         RemarkStore.RemarksState::class.java,
     )
-
-    private fun remark(
-        id: String,
-        path: String = "src/Foo.kt",
-        startLine: Int = 0,
-        endLine: Int = 0,
-        text: String = "note",
-        tag: RemarkTag? = null,
-        status: RemarkStatus = RemarkStatus.PENDING,
-        createdAt: Long = 0L,
-        textHash: String = "0000000000000000",
-        contextBefore: String = "",
-        contextAfter: String = "",
-    ) = dev.sasha.clauderemarks.model.RemarkState().also {
-        it.id = id
-        it.path = path
-        it.startLine = startLine
-        it.endLine = endLine
-        it.text = text
-        it.tag = tag
-        it.status = status
-        it.createdAt = createdAt
-        it.textHash = textHash
-        it.contextBefore = contextBefore
-        it.contextAfter = contextAfter
-    }
 }

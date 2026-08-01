@@ -1,7 +1,6 @@
 package dev.sasha.clauderemarks.store
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import dev.sasha.clauderemarks.model.RemarkState
 
 /**
  * Goes through the real project service, so the @Service / @State / @Storage wiring and
@@ -13,11 +12,14 @@ class RemarkStoreServiceTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        RemarkStore.getInstance(project).state.remarks.clear()
+        // Through the service's own API, not state.remarks.clear(): that would reach past the
+        // @Synchronized methods the state class exists to funnel every mutation through.
+        val store = RemarkStore.getInstance(project)
+        store.all().forEach { store.remove(it.id.orEmpty()) }
     }
 
     fun testAddedRemarkIsReadBackThroughTheService() {
-        RemarkStore.getInstance(project).add(remark("r-1"))
+        RemarkStore.getInstance(project).add(remark(id = "r-1", startLine = 10))
 
         val loaded = RemarkStore.getInstance(project).all()
 
@@ -33,10 +35,10 @@ class RemarkStoreServiceTest : BasePlatformTestCase() {
 
     fun testAllReturnsACopy() {
         val store = RemarkStore.getInstance(project)
-        store.add(remark("r-1"))
+        store.add(remark(id = "r-1"))
         val first = store.all()
 
-        store.add(remark("r-2"))
+        store.add(remark(id = "r-2"))
 
         assertEquals(1, first.size)
         assertEquals(2, store.all().size)
@@ -44,20 +46,11 @@ class RemarkStoreServiceTest : BasePlatformTestCase() {
 
     fun testRemoveTakesTheRemarkOutOfTheService() {
         val store = RemarkStore.getInstance(project)
-        store.add(remark("r-1"))
+        store.add(remark(id = "r-1"))
 
         assertTrue(store.remove("r-1"))
 
         assertFalse(store.remove("r-1"))
         assertTrue(RemarkStore.getInstance(project).all().isEmpty())
-    }
-
-    private fun remark(id: String) = RemarkState().also {
-        it.id = id
-        it.path = "src/Foo.kt"
-        it.startLine = 10
-        it.endLine = 12
-        it.text = "why is this synchronized?"
-        it.textHash = "abcdef0123456789"
     }
 }
