@@ -52,9 +52,11 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
 
         // The mutators live here, not on RemarkStore: BaseState.incrementModificationCount() is
         // protected, so only a BaseState subclass can reach it. @Synchronized locks this state
-        // object, and every reader and writer of the list goes through one of these three methods:
-        // the tool window snapshots from a pooled thread, the editor action adds on the EDT, and
-        // RemarkStore.getState() takes its copy for the platform's serializer through snapshot().
+        // object (all four methods below lock the same monitor, `this` RemarksState instance), and
+        // every reader and writer of the list goes through one of them: the tool window snapshots
+        // from a pooled thread, the editor action adds on the EDT, RemarkStore.getState() takes its
+        // copy for the platform's serializer through snapshot(), and RemarkStore.getStateModificationCount()
+        // reads the count through modCount().
         @Synchronized
         fun addRemark(remark: RemarkState) {
             remarks.add(remark)
@@ -71,6 +73,18 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
         /** A copy, so readers never iterate the live list while the EDT mutates it. */
         @Synchronized
         fun snapshot(): List<RemarkState> = remarks.toList()
+
+        /**
+         * BaseState.getModificationCount() sums property.getModificationCount() over the stored
+         * properties, and for `remarks` that is ListStoredProperty.getModificationCount(), which
+         * iterates the live list with a for-each and takes no lock of its own. Reading
+         * `modificationCount` directly off the live state (as the override below used to) let the
+         * platform's save pass iterate the list on one thread while addRemark mutated it on
+         * another, throwing ConcurrentModificationException. Locking here, on the same monitor the
+         * mutators use, serializes that iteration against every add and remove.
+         */
+        @Synchronized
+        fun modCount(): Long = modificationCount
     }
 
     fun all(): List<RemarkState> = liveState.snapshot()
@@ -103,9 +117,12 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
      * Kept because SimplePersistentStateComponent implemented it too, and dropping it would change
      * when the platform saves: with a modification tracker the platform compares this count against
      * the one it last saw and skips the component entirely when nothing changed, so getState() is
-     * not called at all on an idle save. Reads the live object, same as the base class did.
+     * not called at all on an idle save. Goes through modCount(), not the live `modificationCount`
+     * property directly, so this read takes the same lock addRemark and removeRemark do. Without
+     * that, the platform's save pass (which calls this off the EDT) could iterate the live list
+     * while the editor action was adding to it on the EDT, throwing ConcurrentModificationException.
      */
-    override fun getStateModificationCount(): Long = liveState.modificationCount
+    override fun getStateModificationCount(): Long = liveState.modCount()
 
     companion object {
         fun getInstance(project: Project): RemarkStore = project.service()

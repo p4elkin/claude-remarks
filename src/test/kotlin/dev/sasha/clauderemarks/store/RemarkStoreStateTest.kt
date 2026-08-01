@@ -5,6 +5,7 @@ import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
@@ -208,6 +209,53 @@ class RemarkStoreStateTest {
             RemarkStore.RemarksState::class.java,
             ComponentSerializationUtil.getStateClass<RemarkStore.RemarksState>(RemarkStore::class.java),
         )
+    }
+
+    /**
+     * The regression guard for the ConcurrentModificationException race: getStateModificationCount()
+     * used to read `liveState.modificationCount` directly, bypassing every lock the mutators take.
+     * BaseState.getModificationCount() walks the `remarks` list (through
+     * ListStoredProperty.getModificationCount()) with no lock of its own, so a platform save
+     * landing mid-walk while a remark was being added on another thread could throw. This is not a
+     * deterministic reproduction of the race itself — it is a probe: one thread adds in a loop,
+     * another reads stateModificationCount in a loop, for a short bounded time, and no exception
+     * may escape. The list starts pre-populated so each read has enough to iterate over that a
+     * concurrent add has a real chance of landing mid-walk.
+     *
+     * Proven by mutation: reverting getStateModificationCount() to read
+     * `liveState.modificationCount` directly makes this fail with ConcurrentModificationException,
+     * reliably, well inside the timeout below.
+     */
+    @Test(timeout = 5_000)
+    fun `reading the modification count while adding does not throw`() {
+        val store = RemarkStore()
+        repeat(20_000) { store.add(remark(id = "seed-$it")) }
+
+        val stopAt = System.nanoTime() + 300_000_000L // 300ms of racing is enough to trigger it
+        val failure = AtomicReference<Throwable>()
+
+        val writer = Thread {
+            var i = 0
+            while (System.nanoTime() < stopAt) {
+                store.add(remark(id = "extra-${i++}"))
+            }
+        }
+        val reader = Thread {
+            try {
+                while (System.nanoTime() < stopAt) {
+                    store.stateModificationCount
+                }
+            } catch (t: Throwable) {
+                failure.set(t)
+            }
+        }
+
+        writer.start()
+        reader.start()
+        writer.join()
+        reader.join()
+
+        failure.get()?.let { throw AssertionError("stateModificationCount read raced unsafely", it) }
     }
 
     private fun roundTrip(state: RemarkStore.RemarksState) = XmlSerializer.deserialize(

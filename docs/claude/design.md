@@ -74,18 +74,39 @@ are one cheap line that makes every mutation mark the state changed without havi
 what the property tracker sees. `RemarkStoreStateTest` asserts the modification count goes
 up after an add and after a real remove, and stays put when `removeRemark` is given an unknown id.
 
-All three methods (`addRemark`, `removeRemark`, `snapshot`) are `@Synchronized` on the state
-object. The tool window resolves remarks from a pooled thread while the editor action adds them on
-the EDT, and the backing collection is `ModCountableList`, a plain `ArrayList` subclass with no
-thread safety. A read action does not help: it guards platform data, not ours. `RemarkStore.all()`
-returns `liveState.snapshot()`, a copy taken under that same lock, and `RemarkStore.getState()`
-takes its copy through the same `snapshot()` call.
+All four methods (`addRemark`, `removeRemark`, `snapshot`, `modCount`) are `@Synchronized` on the
+state object, so they all lock the same monitor. The tool window resolves remarks from a pooled
+thread while the editor action adds them on the EDT, and the backing collection is
+`ModCountableList`, a plain `ArrayList` subclass with no thread safety. A read action does not
+help: it guards platform data, not ours. `RemarkStore.all()` returns `liveState.snapshot()`, a copy
+taken under that same lock, `RemarkStore.getState()` takes its copy through the same `snapshot()`
+call, and `RemarkStore.getStateModificationCount()` reads the count through `modCount()` instead of
+touching the live `modificationCount` property directly. That last one was a real gap, not just
+belt-and-suspenders: `BaseState.getModificationCount()` sums each stored property's own
+modification count, and for the `remarks` list that means `ListStoredProperty.getModificationCount()`
+iterating the live list with a for-each, without a lock of its own. Before `modCount()` existed, the
+platform's save pass (which calls `getStateModificationCount()` off the EDT) could iterate the list
+while the editor action mutated it on the EDT, throwing `ConcurrentModificationException`. See
+"Why the Serializer Is Handed a Copy" below for how that surfaces and how it was fixed.
 
 ### Why the Serializer Is Handed a Copy
 
 The platform's state serializer is a third reader of that list, and it never takes the lock.
 Workspace saving runs off the EDT. So whatever object `getState()` returns must be an object no
 other thread can change while the serializer walks it.
+
+`getStateModificationCount()` is a fourth reader, and it used to bypass the lock entirely: the
+override read `liveState.modificationCount` straight off the live state object, and
+`BaseState.getModificationCount()` walks the `remarks` list (through
+`ListStoredProperty.getModificationCount()`) with no synchronization of its own. The platform calls
+`getStateModificationCount()` on every save pass, off the EDT, right before deciding whether to
+call `getState()` at all — so a save landing while the editor action was adding a remark on the EDT
+could throw `ConcurrentModificationException` from that count read alone, without ever reaching
+`getState()`. The fix is `RemarksState.modCount()`, a fourth `@Synchronized` method that reads
+`modificationCount` under the same lock `addRemark`, `removeRemark`, and `snapshot` already hold;
+`getStateModificationCount()` now calls it instead of touching the live property directly.
+`RemarkStoreStateTest` has a concurrency probe for this: one thread adding remarks in a loop while
+another reads `stateModificationCount`, asserting nothing escapes.
 
 That is the whole reason `RemarkStore` does not extend `SimplePersistentStateComponent`. That base
 class hands out the live state object and does not let a subclass change it — `javap` against the
@@ -120,10 +141,10 @@ directly:
   under the same lock `addRemark` and `removeRemark` hold, so the serializer only ever iterates a
   list nothing else can reach.
 - `loadState(state)` swaps the field.
-- `getStateModificationCount()` returns the live state's count. It is kept because dropping it would
-  change when the platform saves: with a modification tracker the platform compares this number
-  against the one it last saw and skips the component when nothing changed, so on an idle save
-  `getState()` is not called at all.
+- `getStateModificationCount()` returns the live state's count, read through `modCount()` so that
+  read also takes the lock. It is kept because dropping it would change when the platform saves:
+  with a modification tracker the platform compares this number against the one it last saw and
+  skips the component when nothing changed, so on an idle save `getState()` is not called at all.
 
 The `@State(name = "ClaudeRemarks", ...)` annotation, the storage, and the `@get:XCollection` on the
 list are all untouched, so what lands in `workspace.xml` is byte-for-byte the same shape as before.
