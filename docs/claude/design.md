@@ -86,12 +86,34 @@ hands out the live state object, the serializer iterates `remarks` directly, and
 runs off the EDT. So a save that lands while the editor action is adding a remark can still throw
 `ConcurrentModificationException` and lose that one save of `workspace.xml`.
 
-It cannot be fixed from inside the state class. The list is created by `BaseState.list()`, and
-`getState()` has to return the same object the mutators write to, so there is nowhere to insert a
-copy. A real fix means a different storage shape — hold an immutable list and swap it on every
-write. That is phase 3 work, and only worth doing if a save ever actually fails. Until then the
-window is small (one `ArrayList.add` against one serializer pass) and the loss is one save, not the
-stored data.
+**Handing the serializer a snapshot from `getState()` was checked and is not possible here.**
+`SimplePersistentStateComponent.getState()` is `final` — verified with `javap` against the 2025.2
+jars:
+
+```
+public abstract class SimplePersistentStateComponent<T extends BaseState>
+        implements PersistentStateComponentWithModificationTracker<T> {
+  public final T getState();
+  public final long getStateModificationCount();
+  public void loadState(T);
+}
+```
+
+A subclass cannot override it. And even if it could, a copy-returning `getState()` would break the
+plugin's own writes: `RemarkStore.add()` reads `state`, which is that same getter, so every add
+would land on a throwaway copy and be lost. `getStateModificationCount()` is final too and reads the
+live object, so the platform's dirty tracking assumes the same instance as well.
+
+So a real fix means giving up `SimplePersistentStateComponent` for a plain
+`PersistentStateComponent`, holding the list ourselves, and swapping an immutable list on every
+write. That is phase 3 work, and only worth doing if a save ever actually fails.
+
+**What is protected today, precisely:** the plugin's own two callers cannot corrupt the list — the
+tool window's snapshot on a pooled thread and the editor action's add on the EDT are serialized by
+the `@Synchronized` methods on the state object. What is not protected: a workspace save that runs
+concurrently with an add can throw `ConcurrentModificationException` inside the serializer. The
+window is one `ArrayList.add` against one serializer pass, and the cost is that one save of
+`workspace.xml`, not the remarks already stored.
 
 ## The Anchoring Design
 
@@ -129,16 +151,30 @@ Why two passes?
 - Pass one catches the common case: lines added or removed above the marked block, but the block itself is unchanged.
 - Pass two catches the other case: the block itself was edited, but what surrounds it stayed in place.
 
-**The block may have changed length, and the second pass has to allow for that.** Adding a line
-inside the marked block is the most ordinary edit there is. The leading context then still matches
-at the old start line, but the trailing context has moved one line down. So the second pass does not
-pin the block to its stored length. It matches `contextBefore` ending at the candidate start, then
-looks for `contextAfter` at the stored length first and outwards from there, up to `BLOCK_DRIFT`
-(20) lines either way. The end line of the result comes from wherever the trailing context is found,
-so `Relocated` covers the block as it is now, not as it was.
+**The second pass only finds a block that kept its line count, and this is a deliberate limit.**
+`contextBefore` must end at the candidate start and `contextAfter` must begin at exactly
+`start + span + 1`, where `span` is the stored length. So a line added or removed inside the marked
+block orphans the remark. The block did not move, but its trailing context is now one line off, and
+nothing matches.
 
-One case cannot be recovered this way: a remark at the very end of a file has no `contextAfter` at
-all. There is then nothing to derive a new length from, and the stored length is kept.
+That is a real cost, and it was paid on purpose. A pass that instead searched for `contextAfter` at
+other lengths was written once and reverted, because it relocated remarks onto unrelated code:
+
+- Context lines are compared trimmed, so every closing brace is the same line. In an ordinary test
+  class, the trailing context of a remark inside `testA` is `}` / blank / `@Test` — the same three
+  lines that sit below `testA`'s neighbour. Deleting the remarked line made the search skip past the
+  end of `testA` and answer a range that started at `testA`'s closing brace and ran into the body of
+  `testB`.
+- A block whose trailing context is `}` / blank / `}` has that triple inside itself, so the search
+  could also land in the middle of the block and report 3 of its 12 lines.
+
+The rule the plugin follows is that a remark is never silently moved to the wrong place. An orphan
+is visible: the row says `(orphaned)` and keeps the stale line numbers, and a person can see what
+happened. A range covering the wrong method is not visible at all. So the orphan is the answer we
+keep, and `AnchoringTest` pins it with three tests for the edit shapes (line added inside, line
+removed inside, block that grew while it also moved) plus
+`a repeating trailing context never relocates onto the code after it`, which is the guard against
+bringing the variable-length search back.
 
 Why require at least one non-blank context line to match?
 
@@ -195,6 +231,13 @@ immediately — not after an XML round trip, on assignment. So a plain join woul
 of context into "no context at all" the moment the action wrote it. The marker keeps the string
 non-empty for every non-empty list.
 
+`splitContext` strips that marker with `removePrefix("\n")`, not with `drop(1)`. Everything else read
+back out of `workspace.xml` is treated as untrusted here — a negative span, a path climbing out of
+the project, a null path — and a context string is no different. A string stored without the marker
+(an older format, or a file someone edited by hand) must not lose its first line, and a one-line
+context must not come back as `emptyList()`, which would switch that side of the context search off
+without saying so.
+
 This matters in a very ordinary case, not a corner one: `document.text.split("\n")` on a file that
 ends with a newline produces a trailing empty line, so a remark on the last real line of such a file
 captures `contextAfter == [""]`. Losing that side weakens the context search, and when both sides
@@ -206,6 +249,12 @@ end up empty the second pass can never fire at all.
 **Line numbers are 0-based everywhere they are stored, resolved, or hashed** — that matches
 IntelliJ's `Document`. They are converted to 1-based in exactly one place, `describe()` in
 `ui/RemarksToolWindowFactory.kt`, because that is how an editor shows them to a person.
+
+`describe()` also decides the `(moved)` label, by comparing **both ends** of the resolved range
+against the stored one. A `Relocated` result that came back at exactly the stored range is not
+labelled: that is the case where the block was edited where it stands and the context pass found it
+again. Comparing the start line alone would call a range that kept its start but not its end
+unmoved.
 
 ## The ProjectUtil Trap
 
@@ -253,9 +302,5 @@ further. Lower it if the sweep feels slow, and accept more orphans in exchange.
 
 The context lines count is 3. If context matching finds false positives, raise it. If it misses real matches, lower it.
 
-The block drift is 20 lines. It is how much the marked block's own length may have changed and still
-be recognised from the context around it. It is deliberately much smaller than the search radius,
-because the context pass pays for it twice: every candidate start position is retried against every
-candidate length. Raise it if remarks on blocks that grow a lot start orphaning.
-
-All three are in `Anchoring.kt` as `SEARCH_RADIUS`, `CONTEXT_LINES` and `BLOCK_DRIFT`.
+Both are in `Anchoring.kt` as `SEARCH_RADIUS` and `CONTEXT_LINES`. There is no knob for how much the
+block's own length may have changed: the answer is zero, for the reason above.

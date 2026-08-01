@@ -59,15 +59,18 @@ class RemarksToolWindowFactory : ToolWindowFactory {
  * One row of the list. Line numbers are shown 1-based, the way an editor shows them, while
  * everything stored and resolved is 0-based.
  *
- * A relocated block that ended up back at its stored start line is not labelled "(moved)":
+ * A relocated block that came back at exactly the stored range is not labelled "(moved)":
  * that is the case where the block itself was edited and the search found it through its
- * unchanged context.
+ * unchanged context. Both ends are compared, not just the start, so a range that kept its
+ * start line but not its end is still reported as moved.
  */
 fun describe(row: ResolvedRemark): String {
     val result = row.result
+    val movedFromStored = result.startLine != row.remark.startLine ||
+        result.endLine != row.remark.endLine
     val label = when {
         result is AnchorResult.Orphaned -> " (orphaned)"
-        result is AnchorResult.Relocated && result.startLine != row.remark.startLine -> " (moved)"
+        result is AnchorResult.Relocated && movedFromStored -> " (moved)"
         else -> ""
     }
     val where = "${result.startLine + 1}-${result.endLine + 1}$label"

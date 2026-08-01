@@ -57,10 +57,14 @@ class RemarkStore : SimplePersistentStateComponent<RemarkStore.RemarksState>(Rem
         // getState(), without taking this lock, and it runs off the EDT when the workspace is
         // saved. A save that lands while a remark is being added can still throw
         // ConcurrentModificationException and lose that one save of workspace.xml.
-        // ponytail: not fixable from inside the state class — the list is created by
-        // BaseState.list() and getState() has to hand out the live object the mutators write
-        // to. The fix is a different storage shape (an immutable list swapped on write), which
-        // is phase 3 work if a save ever actually fails.
+        // Overriding getState() to hand the serializer a copy was checked and does not work:
+        // SimplePersistentStateComponent.getState() is FINAL (confirmed with javap against the
+        // 2025.2 jars), and its getStateModificationCount() is final too and reads the live
+        // object. Even if it were open, RemarkStore.add() goes through the same getter, so a
+        // copy-returning getState() would write every new remark into a throwaway.
+        // ponytail: the real fix is a different storage shape — drop SimplePersistentStateComponent
+        // for a plain PersistentStateComponent and swap an immutable list on every write. Phase 3
+        // work if a save ever actually fails.
         @Synchronized
         fun addRemark(remark: RemarkState) {
             remarks.add(remark)

@@ -8,13 +8,6 @@ const val CONTEXT_LINES = 3
 /** How far from the stored position resolveAnchor looks before giving up. */
 const val SEARCH_RADIUS = 200
 
-/**
- * How many lines the marked block may have grown or shrunk by and still be recognised from
- * the context around it. Kept much smaller than [SEARCH_RADIUS] because the context pass pays
- * for it twice: every candidate start position is retried against every candidate length.
- */
-const val BLOCK_DRIFT = 20
-
 /** Line numbers are 0-based and inclusive, matching IntelliJ's Document. */
 data class Anchor(
     val startLine: Int,
@@ -109,8 +102,9 @@ fun resolveAnchor(
 
     // Second pass: the text itself was edited, but what surrounds it did not move.
     candidatesNear(anchor.startLine, starts, radius).forEach { start ->
-        val end = contextMatchAt(anchor, lines, start, span)
-        if (end != null) return AnchorResult.Relocated(start, end)
+        if (contextMatchAt(anchor, lines, start, span)) {
+            return AnchorResult.Relocated(start, start + span)
+        }
     }
 
     return orphaned
@@ -128,36 +122,39 @@ private fun candidatesNear(origin: Int, range: IntRange, radius: Int): Sequence<
 }
 
 /**
- * The end line of the block when the anchor's remembered context still surrounds [start],
- * or null when it does not.
+ * Whether the anchor's remembered context still surrounds a block of the stored length that
+ * begins at [start]: `contextBefore` ends at [start], `contextAfter` begins at
+ * `start + span + 1`.
  *
- * The block may be longer or shorter than it was when the anchor was captured — a line added
- * or removed inside the marked block is the main case this pass exists for — so the trailing
- * context is looked for at the stored length first and then outwards, up to [BLOCK_DRIFT]
- * lines either way, and the end line comes from wherever it is found.
+ * The block is pinned to the length it had when the anchor was captured. A block that gained
+ * or lost a line is NOT found by this pass, and the remark orphans instead. That is on
+ * purpose. To find a block of a new length, this pass would have to look for `contextAfter`
+ * at several offsets — and context lines are compared trimmed, so an ordinary trailing
+ * context like `}` / blank / `@Test` also occurs a few lines below, at the next method. The
+ * search then lands on that second occurrence and reports a range covering unrelated code.
+ * An orphan is visible and correctable; a silently wrong range is not.
  *
  * At least one matched context line must be non-blank, otherwise a run of empty lines would
  * match everywhere in the file.
  */
-private fun contextMatchAt(anchor: Anchor, lines: List<String>, start: Int, span: Int): Int? {
+private fun contextMatchAt(anchor: Anchor, lines: List<String>, start: Int, span: Int): Boolean {
     var matchedSomethingReal = false
 
     val before = anchor.contextBefore
     for (i in before.indices) {
         val at = start - before.size + i
-        if (at < 0) return null
-        if (lines[at].trim() != before[i].trim()) return null
+        if (at < 0) return false
+        if (lines[at].trim() != before[i].trim()) return false
         if (before[i].isNotBlank()) matchedSomethingReal = true
     }
 
     val after = anchor.contextAfter
-    // Nothing was remembered below the block, so its length cannot be derived again. The
-    // stored length is the only guess left.
-    if (after.isEmpty()) return if (matchedSomethingReal) start + span else null
-    if (!matchedSomethingReal && after.none { it.isNotBlank() }) return null
-
-    val ends = start..(lines.lastIndex - after.size)
-    return candidatesNear(start + span, ends, BLOCK_DRIFT).firstOrNull { end ->
-        after.indices.all { lines[end + 1 + it].trim() == after[it].trim() }
+    for (i in after.indices) {
+        val at = start + span + 1 + i
+        if (at > lines.lastIndex) return false
+        if (lines[at].trim() != after[i].trim()) return false
+        if (after[i].isNotBlank()) matchedSomethingReal = true
     }
+
+    return matchedSomethingReal
 }

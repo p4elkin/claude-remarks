@@ -1480,11 +1480,12 @@ what was written then, not what the files hold now. `docs/claude/design.md` is t
 
 **Two more behaviour changes from the second review pass**, both in code this plan quotes:
 
-- The context pass in `resolveAnchor` no longer requires the marked block to have kept its exact
-  length. It matches `contextBefore` at the candidate start, then looks for `contextAfter` within
-  `BLOCK_DRIFT` (20) lines of the stored length, and takes the end line from where it lands. As the
-  plan had it, adding one line inside a marked block orphaned the remark — which is the main case
-  the second pass was written for.
+- The context pass in `resolveAnchor` was briefly changed to allow the marked block to have changed
+  length, and then changed back. **The plan's behaviour is what the code does now:** the block is
+  pinned to its stored length, and a line added or removed inside it orphans the remark. Two
+  reviewers reproduced the same regression from the variable-length version — trimmed context lines
+  like `}` / blank / `@Test` repeat a few lines below, so the search relocated remarks onto the next
+  method. See "The Two-Pass Search" in `docs/claude/design.md` for the full reasoning.
 - `joinContext` now writes one extra newline in front of the first context line, and `splitContext`
   drops it again. `BaseState.string()` turns `""` into `null` when it is assigned, so without the
   marker one blank line of context was stored as "no context at all".

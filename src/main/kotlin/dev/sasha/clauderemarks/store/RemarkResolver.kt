@@ -92,5 +92,11 @@ fun anchorOf(remark: RemarkState) = Anchor(
 fun joinContext(lines: List<String>): String? =
     if (lines.isEmpty()) null else lines.joinToString("\n", prefix = "\n")
 
+/**
+ * removePrefix, not drop(1). Every other stored field here is treated as untrusted, and this
+ * one is no different: a string without the marker (an older workspace.xml, or one edited by
+ * hand) would otherwise lose its first context line, and a one-line context would come back as
+ * emptyList() — which switches that side of the context search off with nothing to show for it.
+ */
 fun splitContext(stored: String?): List<String> =
-    if (stored.isNullOrEmpty()) emptyList() else stored.split("\n").drop(1)
+    if (stored.isNullOrEmpty()) emptyList() else stored.removePrefix("\n").split("\n")

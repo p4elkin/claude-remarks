@@ -53,6 +53,17 @@ class RemarkResolverTest {
         assertEquals(listOf("", "tail"), anchor.contextAfter)
     }
 
+    /**
+     * A stored string without the leading-newline marker is not ours — an older workspace.xml,
+     * or one someone edited. Splitting it must not eat its first line, and a single line must
+     * not come back as "no context at all".
+     */
+    @Test
+    fun `a context stored without the marker keeps every line`() {
+        assertEquals(listOf("line a", "line b"), splitContext("line a\nline b"))
+        assertEquals(listOf("only line"), splitContext("only line"))
+    }
+
     @Test
     fun `a stored remark reads back as its anchor`() {
         val remark = RemarkState().also {

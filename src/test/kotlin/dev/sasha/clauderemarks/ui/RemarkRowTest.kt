@@ -26,6 +26,15 @@ class RemarkRowTest {
         assertEquals("src/Foo.kt:5-7  why?  [PENDING]", describe(row(AnchorResult.Relocated(4, 6))))
     }
 
+    /** Stored 4..6, resolved 4..7: the start line alone would call this unmoved. */
+    @Test
+    fun `a block that kept its start line but not its end is labelled as moved`() {
+        assertEquals(
+            "src/Foo.kt:5-8 (moved)  why?  [PENDING]",
+            describe(row(AnchorResult.Relocated(4, 7))),
+        )
+    }
+
     @Test
     fun `an orphan is labelled and keeps its stale line numbers`() {
         assertEquals(

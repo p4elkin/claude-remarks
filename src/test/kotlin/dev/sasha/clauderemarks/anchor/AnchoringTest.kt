@@ -144,34 +144,75 @@ class AnchoringTest {
         assertEquals(AnchorResult.Relocated(2, 4), resolveAnchor(anchor, edited))
     }
 
+    /**
+     * The pinned limitation, asserted three times over because it is easy to "improve" away.
+     * The context pass only finds a block that kept its line count. When a line is added or
+     * removed inside the marked block, the trailing context no longer sits at the stored
+     * length, and the remark orphans.
+     *
+     * Searching for the trailing context at other lengths is what the test below,
+     * `a repeating trailing context never relocates onto the code after it`, rules out.
+     */
     @Test
-    fun `a line added inside the block stretches the resolved range`() {
+    fun `a line added inside the block orphans the remark`() {
         val anchor = captureAnchor(file, 2, 4)
         val edited = file.toMutableList().apply { add(3, "    println(\"extra\")") }
 
-        // The block is four lines now, and the answer has to cover all four. Pinning the
-        // second pass to the stored length orphans this, which is the most ordinary edit
-        // there is: a line typed inside the marked block.
-        assertEquals(AnchorResult.Relocated(2, 5), resolveAnchor(anchor, edited))
+        assertEquals(AnchorResult.Orphaned(2, 4), resolveAnchor(anchor, edited))
     }
 
     @Test
-    fun `a line removed from inside the block shrinks the resolved range`() {
+    fun `a line removed from inside the block orphans the remark`() {
         val anchor = captureAnchor(file, 2, 4)
         val edited = file.toMutableList().apply { removeAt(3) }
 
-        assertEquals(AnchorResult.Relocated(2, 3), resolveAnchor(anchor, edited))
+        assertEquals(AnchorResult.Orphaned(2, 4), resolveAnchor(anchor, edited))
     }
 
     @Test
-    fun `a block that grew while it also moved is found at its new length`() {
+    fun `a block that grew while it also moved is orphaned`() {
         val anchor = captureAnchor(file, 2, 4)
         val edited = listOf("// new header") +
             file.subList(0, 3) +
             listOf("    println(\"extra\")") +
             file.subList(3, file.size)
 
-        assertEquals(AnchorResult.Relocated(3, 6), resolveAnchor(anchor, edited))
+        assertEquals(AnchorResult.Orphaned(2, 4), resolveAnchor(anchor, edited))
+    }
+
+    /**
+     * The reason the block is pinned to its stored length. Context lines are compared
+     * trimmed, so `}` / blank / `@Test` below one test method is the same three lines as
+     * below the next one. A search that accepted the trailing context at any other length
+     * would answer Relocated(4, 8) here — a range starting at the closing brace of testA and
+     * running into the body of testB. The remark must orphan instead.
+     */
+    @Test
+    fun `a repeating trailing context never relocates onto the code after it`() {
+        val tests = listOf(
+            "class DemoTest {",      // 0
+            "",                      // 1
+            "    @Test",             // 2
+            "    fun testA() {",     // 3
+            "        assertA()",     // 4  <- the remark
+            "    }",                 // 5
+            "",                      // 6
+            "    @Test",             // 7
+            "    fun testB() {",     // 8
+            "        assertB()",     // 9
+            "    }",                 // 10
+            "",                      // 11
+            "    @Test",             // 12
+            "    fun testC() {",     // 13
+            "        assertC()",     // 14
+            "    }",                 // 15
+            "}",                     // 16
+        )
+        val anchor = captureAnchor(tests, 4, 4)
+        // contextAfter is ["}", "", "@Test"], which repeats four lines further down.
+        val edited = tests.toMutableList().apply { removeAt(4) }
+
+        assertEquals(AnchorResult.Orphaned(4, 4), resolveAnchor(anchor, edited))
     }
 
     @Test
