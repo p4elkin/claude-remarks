@@ -488,7 +488,7 @@ build/
 - Create: `src/main/resources/META-INF/plugin.xml`
 - Create: `src/main/kotlin/dev/sasha/clauderemarks/ui/RemarksToolWindowFactory.kt`
 
-- [ ] create `plugin.xml` — do not add an `<idea-version>` element, `patchPluginXml` injects it
+- [x] create `plugin.xml` — do not add an `<idea-version>` element, `patchPluginXml` injects it
       from `build.gradle.kts`:
 
 ```xml
@@ -511,7 +511,7 @@ build/
 </idea-plugin>
 ```
 
-- [ ] create `RemarksToolWindowFactory.kt`:
+- [x] create `RemarksToolWindowFactory.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.ui
@@ -531,10 +531,12 @@ class RemarksToolWindowFactory : ToolWindowFactory {
 }
 ```
 
-- [ ] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
-- [ ] run `./gradlew runIde`, then in the sandbox IDE open any project and confirm a "Claude
+- [x] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
+- [x] run `./gradlew runIde`, then in the sandbox IDE open any project and confirm a "Claude
       Remarks" button on the right edge that opens to show "No remarks yet."
-- [ ] commit
+      *(skipped — not automatable: `runIde` launches an interactive sandbox IDE that never exits.
+      Checked instead with `verifyPluginProjectConfiguration` + `compileKotlin`, both clean.)*
+- [x] commit
 
 ### Task 3: Hashing and capturing an anchor
 

@@ -1,0 +1,17 @@
+<idea-plugin>
+    <id>dev.sasha.clauderemarks</id>
+    <name>Claude Remarks</name>
+    <vendor>sasha</vendor>
+    <description><![CDATA[
+        Attach short remarks to line ranges while reading code, then hand them all to a
+        Claude Code session as one prompt. Remarks never touch the source files.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Claude Remarks"
+                    anchor="right"
+                    factoryClass="dev.sasha.clauderemarks.ui.RemarksToolWindowFactory"/>
+    </extensions>
+</idea-plugin>
