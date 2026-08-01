@@ -14,4 +14,13 @@
                     anchor="right"
                     factoryClass="dev.sasha.clauderemarks.ui.RemarksToolWindowFactory"/>
     </extensions>
+
+    <actions>
+        <action id="ClaudeRemarks.AddDebug"
+                class="dev.sasha.clauderemarks.action.AddDebugRemarkAction"
+                text="Add Claude Remark (Debug)"
+                description="Temporary phase 2 action, replaced in phase 3">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

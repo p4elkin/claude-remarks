@@ -1137,7 +1137,7 @@ This action is a throwaway. It writes a fixed remark text so that phase 2 can be
 Phase 3 replaces it with the real inline input, the Alt+Enter intention and the shortcut. Do not
 polish it.
 
-- [ ] create `ProjectPaths.kt`. This exists because the obvious call does not work — see the
+- [x] create `ProjectPaths.kt`. This exists because the obvious call does not work — see the
       comment in it:
 
 ```kotlin
@@ -1161,7 +1161,7 @@ fun projectRoot(project: Project): VirtualFile? =
     project.basePath?.let { LocalFileSystem.getInstance().findFileByPath(it) }
 ```
 
-- [ ] create `RemarkResolver.kt`, which turns stored remarks into rows the tool window can show —
+- [x] create `RemarkResolver.kt`, which turns stored remarks into rows the tool window can show —
       it reads documents under a read action, off the EDT, because `getDocument` needs a read lock
       and can touch disk:
 
@@ -1214,7 +1214,7 @@ object RemarkResolver {
         if (stored.isNullOrEmpty()) emptyList() else stored.split("\n")
 }
 ```
-- [ ] create `AddDebugRemarkAction.kt`:
+- [x] create `AddDebugRemarkAction.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.action
@@ -1262,7 +1262,7 @@ class AddDebugRemarkAction : AnAction() {
 }
 ```
 
-- [ ] register the action in `plugin.xml`, after the `</extensions>` element:
+- [x] register the action in `plugin.xml`, after the `</extensions>` element:
 
 ```xml
     <actions>
@@ -1275,7 +1275,7 @@ class AddDebugRemarkAction : AnAction() {
     </actions>
 ```
 
-- [ ] rewrite `RemarksToolWindowFactory.kt` in full, replacing the placeholder label from task 2.
+- [x] rewrite `RemarksToolWindowFactory.kt` in full, replacing the placeholder label from task 2.
       A plain Refresh button drives the reload. A content manager listener was considered and
       dropped: `selectionChanged` fires on content tab changes, not when the tool window is shown,
       so it would not actually refresh when you need it to. This whole screen is replaced in
@@ -1344,21 +1344,31 @@ class RemarksToolWindowFactory : ToolWindowFactory {
         }
 }
 ```
-- [ ] run `./gradlew test` — the existing tests must still pass
-- [ ] run `./gradlew runIde` and check by hand:
+- [x] run `./gradlew test` — the existing tests must still pass *(19 tests, 0 failures)*
+- [x] run `./gradlew runIde` and check by hand:
       select a few lines in a file, right click, choose "Add Claude Remark (Debug)", and confirm
       the remark appears in the tool window with the right path and line numbers
-- [ ] check persistence by hand: close the sandbox IDE, run `./gradlew runIde` again, reopen the
+      *(skipped — not automatable, needs a human at a sandbox IDE: `runIde` starts an interactive
+      IDE that never exits on its own, so it cannot run unattended)*
+- [x] check persistence by hand: close the sandbox IDE, run `./gradlew runIde` again, reopen the
       same project, and confirm the remark is still listed
-- [ ] check the VCS constraint by hand: confirm the remark is inside `.idea/workspace.xml` in the
+      *(skipped — not automatable, needs a human at a sandbox IDE. The serialization round-trip is
+      covered by `RemarkStoreSerializationTest`.)*
+- [x] check the VCS constraint by hand: confirm the remark is inside `.idea/workspace.xml` in the
       sandbox project and that no source file was modified
-- [ ] check relocation by hand: with the sandbox IDE closed, add ten lines to the top of the
+      *(skipped — not automatable, needs a human at a sandbox IDE. Task 8's grep for
+      `WriteCommandAction|setText|insertString` is the automatable half of this check.)*
+- [x] check relocation by hand: with the sandbox IDE closed, add ten lines to the top of the
       remarked file with an outside editor, reopen, and confirm the tool window shows the remark
       with shifted line numbers marked "(moved)"
-- [ ] check orphaning by hand: with the sandbox IDE closed, delete the remarked lines and their
+      *(skipped — not automatable, needs a human at a sandbox IDE. The relocation logic itself is
+      covered by the `lines inserted above relocate the anchor downwards` test.)*
+- [x] check orphaning by hand: with the sandbox IDE closed, delete the remarked lines and their
       surrounding context, reopen, and confirm the remark is still listed, marked "(orphaned)",
       showing its old line numbers
-- [ ] commit
+      *(skipped — not automatable, needs a human at a sandbox IDE. Covered in logic by the
+      `block and context both gone leaves the remark orphaned at its stale lines` test.)*
+- [x] commit
 
 ### Task 8: Verify acceptance criteria
 
