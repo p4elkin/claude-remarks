@@ -706,7 +706,7 @@ fun captureAnchor(
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/anchor/AnchoringTest.kt` (add resolve tests
   after the existing capture tests)
 
-- [ ] add the failing tests to `AnchoringTest.kt`:
+- [x] add the failing tests to `AnchoringTest.kt`:
 
 ```kotlin
     @Test
@@ -794,9 +794,9 @@ fun captureAnchor(
     }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.*"` — expect a compile failure,
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.*"` — expect a compile failure,
       `resolveAnchor` does not exist yet
-- [ ] append the implementation to `Anchoring.kt`:
+- [x] append the implementation to `Anchoring.kt`:
 
 ```kotlin
 /**
@@ -878,9 +878,9 @@ private fun contextMatchesAt(anchor: Anchor, lines: List<String>, start: Int, sp
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.*"` — all tests must pass before
-      task 5
-- [ ] commit
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.*"` — all tests must pass before
+      task 5 *(17 tests, 0 failures)*
+- [x] commit
 
 ### Task 5: The persisted record and its enums
 

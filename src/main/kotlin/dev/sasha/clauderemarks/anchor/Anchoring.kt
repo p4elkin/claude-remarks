@@ -57,3 +57,81 @@ fun captureAnchor(
         contextAfter = lines.subList(minOf(lines.size, end + 1), minOf(lines.size, end + 1 + contextLines)),
     )
 }
+
+/**
+ * Checks whether the stored line numbers still point at the anchored text, and if not,
+ * looks nearby. Never returns a result that silently changes meaning: a move is reported
+ * as Relocated and a failure as Orphaned, both carrying line numbers the caller can show.
+ */
+fun resolveAnchor(
+    anchor: Anchor,
+    lines: List<String>,
+    radius: Int = SEARCH_RADIUS,
+): AnchorResult {
+    val span = anchor.endLine - anchor.startLine
+    val orphaned = AnchorResult.Orphaned(anchor.startLine, anchor.endLine)
+    if (lines.isEmpty() || span < 0) return orphaned
+
+    val lastStart = lines.size - 1 - span
+    if (lastStart < 0) return orphaned
+
+    fun blockHashAt(start: Int) = hashLines(lines.subList(start, start + span + 1))
+
+    if (anchor.startLine in 0..lastStart && blockHashAt(anchor.startLine) == anchor.textHash) {
+        return AnchorResult.Exact(anchor.startLine, anchor.endLine)
+    }
+
+    // First pass: the text is unchanged but sits somewhere else.
+    candidatesNear(anchor.startLine, lastStart, radius).forEach { start ->
+        if (blockHashAt(start) == anchor.textHash) {
+            return AnchorResult.Relocated(start, start + span)
+        }
+    }
+
+    // Second pass: the text itself was edited, but what surrounds it did not move.
+    candidatesNear(anchor.startLine, lastStart, radius).forEach { start ->
+        if (contextMatchesAt(anchor, lines, start, span)) {
+            return AnchorResult.Relocated(start, start + span)
+        }
+    }
+
+    return orphaned
+}
+
+/** Start offsets to try, nearest to [origin] first, clamped to 0..[lastStart]. */
+private fun candidatesNear(origin: Int, lastStart: Int, radius: Int): Sequence<Int> = sequence {
+    if (origin in 0..lastStart) yield(origin)
+    for (delta in 1..radius) {
+        val up = origin - delta
+        if (up in 0..lastStart) yield(up)
+        val down = origin + delta
+        if (down in 0..lastStart) yield(down)
+    }
+}
+
+/**
+ * True when the lines around [start] match the anchor's remembered context.
+ * At least one matched context line must be non-blank, otherwise a run of empty
+ * lines would match everywhere in the file.
+ */
+private fun contextMatchesAt(anchor: Anchor, lines: List<String>, start: Int, span: Int): Boolean {
+    var matchedSomethingReal = false
+
+    val before = anchor.contextBefore
+    for (i in before.indices) {
+        val at = start - before.size + i
+        if (at < 0) return false
+        if (lines[at].trim() != before[i].trim()) return false
+        if (before[i].isNotBlank()) matchedSomethingReal = true
+    }
+
+    val after = anchor.contextAfter
+    for (i in after.indices) {
+        val at = start + span + 1 + i
+        if (at > lines.lastIndex) return false
+        if (lines[at].trim() != after[i].trim()) return false
+        if (after[i].isNotBlank()) matchedSomethingReal = true
+    }
+
+    return matchedSomethingReal
+}

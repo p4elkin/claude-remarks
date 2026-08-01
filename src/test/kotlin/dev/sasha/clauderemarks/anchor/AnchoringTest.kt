@@ -75,4 +75,88 @@ class AnchoringTest {
         assertEquals(8, anchor.endLine)
         assertEquals(emptyList<String>(), anchor.contextAfter)
     }
+
+    @Test
+    fun `unchanged file resolves exactly`() {
+        val anchor = captureAnchor(file, 2, 4)
+
+        assertEquals(AnchorResult.Exact(2, 4), resolveAnchor(anchor, file))
+    }
+
+    @Test
+    fun `lines inserted above relocate the anchor downwards`() {
+        val anchor = captureAnchor(file, 2, 4)
+        val edited = listOf("// new header", "// another") + file
+
+        assertEquals(AnchorResult.Relocated(4, 6), resolveAnchor(anchor, edited))
+    }
+
+    @Test
+    fun `lines removed above relocate the anchor upwards`() {
+        val anchor = captureAnchor(file, 6, 8)
+        val edited = file.toMutableList().apply { removeAt(1) }
+
+        assertEquals(AnchorResult.Relocated(5, 7), resolveAnchor(anchor, edited))
+    }
+
+    @Test
+    fun `reindenting the block still resolves exactly`() {
+        val anchor = captureAnchor(file, 2, 4)
+        val edited = file.toMutableList().apply {
+            this[2] = "        fun alpha() {"
+            this[3] = "                println(\"a\")"
+        }
+
+        assertEquals(AnchorResult.Exact(2, 4), resolveAnchor(anchor, edited))
+    }
+
+    @Test
+    fun `editing the block but not its surroundings relocates via context`() {
+        val anchor = captureAnchor(file, 2, 4)
+        val edited = file.toMutableList().apply {
+            this[3] = "    println(\"a changed\")"
+        }
+
+        assertEquals(AnchorResult.Relocated(2, 4), resolveAnchor(anchor, edited))
+    }
+
+    @Test
+    fun `block and context both gone leaves the remark orphaned at its stale lines`() {
+        val anchor = captureAnchor(file, 2, 4)
+        val edited = listOf("something", "entirely", "different", "here", "now", "ok")
+
+        assertEquals(AnchorResult.Orphaned(2, 4), resolveAnchor(anchor, edited))
+    }
+
+    @Test
+    fun `a block moved beyond the search radius is orphaned`() {
+        val anchor = captureAnchor(file, 2, 4)
+        val edited = List(50) { "filler $it" } + file.subList(2, 5)
+
+        assertEquals(AnchorResult.Orphaned(2, 4), resolveAnchor(anchor, edited, radius = 10))
+    }
+
+    @Test
+    fun `blank context alone never matches`() {
+        val blankish = listOf("", "", "target line", "", "")
+        val anchor = captureAnchor(blankish, 2, 2)
+        val edited = listOf("", "", "different line", "", "", "", "")
+
+        assertEquals(AnchorResult.Orphaned(2, 2), resolveAnchor(anchor, edited))
+    }
+
+    @Test
+    fun `an empty file orphans without throwing`() {
+        val anchor = captureAnchor(file, 2, 4)
+
+        assertEquals(AnchorResult.Orphaned(2, 4), resolveAnchor(anchor, emptyList()))
+    }
+
+    @Test
+    fun `a file shorter than the stored range orphans without throwing`() {
+        val anchor = captureAnchor(file, 6, 8)
+        val edited = listOf("package demo", "")
+
+        assertEquals(AnchorResult.Orphaned(6, 8), resolveAnchor(anchor, edited))
+    }
 }
