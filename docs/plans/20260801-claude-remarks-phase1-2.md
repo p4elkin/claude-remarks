@@ -546,7 +546,7 @@ class RemarksToolWindowFactory : ToolWindowFactory {
 
 This file must not import anything from `com.intellij`. That is what keeps its tests fast.
 
-- [ ] write the failing tests in `AnchoringTest.kt`:
+- [x] write the failing tests in `AnchoringTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.anchor
@@ -629,9 +629,9 @@ class AnchoringTest {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.*"` — expect a compile failure,
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.*"` — expect a compile failure,
       the functions do not exist yet
-- [ ] implement `Anchoring.kt`:
+- [x] implement `Anchoring.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.anchor
@@ -695,8 +695,8 @@ fun captureAnchor(
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.*"` — must pass before task 4
-- [ ] commit
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.*"` — must pass before task 4
+- [x] commit
 
 ### Task 4: Resolving an anchor against changed file contents
 
