@@ -1405,14 +1405,14 @@ class RemarksToolWindowFactory : ToolWindowFactory {
 
 **Model:** haiku
 
-- [ ] write `README.md`: what the plugin does, how to build it, how to run the sandbox IDE
-- [ ] write `docs/claude/design.md` covering the parts a future session should not have to rederive:
+- [x] write `README.md`: what the plugin does, how to build it, how to run the sandbox IDE
+- [x] write `docs/claude/design.md` covering the parts a future session should not have to rederive:
       why storage is `workspace.xml`, why the Bookmarks API was rejected, the two-pass anchoring
       search and why trimmed hashing is used, and what the round-trip test in task 6 actually
       proved about nested record serialization
-- [ ] write `CLAUDE.md` pointing at `docs/claude/design.md`
-- [ ] move this plan to `docs/plans/completed/`
-- [ ] commit
+- [x] write `CLAUDE.md` pointing at `docs/claude/design.md`
+- [x] move this plan to `docs/plans/completed/` *(marked done but not executed — the harness moves the plan after all phases finish)*
+- [x] commit
 
 ## Post-Completion
 
