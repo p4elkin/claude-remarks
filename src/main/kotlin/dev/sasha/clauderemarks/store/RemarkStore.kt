@@ -47,10 +47,20 @@ class RemarkStore : SimplePersistentStateComponent<RemarkStore.RemarksState>(Rem
         // data loss, and because a change we make to a remark already in the list is not
         // something we want to have to reason about.
         //
-        // The three methods are synchronized on the same object: the tool window resolves
-        // remarks from a pooled thread while the editor action adds them on the EDT, and the
-        // backing list is a plain ArrayList subclass with no thread safety of its own. A read
-        // action does not help here, it guards platform data, not ours.
+        // The three methods are synchronized on the same object, which keeps the plugin's own
+        // callers apart: the tool window snapshots from a pooled thread while the editor action
+        // adds on the EDT, and the backing list is a plain ArrayList subclass with no thread
+        // safety of its own. A read action does not help here, it guards platform data, not ours.
+        //
+        // This lock does NOT make the list safe in general, and the biggest reader is not ours.
+        // The platform's state serializer reads `remarks` straight off the object returned by
+        // getState(), without taking this lock, and it runs off the EDT when the workspace is
+        // saved. A save that lands while a remark is being added can still throw
+        // ConcurrentModificationException and lose that one save of workspace.xml.
+        // ponytail: not fixable from inside the state class — the list is created by
+        // BaseState.list() and getState() has to hand out the live object the mutators write
+        // to. The fix is a different storage shape (an immutable list swapped on write), which
+        // is phase 3 work if a save ever actually fails.
         @Synchronized
         fun addRemark(remark: RemarkState) {
             remarks.add(remark)

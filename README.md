@@ -48,7 +48,7 @@ Run all tests:
 ./gradlew test
 ```
 
-46 tests: 24 for anchoring (how remarks stay pointed at the right lines after edits), 9 for storage round-trips, 4 for the store service, 4 for the resolver helpers, 5 for the tool window row text.
+59 tests: 27 for anchoring (how remarks stay pointed at the right lines after edits), 10 for storage round-trips, 4 for the store service, 5 for the resolver helpers, 3 for resolving stored remarks against real files, 5 for the selection line math, 5 for the tool window row text.
 
 All of them are plain JUnit except `RemarkStoreServiceTest`, which starts a light IDE fixture through `BasePlatformTestCase` to check the service wiring.
 

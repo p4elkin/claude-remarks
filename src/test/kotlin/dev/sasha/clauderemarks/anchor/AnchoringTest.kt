@@ -145,6 +145,36 @@ class AnchoringTest {
     }
 
     @Test
+    fun `a line added inside the block stretches the resolved range`() {
+        val anchor = captureAnchor(file, 2, 4)
+        val edited = file.toMutableList().apply { add(3, "    println(\"extra\")") }
+
+        // The block is four lines now, and the answer has to cover all four. Pinning the
+        // second pass to the stored length orphans this, which is the most ordinary edit
+        // there is: a line typed inside the marked block.
+        assertEquals(AnchorResult.Relocated(2, 5), resolveAnchor(anchor, edited))
+    }
+
+    @Test
+    fun `a line removed from inside the block shrinks the resolved range`() {
+        val anchor = captureAnchor(file, 2, 4)
+        val edited = file.toMutableList().apply { removeAt(3) }
+
+        assertEquals(AnchorResult.Relocated(2, 3), resolveAnchor(anchor, edited))
+    }
+
+    @Test
+    fun `a block that grew while it also moved is found at its new length`() {
+        val anchor = captureAnchor(file, 2, 4)
+        val edited = listOf("// new header") +
+            file.subList(0, 3) +
+            listOf("    println(\"extra\")") +
+            file.subList(3, file.size)
+
+        assertEquals(AnchorResult.Relocated(3, 6), resolveAnchor(anchor, edited))
+    }
+
+    @Test
     fun `block and context both gone leaves the remark orphaned at its stale lines`() {
         val anchor = captureAnchor(file, 2, 4)
         val edited = listOf("something", "entirely", "different", "here", "now", "ok")

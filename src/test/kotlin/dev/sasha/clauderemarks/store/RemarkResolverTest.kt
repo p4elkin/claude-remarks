@@ -2,6 +2,8 @@ package dev.sasha.clauderemarks.store
 
 import dev.sasha.clauderemarks.model.RemarkState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 /**
@@ -27,9 +29,28 @@ class RemarkResolverTest {
     }
 
     @Test
-    fun `no context is stored as null, one blank line as an empty string`() {
+    fun `only no context at all is stored as null`() {
         assertEquals(null, joinContext(emptyList()))
-        assertEquals("", joinContext(listOf("")))
+        assertNotNull(joinContext(listOf("")))
+        assertNotEquals("", joinContext(listOf("")))
+    }
+
+    /**
+     * The one that matters. contextBefore/contextAfter go through BaseState.string(), whose
+     * setter turns "" into null on assignment, so a join that produced "" for one blank line
+     * would read back as no context at all. Joining and splitting in one breath never sees it.
+     */
+    @Test
+    fun `one blank line of context survives being assigned to a remark`() {
+        val remark = RemarkState().also {
+            it.contextBefore = joinContext(listOf(""))
+            it.contextAfter = joinContext(listOf("", "tail"))
+        }
+
+        val anchor = anchorOf(remark)
+
+        assertEquals(listOf(""), anchor.contextBefore)
+        assertEquals(listOf("", "tail"), anchor.contextAfter)
     }
 
     @Test
@@ -38,8 +59,8 @@ class RemarkResolverTest {
             it.startLine = 3
             it.endLine = 5
             it.textHash = "abcdef0123456789"
-            it.contextBefore = "line a\nline b"
-            it.contextAfter = "line c"
+            it.contextBefore = joinContext(listOf("line a", "line b"))
+            it.contextAfter = joinContext(listOf("line c"))
         }
 
         val anchor = anchorOf(remark)

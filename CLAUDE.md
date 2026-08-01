@@ -39,7 +39,8 @@ src/main/kotlin/dev/sasha/clauderemarks/
   store/RemarkStore.kt         @Service project component, state in workspace.xml
   store/RemarkResolver.kt      projectRoot, resolveAll, and the anchor join/split helpers
   ui/RemarksToolWindowFactory.kt   the list, the Refresh button, and describe()
-  action/AddDebugRemarkAction.kt   throwaway phase 2 entry point (editor popup menu)
+  action/AddDebugRemarkAction.kt   throwaway phase 2 entry point (editor popup menu), plus
+                                   selectedLines(), the selection-to-line-range math
 src/main/resources/META-INF/plugin.xml
 src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
 ```
@@ -69,9 +70,12 @@ never exits on its own.
 ## Testing
 
 Anchoring, storage round-trips, the resolver helpers and the tool window row text are plain JUnit
-tests with no fixture, so they run in milliseconds. `RemarkStoreServiceTest` uses
+tests with no fixture, so they run in milliseconds. Three classes need a light IDE fixture and are
+slower: `RemarkStoreServiceTest` (the real project service), `ResolveAllTest` (stored remarks
+resolved against real files, including a path that tries to climb out of the project) and
+`SelectedLinesTest` (the selection line math against a real `Document`). They all extend
 `BasePlatformTestCase`, which needs `testFramework(TestFrameworkType.Platform)` in
-`build.gradle.kts` and starts a light IDE fixture, so it is slower.
+`build.gradle.kts`.
 
-The tool window itself and the debug action have no automated tests. They still need a person at a
-sandbox IDE.
+The tool window itself and the debug action's `update`/`actionPerformed` have no automated tests.
+They still need a person at a sandbox IDE.

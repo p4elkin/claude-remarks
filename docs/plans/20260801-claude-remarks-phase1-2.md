@@ -1449,7 +1449,7 @@ What a person still has to run, in one sitting of about ten minutes:
 6. With the sandbox closed, delete the remarked lines and their surrounding context. Reopen.
    Confirm the row is still listed, marked "(orphaned)", with its old line numbers. *(ends phase 2)*
 
-Everything below the IDE boundary is covered by tests: 46 of them, including a
+Everything below the IDE boundary is covered by tests: 59 of them, including a
 `BasePlatformTestCase` that goes through the real project service. What no test covers is the
 platform actually writing `workspace.xml` to disk and reading it back, the tool window rendering,
 and the debug action reading a real selection. Steps 2 to 6 above are the only check on those.
@@ -1477,6 +1477,17 @@ and the debug action reading a real selection. Steps 2 to 6 above are the only c
 `store/RemarkResolver.kt` (the `projectRoot` comment came with it) and the `RemarkResolver` object
 wrapper became top-level functions in the same package. The code blocks in task 7 are the record of
 what was written then, not what the files hold now. `docs/claude/design.md` is the living record.
+
+**Two more behaviour changes from the second review pass**, both in code this plan quotes:
+
+- The context pass in `resolveAnchor` no longer requires the marked block to have kept its exact
+  length. It matches `contextBefore` at the candidate start, then looks for `contextAfter` within
+  `BLOCK_DRIFT` (20) lines of the stored length, and takes the end line from where it lands. As the
+  plan had it, adding one line inside a marked block orphaned the remark — which is the main case
+  the second pass was written for.
+- `joinContext` now writes one extra newline in front of the first context line, and `splitContext`
+  drops it again. `BaseState.string()` turns `""` into `null` when it is assigned, so without the
+  marker one blank line of context was stored as "no context at all".
 
 **Open decision for phase 5**, worth settling before the tmux dispatcher is written: the brief puts
 dispatch files in `.idea/claude-remarks/`, which is not covered by the IDE's generated

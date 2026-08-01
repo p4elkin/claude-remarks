@@ -80,6 +80,19 @@ the EDT, and the backing collection is `ModCountableList`, a plain `ArrayList` s
 thread safety. A read action does not help: it guards platform data, not ours. `RemarkStore.all()`
 returns `state.snapshot()`, a copy taken under that same lock.
 
+**Be honest about what that lock covers: only the plugin's own two callers.** The platform's state
+serializer is the third reader, and it never takes the lock. `SimplePersistentStateComponent.getState()`
+hands out the live state object, the serializer iterates `remarks` directly, and workspace saving
+runs off the EDT. So a save that lands while the editor action is adding a remark can still throw
+`ConcurrentModificationException` and lose that one save of `workspace.xml`.
+
+It cannot be fixed from inside the state class. The list is created by `BaseState.list()`, and
+`getState()` has to return the same object the mutators write to, so there is nowhere to insert a
+copy. A real fix means a different storage shape — hold an immutable list and swap it on every
+write. That is phase 3 work, and only worth doing if a save ever actually fails. Until then the
+window is small (one `ArrayList.add` against one serializer pass) and the loss is one save, not the
+stored data.
+
 ## The Anchoring Design
 
 Anchoring solves this problem: you mark lines 10-12 in a file. Then someone edits the file — adds lines above, changes the marked lines themselves, deletes their context. Your remark needs to say "these lines moved" or "I could not find them" rather than silently staying at the wrong place.
@@ -115,6 +128,17 @@ Why two passes?
 
 - Pass one catches the common case: lines added or removed above the marked block, but the block itself is unchanged.
 - Pass two catches the other case: the block itself was edited, but what surrounds it stayed in place.
+
+**The block may have changed length, and the second pass has to allow for that.** Adding a line
+inside the marked block is the most ordinary edit there is. The leading context then still matches
+at the old start line, but the trailing context has moved one line down. So the second pass does not
+pin the block to its stored length. It matches `contextBefore` ending at the candidate start, then
+looks for `contextAfter` at the stored length first and outwards from there, up to `BLOCK_DRIFT`
+(20) lines either way. The end line of the result comes from wherever the trailing context is found,
+so `Relocated` covers the block as it is now, not as it was.
+
+One case cannot be recovered this way: a remark at the very end of a file has no `contextAfter` at
+all. There is then nothing to derive a new length from, and the stored length is kept.
 
 Why require at least one non-blank context line to match?
 
@@ -160,9 +184,24 @@ one entry point. It must run inside a read action and off the EDT, because it re
 - `ProgressManager.checkCanceled()` runs once per remark, so a pending write does not have to wait
   for the whole sweep. Each remark can cost a SHA-256 over every candidate position in the radius.
 
-Context lines are stored as one newline-joined string, and `joinContext` / `splitContext` are the
-pair that converts. Null means "no context at all"; the empty string means "one blank line". Both
-directions are tested, because collapsing the two loses a line of context on the way back.
+Context lines are stored as one newline-joined string, with **one extra newline written in front of
+the first line**, and `joinContext` / `splitContext` are the pair that converts. Null means "no
+context at all"; anything else is a marker plus the lines.
+
+That leading newline looks pointless and is not. `RemarkState.contextBefore` and `contextAfter` are
+declared with `BaseState.string()`, which resolves to `NormalizedStringStoredProperty`, and its
+setter is `newValue = value.isNullOrEmpty() ? null : value`. Assigning `""` stores `null`
+immediately — not after an XML round trip, on assignment. So a plain join would turn one blank line
+of context into "no context at all" the moment the action wrote it. The marker keeps the string
+non-empty for every non-empty list.
+
+This matters in a very ordinary case, not a corner one: `document.text.split("\n")` on a file that
+ends with a newline produces a trailing empty line, so a remark on the last real line of such a file
+captures `contextAfter == [""]`. Losing that side weakens the context search, and when both sides
+end up empty the second pass can never fire at all.
+
+`RemarkResolverTest` covers the two functions on their own, and it also assigns through a real
+`RemarkState` and reads back — the pure round trip alone would not have caught this.
 
 **Line numbers are 0-based everywhere they are stored, resolved, or hashed** — that matches
 IntelliJ's `Document`. They are converted to 1-based in exactly one place, `describe()` in
@@ -214,4 +253,9 @@ further. Lower it if the sweep feels slow, and accept more orphans in exchange.
 
 The context lines count is 3. If context matching finds false positives, raise it. If it misses real matches, lower it.
 
-Both are in `Anchoring.kt` as `SEARCH_RADIUS` and `CONTEXT_LINES`.
+The block drift is 20 lines. It is how much the marked block's own length may have changed and still
+be recognised from the context around it. It is deliberately much smaller than the search radius,
+because the context pass pays for it twice: every candidate start position is retried against every
+candidate length. Raise it if remarks on blocks that grow a lot start orphaning.
+
+All three are in `Anchoring.kt` as `SEARCH_RADIUS`, `CONTEXT_LINES` and `BLOCK_DRIFT`.

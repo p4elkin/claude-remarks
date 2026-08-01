@@ -8,6 +8,13 @@ const val CONTEXT_LINES = 3
 /** How far from the stored position resolveAnchor looks before giving up. */
 const val SEARCH_RADIUS = 200
 
+/**
+ * How many lines the marked block may have grown or shrunk by and still be recognised from
+ * the context around it. Kept much smaller than [SEARCH_RADIUS] because the context pass pays
+ * for it twice: every candidate start position is retried against every candidate length.
+ */
+const val BLOCK_DRIFT = 20
+
 /** Line numbers are 0-based and inclusive, matching IntelliJ's Document. */
 data class Anchor(
     val startLine: Int,
@@ -80,69 +87,77 @@ fun resolveAnchor(
     val span = anchor.endLine - anchor.startLine
     val orphaned = AnchorResult.Orphaned(anchor.startLine, anchor.endLine)
     // A hand-edited workspace.xml can hold endLine < startLine, which would make every
-    // subList below throw. An empty file needs no separate check: lastStart is negative then.
+    // subList below throw.
     if (span < 0) return orphaned
 
-    val lastStart = lines.size - 1 - span
-    if (lastStart < 0) return orphaned
+    // Negative for a file with fewer lines than the stored range. Every range built from it
+    // below is then empty, so nothing is scanned and the answer falls through to orphaned.
+    val starts = 0..(lines.size - 1 - span)
 
     fun blockHashAt(start: Int) = hashLines(lines.subList(start, start + span + 1))
 
-    if (anchor.startLine in 0..lastStart && blockHashAt(anchor.startLine) == anchor.textHash) {
+    if (anchor.startLine in starts && blockHashAt(anchor.startLine) == anchor.textHash) {
         return AnchorResult.Exact(anchor.startLine, anchor.endLine)
     }
 
     // First pass: the text is unchanged but sits somewhere else.
-    candidatesNear(anchor.startLine, lastStart, radius).forEach { start ->
+    candidatesNear(anchor.startLine, starts, radius).forEach { start ->
         if (blockHashAt(start) == anchor.textHash) {
             return AnchorResult.Relocated(start, start + span)
         }
     }
 
     // Second pass: the text itself was edited, but what surrounds it did not move.
-    candidatesNear(anchor.startLine, lastStart, radius).forEach { start ->
-        if (contextMatchesAt(anchor, lines, start, span)) {
-            return AnchorResult.Relocated(start, start + span)
-        }
+    candidatesNear(anchor.startLine, starts, radius).forEach { start ->
+        val end = contextMatchAt(anchor, lines, start, span)
+        if (end != null) return AnchorResult.Relocated(start, end)
     }
 
     return orphaned
 }
 
-/** Start offsets to try, nearest to [origin] first, clamped to 0..[lastStart]. */
-private fun candidatesNear(origin: Int, lastStart: Int, radius: Int): Sequence<Int> = sequence {
-    if (origin in 0..lastStart) yield(origin)
+/** Line numbers to try, nearest to [origin] first, restricted to [range]. */
+private fun candidatesNear(origin: Int, range: IntRange, radius: Int): Sequence<Int> = sequence {
+    if (origin in range) yield(origin)
     for (delta in 1..radius) {
         val up = origin - delta
-        if (up in 0..lastStart) yield(up)
+        if (up in range) yield(up)
         val down = origin + delta
-        if (down in 0..lastStart) yield(down)
+        if (down in range) yield(down)
     }
 }
 
 /**
- * True when the lines around [start] match the anchor's remembered context.
- * At least one matched context line must be non-blank, otherwise a run of empty
- * lines would match everywhere in the file.
+ * The end line of the block when the anchor's remembered context still surrounds [start],
+ * or null when it does not.
+ *
+ * The block may be longer or shorter than it was when the anchor was captured — a line added
+ * or removed inside the marked block is the main case this pass exists for — so the trailing
+ * context is looked for at the stored length first and then outwards, up to [BLOCK_DRIFT]
+ * lines either way, and the end line comes from wherever it is found.
+ *
+ * At least one matched context line must be non-blank, otherwise a run of empty lines would
+ * match everywhere in the file.
  */
-private fun contextMatchesAt(anchor: Anchor, lines: List<String>, start: Int, span: Int): Boolean {
+private fun contextMatchAt(anchor: Anchor, lines: List<String>, start: Int, span: Int): Int? {
     var matchedSomethingReal = false
 
     val before = anchor.contextBefore
     for (i in before.indices) {
         val at = start - before.size + i
-        if (at < 0) return false
-        if (lines[at].trim() != before[i].trim()) return false
+        if (at < 0) return null
+        if (lines[at].trim() != before[i].trim()) return null
         if (before[i].isNotBlank()) matchedSomethingReal = true
     }
 
     val after = anchor.contextAfter
-    for (i in after.indices) {
-        val at = start + span + 1 + i
-        if (at > lines.lastIndex) return false
-        if (lines[at].trim() != after[i].trim()) return false
-        if (after[i].isNotBlank()) matchedSomethingReal = true
-    }
+    // Nothing was remembered below the block, so its length cannot be derived again. The
+    // stored length is the only guess left.
+    if (after.isEmpty()) return if (matchedSomethingReal) start + span else null
+    if (!matchedSomethingReal && after.none { it.isNotBlank() }) return null
 
-    return matchedSomethingReal
+    val ends = start..(lines.lastIndex - after.size)
+    return candidatesNear(start + span, ends, BLOCK_DRIFT).firstOrNull { end ->
+        after.indices.all { lines[end + 1 + it].trim() == after[it].trim() }
+    }
 }

@@ -33,15 +33,20 @@ fun projectRoot(project: Project): VirtualFile? =
  * Must be called inside a read action, off the EDT. A remark is never dropped: when anything
  * cannot be resolved the row still carries the stored line numbers, marked as orphaned.
  */
-fun resolveAll(project: Project): List<ResolvedRemark> {
-    val root = projectRoot(project)
-    return RemarkStore.getInstance(project).all().map { remark ->
+fun resolveAll(project: Project): List<ResolvedRemark> =
+    resolveAll(projectRoot(project), RemarkStore.getInstance(project).all())
+
+/**
+ * The part of [resolveAll] that does not need a project, so the two ways it refuses to trust
+ * what is stored can be tested: a null [root] and a path that climbs out of the project.
+ */
+fun resolveAll(root: VirtualFile?, remarks: List<RemarkState>): List<ResolvedRemark> =
+    remarks.map { remark ->
         // One cancellation point per remark, so a pending write does not wait for the whole
         // sweep: each remark can cost a SHA-256 over every candidate position in the radius.
         ProgressManager.checkCanceled()
         ResolvedRemark(remark, if (root == null) staleOf(remark) else resolveOne(root, remark))
     }
-}
 
 private fun staleOf(remark: RemarkState) =
     AnchorResult.Orphaned(remark.startLine, remark.endLine)
@@ -73,11 +78,19 @@ fun anchorOf(remark: RemarkState) = Anchor(
 )
 
 /**
- * Context is stored as one newline-joined string. Null means no context at all, which is what
- * keeps one blank line of context (the empty string) from reading back as no context.
+ * Context is stored as one newline-joined string, with one extra newline in front of the
+ * first line. Null means no context at all.
+ *
+ * The leading newline is not decoration. RemarkState.contextBefore/contextAfter go through
+ * BaseState.string(), which is a NormalizedStringStoredProperty: its setter turns an empty
+ * string into null on assignment, before anything is even written to XML. Without the extra
+ * newline, one blank line of context would join to "", store as null, and read back as no
+ * context at all — which quietly switches off that side of the context search. A remark on
+ * the last real line of a file that ends with a newline hits exactly that case, because
+ * document.text.split("\n") ends with an empty line.
  */
 fun joinContext(lines: List<String>): String? =
-    if (lines.isEmpty()) null else lines.joinToString("\n")
+    if (lines.isEmpty()) null else lines.joinToString("\n", prefix = "\n")
 
 fun splitContext(stored: String?): List<String> =
-    if (stored == null) emptyList() else stored.split("\n")
+    if (stored.isNullOrEmpty()) emptyList() else stored.split("\n").drop(1)

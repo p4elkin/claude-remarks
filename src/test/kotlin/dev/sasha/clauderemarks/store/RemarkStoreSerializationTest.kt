@@ -59,6 +59,27 @@ class RemarkStoreSerializationTest {
         assertEquals(RemarkStatus.PENDING, restored.remarks.single().status)
     }
 
+    /**
+     * The joined context carries a leading newline as its marker, and XML attribute values are
+     * whitespace-normalized by the parser unless the writer escapes them. This is the check
+     * that JDOM writes it as a character reference, so the marker comes back.
+     */
+    @Test
+    fun `one blank line of context survives the round trip through xml`() {
+        val original = RemarkStore.RemarksState()
+        original.addRemark(
+            remark(id = "r-1").also {
+                it.contextBefore = joinContext(listOf(""))
+                it.contextAfter = joinContext(listOf("", "tail"))
+            }
+        )
+
+        val restored = roundTrip(original).remarks.single()
+
+        assertEquals(listOf(""), splitContext(restored.contextBefore))
+        assertEquals(listOf("", "tail"), splitContext(restored.contextAfter))
+    }
+
     @Test
     fun `several remarks survive in the order they were added`() {
         val original = RemarkStore.RemarksState()
