@@ -50,7 +50,7 @@ Storage is configured with `RoamingType.DISABLED` so remarks do not travel throu
 
 ### How Remarks are Persisted
 
-The `RemarkStore` class extends `SimplePersistentStateComponent<RemarksState>`. The nested `RemarksState` class extends `BaseState` and holds a list of `RemarkState` objects.
+The `RemarkStore` class implements `PersistentStateComponentWithModificationTracker<RemarksState>` itself, rather than extending `SimplePersistentStateComponent`. Why is in "Why the serializer is handed a copy" below. The nested `RemarksState` class extends `BaseState` and holds a list of `RemarkState` objects.
 
 The list property uses this annotation:
 
@@ -78,42 +78,81 @@ All three methods (`addRemark`, `removeRemark`, `snapshot`) are `@Synchronized` 
 object. The tool window resolves remarks from a pooled thread while the editor action adds them on
 the EDT, and the backing collection is `ModCountableList`, a plain `ArrayList` subclass with no
 thread safety. A read action does not help: it guards platform data, not ours. `RemarkStore.all()`
-returns `state.snapshot()`, a copy taken under that same lock.
+returns `liveState.snapshot()`, a copy taken under that same lock, and `RemarkStore.getState()`
+takes its copy through the same `snapshot()` call.
 
-**Be honest about what that lock covers: only the plugin's own two callers.** The platform's state
-serializer is the third reader, and it never takes the lock. `SimplePersistentStateComponent.getState()`
-hands out the live state object, the serializer iterates `remarks` directly, and workspace saving
-runs off the EDT. So a save that lands while the editor action is adding a remark can still throw
-`ConcurrentModificationException` and lose that one save of `workspace.xml`.
+### Why the Serializer Is Handed a Copy
 
-**Handing the serializer a snapshot from `getState()` was checked and is not possible here.**
-`SimplePersistentStateComponent.getState()` is `final` — verified with `javap` against the 2025.2
-jars:
+The platform's state serializer is a third reader of that list, and it never takes the lock.
+Workspace saving runs off the EDT. So whatever object `getState()` returns must be an object no
+other thread can change while the serializer walks it.
+
+That is the whole reason `RemarkStore` does not extend `SimplePersistentStateComponent`. That base
+class hands out the live state object and does not let a subclass change it — `javap` against the
+2025.2 jars:
 
 ```
 public abstract class SimplePersistentStateComponent<T extends BaseState>
         implements PersistentStateComponentWithModificationTracker<T> {
-  public final T getState();
-  public final long getStateModificationCount();
+  public final T getState();                        // final
+  public final long getStateModificationCount();    // final
   public void loadState(T);
 }
 ```
 
-A subclass cannot override it. And even if it could, a copy-returning `getState()` would break the
-plugin's own writes: `RemarkStore.add()` reads `state`, which is that same getter, so every add
-would land on a throwaway copy and be lost. `getStateModificationCount()` is final too and reads the
-live object, so the platform's dirty tracking assumes the same instance as well.
+The interface underneath has no such restriction:
 
-So a real fix means giving up `SimplePersistentStateComponent` for a plain
-`PersistentStateComponent`, holding the list ourselves, and swapping an immutable list on every
-write. That is phase 3 work, and only worth doing if a save ever actually fails.
+```
+public interface PersistentStateComponent<T> {
+  public abstract T getState();
+  public abstract void loadState(T);
+  public default void noStateLoaded();
+  public default void initializeComponent();
+}
+```
 
-**What is protected today, precisely:** the plugin's own two callers cannot corrupt the list — the
-tool window's snapshot on a pooled thread and the editor action's add on the EDT are serialized by
-the `@Synchronized` methods on the state object. What is not protected: a workspace save that runs
-concurrently with an add can throw `ConcurrentModificationException` inside the serializer. The
-window is one `ArrayList.add` against one serializer pass, and the cost is that one save of
-`workspace.xml`, not the remarks already stored.
+So `RemarkStore` implements `PersistentStateComponentWithModificationTracker<RemarksState>`
+directly:
+
+- The live state sits in a private `@Volatile` field. That matches what the base class did with its
+  own `private volatile T state`.
+- `getState()` builds a new `RemarksState` and fills its list from `snapshot()`. The copy is taken
+  under the same lock `addRemark` and `removeRemark` hold, so the serializer only ever iterates a
+  list nothing else can reach.
+- `loadState(state)` swaps the field.
+- `getStateModificationCount()` returns the live state's count. It is kept because dropping it would
+  change when the platform saves: with a modification tracker the platform compares this number
+  against the one it last saw and skips the component when nothing changed, so on an idle save
+  `getState()` is not called at all.
+
+The `@State(name = "ClaudeRemarks", ...)` annotation, the storage, and the `@get:XCollection` on the
+list are all untouched, so what lands in `workspace.xml` is byte-for-byte the same shape as before.
+
+**The list copy is shallow: it shares the `RemarkState` objects with the live state.** Nothing
+mutates a remark after it has been added. Even when phase 5 starts flipping `status` in place, a
+single field write reads as either the old value or the new one, never as a corrupt one, and the
+next save writes the new value. A deep copy would mean cloning `RemarkState` field by field, and a
+field forgotten in that clone later would drop out of `workspace.xml` with no error — a worse bug
+than the one this fixes.
+
+Two things about the platform side, both read out of the bytecode before making the change:
+
+- The platform keeps the last modification count it saw in its own
+  `ComponentWithStateModificationTrackerInfo.lastModificationCount` field, not on the state object.
+  So returning a fresh object from `getState()` does not confuse its dirty tracking. The only
+  `resetModificationCount()` call anywhere near this is in `XmlSerializer.deserializeAndLoadState`,
+  and that runs on the way in, on the object about to be passed to `loadState`.
+- The platform finds the state class by reflecting over the component's generic signature. It used
+  to read it off the `SimplePersistentStateComponent` superclass and now has to read it off an
+  implemented interface. `RemarkStoreStateTest` asserts that
+  `ComponentSerializationUtil.getStateClass(RemarkStore::class.java)` still answers `RemarksState`,
+  because if that ever stopped working every stored remark would vanish on restart with nothing
+  logged.
+
+`RemarkStoreStateTest` also holds the two guards for the copy itself: the state a previous
+`getState()` handed out does not change when a remark is added afterwards, and two calls to
+`getState()` never return the same list instance. Both were checked by mutation — making
+`getState()` return the live state makes both fail.
 
 ## The Anchoring Design
 

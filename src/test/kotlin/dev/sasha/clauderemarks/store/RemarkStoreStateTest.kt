@@ -1,19 +1,22 @@
 package dev.sasha.clauderemarks.store
 
+import com.intellij.configurationStore.ComponentSerializationUtil
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * The nested state class RemarkStore.RemarksState, on its own: what survives a write and read
- * cycle through XML, and what its three mutators do. The service wiring around it is
- * RemarkStoreServiceTest.
+ * cycle through XML, and what its three mutators do. Then the store's own contract with the
+ * platform — getState, loadState and the state class the platform resolves — which needs no
+ * project, so a plain RemarkStore() is enough. The service wiring is RemarkStoreServiceTest.
  */
 class RemarkStoreStateTest {
 
@@ -154,6 +157,57 @@ class RemarkStoreStateTest {
 
         assertEquals(1, snapshot.size)
         assertEquals(2, state.snapshot().size)
+    }
+
+    /**
+     * The guard for the whole reason RemarkStore implements PersistentStateComponent by hand.
+     * The platform's serializer reads the object getState() returns, off the EDT and without
+     * taking the store's lock, so that object must not be reachable by anything that mutates.
+     */
+    @Test
+    fun `the state handed to the serializer does not change when a remark is added afterwards`() {
+        val store = RemarkStore()
+        store.add(remark(id = "r-1"))
+        val handedOut = store.getState()
+
+        store.add(remark(id = "r-2"))
+
+        assertEquals(listOf("r-1"), handedOut.remarks.map { it.id })
+        assertEquals(listOf("r-1", "r-2"), store.getState().remarks.map { it.id })
+    }
+
+    @Test
+    fun `every call to getState hands out its own list instance`() {
+        val store = RemarkStore()
+        store.add(remark(id = "r-1"))
+
+        assertNotSame(store.getState().remarks, store.getState().remarks)
+    }
+
+    @Test
+    fun `what getState hands the serializer comes back through loadState`() {
+        val store = RemarkStore()
+        store.add(remark(id = "r-1"))
+        store.add(remark(id = "r-2"))
+
+        val restored = RemarkStore()
+        restored.loadState(roundTrip(store.getState()))
+
+        assertEquals(listOf("r-1", "r-2"), restored.all().map { it.id })
+    }
+
+    /**
+     * The platform digs the state class out of the component's generic signature to know what to
+     * deserialize workspace.xml into. It used to find it on the SimplePersistentStateComponent
+     * superclass; now it has to find it on an implemented interface. If that ever stops working
+     * the symptom is every stored remark vanishing on restart, with nothing logged.
+     */
+    @Test
+    fun `the platform resolves RemarksState as the state class of the store`() {
+        assertEquals(
+            RemarkStore.RemarksState::class.java,
+            ComponentSerializationUtil.getStateClass<RemarkStore.RemarksState>(RemarkStore::class.java),
+        )
     }
 
     private fun roundTrip(state: RemarkStore.RemarksState) = XmlSerializer.deserialize(
