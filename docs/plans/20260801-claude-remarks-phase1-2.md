@@ -939,7 +939,7 @@ the whole list serializes to an empty element and every remark disappears on res
 error anywhere. The annotation is in the code below. Do not remove it, and do not skip the test
 that guards it.
 
-- [ ] write the failing test in `RemarkStoreSerializationTest.kt`:
+- [x] write the failing test in `RemarkStoreSerializationTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.store
@@ -1036,9 +1036,9 @@ class RemarkStoreSerializationTest {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` — expect a compile failure,
-      `RemarkStore` does not exist yet
-- [ ] implement `RemarkStore.kt`:
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` — expect a compile failure,
+      `RemarkStore` does not exist yet *(failed with `Unresolved reference 'RemarkStore'`)*
+- [x] implement `RemarkStore.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.store
@@ -1113,11 +1113,14 @@ class RemarkStore : SimplePersistentStateComponent<RemarkStore.RemarksState>(Rem
 
 The `import com.intellij.openapi.components.service` line is required for the `project.service()`
 call in the companion object. It is in the import list above.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` — must pass before task 7
-- [ ] if the round-trip test fails on the nested records, change `RemarkState` to a plain class
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` — must pass before task 7
+      *(2 tests, 0 failures)*
+- [x] if the round-trip test fails on the nested records, change `RemarkState` to a plain class
       with `var` fields and a no-argument constructor annotated with `@Attribute`, then re-run;
       record what worked in the design doc in the final task
-- [ ] commit
+      *(not needed — `RemarkState` as a `BaseState` subclass round-tripped on the first green run,
+      exactly as the plan predicted. No fallback applied.)*
+- [x] commit
 
 ### Task 7: Creating a remark from the editor, crudely (ends phase 2)
 
