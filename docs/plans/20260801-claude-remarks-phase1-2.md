@@ -380,7 +380,7 @@ ReadAction.nonBlocking<List<ResolvedRemark>> { resolveAll(project) }
 
 **Model:** haiku
 
-- [ ] generate the Gradle wrapper **first**, before any real build script exists. Two traps here,
+- [x] generate the Gradle wrapper **first**, before any real build script exists. Two traps here,
       both hit and confirmed during planning, so follow this exactly:
 
   - the system Gradle 8.13 cannot run on the default JDK 25 on this machine and fails with a bare
@@ -400,7 +400,7 @@ JAVA_HOME=/Users/sasha/Library/Java/JavaVirtualMachines/openjdk-22.0.2/Contents/
   `distributionUrl` ends in `gradle-9.1.0-bin.zip`. Every later command uses `./gradlew`, never
   `gradle`.
 
-- [ ] overwrite `settings.gradle.kts` with the real one:
+- [x] overwrite `settings.gradle.kts` with the real one:
 
 ```kotlin
 pluginManagement {
@@ -417,7 +417,7 @@ plugins {
 rootProject.name = "claude-remarks"
 ```
 
-- [ ] create `build.gradle.kts` — note the `import` at the top, the `testFramework` line will not
+- [x] create `build.gradle.kts` — note the `import` at the top, the `testFramework` line will not
       compile without it, and note that `untilBuild` is deliberately left unset so the plugin keeps
       loading after an IDE upgrade:
 
@@ -460,14 +460,14 @@ intellijPlatform {
 }
 ```
 
-- [ ] create `gradle.properties`:
+- [x] create `gradle.properties`:
 
 ```properties
 kotlin.stdlib.default.dependency = false
 org.gradle.caching = true
 ```
 
-- [ ] create `.gitignore`:
+- [x] create `.gitignore`:
 
 ```
 .gradle/
@@ -476,11 +476,11 @@ build/
 *.iml
 ```
 
-- [ ] run `./gradlew build` — expect `BUILD SUCCESSFUL`. The first run downloads a JDK 21 through
+- [x] run `./gradlew build` — expect `BUILD SUCCESSFUL`. The first run downloads a JDK 21 through
       the foojay resolver and the IDEA 2025.2 distribution. This exact configuration was run
       end to end during planning and took 3m33s on a cold cache, so give it time before
       suspecting a hang. The cache is warm now, so it should be much faster.
-- [ ] commit
+- [x] commit
 
 ### Task 2: Empty tool window, loads in the sandbox IDE (ends phase 1)
 
