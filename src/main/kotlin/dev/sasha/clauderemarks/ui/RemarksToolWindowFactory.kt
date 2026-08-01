@@ -10,14 +10,17 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.anchor.AnchorResult
-import dev.sasha.clauderemarks.store.RemarkResolver
+import dev.sasha.clauderemarks.store.ResolvedRemark
+import dev.sasha.clauderemarks.store.resolveAll
 import java.awt.BorderLayout
 import javax.swing.JButton
 import javax.swing.JPanel
 
 /**
- * Phase 2 screen: a flat list plus a Refresh button. Phase 3 replaces it with a tree
- * grouped by file, navigation on double click, and delete on the Delete key.
+ * Phase 2 screen: a flat list plus a Refresh button. The list only reloads when Refresh is
+ * pressed, so a remark added while the window is open shows up on the next click. Phase 3
+ * replaces this with a tree grouped by file, live refresh, navigation on double click, and
+ * delete on the Delete key.
  */
 class RemarksToolWindowFactory : ToolWindowFactory {
 
@@ -30,10 +33,13 @@ class RemarksToolWindowFactory : ToolWindowFactory {
         }
 
         fun refresh() {
-            // describeAll reads Documents. That needs a read lock and can touch disk, so it
-            // runs off the EDT and only the list update comes back to it.
-            ReadAction.nonBlocking<List<String>> { describeAll(project) }
+            // resolveAll reads Documents. That needs a read lock and can touch disk, so it
+            // runs off the EDT and only the list update comes back to it. coalesceBy drops
+            // the older run when Refresh is clicked twice, so a slow first result cannot
+            // overwrite a newer one.
+            ReadAction.nonBlocking<List<String>> { resolveAll(project).map(::describe) }
                 .expireWith(toolWindow.disposable)
+                .coalesceBy(this, project)
                 .finishOnUiThread(ModalityState.defaultModalityState()) { rows ->
                     list.setListData(rows.toTypedArray())
                 }
@@ -47,15 +53,23 @@ class RemarksToolWindowFactory : ToolWindowFactory {
             ContentFactory.getInstance().createContent(panel, null, false)
         )
     }
+}
 
-    /** Runs inside a read action. Line numbers are shown 1-based, the way an editor shows them. */
-    private fun describeAll(project: Project): List<String> =
-        RemarkResolver.resolveAll(project).map { row ->
-            val where = when (val r = row.result) {
-                is AnchorResult.Exact -> "${r.startLine + 1}-${r.endLine + 1}"
-                is AnchorResult.Relocated -> "${r.startLine + 1}-${r.endLine + 1} (moved)"
-                is AnchorResult.Orphaned -> "${r.staleStartLine + 1}-${r.staleEndLine + 1} (orphaned)"
-            }
-            "${row.remark.path}:$where  ${row.remark.text}  [${row.remark.status}]"
-        }
+/**
+ * One row of the list. Line numbers are shown 1-based, the way an editor shows them, while
+ * everything stored and resolved is 0-based.
+ *
+ * A relocated block that ended up back at its stored start line is not labelled "(moved)":
+ * that is the case where the block itself was edited and the search found it through its
+ * unchanged context.
+ */
+fun describe(row: ResolvedRemark): String {
+    val result = row.result
+    val label = when {
+        result is AnchorResult.Orphaned -> " (orphaned)"
+        result is AnchorResult.Relocated && result.startLine != row.remark.startLine -> " (moved)"
+        else -> ""
+    }
+    val where = "${result.startLine + 1}-${result.endLine + 1}$label"
+    return "${row.remark.path.orEmpty()}:$where  ${row.remark.text.orEmpty()}  [${row.remark.status}]"
 }

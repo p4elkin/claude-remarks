@@ -17,10 +17,17 @@ data class Anchor(
     val contextAfter: List<String>,
 )
 
+/**
+ * Every result carries line numbers, so a caller can always show the remark somewhere.
+ * For [Orphaned] those numbers are the stale ones the remark was stored with.
+ */
 sealed interface AnchorResult {
-    data class Exact(val startLine: Int, val endLine: Int) : AnchorResult
-    data class Relocated(val startLine: Int, val endLine: Int) : AnchorResult
-    data class Orphaned(val staleStartLine: Int, val staleEndLine: Int) : AnchorResult
+    val startLine: Int
+    val endLine: Int
+
+    data class Exact(override val startLine: Int, override val endLine: Int) : AnchorResult
+    data class Relocated(override val startLine: Int, override val endLine: Int) : AnchorResult
+    data class Orphaned(override val startLine: Int, override val endLine: Int) : AnchorResult
 }
 
 /**
@@ -53,8 +60,10 @@ fun captureAnchor(
         startLine = start,
         endLine = end,
         textHash = hashLines(lines.subList(start, end + 1)),
-        contextBefore = lines.subList(maxOf(0, start - contextLines), start),
-        contextAfter = lines.subList(minOf(lines.size, end + 1), minOf(lines.size, end + 1 + contextLines)),
+        // toList() on both: subList returns a view of the caller's list, which would keep the
+        // whole file alive and change under the anchor if the caller edits it.
+        contextBefore = lines.subList(maxOf(0, start - contextLines), start).toList(),
+        contextAfter = lines.subList(end + 1, minOf(lines.size, end + 1 + contextLines)).toList(),
     )
 }
 
@@ -70,7 +79,9 @@ fun resolveAnchor(
 ): AnchorResult {
     val span = anchor.endLine - anchor.startLine
     val orphaned = AnchorResult.Orphaned(anchor.startLine, anchor.endLine)
-    if (lines.isEmpty() || span < 0) return orphaned
+    // A hand-edited workspace.xml can hold endLine < startLine, which would make every
+    // subList below throw. An empty file needs no separate check: lastStart is negative then.
+    if (span < 0) return orphaned
 
     val lastStart = lines.size - 1 - span
     if (lastStart < 0) return orphaned

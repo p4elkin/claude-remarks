@@ -5,7 +5,9 @@ import com.intellij.util.xmlb.XmlSerializer
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RemarkStoreSerializationTest {
@@ -13,7 +15,7 @@ class RemarkStoreSerializationTest {
     @Test
     fun `every field survives a write and read cycle`() {
         val original = RemarkStore.RemarksState()
-        original.remarks.add(
+        original.addRemark(
             remark(
                 id = "r-1",
                 path = "src/main/kotlin/Foo.kt",
@@ -29,11 +31,7 @@ class RemarkStoreSerializationTest {
             )
         )
 
-        val element = XmlSerializer.serialize(original)
-        val restored = XmlSerializer.deserialize(
-            JDOMUtil.load(JDOMUtil.write(element)),
-            RemarkStore.RemarksState::class.java,
-        )
+        val restored = roundTrip(original)
 
         assertEquals(1, restored.remarks.size)
         val r = restored.remarks.single()
@@ -53,16 +51,89 @@ class RemarkStoreSerializationTest {
     @Test
     fun `a remark with no tag round-trips as null`() {
         val original = RemarkStore.RemarksState()
-        original.remarks.add(remark(id = "r-2", tag = null))
+        original.addRemark(remark(id = "r-2", tag = null))
 
-        val restored = XmlSerializer.deserialize(
-            JDOMUtil.load(JDOMUtil.write(XmlSerializer.serialize(original))),
-            RemarkStore.RemarksState::class.java,
-        )
+        val restored = roundTrip(original)
 
         assertNull(restored.remarks.single().tag)
         assertEquals(RemarkStatus.PENDING, restored.remarks.single().status)
     }
+
+    @Test
+    fun `several remarks survive in the order they were added`() {
+        val original = RemarkStore.RemarksState()
+        original.addRemark(remark(id = "r-1"))
+        original.addRemark(remark(id = "r-2"))
+        original.addRemark(remark(id = "r-3"))
+
+        assertEquals(listOf("r-1", "r-2", "r-3"), roundTrip(original).remarks.map { it.id })
+    }
+
+    @Test
+    fun `an empty list round-trips as an empty list`() {
+        assertEquals(0, roundTrip(RemarkStore.RemarksState()).remarks.size)
+    }
+
+    @Test
+    fun `adding a remark marks the state as changed`() {
+        val state = RemarkStore.RemarksState()
+        val before = state.modificationCount
+
+        state.addRemark(remark(id = "r-1"))
+
+        assertTrue(state.modificationCount > before)
+    }
+
+    @Test
+    fun `removing a remark marks the state as changed`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        val before = state.modificationCount
+
+        assertTrue(state.removeRemark("r-1"))
+
+        assertTrue(state.modificationCount > before)
+    }
+
+    @Test
+    fun `removing an id that is not there changes nothing`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        val before = state.modificationCount
+
+        assertFalse(state.removeRemark("no-such-id"))
+
+        assertEquals(before, state.modificationCount)
+        assertEquals(1, state.remarks.size)
+    }
+
+    @Test
+    fun `removing an id takes out every remark carrying it`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "dup"))
+        state.addRemark(remark(id = "dup"))
+
+        assertTrue(state.removeRemark("dup"))
+
+        assertEquals(0, state.remarks.size)
+    }
+
+    @Test
+    fun `a snapshot does not change when a remark is added afterwards`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        val snapshot = state.snapshot()
+
+        state.addRemark(remark(id = "r-2"))
+
+        assertEquals(1, snapshot.size)
+        assertEquals(2, state.snapshot().size)
+    }
+
+    private fun roundTrip(state: RemarkStore.RemarksState) = XmlSerializer.deserialize(
+        JDOMUtil.load(JDOMUtil.write(XmlSerializer.serialize(state))),
+        RemarkStore.RemarksState::class.java,
+    )
 
     private fun remark(
         id: String,

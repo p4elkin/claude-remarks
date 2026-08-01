@@ -1,5 +1,9 @@
 # Claude Remarks — Phase 1-2 Implementation Plan
 
+**Status: implemented, tests green, hand verification outstanding.** Every task below is done and
+committed. The six checkboxes that need a person at a sandbox IDE (`runIde`) are left unticked —
+see [Post-Completion](#post-completion) for the list of what is still to run.
+
 ## Overview
 
 An IntelliJ Platform plugin that lets you attach short remarks to line ranges while reading
@@ -474,7 +478,11 @@ org.gradle.caching = true
 build/
 .idea/
 *.iml
+.intellijPlatform/
 ```
+
+*(`.intellijPlatform/` was added right after task 1: the platform plugin writes its downloaded
+distribution and the sandbox there, and none of it belongs in the repository.)*
 
 - [x] run `./gradlew build` — expect `BUILD SUCCESSFUL`. The first run downloads a JDK 21 through
       the foojay resolver and the IDEA 2025.2 distribution. This exact configuration was run
@@ -532,10 +540,11 @@ class RemarksToolWindowFactory : ToolWindowFactory {
 ```
 
 - [x] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
-- [x] run `./gradlew runIde`, then in the sandbox IDE open any project and confirm a "Claude
+- [ ] run `./gradlew runIde`, then in the sandbox IDE open any project and confirm a "Claude
       Remarks" button on the right edge that opens to show "No remarks yet."
-      *(skipped — not automatable: `runIde` launches an interactive sandbox IDE that never exits.
-      Checked instead with `verifyPluginProjectConfiguration` + `compileKotlin`, both clean.)*
+      *(NOT DONE — `runIde` launches an interactive sandbox IDE that never exits, so it could not
+      run unattended. `verifyPluginProjectConfiguration` + `compileKotlin` were run instead, both
+      clean, but they do not show the tool window.)*
 - [x] commit
 
 ### Task 3: Hashing and capturing an anchor
@@ -1345,28 +1354,30 @@ class RemarksToolWindowFactory : ToolWindowFactory {
 }
 ```
 - [x] run `./gradlew test` — the existing tests must still pass *(19 tests, 0 failures)*
-- [x] run `./gradlew runIde` and check by hand:
+- [ ] run `./gradlew runIde` and check by hand:
       select a few lines in a file, right click, choose "Add Claude Remark (Debug)", and confirm
       the remark appears in the tool window with the right path and line numbers
-      *(skipped — not automatable, needs a human at a sandbox IDE: `runIde` starts an interactive
-      IDE that never exits on its own, so it cannot run unattended)*
-- [x] check persistence by hand: close the sandbox IDE, run `./gradlew runIde` again, reopen the
+      *(NOT DONE — needs a human at a sandbox IDE: `runIde` starts an interactive IDE that never
+      exits on its own, so it could not run unattended)*
+- [ ] check persistence by hand: close the sandbox IDE, run `./gradlew runIde` again, reopen the
       same project, and confirm the remark is still listed
-      *(skipped — not automatable, needs a human at a sandbox IDE. The serialization round-trip is
-      covered by `RemarkStoreSerializationTest`.)*
-- [x] check the VCS constraint by hand: confirm the remark is inside `.idea/workspace.xml` in the
+      *(NOT DONE — needs a human at a sandbox IDE. `RemarkStoreSerializationTest` covers the
+      serialization round-trip and `RemarkStoreServiceTest` covers the service wiring, but neither
+      writes `workspace.xml` to disk or reads it back.)*
+- [ ] check the VCS constraint by hand: confirm the remark is inside `.idea/workspace.xml` in the
       sandbox project and that no source file was modified
-      *(skipped — not automatable, needs a human at a sandbox IDE. Task 8's grep for
-      `WriteCommandAction|setText|insertString` is the automatable half of this check.)*
-- [x] check relocation by hand: with the sandbox IDE closed, add ten lines to the top of the
+      *(NOT DONE — needs a human at a sandbox IDE. Task 8's grep for
+      `WriteCommandAction|setText|insertString` is the automatable half of this check. Look for
+      `<component name="ClaudeRemarks">` in the file.)*
+- [ ] check relocation by hand: with the sandbox IDE closed, add ten lines to the top of the
       remarked file with an outside editor, reopen, and confirm the tool window shows the remark
       with shifted line numbers marked "(moved)"
-      *(skipped — not automatable, needs a human at a sandbox IDE. The relocation logic itself is
-      covered by the `lines inserted above relocate the anchor downwards` test.)*
-- [x] check orphaning by hand: with the sandbox IDE closed, delete the remarked lines and their
+      *(NOT DONE — needs a human at a sandbox IDE. The relocation logic itself is covered by the
+      `lines inserted above relocate the anchor downwards` test.)*
+- [ ] check orphaning by hand: with the sandbox IDE closed, delete the remarked lines and their
       surrounding context, reopen, and confirm the remark is still listed, marked "(orphaned)",
       showing its old line numbers
-      *(skipped — not automatable, needs a human at a sandbox IDE. Covered in logic by the
+      *(NOT DONE — needs a human at a sandbox IDE. Covered in logic by the
       `block and context both gone leaves the remark orphaned at its stale lines` test.)*
 - [x] commit
 
@@ -1418,8 +1429,30 @@ class RemarksToolWindowFactory : ToolWindowFactory {
 
 *No checkboxes — these need a person or belong to a later phase.*
 
-**Hand verification already covered inside tasks 2 and 7**, since each phase has to end in
-something runnable. Nothing extra to do here.
+**Hand verification is still outstanding.** Both phase boundaries are defined by what happens in a
+sandbox IDE, and no sandbox IDE has ever been started: every `runIde` step was skipped because it
+opens an interactive IDE that never exits, which an unattended run cannot do. Those six boxes are
+left unticked in tasks 2 and 7.
+
+What a person still has to run, in one sitting of about ten minutes:
+
+1. `./gradlew runIde`. Confirm a "Claude Remarks" button on the right edge, and that it opens.
+   *(ends phase 1)*
+2. In the sandbox, select a few lines, right click, choose "Add Claude Remark (Debug)". Click
+   Refresh. Confirm the row shows the right path and 1-based line numbers.
+3. Close the sandbox IDE, run `./gradlew runIde` again, reopen the same project. Confirm the remark
+   is still listed.
+4. Find `<component name="ClaudeRemarks">` inside the sandbox project's `.idea/workspace.xml`, and
+   confirm no source file was touched.
+5. With the sandbox closed, add ten lines to the top of the remarked file from outside the IDE.
+   Reopen. Confirm the row shows shifted line numbers marked "(moved)".
+6. With the sandbox closed, delete the remarked lines and their surrounding context. Reopen.
+   Confirm the row is still listed, marked "(orphaned)", with its old line numbers. *(ends phase 2)*
+
+Everything below the IDE boundary is covered by tests: 46 of them, including a
+`BasePlatformTestCase` that goes through the real project service. What no test covers is the
+platform actually writing `workspace.xml` to disk and reading it back, the tool window rendering,
+and the debug action reading a real selection. Steps 2 to 6 above are the only check on those.
 
 **Deferred to phase 3 and later, recorded so they are not forgotten:**
 
@@ -1432,6 +1465,18 @@ something runnable. Nothing extra to do here.
   the docs during research, so avoid the XML route.
 - The search radius of 200 lines and the 3 lines of context are guesses. If remarks orphan more
   often than expected in real use, these are the two numbers to turn.
+- A `Relocated` result is never written back into the stored `RemarkState`, so every refresh starts
+  its search from the original line numbers again. Small moves therefore add up until they pass the
+  search radius, and a remark that was found on every refresh can still orphan in the end. Leaving
+  it alone follows the "nothing is relocated silently" rule, so changing it is a phase 3 decision,
+  not a quiet fix.
+- A remark added while the tool window is open does not appear until Refresh is clicked. Live
+  refresh comes with the `FileEditorManagerListener` work above.
+
+**Code drift from this plan, after the review pass:** `store/ProjectPaths.kt` was folded into
+`store/RemarkResolver.kt` (the `projectRoot` comment came with it) and the `RemarkResolver` object
+wrapper became top-level functions in the same package. The code blocks in task 7 are the record of
+what was written then, not what the files hold now. `docs/claude/design.md` is the living record.
 
 **Open decision for phase 5**, worth settling before the tmux dispatcher is written: the brief puts
 dispatch files in `.idea/claude-remarks/`, which is not covered by the IDE's generated

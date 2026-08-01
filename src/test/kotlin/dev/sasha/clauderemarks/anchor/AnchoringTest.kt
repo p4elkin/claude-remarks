@@ -32,6 +32,30 @@ class AnchoringTest {
     }
 
     @Test
+    fun `hash keeps the line boundaries apart`() {
+        // Without the newline fed between lines these two would hash the same.
+        assertNotEquals(hashLines(listOf("ab", "c")), hashLines(listOf("a", "bc")))
+    }
+
+    @Test
+    fun `capture with no context lines records only the range`() {
+        val anchor = captureAnchor(file, startLine = 2, endLine = 4, contextLines = 0)
+
+        assertEquals(emptyList<String>(), anchor.contextBefore)
+        assertEquals(emptyList<String>(), anchor.contextAfter)
+        assertEquals(hashLines(file.subList(2, 5)), anchor.textHash)
+    }
+
+    @Test
+    fun `capture clamps negative line numbers to the start of the file`() {
+        val anchor = captureAnchor(file, startLine = -5, endLine = -2, contextLines = 2)
+
+        assertEquals(0, anchor.startLine)
+        assertEquals(0, anchor.endLine)
+        assertEquals(emptyList<String>(), anchor.contextBefore)
+    }
+
+    @Test
     fun `capture records the range and its context`() {
         val anchor = captureAnchor(file, startLine = 2, endLine = 4, contextLines = 2)
 
@@ -159,4 +183,52 @@ class AnchoringTest {
 
         assertEquals(AnchorResult.Orphaned(6, 8), resolveAnchor(anchor, edited))
     }
+
+    @Test
+    fun `a stored range that runs backwards orphans instead of throwing`() {
+        val anchor = Anchor(5, 2, hashLines(listOf("anything")), emptyList(), emptyList())
+
+        assertEquals(AnchorResult.Orphaned(5, 2), resolveAnchor(anchor, file))
+    }
+
+    @Test
+    fun `a moved block wins over unchanged context at the old position`() {
+        val original = listOf(
+            "ctx a", "ctx b", "ctx c",       // 0..2
+            "block one", "block two",        // 3..4
+            "ctx d", "ctx e", "ctx f",       // 5..7
+        )
+        val anchor = captureAnchor(original, 3, 4, contextLines = 3)
+
+        // The context still sits at line 3, so the second pass would answer 3. The block
+        // itself moved 30 lines down, which the first pass has to find first.
+        val edited = listOf("ctx a", "ctx b", "ctx c", "edited one", "edited two") +
+            listOf("ctx d", "ctx e", "ctx f") +
+            List(30) { "filler $it" } +
+            listOf("block one", "block two")
+
+        assertEquals(AnchorResult.Relocated(38, 39), resolveAnchor(anchor, edited))
+    }
+
+    @Test
+    fun `the nearer of two identical blocks wins even when it sits below`() {
+        val block = listOf("target one", "target two")
+        // Copies at 5 and at 25, with the anchor stored at 24. A top-down scan would answer 5.
+        val anchor = Anchor(24, 25, hashLines(block), emptyList(), emptyList())
+        val edited = filler(0, 5) + block + filler(7, 25) + block + filler(27, 40)
+
+        assertEquals(AnchorResult.Relocated(25, 26), resolveAnchor(anchor, edited))
+    }
+
+    @Test
+    fun `a tie between two identical blocks resolves upwards`() {
+        val block = listOf("target one", "target two")
+        val anchor = Anchor(20, 21, hashLines(block), emptyList(), emptyList())
+        val edited = filler(0, 15) + block + filler(17, 25) + block + filler(27, 40)
+
+        assertEquals(AnchorResult.Relocated(15, 16), resolveAnchor(anchor, edited))
+    }
+
+    /** Distinct filler lines for indices [from] until [until], so nothing matches by accident. */
+    private fun filler(from: Int, until: Int) = (from until until).map { "filler $it" }
 }

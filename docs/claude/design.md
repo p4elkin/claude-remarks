@@ -17,7 +17,10 @@ A remark has these fields:
 - `startLine`, `endLine`: The 0-based, inclusive line numbers of the anchored range.
 - `text`: The user's note (what they wrote in the remark).
 - `tag`: An optional category from `RemarkTag.BUG | QUESTION | REFACTOR | NOTE`.
-- `status`: One of `RemarkStatus.PENDING` or `PENDING | SENT`.
+- `status`: One of `RemarkStatus.PENDING` or `RemarkStatus.SENT`. Defaults to `PENDING`. Nothing
+  assigns `SENT` yet — the dispatch step that would is phase 5, so the tool window always shows
+  `[PENDING]`. The same holds for `tag`: it is persisted and round-trip tested, but the debug
+  action never sets it.
 - `createdAt`: Timestamp when the remark was created.
 - `textHash`: The first 16 hex characters of a SHA-256 hash of the lines at creation time.
 - `contextBefore`, `contextAfter`: A few lines of context from above and below the remark, joined with newlines in a single string. Stored this way instead of as a list because the serializer handles single strings more predictably.
@@ -26,7 +29,9 @@ All fields are stored flat as XML attributes on a single element.
 
 ### Where Remarks are Stored
 
-Remarks are stored in `.idea/workspace.xml` using the IntelliJ Platform's persistence API.
+Remarks are stored in `.idea/workspace.xml` using the IntelliJ Platform's persistence API, under
+`@State(name = "ClaudeRemarks")`. That name is the element to look for when checking the file by
+hand: `<component name="ClaudeRemarks">`.
 
 Why this location:
 
@@ -56,7 +61,24 @@ val remarks by list<RemarkState>()
 
 **This annotation is critical.** Without `@get:XCollection(style = XCollection.Style.v2)`, the entire list serializes to an empty element and every remark is silently lost on IDE restart, with no error logged. See `RemarkStoreSerializationTest` in the test suite — it is the regression guard for this exact trap.
 
-Similarly, `BaseState` does not notice in-place collection changes. After calling `remarks.add(...)` or `remarks.removeIf(...)`, you must call `incrementModificationCount()` to tell the state it has changed. That method is protected, so it can only be called from inside a `BaseState` subclass. This is why mutators live on the state class itself, not on the store.
+The mutators (`addRemark`, `removeRemark`) live on the state class, not on the store, because
+`incrementModificationCount()` is protected: it is only reachable from inside a `BaseState`
+subclass.
+
+A note on that call, because an earlier version of this document had the reason wrong. The list
+property does track structural changes on its own: `ListStoredProperty.getModificationCount()`
+compares the list's own `modCount` against the last one it saw, and `BaseState` sums the property
+counts on top of its own. So adding or removing a remark already marks the state dirty, and
+removing the `incrementModificationCount()` calls does not lose data. They are kept because they
+are one cheap line that makes every mutation mark the state changed without having to reason about
+what the property tracker sees. `RemarkStoreSerializationTest` asserts the modification count goes
+up after an add and after a real remove, and stays put when `removeRemark` is given an unknown id.
+
+All three methods (`addRemark`, `removeRemark`, `snapshot`) are `@Synchronized` on the state
+object. The tool window resolves remarks from a pooled thread while the editor action adds them on
+the EDT, and the backing collection is `ModCountableList`, a plain `ArrayList` subclass with no
+thread safety. A read action does not help: it guards platform data, not ours. `RemarkStore.all()`
+returns `state.snapshot()`, a copy taken under that same lock.
 
 ## The Anchoring Design
 
@@ -78,7 +100,12 @@ An `Anchor` holds:
 
 ### The Two-Pass Search
 
-`resolveAnchor` works in two passes, nearest-first outward from the stored line:
+Before either pass, `resolveAnchor` hashes the block sitting at the stored line numbers right now.
+If that matches, nothing moved and the answer is `Exact`. This is the only place `Exact` comes
+from, and it is also the fast path for the common case where the file did not change at all.
+
+When it does not match, `resolveAnchor` works in two passes, nearest-first outward from the stored
+line:
 
 1. **Hash match (first pass)**: Scan up to 200 lines in each direction from the stored start position. Look for any block of the same length that hashes to the same value. If found, the text is unchanged but moved — return `Relocated`.
 
@@ -93,7 +120,18 @@ Why require at least one non-blank context line to match?
 
 - A run of empty lines should not match everywhere in the file. Requiring substance prevents false positives.
 
+The order of the two passes matters and is tested: a block that moved is followed to where it went,
+even when its old context is still sitting untouched at the original position. Nearest-first
+matters too, and is tested with two identical copies of a block, one above the stored line and one
+below.
+
 If neither pass finds a match within 200 lines, the remark is orphaned. It is kept (not deleted) but shown with its stale line numbers.
+
+A resolved position is never written back into the stored `RemarkState`. Every refresh searches
+again from the original line numbers. That follows the rule that nothing is relocated silently,
+but it also means many small moves add up until they pass the search radius and the remark
+orphans, even though it was found on every refresh along the way. Writing the new position back is
+a phase 3 decision, not a bug to fix quietly: it changes what "stale line numbers" means.
 
 ### Why Trimmed Hashing
 
@@ -103,11 +141,38 @@ Lines are trimmed before hashing so that reformatting that only changes indentat
 
 The plain hash alone can miss edits. If you mark lines 5-7 and someone edits them, the hash no longer matches. The second pass then looks at what is above and below. If the surrounding lines stayed the same, the remark likely still points at the right block, just with different content. Context matching finds it.
 
+## From Stored Remarks to Tool Window Rows
+
+`RemarkResolver.kt` is the bridge between the store and the screen. `resolveAll(project)` is the
+one entry point. It must run inside a read action and off the EDT, because it reads `Document`s.
+
+- It reads every remark through `RemarkStore.all()`, so it always sees a snapshot, never the live
+  list.
+- Each row comes back as `ResolvedRemark(remark, result)`: the stored record plus the
+  `AnchorResult` for where it is now.
+- **A remark is never dropped.** If the project root cannot be resolved, if `path` is null, if the
+  file is gone, or if the file has no `Document`, the row still comes back — as `Orphaned` carrying
+  the stored line numbers. An early version returned an empty list when the project root was null,
+  which made every remark vanish from the tool window with no explanation.
+- A stored path is resolved with `VfsUtil.findRelativeFile(root, *path.split('/'))`, then checked
+  with `VfsUtilCore.isAncestor(root, file, false)`. Without that check a hand-edited
+  `workspace.xml` holding `..` segments could point a remark at any file on the machine.
+- `ProgressManager.checkCanceled()` runs once per remark, so a pending write does not have to wait
+  for the whole sweep. Each remark can cost a SHA-256 over every candidate position in the radius.
+
+Context lines are stored as one newline-joined string, and `joinContext` / `splitContext` are the
+pair that converts. Null means "no context at all"; the empty string means "one blank line". Both
+directions are tested, because collapsing the two loses a line of context on the way back.
+
+**Line numbers are 0-based everywhere they are stored, resolved, or hashed** — that matches
+IntelliJ's `Document`. They are converted to 1-based in exactly one place, `describe()` in
+`ui/RemarksToolWindowFactory.kt`, because that is how an editor shows them to a person.
+
 ## The ProjectUtil Trap
 
 `Project.getBaseDir()` is deprecated. Its deprecation note points at `com.intellij.openapi.project.ProjectUtil.guessProjectDir`. However, that class lives in the platform's internal API — it is on the compile classpath but marked as Kotlin-internal, so the Kotlin compiler rejects it with "Unresolved reference 'ProjectUtil'" even though Java code can use it.
 
-The replacement is `project.basePath` (a String) resolved through `LocalFileSystem.getInstance().findFileByPath(it)` to get the `VirtualFile`. This is wrapped in one helper function, `projectRoot`, in `store/ProjectPaths.kt`.
+The replacement is `project.basePath` (a String) resolved through `LocalFileSystem.getInstance().findFileByPath(it)` to get the `VirtualFile`. This is wrapped in one helper function, `projectRoot`, in `store/RemarkResolver.kt`.
 
 ## Why the Bookmarks API Was Rejected
 
@@ -131,9 +196,21 @@ Phases 3-5 are deferred:
 
 - **The two-pass search has never been exercised in a real IDE.** Phase 2 was tested in unit tests only. A person should run `./gradlew runIde` once to confirm the tool window launches and remarks persist before phase 3 starts.
 
+## Build Choices Worth Remembering
+
+- `sinceBuild = "252"` is set and `untilBuild` is left unset on purpose. The platform plugin would
+  otherwise pin an upper bound at the current branch, and the plugin would refuse to load in the
+  next IDE release for no reason. Nothing here uses API that is expected to break.
+- `kotlin.stdlib.default.dependency = false` in `gradle.properties`: the IDE ships its own Kotlin
+  stdlib. Bundling a second copy inside the plugin zip is a known source of conflicts.
+- `testFramework(TestFrameworkType.Platform)` is needed for `BasePlatformTestCase`. Without it the
+  service test does not compile.
+
 ## Performance Tuning Knobs
 
-The search radius is 200 lines. If remarks orphan more often in real use, lower it to speed up the search. If they orphan too rarely, raise it.
+The search radius is 200 lines. It is the distance the search is willing to look. Raise it if
+remarks orphan more often than expected in real use — a bigger radius finds blocks that moved
+further. Lower it if the sweep feels slow, and accept more orphans in exchange.
 
 The context lines count is 3. If context matching finds false positives, raise it. If it misses real matches, lower it.
 
