@@ -48,7 +48,7 @@ Run all tests:
 ./gradlew test
 ```
 
-62 tests: 28 for anchoring (how remarks stay pointed at the right lines after edits), 10 for the stored state (the XML round trip and the list mutators), 6 for the resolver helpers, 6 for the tool window row text, 5 for the selection line math, 4 for the store service, 3 for resolving stored remarks against real files.
+66 tests: 28 for anchoring (how remarks stay pointed at the right lines after edits), 14 for the stored state (the XML round trip and the list mutators), 6 for the resolver helpers, 6 for the tool window row text, 5 for the selection line math, 4 for the store service, 3 for resolving stored remarks against real files.
 
 Most are plain JUnit and run in milliseconds. Three classes start a light IDE fixture through `BasePlatformTestCase` and are slower: `RemarkStoreServiceTest` (the real project service), `ResolveAllTest` (stored remarks resolved against real files) and `SelectedLinesTest` (the selection line math against a real `Document`).
 

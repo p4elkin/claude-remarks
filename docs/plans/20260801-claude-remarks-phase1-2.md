@@ -1456,7 +1456,7 @@ What a person still has to run, in one sitting of about ten minutes:
 6. With the sandbox closed, delete the remarked lines and their surrounding context. Reopen.
    Confirm the row is still listed, marked "(orphaned)", with its old line numbers. *(ends phase 2)*
 
-Everything below the IDE boundary is covered by tests: 62 of them, including a
+Everything below the IDE boundary is covered by tests: 66 of them, including a
 `BasePlatformTestCase` that goes through the real project service. What no test covers is the
 platform actually writing `workspace.xml` to disk and reading it back, the tool window rendering,
 and the debug action reading a real selection. Steps 2 to 6 above are the only check on those.
