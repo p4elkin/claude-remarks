@@ -455,6 +455,56 @@ function in `store/RemarkEdits.kt`, because that file holds the only route that 
 and it needs its own tests. That is a task in its own right rather than a review fix, which is why
 it is written down here instead of being half-built.
 
+## Adding a Remark While Reading a Diff
+
+A diff pane is an editor, so `Ctrl+Alt+Shift+R` and the right-click item reach it. The file behind
+it is the problem. For the side that shows a VCS revision, the document is not the project's file:
+`DiffContentFactoryImpl` builds a `LightVirtualFile` from the revision's bytes, and that file
+carries the right NAME but no path under the project. `FileDocumentManager.getFile(document)`
+returns it, `VfsUtilCore.getRelativePath` returns null for it, and the plugin used to refuse with
+"X is outside the project directory" for a file the user could plainly see in the project tree.
+
+**The route back to the real file.** `DocumentContent.getHighlightFile()`. For a VCS revision the
+chain is `ChangeDiffRequestProducer.createContent` → `DiffContentFactoryEx.createFromBytes(project,
+bytes, filePath)` → the content builder's `Context.ByFilePath`, whose `getHighlightFile()` is
+`filePath.getVirtualFile()` — the working tree's file. The content itself is reached through
+`DiffDataKeys.CURRENT_CONTENT` (note the package: `com.intellij.diff.tools.util`), which
+`TwosideDiffViewer.uiDataSnapshot` fills with `getCurrentSide().select(request.contents)`, and
+`getCurrentSide()` is the focus tracker's side. So the content in the data context is the pane the
+user is reading, which is the pane they meant.
+
+**Why it needs a `DataContext`.** There is no route from an `Editor` alone. `DiffUtil.createEditor`
+builds the diff editors with no file at all, and `DiffUtil.configureEditor` then sets
+`editor.setFile(FileDocumentManager.getInstance().getFile(content.getDocument()))` — the same
+LightVirtualFile that already failed. `editor.virtualFile` is therefore a dead end, checked against
+the 2025.2 jars and against the platform source. So `relativePathOf` and `remarkTargetProblem` in
+`store/RemarkTarget.kt` take an optional `DataContext`. The action passes `e.dataContext`. The
+intention builds one with `DataManager.getInstance().getDataContext(editor.contentComponent)` in
+`invoke`, and only there: that call asserts it is on the EDT, while the daemon computes
+`isAvailable` on a background thread. That is why `isAvailable` offers the intention in any
+`EditorKind.DIFF` editor without deciding, and lets `invoke` either open the input or show the
+reason at the caret.
+
+**What such a remark means.** The path is the working tree's file. The anchor is captured from
+`editor.document`, which is the *revision's* text — and that is correct, not a bug to fix later. An
+anchor is a fingerprint, never a pointer: `textHash` plus a few context lines. Resolving it runs
+against the working tree like every other remark, so the two-pass search in `anchor/Anchoring.kt`
+either finds the block unchanged, relocates it within the search radius, or orphans it. A remark
+written against a revision whose lines still exist in the working tree lands on them. One written
+against lines that the working tree no longer has is orphaned, which is the truth about it. That is
+what makes annotating a revision honest rather than wrong.
+
+**The path-escape guard is not bypassed.** Both candidate files — the document's own file first,
+the highlight file second — go through the same `VfsUtilCore.getRelativePath(file, root)`, which
+returns null unless `root` really is an ancestor. There is no second route around the check, which
+is the whole reason the fallback is a second entry in one list rather than a branch of its own.
+
+**What is checked and what is not.** `DiffRemarkTargetTest` builds the exact content shape a
+revision produces, from the platform's own `DiffContentFactory`, and drives the real action through
+a `TestActionEvent`. It does not build a `SimpleDiffViewer`, which a light fixture cannot do, so
+nothing in the suite proves the platform really publishes `CURRENT_CONTENT` for the focused pane —
+that came from reading `TwosideDiffViewer` and still needs one hand check in a sandbox IDE.
+
 ## The Editor Side
 
 The single fact that shapes this whole side: `RangeHighlighter extends RangeMarker`. One object

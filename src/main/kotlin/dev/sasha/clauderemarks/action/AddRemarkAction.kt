@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
@@ -38,7 +39,7 @@ class AddRemarkAction : AnAction() {
         val problem = when {
             project == null -> "No project is open."
             editor == null -> "No editor is focused."
-            else -> remarkTargetProblem(project, editor)
+            else -> remarkTargetProblem(project, editor, e.dataContext)
         }
         e.presentation.isVisible = true
         e.presentation.isEnabled = project != null && editor != null
@@ -48,7 +49,7 @@ class AddRemarkAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
-        openNewRemarkInput(project, editor)
+        openNewRemarkInput(project, editor, e.dataContext)
     }
 }
 
@@ -59,14 +60,18 @@ class AddRemarkAction : AnAction() {
  * reason is shown in exactly one place: showErrorHint puts it at the caret, which works in every
  * context an editor exists in, including a diff viewer popup where a presentation description is
  * never shown to the user.
+ *
+ * [dataContext] is only used to reach the diff's real file (see store/RemarkTarget.kt). The action
+ * passes the event's context; the intention builds one from the editor component, which it can only
+ * do here because invoke runs on the EDT.
  */
-fun openNewRemarkInput(project: Project, editor: Editor) {
-    val problem = remarkTargetProblem(project, editor)
+fun openNewRemarkInput(project: Project, editor: Editor, dataContext: DataContext? = null) {
+    val problem = remarkTargetProblem(project, editor, dataContext)
     if (problem != null) {
         HintManager.getInstance().showErrorHint(editor, problem)
         return
     }
-    val path = relativePathOf(project, editor) ?: return
+    val path = relativePathOf(project, editor, dataContext) ?: return
     val document = editor.document
     val selection = editor.selectionModel
     val range = selectedLines(document, selection.selectionStart, selection.selectionEnd)

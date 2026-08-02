@@ -76,7 +76,7 @@ src/main/kotlin/dev/sasha/clauderemarks/
   store/RemarkStore.kt             @Service project component, state in workspace.xml
   store/RemarkEdits.kt             the six mutation functions, the REMARKS_CHANGED topic
   store/RemarkResolver.kt          projectRoot, resolveAll, and anchorOf
-  store/RemarkTarget.kt            relativePathOf, remarkTargetProblem
+  store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, and the diff fallback
   store/ContextFormat.kt           joinContext/splitContext, how context lines are stored
   ui/RemarkInputPanel.kt           the popup's panel, the Enter/Shift+Enter keys, tag labels
   ui/RemarksTree.kt                node building and the tree cell renderer
@@ -129,7 +129,9 @@ goes through a real project service, a real `Document`, or a real markup model:
 `RemarkStoreServiceTest`, `ResolveAllTest` (stored remarks resolved against real files, including
 a path that tries to climb out of the project), `SelectedLinesTest` (the selection line math
 against a real `Document`), `RemarkEditsTest` (the six mutation functions publish
-`REMARKS_CHANGED`), the key-binding half of `RemarkInputPanelTest`, `AddRemarkActionTest`, the
+`REMARKS_CHANGED`), the key-binding half of `RemarkInputPanelTest`, `AddRemarkActionTest`,
+`DiffRemarkTargetTest` (adding a remark from a diff pane: a real `DiffContentFactory` content
+standing in for a VCS revision, since a light fixture cannot build a diff viewer), the
 renderer-equality half of `RemarkGutterIconTest`, `RemarkGutterTest` (the gutter service),
 `RemarksPanelTest` (the tool window panel: every file group ends up expanded, and the selection
 survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s 0-based line argument),
