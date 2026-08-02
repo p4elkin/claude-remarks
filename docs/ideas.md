@@ -253,3 +253,34 @@ Two smaller choices that follow: whether the tree sorts or groups by level, and 
 prompt keeps its file grouping or leads with the must-dos. Keep the file grouping — the code is
 what makes a remark understandable, and splitting a file's remarks across sections to sort by level
 costs more than it buys.
+
+## Tick which remarks to send
+
+Put a checkbox on every row in the tool window, and let Copy send exactly the ticked ones.
+
+Why: choosing what to send is done by selecting rows today, and selection is the wrong tool for it.
+A selection is a single transient thing — clicking anywhere else loses it, and it competes with the
+other meanings selection already has, namely what to navigate to and what to delete. Ticking is
+sticky, survives clicking around, and reads as a deliberate choice.
+
+How hard: the control exists. `CheckboxTree` (`CheckboxTreeBase` plus `CheckedTreeNode`, all in
+`com.intellij.ui`, confirmed in the platform checkout) is the standard tree with checkboxes, and it
+already handles ticking a parent to tick everything under it. That is worth a lot here: with the
+bucket level phase 5 adds, ticking a bucket node means "send this bucket" for free, which is
+exactly the feature that was deliberately left unbuilt as a separate button.
+
+Two things to get right:
+
+**Ticks must survive a refresh.** The tree is rebuilt on every remark change and on every editor
+opening or closing a file that holds a remark. That is often. An earlier fix pass already had to
+teach the panel to capture and restore the selection and the collapsed groups across a rebuild;
+ticked state has to join the same machinery. Skipping this would be worse than what exists today —
+ticks that silently clear while you are choosing are more annoying than a selection that was never
+meant to persist.
+
+**Decide what selection means afterwards.** Once ticking means "send", selection should stop
+meaning it. Copy Selected becomes Copy Ticked, and selection is left to mean navigate and delete.
+Keeping both would leave two competing notions of "chosen" on screen at once.
+
+Timing: this rewrites the tree, and phase 5 is already rewriting it to add the bucket level. Build
+it after phase 5 lands, not alongside, or the two rewrites collide.
