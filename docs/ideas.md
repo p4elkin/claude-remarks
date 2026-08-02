@@ -364,3 +364,188 @@ and neither should be quietly revisited:
 This becomes its own phase, planned after phase 5 lands. Half of it is a Claude Code skill under
 `~/.claude/skills`, outside this repository, and the two halves have to be designed together even
 though they ship separately.
+
+### What to borrow from revdiff
+
+revdiff (`~/dev/oss/revdiff`) already runs this exact loop, with a terminal overlay standing in for
+the IDE. Its Claude Code plugin launches a TUI, waits, and hands annotations back to the calling
+skill. What follows names the actual mechanism, in code, so the next phase does not have to
+rediscover it by reading the revdiff source again.
+
+**The handoff is a file, written atomically, plus a second durable copy.**
+
+The Claude Code plugin's launcher script (`launch-revdiff.sh`) creates an empty file up front with
+`mktemp "${TMPDIR:-/tmp}/revdiff-output-XXXXXX"`, then runs revdiff with `--output=<that path>` and
+the env var `REVDIFF_EXIT_CODE_ON_ANNOTATIONS=true`. revdiff itself (`app/annotation/store.go`,
+`Store.WriteFile`) writes to that path on quit (`q`), and again on every mid-session flush (`O`).
+The launcher deletes the file itself, in a shell `trap 'rm -f "$OUTPUT_FILE"' EXIT`, once it has
+already read the content into its own stdout.
+
+The write is never a direct write to the target path. `fsutil.AtomicWriteFile` writes the full
+content to a new temp file in the same directory, then renames that temp file onto the target path.
+A rename that lands in the same filesystem is atomic on POSIX, so a reader watching that path always
+sees either the previous complete content or the new complete content — never a half-written file.
+This is the answer to "how does the waiting side know the write is complete": it does not need to
+check. There is no partial state to observe. This one helper backs every file revdiff writes as a
+deliverable, so there is exactly one atomic-write routine in the whole codebase, used everywhere.
+
+There is a second, independent copy: on every non-discarded, non-empty quit — including a process
+kill by SIGHUP or SIGTERM — revdiff also writes the full annotation set to
+`~/.config/revdiff/history/<repo-name>/<timestamp>.md`, through the same atomic-write helper. This
+is not part of the handoff protocol. It is a safety net for the case where the ephemeral handoff
+file is already gone (cleanup already ran) or the process that was going to read it died first.
+
+**Copy:** the atomic write (temp file in the same directory, then rename) outright, for the file
+transport chosen for Claude Remarks. It is the one piece of plumbing that removes an entire class of
+race, regardless of file vs. socket, IDE vs. terminal. **Copy:** the two-tier idea — one file for the
+fast path, one durable log for recovery when the fast path fails. **Adapt:** the path naming.
+revdiff mints a fresh `mktemp` path per invocation because a shell script is the one deciding where
+to write; the IDE plugin can choose one fixed, predictable path per review up front, which is
+actually simpler than what revdiff has to do.
+
+**The waiting side blocks on a process first, and polls a marker file only as a fallback — the IDE
+version should flip that priority.**
+
+The calling skill does not, as its main mechanism, poll a file for content. It runs the launcher
+script as one ordinary blocking command, the same way it would block on any shell command finishing.
+Inside that one call, revdiff's launcher picks a terminal backend. Some backends block natively
+(`tmux display-popup -E`, or agterm's `agtermctl session overlay open ... --block`). Backends without
+a native block (Zellij, kitty, wezterm/Kaku, cmux, Ghostty, iTerm2, Emacs vterm) get a small
+companion script that runs revdiff and, after it exits, writes revdiff's exit code to a second,
+separate marker file — not the annotation file itself. The launcher then runs the one real poll loop
+in the whole system:
+
+```sh
+while [ ! -f "$SENTINEL" ]; do sleep 0.3; done
+```
+
+That loop asks only "has revdiff finished," a much simpler question than "is this file done being
+written" — the atomic write already answers that one.
+
+What each outcome looks like on the agent side:
+- **Quit without annotating.** `Store.FormatOutput()` returns an empty string. `finalize()`'s first
+  check is `if discarded || annotations == "" { write nothing }`. Exit stays 0. The skill sees empty
+  stdout and exit 0, and its own instructions say: stop the loop, do not relaunch.
+- **The tool is killed or disconnects mid-review** (SIGHUP from a dropped SSH/tmux client, or
+  SIGTERM). revdiff still writes the durable history copy, but deliberately does **not** write the
+  handoff file. The reasoning, from the code: a signal is not the deliberate handoff that quitting or
+  flushing is. A killed session never produces a payload that looks like the person approved sending
+  it. Recovery is through the durable history copy only.
+- **The calling agent's own process dies or times out** while revdiff is still open and the person is
+  still annotating — this is the case closest to what the IDE version has to handle, since an IDE
+  process genuinely keeps running independent of the Claude Code skill, unlike a terminal overlay.
+  Nothing is lost on revdiff's side, because its file writes never depended on the caller staying
+  alive. The skill's documented fallback: tell the person nothing is lost, wait for their reply, then
+  read the newest matching temp file by modification time, falling back to the newest history file if
+  that one is already cleaned up.
+
+**Copy:** the marker-versus-content split, and the graceful-versus-killed distinction — a review
+only counts as "sent" when the person took an explicit action, never when the IDE was merely closed
+or crashed. **Copy, promoted to primary:** the poll-a-file idea the plan already wants is exactly
+revdiff's *fallback* path for an agent time-out, just running as the only path instead of the backup
+one — that reuse is sound, because an IDE process really is independent of the skill in the way a
+terminal overlay is not. **Leave behind:** the five-plus backend-specific launcher branches
+(tmux/Zellij/kitty/wezterm/cmux/Ghostty/iTerm2/Emacs). Those exist only because revdiff has to work
+across many terminal multiplexers with no shared blocking primitive. An IDE plugin has exactly one
+place remarks come from, so none of that branching applies.
+
+**The payload is markdown records with a fixed header grammar, and no instruction prompt inside it.**
+
+```
+## handler.go (file-level)
+consider splitting this file into smaller modules
+
+## handler.go:43 (+)
+use errors.Is() instead of direct comparison
+
+## handler.go:43-67 (+)
+refactor this hunk to reduce nesting
+
+## store.go:18 (-)
+don't remove this validation
+```
+
+Header shape: `## path[:line[-endline]] (type)`, where type is `+`, `-`, a literal space for a
+context line, or the word `file-level` in place of a line number. The body is every line up to the
+next `## ` header. Records are sorted by file, then by line ascending, file-level notes first within
+a file. A range header (`:43-67`) is generated automatically whenever the comment text contains the
+word "hunk," so the range reaches the model without the person doing anything extra. One escaping
+rule: a body line that itself starts with `## ` gets one leading space added on write and stripped
+back off on read, so a comment that happens to say "## foo" is never read as a new record.
+
+No instruction prompt is wrapped around this file. It is purely the payload — path, line range,
+comment text, nothing else. The classification Claude Remarks may have expected to find here instead
+lives in the skill's prose, applied *after* parsing: SKILL.md sorts every comment into an explanation
+request (two or more consecutive question marks anywhere, or starts with "explain", "remind",
+"describe", "what is", "what are", "how does", "how do", "clarify") or a code-change directive
+(everything else). That is the actual analog to Claude Remarks' own header. `DEFAULT_PROMPT_HEADER`
+in `RemarkSettings.kt` draws the same line — "A remark that asks something... is a QUESTION... Any
+other remark is an INSTRUCTION" — just inline in the rendered document, applied by the model reading
+it, instead of as a separate step the skill runs before the model ever sees the text. Both are valid.
+They are not the same design. Worth a deliberate choice once a real file handoff exists, since the
+file format itself carries no opinion either way.
+
+**Copy:** the header grammar closely — path, line or range, one-character change-type marker,
+file-level as an explicit special case, sorted by file then line. It is compact and greppable, and
+Claude Remarks already produces something structurally close (its own `## path` / `### N. lines A-B`
+layout). **Adapt:** Claude Remarks carries richer per-remark data than revdiff's format has room for
+— tag, severity, orphaned flag, captured context — keep all of that; just make sure a file-based
+payload still opens each record with one `## file[:line[-line]]` line so a skill can index by file
+without parsing the whole body first. **Leave behind:** nothing to add — revdiff's choice to keep the
+instruction prompt out of the payload is itself worth keeping, not overriding.
+
+**Invocation, and the one thing revdiff never needed: a session label.**
+
+The launcher (`launch-revdiff.sh`) takes ref arguments positionally, plus flags: `revdiff HEAD~1` for
+a single commit, `revdiff main` for branch-vs-current, `revdiff main feature` / `main..feature` /
+`main...feature` for two-ref or divergence diffs, `--staged` for the index, no ref at all for the
+local/uncommitted diff (revdiff's default), `--untracked` added on top to fold in new files the
+recent change created. A separate `resolve-launcher.sh` resolves the actual script path through a
+`user → bundled` override chain, so a person can drop in a replacement without touching the plugin.
+
+There is no generic "who is waiting" field anywhere in the protocol. Two things stand in for it:
+`--description` / `--description-file`, prose Markdown shown in revdiff's info popup, explaining what
+the review is and why — the closest existing analog to labelling a session; and the overlay's own
+window/pane/tab title, built by the launcher from the working directory and ref
+(`"rd: ${DIR_NAME}${TITLE_REF:+ [$TITLE_REF]}"`), visible before the person even opens that popup.
+agterm goes one step further and flags the *calling* agent session itself as blocked and blinking for
+the duration, restored to active afterward — a status on the waiting side, not a label carried in any
+file.
+
+**Copy:** `--description`-style prose context, surfaced somewhere in the IDE, saying what the review
+is for. **Copy, if the runtime allows it:** flipping a visible "waiting" status on the calling session
+while it blocks. **New work, not adaptation:** an actual session id or label. revdiff never needed
+one because a terminal overlay is inherently modal — nothing else can happen in that terminal while
+it is up — but an IDE reviewer can have several projects and several waiting sessions open at once,
+so this has to be designed, not borrowed.
+
+**What looks like it was learned the hard way.**
+
+- The atomic write (temp file, same directory, rename) is the one universal lesson here — copy it
+  outright, it is the fix for a whole category of "reader sees a half-written file" bugs before they
+  happen.
+- The signal-versus-deliberate-quit split is a real design decision, not an accident: a killed
+  process must never produce a payload that looks approved by the person. Worth carrying as a
+  principle into the IDE version's "hand back" control — it must be a real click, and an IDE crash or
+  close must not silently look like one.
+- Cleanup of the ephemeral handoff file was a real regression, not something that stayed correct by
+  itself: the changelog lists "restore output-file cleanup in the agterm overlay launcher" as its own
+  bug fix. Treat "the handoff file is always removed, on every exit path, including error paths" as
+  something to write an explicit check for, not something that falls out of the happy path.
+- The two-tier durability (ephemeral handoff file plus a separate durable history log) exists because
+  either the file or the process reading it can die before the handoff completes. Worth the same
+  shape here: even a file-based handoff needs a place remarks survive if the *skill's own* process is
+  what dies, not just the IDE side.
+- The empty-annotation case is checked first, before any write happens at all, so quitting with
+  nothing never creates a stray file or a phantom history entry. Keep "nothing to send" cheap and
+  silent, the same way.
+- **A real, acknowledged gap, not a pattern to copy:** revdiff has no lock file and no guard against
+  two concurrent reviews. Each invocation gets a fresh unique path, which avoids collisions by luck
+  rather than by design, and the one recovery path (reading history) picks by modification time, with
+  no sharper tie-breaker than that. An IDE session is more likely than a terminal ever is to have two
+  reviews open at once — multiple project windows are normal — so this is exactly the kind of gap the
+  next plan should decide about on purpose, rather than inherit silently.
+- The `--annotations=<file>` preload path revalidates every record's file and line against the
+  freshly recomputed diff before trusting it, dropping anything stale with a warning instead of
+  silently keeping wrong line numbers. Worth the same discipline if the IDE payload can ever be
+  generated, hand-edited, or reloaded after the code under review has moved.
