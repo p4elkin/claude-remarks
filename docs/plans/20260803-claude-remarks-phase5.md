@@ -1564,7 +1564,7 @@ register the five as real `AnAction`s with `registerCustomShortcutSet(..., panel
 which goes through the action system and therefore wins by construction — at the cost of a
 `Disposable` parameter on `RemarkInputPanel`.
 
-- [ ] write the failing tests in `RemarkInputPanelTest.kt`:
+- [x] write the failing tests in `RemarkInputPanelTest.kt`:
 
 ```kotlin
     fun testEveryChipHasAnAltKey() {
@@ -1597,9 +1597,9 @@ which goes through the action system and therefore wins by construction — at t
     }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInputPanelTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInputPanelTest"` — expect a
       compile failure
-- [ ] add to `RemarkInputPanel.kt`:
+- [x] add to `RemarkInputPanel.kt`:
 
 ```kotlin
 /** Action map keys for the tag chips, one per entry in TAG_CHOICES. */
@@ -1629,12 +1629,12 @@ Update the text area's placeholder so the keys are discoverable:
         emptyText.text = "Your remark. Enter saves, Shift+Enter adds a line, Alt+1-4 picks a tag, Esc cancels."
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInputPanelTest"` — must pass
-- [ ] **mutation check**: change the action body to `chips.selectedItem = TAG_CHOICES[0]` for every
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInputPanelTest"` — must pass
+- [x] **mutation check**: change the action body to `chips.selectedItem = TAG_CHOICES[0]` for every
       index. `testEveryChipHasAnAltKey` must still pass — it only checks that bindings exist — and
       `testAltOneSelectsTheFirstTagAndAltZeroClearsIt` must fail. That is the point of having both.
       Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 8: Read the repository HEAD, with no VCS dependency
 

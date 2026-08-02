@@ -26,6 +26,9 @@ const val NO_TAG_LABEL = "(no tag)"
 const val SUBMIT_KEY = "claudeRemarks.submit"
 const val NEWLINE_KEY = "claudeRemarks.newline"
 
+/** Action map keys for the tag chips, one per entry in TAG_CHOICES. */
+const val TAG_KEY_PREFIX = "claudeRemarks.tag."
+
 /** The chips, "(no tag)" first, then the four tags in enum order. The Alt keys in the next task
  *  index into this list, so the order here is the order there. */
 val TAG_CHOICES: List<String> = listOf(NO_TAG_LABEL) + RemarkTag.entries.map { tagLabel(it) }
@@ -57,7 +60,7 @@ class RemarkInputPanel(initialText: String, initialTag: RemarkTag?) : JPanel(Bor
     val textArea = JBTextArea(initialText, 3, 48).apply {
         lineWrap = true
         wrapStyleWord = true
-        emptyText.text = "Your remark. Enter to save, Shift+Enter for a new line, Esc to cancel."
+        emptyText.text = "Your remark. Enter saves, Shift+Enter adds a line, Alt+1-4 picks a tag, Esc cancels."
     }
 
     // Assigned by the panel { } builder below, which runs eagerly, so it is set before the init
@@ -88,6 +91,11 @@ class RemarkInputPanel(initialText: String, initialTag: RemarkTag?) : JPanel(Bor
             chips.selectedItem = tagLabel(value)
         }
 
+    /** The chip row's own focusable Swing component, exposed the same way [textArea] is: so a test
+     *  can look up its key bindings directly instead of dispatching key events. */
+    val tagChipsComponent: JComponent
+        get() = chips.component ?: error("the chip row has no component yet")
+
     var onSubmit: ((RemarkInput) -> Unit)? = null
 
     init {
@@ -102,6 +110,29 @@ class RemarkInputPanel(initialText: String, initialTag: RemarkTag?) : JPanel(Bor
             // Shift+Enter over selected text would keep the text and add a newline beside it.
             override fun actionPerformed(e: ActionEvent) = textArea.replaceSelection("\n")
         })
+
+        // The promise this popup makes is "type your remark, press Enter", and that has to hold
+        // wherever focus lands inside it. The old drop-down carried its own Enter-submits binding
+        // for the same reason (enterInTagBox); the chip row needs the same one, wired the same way,
+        // because choosing a chip is immediate and leaves nothing else for Enter to do.
+        tagChipsComponent.getInputMap(JComponent.WHEN_FOCUSED)
+            .put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), SUBMIT_KEY)
+        tagChipsComponent.actionMap.put(SUBMIT_KEY, object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent) = submit()
+        })
+
+        // Alt+0 clears the tag, Alt+1..Alt+4 pick the four tags, in the order the chips show them.
+        // The index into TAG_CHOICES is what ties the keys to the chips, so the two cannot drift.
+        // VK_0 through VK_4 are contiguous key codes.
+        TAG_CHOICES.forEachIndexed { index, label ->
+            val key = "$TAG_KEY_PREFIX$index"
+            map.put(KeyStroke.getKeyStroke(KeyEvent.VK_0 + index, InputEvent.ALT_DOWN_MASK), key)
+            textArea.actionMap.put(key, object : AbstractAction() {
+                override fun actionPerformed(e: ActionEvent) {
+                    chips.selectedItem = label
+                }
+            })
+        }
 
         selectedTag = initialTag
 

@@ -2,6 +2,7 @@ package dev.sasha.clauderemarks.ui
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.model.RemarkTag
+import java.awt.event.ActionEvent
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import javax.swing.JComponent
@@ -132,5 +133,54 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
         panel.submit()
 
         assertEquals(RemarkTag.BUG, got?.tag)
+    }
+
+    /**
+     * Restored alongside the chips: the old drop-down had its own WHEN_FOCUSED Enter binding
+     * (`enterInTagBox`), so tabbing to it and pressing Enter still submitted the remark. The chip
+     * row has no equivalent of its own, so without this binding that keyboard path is a dead end.
+     * The promise this popup makes is "type your remark, press Enter", wherever focus happens to be.
+     */
+    fun testEnterOnTheChipRowSubmitsToo() {
+        val panel = RemarkInputPanel("note", null)
+        var got: RemarkInput? = null
+        panel.onSubmit = { got = it }
+
+        val map = panel.tagChipsComponent.getInputMap(JComponent.WHEN_FOCUSED)
+        val stroke = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0)
+        assertEquals(SUBMIT_KEY, map.get(stroke))
+        panel.tagChipsComponent.actionMap.get(SUBMIT_KEY)
+            .actionPerformed(ActionEvent(panel, ActionEvent.ACTION_PERFORMED, ""))
+
+        assertEquals("note", got?.text)
+    }
+
+    fun testEveryChipHasAnAltKey() {
+        val panel = RemarkInputPanel("", null)
+        val map = panel.textArea.getInputMap(JComponent.WHEN_FOCUSED)
+
+        TAG_CHOICES.indices.forEach { index ->
+            val stroke = KeyStroke.getKeyStroke(KeyEvent.VK_0 + index, InputEvent.ALT_DOWN_MASK)
+            assertEquals("$TAG_KEY_PREFIX$index", map.get(stroke))
+            assertNotNull(panel.textArea.actionMap.get(map.get(stroke)))
+        }
+    }
+
+    /**
+     * The binding existing is not the same as the binding doing the right thing. This presses the
+     * actions and checks what the chips ended up saying, so a key wired to the wrong chip fails.
+     */
+    fun testAltOneSelectsTheFirstTagAndAltZeroClearsIt() {
+        val panel = RemarkInputPanel("", null)
+        val event = ActionEvent(panel, ActionEvent.ACTION_PERFORMED, "")
+
+        panel.textArea.actionMap.get("${TAG_KEY_PREFIX}1").actionPerformed(event)
+        assertEquals(RemarkTag.entries.first(), panel.selectedTag)
+
+        panel.textArea.actionMap.get("${TAG_KEY_PREFIX}4").actionPerformed(event)
+        assertEquals(RemarkTag.entries.last(), panel.selectedTag)
+
+        panel.textArea.actionMap.get("${TAG_KEY_PREFIX}0").actionPerformed(event)
+        assertNull(panel.selectedTag)
     }
 }
