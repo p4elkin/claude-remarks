@@ -1432,7 +1432,7 @@ tests rely on. If construction fails, the fallback is to hold the tag in a plain
 and let the chips only mirror it, so `submit()` and the tests read the field rather than the
 component. Try the direct version first; it is fewer moving parts.
 
-- [ ] change the two `tagBox` tests in `RemarkInputPanelTest.kt` and delete the third:
+- [x] change the two `tagBox` tests in `RemarkInputPanelTest.kt` and delete the third:
 
 ```kotlin
     fun testSubmitHandsBackTheTypedTextAndTheChosenTag() {
@@ -1468,9 +1468,9 @@ component. Try the direct version first; it is fewer moving parts.
 Delete `testEnterInTheTagChooserSavesOnlyWhenTheDropDownIsClosed` and the now-unused
 `java.awt.event.ActionEvent` import if nothing else in the file needs it.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInput*"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInput*"` — expect a compile
       failure
-- [ ] change `RemarkInputPanel.kt`:
+- [x] change `RemarkInputPanel.kt`:
 
 ```kotlin
 /** The chips, "(no tag)" first, then the four tags in enum order. The Alt keys in the next task
@@ -1533,10 +1533,10 @@ Delete `enterInTagBox` and `COMBO_ENTER_KEY`. Imports: drop `com.intellij.openap
 `com.intellij.ui.dsl.builder.SegmentedButton`, `com.intellij.ui.dsl.builder.panel`,
 `com.intellij.ui.dsl.builder.segmentedButton`.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInput*"` — must pass
-- [ ] **mutation check**: change `selectedTag`'s getter to `get() = null`.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInput*"` — must pass
+- [x] **mutation check**: change `selectedTag`'s getter to `get() = null`.
       `testSubmitHandsBackTheTypedTextAndTheChosenTag` must fail. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 7: Alt+0 to Alt+4 pick the tag
 

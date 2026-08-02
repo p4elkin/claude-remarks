@@ -2,7 +2,6 @@ package dev.sasha.clauderemarks.ui
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.model.RemarkTag
-import java.awt.event.ActionEvent
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import javax.swing.JComponent
@@ -72,7 +71,7 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
     fun testSubmitHandsBackTheTypedTextAndTheChosenTag() {
         val panel = RemarkInputPanel("", null)
         panel.textArea.text = "  why is this locked?  "
-        panel.tagBox.selectedItem = tagLabel(RemarkTag.QUESTION)
+        panel.selectedTag = RemarkTag.QUESTION
         var got: RemarkInput? = null
         panel.onSubmit = { got = it }
 
@@ -92,29 +91,46 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
         assertFalse(fired)
     }
 
-    /**
-     * The binding is on the chooser's own WHEN_FOCUSED map, which Swing consults before the look
-     * and feel's ancestor map, and a non-editable combo box keeps focus while its drop-down shows.
-     * So Enter on an open drop-down used to save the remark with the tag the chooser held BEFORE it
-     * was opened, instead of the one the arrow keys had just highlighted.
-     */
-    fun testEnterInTheTagChooserSavesOnlyWhenTheDropDownIsClosed() {
-        val panel = RemarkInputPanel("a note", null)
-        var fired = 0
-        panel.onSubmit = { fired++ }
-        val event = ActionEvent(panel.tagBox, ActionEvent.ACTION_PERFORMED, SUBMIT_KEY)
-
-        panel.enterInTagBox(popupOpen = true, event = event)
-        assertEquals(0, fired)
-
-        panel.enterInTagBox(popupOpen = false, event = event)
-        assertEquals(1, fired)
-    }
-
     fun testAnExistingRemarkOpensPreFilled() {
         val panel = RemarkInputPanel("old note", RemarkTag.REFACTOR)
 
         assertEquals("old note", panel.textArea.text)
-        assertEquals(tagLabel(RemarkTag.REFACTOR), panel.tagBox.selectedItem)
+        assertEquals(RemarkTag.REFACTOR, panel.selectedTag)
+    }
+
+    /** "(no tag)" is a chip like any other, so clearing the tag is one click, not a drop-down. */
+    fun testTheNoTagChipIsFirstAndMeansNull() {
+        val panel = RemarkInputPanel("x", RemarkTag.BUG)
+
+        assertEquals(NO_TAG_LABEL, TAG_CHOICES.first())
+        panel.selectedTag = null
+        assertNull(panel.selectedTag)
+    }
+
+    /**
+     * `testEnterInTheTagChooserSavesOnlyWhenTheDropDownIsClosed` used to live here. It pinned
+     * `enterInTagBox`, a branch that existed only because a combo box's selection was a two-step
+     * gesture: highlight with the arrow keys, then commit — and Swing let the plugin's own Enter
+     * binding fire before that commit happened, so pressing Enter while the drop-down was still
+     * open saved the remark with the PREVIOUS tag instead of the highlighted one.
+     *
+     * A chip has no such two-step gesture. Choosing one sets `selectedItem` on the model directly,
+     * with nothing left pending afterwards, so the whole hazard class `enterInTagBox` guarded
+     * against cannot occur any more, and the method is gone rather than kept dark. What replaces
+     * that test is this: proof that a chosen tag is visible through `selectedTag` immediately, with
+     * no separate confirm step, and that `submit()` can be called right after choosing one.
+     */
+    fun testChoosingATagIsImmediateWithNoSeparateCommitStep() {
+        val panel = RemarkInputPanel("note", null)
+        panel.textArea.text = "note"
+
+        panel.selectedTag = RemarkTag.BUG
+        assertEquals(RemarkTag.BUG, panel.selectedTag)
+
+        var got: RemarkInput? = null
+        panel.onSubmit = { got = it }
+        panel.submit()
+
+        assertEquals(RemarkTag.BUG, got?.tag)
     }
 }
