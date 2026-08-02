@@ -31,6 +31,10 @@
                 text="Add Claude Remark"
                 description="Attach a remark to the selected lines">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <!-- A diff pane does NOT use EditorPopupMenu. The platform gives it its own group,
+                 Diff.EditorPopupMenu, which ships empty. Without this line the item is missing
+                 from the right-click menu in a diff, and the only way in is the shortcut. -->
+            <add-to-group group-id="Diff.EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="control alt shift R"/>
         </action>
         <!-- The same copy as the tool window's toolbar button, so copying does not need the tool
