@@ -995,7 +995,7 @@ An inlay was considered and rejected: `EditorCustomElementRenderer` is paint-and
 so an inlay cannot host a focusable component at all. A popup is the only option, and
 `JBPopup.showInBestPositionFor(editor)` puts it at the caret in one call.
 
-- [ ] write the failing tests in `RemarkInputPanelTest.kt`:
+- [x] write the failing tests in `RemarkInputPanelTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.ui
@@ -1100,9 +1100,9 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInput*"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInput*"` — expect a compile
       failure
-- [ ] create `RemarkInputPanel.kt`:
+- [x] create `RemarkInputPanel.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.ui
@@ -1207,12 +1207,12 @@ class RemarkInputPanel(initialText: String, initialTag: RemarkTag?) : JPanel(Bor
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInput*"` — must pass. All four
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkInput*"` — must pass. All four
       `RemarkInputPanelTest` methods pass: `JBTextArea` and `ComboBox` construct fine under a
       headless `BasePlatformTestCase`, checked by running them.
-- [ ] **mutation check**: delete the `map.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), SUBMIT_KEY)`
+- [x] **mutation check**: delete the `map.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), SUBMIT_KEY)`
       line. `testEnterIsBoundToSubmitAndShiftEnterToANewline` must fail. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 3: The Add Remark action, replacing the debug action
 

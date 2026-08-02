@@ -6,6 +6,9 @@ import com.intellij.openapi.components.BaseState
  *  place a person picks a tag. The debug action always leaves it null. */
 enum class RemarkTag { BUG, QUESTION, REFACTOR, NOTE }
 
+/** Lowercase, because this exact string is printed into the tree, the tooltip and the prompt. */
+val RemarkTag.label: String get() = name.lowercase()
+
 /** SENT is written by the dispatch step in phase 5. Until then every remark stays PENDING. */
 enum class RemarkStatus { PENDING, SENT }
 
