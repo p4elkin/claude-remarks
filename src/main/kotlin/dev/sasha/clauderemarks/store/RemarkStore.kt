@@ -165,11 +165,12 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
      * A fresh state carrying a copy of the list, taken under the same lock add and remove hold,
      * so the serializer never iterates a list anyone can mutate.
      *
-     * The copy is shallow: it shares the RemarkState elements with the live state. Nothing
-     * mutates a remark after it has been added, and even if phase 5 starts flipping `status` in
-     * place, a single field write reads as either the old or the new value, never as a corrupt
-     * one. A deep copy would mean cloning RemarkState field by field, and a field forgotten there
-     * later would drop out of workspace.xml with no error — a worse bug than the one being fixed.
+     * The copy is shallow: it shares the RemarkState elements with the live state. `editRemark`
+     * and `markSent` do mutate an element in place, and that is safe here for the reason spelled
+     * out on editRemark: a single field write reads as either the old or the new value, never as a
+     * corrupt one, and the next save writes the new value. A deep copy would mean cloning
+     * RemarkState field by field, and a field forgotten there later would drop out of
+     * workspace.xml with no error — a worse bug than the one being fixed.
      */
     override fun getState(): RemarksState =
         RemarksState().also { it.remarks.addAll(liveState.snapshot()) }

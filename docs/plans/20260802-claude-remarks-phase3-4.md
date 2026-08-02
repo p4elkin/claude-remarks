@@ -1,7 +1,9 @@
 # Claude Remarks — Phase 3-4 Implementation Plan
 
-**Status: not started.** Phases 1-2 are done and committed on branch `claude-remarks-phase1-2`
-(70 tests green, no sandbox IDE run yet).
+**Status: implemented, tests green, hand verification outstanding.** All 13 tasks are done and
+committed on branch `claude-remarks-phase1-2`. The sandbox-IDE hand checks that end task 6 and task
+11, and the "Post-Completion" list at the bottom of this file, have not been run: every autonomous
+session that built this skipped `runIde`.
 
 ## Overview
 

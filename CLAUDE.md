@@ -83,7 +83,8 @@ src/main/kotlin/dev/sasha/clauderemarks/
   ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar, self-refresh on REMARKS_CHANGED
   action/AddRemarkAction.kt        the shortcut / popup-menu entry point, plus selectedLines()
   action/AddRemarkIntention.kt     the Alt+Enter entry point
-  action/CopyRemarks.kt            copyRemarks(project, ids), the whole copy pipeline
+  action/CopyRemarks.kt            copyRemarks(project, ids), the whole copy pipeline, plus the
+                                   Tools-menu action that calls it without the tool window
   editor/RemarkGutterIcon.kt       the placement record, the tooltip, the gutter icon renderer
   editor/RemarkGutter.kt           the project service that keeps gutter icons in step
   editor/RemarkGutterStartup.kt    the ProjectActivity that starts RemarkGutter
@@ -130,7 +131,9 @@ a path that tries to climb out of the project), `SelectedLinesTest` (the selecti
 against a real `Document`), `RemarkEditsTest` (the six mutation functions publish
 `REMARKS_CHANGED`), the key-binding half of `RemarkInputPanelTest`, `AddRemarkActionTest`, the
 renderer-equality half of `RemarkGutterIconTest`, `RemarkGutterTest` (the gutter service),
-`NavigationLineBaseTest` (pins `OpenFileDescriptor`'s 0-based line argument), the collector half
+`RemarksPanelTest` (the tool window panel: every file group ends up expanded, and the selection
+survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s 0-based line argument),
+the collector half
 of `PromptPayloadTest`, and `CopyRemarksTest`.
 
 Every fixture-backed test class that asserts on the whole store clears it in `setUp`, not only in

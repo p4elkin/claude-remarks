@@ -66,10 +66,15 @@ fun remarkNodesUnder(selected: List<DefaultMutableTreeNode>): List<RemarkNode> =
 /**
  * The whole tree, rebuilt from scratch. Files in path order, rows inside a file in resolved line
  * order, so the tree reads the way the code does.
+ *
+ * A remark with no id is left out. Its node would draw normally and then do nothing: Delete and
+ * Copy Selected both match on the id, and an empty id matches no stored remark. RemarkGutter drops
+ * the same rows for the same reason.
  */
 fun buildTreeRoot(rows: List<ResolvedRemark>): DefaultMutableTreeNode {
     val root = DefaultMutableTreeNode("remarks")
-    rows.map(::remarkNode)
+    rows.filter { it.remark.id != null }
+        .map(::remarkNode)
         .sortedWith(compareBy({ it.path }, { it.startLine }))
         .groupBy { it.path }
         .forEach { (path, nodes) ->

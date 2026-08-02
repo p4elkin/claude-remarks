@@ -13,7 +13,6 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.text.StringUtil
 import dev.sasha.clauderemarks.action.openRemarkEdit
-import dev.sasha.clauderemarks.anchor.AnchorResult
 import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.RemarkStore
@@ -36,9 +35,6 @@ data class RemarkPlacement(
     val endLine: Int,
     val orphaned: Boolean,
 )
-
-/** Where the icon goes. An orphan keeps its stale numbers rather than losing its icon. */
-fun placementRange(result: AnchorResult): IntRange = result.startLine..result.endLine
 
 /**
  * The gutter tooltip, as HTML, because that is how the platform renders it.

@@ -73,19 +73,31 @@ class RemarkGutter(private val project: Project) : Disposable {
                     }
                     track(editor.document)
                     // The tool window resolves against open documents, so opening one can change
-                    // what it should show, not only what the gutter should show.
-                    notifyRemarksChanged(project)
+                    // what it should show, not only what the gutter should show. Only when the file
+                    // actually holds a remark, though: track() already scheduled this document's
+                    // own sync, and the broadcast costs a full-project resolveAll plus a resolve
+                    // over every other tracked document, which would make plain file navigation
+                    // quadratic in the number of remarks.
+                    if (hasRemarks(editor.document)) notifyRemarksChanged(project)
                 }
 
                 override fun editorReleased(event: EditorFactoryEvent) {
                     val editor = event.editor
-                    if (editor.project != project) return
+                    // Same guard as editorCreated. Without it every file-less editor the platform
+                    // makes and throws away — inline rename, quick doc, a refactoring preview —
+                    // triggered a full resync on close, though it could never carry a remark.
+                    if (editor.project != project ||
+                        FileDocumentManager.getInstance().getFile(editor.document) == null
+                    ) {
+                        return
+                    }
                     val document = editor.document
+                    val hadRemarks = hasRemarks(document)
                     val stillOpen = EditorFactory.getInstance()
                         .getEditors(document, project)
                         .any { it !== editor }
                     if (!stillOpen) drop(document)
-                    notifyRemarksChanged(project)
+                    if (hadRemarks) notifyRemarksChanged(project)
                 }
             },
             this,
@@ -112,6 +124,17 @@ class RemarkGutter(private val project: Project) : Disposable {
                 .distinct()
                 .forEach { track(it) }
         }
+    }
+
+    /**
+     * Whether the store holds a remark for this document's file. EDT, which already carries read
+     * access, so no explicit read action is needed for the path lookup.
+     */
+    private fun hasRemarks(document: Document): Boolean {
+        val file = FileDocumentManager.getInstance().getFile(document) ?: return false
+        val root = projectRoot(project) ?: return false
+        val path = VfsUtilCore.getRelativePath(file, root) ?: return false
+        return RemarkStore.getInstance(project).all().any { it.path == path }
     }
 
     /** EDT. */
@@ -147,15 +170,15 @@ class RemarkGutter(private val project: Project) : Disposable {
         val placements = RemarkStore.getInstance(project).all()
             .filter { it.path == path && it.id != null }
             .map { remark ->
+                // An orphan keeps its stale numbers rather than losing its icon.
                 val result = resolveAnchor(anchorOf(remark), lines)
-                val range = placementRange(result)
                 RemarkPlacement(
                     id = remark.id!!,
                     text = remark.text.orEmpty(),
                     tag = remark.tag,
                     sent = remark.status == RemarkStatus.SENT,
-                    startLine = range.first,
-                    endLine = range.last,
+                    startLine = result.startLine,
+                    endLine = result.endLine,
                     orphaned = result is AnchorResult.Orphaned,
                 )
             }
@@ -190,11 +213,25 @@ class RemarkGutter(private val project: Project) : Disposable {
         for (placement in computed.placements) {
             val existing = painted[placement.id]
 
+            // The end line is coerced against the START line, not against 0. A hand-edited
+            // workspace.xml can store endLine < startLine, Anchoring hands that back as
+            // Orphaned(startLine, endLine) unchanged, and addRangeHighlighter throws on an
+            // inverted range — which would kill the sync for the whole document.
+            val startLine = placement.startLine.coerceIn(0, lastLine)
+            val endLine = placement.endLine.coerceIn(startLine, lastLine)
+            val start = document.getLineStartOffset(startLine)
+            val end = document.getLineEndOffset(endLine)
+
             // Rule 3. A live highlighter is exact, because the platform moved it with the text.
             // An Orphaned answer here means the resolve could not find the block, which is what
             // happens as soon as a line is added inside it. Keep the live position, and repaint
-            // only what is drawn on it.
-            if (existing != null && existing.isValid && placement.orphaned) {
+            // only what is drawn on it. A highlighter already sitting exactly where the fresh
+            // resolve wants it is kept for the same reason: REMARKS_CHANGED fires on every editor
+            // opening and closing, and destroying and recreating every icon in the file each time
+            // is exactly the churn the renderer's equals and hashCode exist to avoid.
+            if (existing != null && existing.isValid &&
+                (placement.orphaned || (existing.startOffset == start && existing.endOffset == end))
+            ) {
                 existing.gutterIconRenderer = rendererFor(placement)
                 continue
             }
@@ -203,8 +240,6 @@ class RemarkGutter(private val project: Project) : Disposable {
                 painted.remove(placement.id)
                 model.removeHighlighter(it)
             }
-            val start = document.getLineStartOffset(placement.startLine.coerceIn(0, lastLine))
-            val end = document.getLineEndOffset(placement.endLine.coerceIn(0, lastLine))
             painted[placement.id] = model.addRangeHighlighter(
                 start,
                 end,

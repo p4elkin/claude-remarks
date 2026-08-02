@@ -4,6 +4,8 @@ An IntelliJ Platform plugin that lets you attach short remarks to line ranges wh
 
 Select lines, press `Ctrl+Alt+Shift+R` (or use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag, and press Enter. A gutter icon appears on the marked lines and follows the code as you keep editing. The tool window lists every remark as a tree grouped by file. When you are ready, press Copy All Pending in the tool window: every pending remark becomes one markdown prompt on the clipboard, a balloon says how many, and you paste it into a Claude Code session. Copied remarks turn gray in the tool window rather than disappearing, so Copy Selected can send them again if the paste went to the wrong place.
 
+Click a gutter icon to edit or delete that remark. In the tool window, select a row and press Delete to remove it; selecting a whole file node stands for every remark under it, and that case asks first. The toolbar has five buttons: **Copy All Pending**, **Copy Selected** (only the selected rows, already-sent ones included), **Clear Sent** and **Clear All** (both ask first and name how many), and **Refresh**. **Tools → Copy All Pending Claude Remarks** does the same copy without the tool window open, and can be given a keyboard shortcut in the keymap.
+
 Remarks stay on your machine, stored in `.idea/workspace.xml`. The `.idea/.gitignore` that the IDE generates excludes that file, so remarks stay out of version control. A repository that deliberately tracks `.idea/workspace.xml` is the exception: there they would be committed like any other change to that file. The instruction header shown at the top of every copied prompt is editable in **Settings → Tools → Claude Remarks**.
 
 ## Phases
@@ -47,7 +49,7 @@ Run all tests:
 ./gradlew test
 ```
 
-142 tests. Most are plain JUnit with no fixture and run in milliseconds: anchoring, the stored state's XML round trip and its mutators, the resolver helpers, the tree's node-building, the markdown renderer, and the settings round trip. The rest start a light IDE fixture (`BasePlatformTestCase`) and are slower, because each goes through a real project service, a real `Document`, or a real markup model — among them the mutation functions and their change notification, the input popup's key bindings, the Add Remark action, the gutter icon renderer's equality, the gutter service itself, the tool window's navigation, the payload collector, and the copy action.
+147 tests. Most are plain JUnit with no fixture and run in milliseconds: anchoring, the stored state's XML round trip and its mutators, the resolver helpers, the tree's node-building, the markdown renderer, and the settings round trip. The rest start a light IDE fixture (`BasePlatformTestCase`) and are slower, because each goes through a real project service, a real `Document`, or a real markup model — among them the mutation functions and their change notification, the input popup's key bindings, the Add Remark action, the gutter icon renderer's equality, the gutter service itself, the tool window's tree and its navigation, the payload collector, and the copy action.
 
 There are no UI-rendering or end-to-end tests. The popup appearing at the caret, the gutter icon painting, the tree colours, the balloon, and the settings page layout are checked by hand in a sandbox IDE — see "Running in a Sandbox IDE" above.
 

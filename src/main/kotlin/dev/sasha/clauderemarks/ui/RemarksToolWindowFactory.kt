@@ -60,7 +60,8 @@ class RemarksPanel(
     private val parent: Disposable,
 ) : SimpleToolWindowPanel(true, true) {
 
-    private val tree = Tree(DefaultTreeModel(DefaultMutableTreeNode("remarks")))
+    /** Internal, not private, so RemarksPanelTest can look at what the refresh left on screen. */
+    internal val tree = Tree(DefaultTreeModel(DefaultMutableTreeNode("remarks")))
 
     init {
         tree.isRootVisible = false
@@ -96,8 +97,13 @@ class RemarksPanel(
             .expireWith(parent)
             .coalesceBy(this)
             .finishOnUiThread(ModalityState.defaultModalityState()) { rows ->
+                // setRoot throws the selection away, and the tree is rebuilt on every remark change
+                // and on every editor opening, so without this a row you selected stops being
+                // selected the moment you use it and Copy Selected greys itself out.
+                val wasSelected = selectedIds().toSet()
                 (tree.model as DefaultTreeModel).setRoot(buildTreeRoot(rows))
                 expandAll()
+                restoreSelection(wasSelected)
             }
             .submit(AppExecutorUtil.getAppExecutorService())
     }
@@ -105,9 +111,30 @@ class RemarksPanel(
     /** The ids currently selected, in the order the tree shows them. */
     fun selectedIds(): List<String> = selectedNodes().map { it.id }
 
+    /**
+     * A while loop, NOT `for (row in 0 until tree.rowCount)`: that builds the range once, from the
+     * row count before anything expanded, so expanding the first file pushed the other file nodes
+     * past the end of the range and every file but the first stayed shut.
+     */
     private fun expandAll() {
-        for (row in 0 until tree.rowCount) tree.expandRow(row)
+        var row = 0
+        while (row < tree.rowCount) {
+            tree.expandRow(row)
+            row++
+        }
     }
+
+    /** Called after expandAll, so every row is on screen and has a row index to select. */
+    private fun restoreSelection(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        val paths = (0 until tree.rowCount)
+            .map { tree.getPathForRow(it) }
+            .filter { nodeOf(it.lastPathComponent)?.id in ids }
+        if (paths.isNotEmpty()) tree.selectionPaths = paths.toTypedArray()
+    }
+
+    private fun nodeOf(component: Any?): RemarkNode? =
+        (component as? DefaultMutableTreeNode)?.userObject as? RemarkNode
 
     /** A selected file node counts as all its rows; see remarkNodesUnder in RemarksTree.kt. */
     private fun selectedNodes(): List<RemarkNode> =
@@ -126,12 +153,27 @@ class RemarksPanel(
     }
 
     /**
-     * No confirmation: this acts on rows the user selected and then pressed Delete on, which is
-     * not silent. Clear All is the one that asks, because it also throws away pending remarks.
+     * Deleting the rows you picked out asks nothing: you selected them and then pressed Delete,
+     * which is not silent. Selecting a file node is the other case — it stands for every row under
+     * it, and on a collapsed node that is an unknown number of remarks nobody has copied yet. That
+     * one asks, the same way Clear All does.
      */
     private fun deleteSelected() {
-        selectedNodes().forEach { deleteRemark(project, it.id) }
+        val nodes = selectedNodes()
+        if (nodes.isEmpty()) return
+        val pickedOut = tree.selectionPaths.orEmpty().count { nodeOf(it.lastPathComponent) != null }
+        if (nodes.size > pickedOut && !confirmDelete(nodes.size)) return
+        nodes.forEach { deleteRemark(project, it.id) }
     }
+
+    private fun confirmDelete(count: Int): Boolean =
+        Messages.showYesNoDialog(
+            project,
+            "Delete $count remark${if (count == 1) "" else "s"} under the selected file" +
+                "${if (count == 1) "" else "s"}? This cannot be undone.",
+            "Delete Claude Remarks",
+            Messages.getWarningIcon(),
+        ) == Messages.YES
 
     /**
      * A toolbar button that greys out when it would do nothing.

@@ -50,9 +50,19 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
  * The anchored lines, marked with ">", plus whatever context came with them. The fence is tagged
  * "text" rather than a real language: the line-number gutter breaks syntax highlighting anyway,
  * and a wrong language tag reads worse than none.
+ *
+ * An orphan arrives here with no code, on purpose: its stored line numbers no longer point at its
+ * own code, so there is nothing honest to quote. Saying that is not the same as saying the file
+ * could not be read, so the two cases get different words.
  */
 private fun codeBlock(remark: RenderedRemark): String {
-    if (remark.code.isEmpty()) return "```text\n(the file could not be read)\n```\n"
+    val fence = "`".repeat(maxOf(3, longestBacktickRun(remark.code) + 1))
+    if (remark.code.isEmpty()) {
+        val why =
+            if (remark.orphaned) "(the code this remark points at could not be found in the file)"
+            else "(the file could not be read)"
+        return "${fence}text\n$why\n$fence\n"
+    }
 
     val lastNumber = remark.codeStartLine + remark.code.size
     val width = lastNumber.toString().length
@@ -61,5 +71,15 @@ private fun codeBlock(remark: RenderedRemark): String {
         val marker = if (number in remark.startLine..remark.endLine) ">" else " "
         "$marker ${number.plus(1).toString().padStart(width)} | $line"
     }
-    return "```text\n" + body.joinToString("\n") + "\n```\n"
+    return "${fence}text\n" + body.joinToString("\n") + "\n$fence\n"
 }
+
+/**
+ * How long the longest run of backticks inside the quoted code is, so the fence can be made longer
+ * than it. Source that itself holds a fenced block — a .md file, a doc comment with an example —
+ * would otherwise close the fence early and the rest of the prompt would be read as prose.
+ */
+private fun longestBacktickRun(code: List<String>): Int =
+    code.maxOfOrNull { line -> BACKTICKS.findAll(line).maxOfOrNull { it.value.length } ?: 0 } ?: 0
+
+private val BACKTICKS = Regex("`+")

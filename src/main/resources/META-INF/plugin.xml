@@ -33,5 +33,13 @@
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="control alt shift R"/>
         </action>
+        <!-- The same copy as the tool window's toolbar button, so copying does not need the tool
+             window to be open. No default keystroke: this is a keymap entry the user assigns. -->
+        <action id="ClaudeRemarks.CopyAll"
+                class="dev.sasha.clauderemarks.action.CopyAllRemarksAction"
+                text="Copy All Pending Claude Remarks"
+                description="Turn every pending remark into one markdown prompt on the clipboard">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>

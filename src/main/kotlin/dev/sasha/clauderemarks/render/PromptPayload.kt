@@ -37,10 +37,15 @@ fun clipboardPayload(
         return Clipboard(markdown, null)
     }
     Files.createDirectories(tempDir)
-    val file = tempDir.resolve("claude-remarks-${System.currentTimeMillis()}.md")
+    // createTempFile, not resolve("claude-remarks-<millis>.md"): the temp directory is shared and
+    // world-writable, so a predictable name can be pre-created as a symlink by anyone on the
+    // machine and the write would then land on whatever it points at. createTempFile picks an
+    // unpredictable name, refuses to follow an existing entry, and on POSIX creates the file
+    // rw------- instead of leaving remark text and source slices readable by every local user.
+    val file = Files.createTempFile(tempDir, "claude-remarks-", ".md")
     Files.writeString(file, markdown, StandardCharsets.UTF_8)
-    // It holds remark text and slices of source, and on Linux /tmp is world-readable, so it does
-    // not outlive the IDE. The paste has already happened by then.
+    // It holds remark text and slices of source, so it does not outlive the IDE. The paste has
+    // already happened by then.
     file.toFile().deleteOnExit()
     return Clipboard(file.toAbsolutePath().toString(), file)
 }
@@ -48,8 +53,14 @@ fun clipboardPayload(
 /**
  * Reads the code behind each resolved remark. Must be called inside a read action, off the EDT.
  *
- * A remark is never dropped. When the file is gone or has no Document, the remark still comes back,
- * marked orphaned with no code, and the renderer says so.
+ * A remark is never dropped. An orphaned remark still comes back, marked orphaned and with no code,
+ * and the renderer says so.
+ *
+ * No code for an orphan is the whole point of the orphan label. Orphaned means the hash did not
+ * match and the context did not match, so whatever now sits at the stored line numbers is not the
+ * remark's code. Quoting it would be worse than quoting nothing: the prompt header tells the model
+ * to find the code by reading the quoted lines rather than by trusting the numbers, so unrelated
+ * code shipped under a ">" marker is an instruction to act on the wrong lines.
  *
  * Each file is read once, even with several remarks in it: a Document read is cheap, but
  * document.text.split on a large file is not, and a marked-up file usually holds several remarks.
@@ -79,6 +90,7 @@ fun collectForPrompt(
     return rows.map { row ->
         val path = row.remark.path.orEmpty()
         val lines = linesOf(path)
+        val orphaned = row.result is AnchorResult.Orphaned
         val start = row.result.startLine
         val end = row.result.endLine
         val from = (start - contextLines).coerceAtLeast(0)
@@ -90,9 +102,10 @@ fun collectForPrompt(
             endLine = end,
             tag = row.remark.tag?.label,
             text = row.remark.text.orEmpty(),
-            orphaned = row.result is AnchorResult.Orphaned,
+            orphaned = orphaned,
             codeStartLine = from,
-            code = if (lines == null || from >= to) emptyList() else lines.subList(from, to),
+            code = if (orphaned || lines == null || from >= to) emptyList()
+            else lines.subList(from, to),
         )
     }
 }

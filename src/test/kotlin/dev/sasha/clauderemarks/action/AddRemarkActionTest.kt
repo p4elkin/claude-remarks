@@ -124,7 +124,13 @@ class AddRemarkActionTest : BasePlatformTestCase() {
         val onDisk = File(project.basePath!!, "Foo.kt")
         onDisk.parentFile.mkdirs()
         onDisk.writeText(CONTENT)
-        return LocalFileSystem.getInstance().refreshAndFindFileByIoFile(onDisk)!!
+        val file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(onDisk)!!
+        // The light fixture project is shared by every test class in the JVM, and several of them
+        // write their own content to this same path. refreshAndFindFileByIoFile does NOT re-read a
+        // file VFS already knows about, so without this the Document here can hold another class's
+        // text and the line assertions below depend on which class ran first.
+        file.refresh(false, false)
+        return file
     }
 
     /** "beta" and "gamma" selected as whole lines, the way a gutter drag leaves a selection. */

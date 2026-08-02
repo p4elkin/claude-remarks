@@ -16,11 +16,11 @@ A remark has these fields:
 - `path`: The file path, relative to the project root. Produced by `VfsUtilCore.getRelativePath(file, projectRoot)`. This is what gets shown in the tool window and written into dispatch prompts.
 - `startLine`, `endLine`: The 0-based, inclusive line numbers of the anchored range.
 - `text`: The user's note (what they wrote in the remark).
-- `tag`: An optional category from `RemarkTag.BUG | QUESTION | REFACTOR | NOTE`.
-- `status`: One of `RemarkStatus.PENDING` or `RemarkStatus.SENT`. Defaults to `PENDING`. Nothing
-  assigns `SENT` yet — the dispatch step that would is phase 5, so the tool window always shows
-  `[PENDING]`. The same holds for `tag`: it is persisted and round-trip tested, but the debug
-  action never sets it.
+- `tag`: An optional category from `RemarkTag.BUG | QUESTION | REFACTOR | NOTE`, picked in the
+  input popup (`ui/RemarkInputPanel.kt`) when the remark is written or edited.
+- `status`: One of `RemarkStatus.PENDING` or `RemarkStatus.SENT`. Defaults to `PENDING`. Set to
+  `SENT` by `markRemarksSent` once a copy reaches the clipboard — see "The Copy Pipeline" below.
+  Sent remarks stay in the list, drawn gray, until Clear Sent.
 - `createdAt`: Timestamp when the remark was created.
 - `textHash`: The first 16 hex characters of a SHA-256 hash of the lines at creation time.
 - `contextBefore`, `contextAfter`: A few lines of context from above and below the remark, joined with newlines in a single string. Stored this way instead of as a list because the serializer handles single strings more predictably.
@@ -149,10 +149,9 @@ directly:
 The `@State(name = "ClaudeRemarks", ...)` annotation, the storage, and the `@get:XCollection` on the
 list are all untouched, so what lands in `workspace.xml` is byte-for-byte the same shape as before.
 
-**The list copy is shallow: it shares the `RemarkState` objects with the live state.** Nothing
-mutates a remark after it has been added. Even when phase 5 starts flipping `status` in place, a
-single field write reads as either the old value or the new one, never as a corrupt one, and the
-next save writes the new value. A deep copy would mean cloning `RemarkState` field by field, and a
+**The list copy is shallow: it shares the `RemarkState` objects with the live state.** `editRemark`
+and `markSent` do mutate an element in place, and that is safe: a single field write reads as either
+the old value or the new one, never as a corrupt one, and the next save writes the new value. A deep copy would mean cloning `RemarkState` field by field, and a
 field forgotten in that clone later would drop out of `workspace.xml` with no error — a worse bug
 than the one this fixes.
 

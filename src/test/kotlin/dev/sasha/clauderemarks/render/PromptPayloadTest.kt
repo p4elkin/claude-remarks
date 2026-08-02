@@ -105,6 +105,26 @@ class CollectForPromptTest : BasePlatformTestCase() {
     }
 
     /**
+     * The one that matters most. An orphan's stored line numbers point at whatever drifted into
+     * that position, and the prompt header tells Claude to trust the quoted lines over the numbers.
+     * Quoting the code at the stale numbers would therefore hand an instruction to unrelated code.
+     */
+    fun testAnOrphanOnAFileThatStillExistsCarriesNoCode() {
+        writeFile("Foo.kt", (1..20).joinToString("\n") { "line $it" })
+        // The anchor is captured from text the file does not hold, so neither the hash nor the
+        // context can be found again and the resolve comes back orphaned — with the file readable.
+        addRemark(project, "Foo.kt", (1..20).map { "unrelated $it" }, 9..10, "why?", null)
+
+        val collected = collectForPrompt(project, resolveAll(project)).single()
+
+        assertTrue(collected.orphaned)
+        assertTrue(
+            "an orphan must not quote the code that now sits at its stale line numbers",
+            collected.code.isEmpty(),
+        )
+    }
+
+    /**
      * Renamed from testEachFileIsReadOnceEvenWithSeveralRemarksInIt, which asserted only the row
      * count and passed with the cache deleted outright. The name now says what it checks: two
      * remarks in one file each come back with their own slice of it.

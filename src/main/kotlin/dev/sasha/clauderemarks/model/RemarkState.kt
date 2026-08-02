@@ -2,14 +2,13 @@ package dev.sasha.clauderemarks.model
 
 import com.intellij.openapi.components.BaseState
 
-/** Persisted and round-trip tested, but nothing sets it yet: phase 3's inline input is the first
- *  place a person picks a tag. The debug action always leaves it null. */
+/** Picked in the input popup (`ui/RemarkInputPanel.kt`) when a remark is added or edited. */
 enum class RemarkTag { BUG, QUESTION, REFACTOR, NOTE }
 
 /** Lowercase, because this exact string is printed into the tree, the tooltip and the prompt. */
 val RemarkTag.label: String get() = name.lowercase()
 
-/** SENT is written by the dispatch step in phase 5. Until then every remark stays PENDING. */
+/** SENT is written by `markRemarksSent` once a copy reaches the clipboard, in `action/CopyRemarks.kt`. */
 enum class RemarkStatus { PENDING, SENT }
 
 /**

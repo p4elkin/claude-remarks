@@ -39,7 +39,7 @@ class CopyRemarksTest : BasePlatformTestCase() {
         val prepared = prepare(project, null)
 
         assertTrue(prepared.ids.isEmpty())
-        assertEquals("", prepared.clipboard.text)
+        assertEquals("", prepared.markdown)
     }
 
     private companion object {

@@ -102,6 +102,26 @@ class PromptRendererTest {
     }
 
     @Test
+    fun `an orphan with no code says so, and does not blame the file`() {
+        val out = renderPrompt("H", listOf(remark("a.kt", 4, orphaned = true, code = emptyList())))
+
+        assertTrue(out.contains("could not be found in the file"))
+        assertFalse(out.contains("could not be read"))
+    }
+
+    /** A remark on a .md file, or on any code holding an example fence. */
+    @Test
+    fun `code holding a fence gets a longer fence, so the block cannot close early`() {
+        val out = renderPrompt(
+            "H",
+            listOf(remark("doc.md", 1, code = listOf("```kotlin", "val a = 1", "```"))),
+        )
+
+        assertTrue(out.contains("````text"))
+        assertTrue(out.trimEnd().endsWith("````"))
+    }
+
+    @Test
     fun `an empty list renders the header alone`() {
         assertEquals("HEADER", renderPrompt("HEADER", emptyList()).trim())
     }
