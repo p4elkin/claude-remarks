@@ -4040,7 +4040,7 @@ tool window is.
 
 **Model:** haiku
 
-- [ ] confirm no source file is ever written to. The pattern is the one already in `CLAUDE.md`:
+- [x] confirm no source file is ever written to. The pattern is the one already in `CLAUDE.md`:
 
 ```bash
 grep -rnE "WriteCommandAction|WriteAction\.|runWriteAction|insertString|replaceString|deleteString|[Dd]ocument\.setText|setBinaryContent" src/
@@ -4049,20 +4049,20 @@ grep -rnE "WriteCommandAction|WriteAction\.|runWriteAction|insertString|replaceS
   Must return nothing and exit 1. Phase 4 writes a file, but with `Files.writeString` into the
   system temp directory, which is neither a source file nor inside the project.
 
-- [ ] confirm the anchoring module still has no platform dependency:
+- [x] confirm the anchoring module still has no platform dependency:
 
 ```bash
 grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/anchor/
 ```
 
-- [ ] confirm the renderer has none either, and add this second grep to `CLAUDE.md` in the next
+- [x] confirm the renderer has none either, and add this second grep to `CLAUDE.md` in the next
       task so it stays true:
 
 ```bash
 grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt
 ```
 
-- [ ] confirm the six functions in `RemarkEdits.kt` really are the only way production code changes
+- [x] confirm the six functions in `RemarkEdits.kt` really are the only way production code changes
       a remark. The store's mutators stay public and `RemarkEdits.kt` sits in the same package, so
       nothing but this check keeps the claim true. Add it to `CLAUDE.md` in the next task as well:
 
@@ -4074,16 +4074,16 @@ grep -rnE "RemarkStore\\.getInstance\\([^)]*\\)\\.(add|remove|edit|markSent|remo
   Test code is deliberately outside the pattern: the fixture-backed tests call
   `RemarkStore.getInstance(project).clear()` in `setUp` on purpose.
 
-- [ ] confirm nothing remark-related can enter version control: the project data is in
+- [x] confirm nothing remark-related can enter version control: the project data is in
       `.idea/workspace.xml` (excluded by the IDE's generated `.idea/.gitignore`), the settings are
       in the IDE configuration directory, and the large-payload file is under `java.io.tmpdir`.
       There is no path that writes inside the project directory.
-- [ ] confirm a remark is still never dropped: `collectForPrompt` maps every row and never filters,
+- [x] confirm a remark is still never dropped: `collectForPrompt` maps every row and never filters,
       and `resolveAll` was already checked in phase 1-2. Grep for `mapNotNull` and `filter` under
       `src/main/kotlin/` and check each hit is either a selection the user made or a null-id guard.
-- [ ] run the full test suite: `./gradlew test`
-- [ ] run `./gradlew verifyPlugin` and read the report for any compatibility problem against 2025.2
-- [ ] run `./gradlew buildPlugin` and confirm a zip appears under `build/distributions/`
+- [x] run the full test suite: `./gradlew test`
+- [x] run `./gradlew verifyPlugin` and read the report for any compatibility problem against 2025.2
+- [x] run `./gradlew buildPlugin` and confirm a zip appears under `build/distributions/`
 
 ### Task 13: Update the design doc, CLAUDE.md and the README
 
