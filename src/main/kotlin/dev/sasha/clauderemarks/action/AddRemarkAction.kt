@@ -1,5 +1,6 @@
 package dev.sasha.clauderemarks.action
 
+import com.intellij.codeInsight.hint.HintManager
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -24,9 +25,12 @@ class AddRemarkAction : AnAction() {
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
     /**
-     * Visible always, enabled only where a remark can actually be stored, and the reason goes in
-     * the description. isEnabledAndVisible would REMOVE the item from the menu instead of greying
-     * it out, which is what the debug action did and what users read as a broken plugin.
+     * Visible and enabled whenever there is a project and an editor to act on. Whether a remark
+     * can actually be stored here (relativePathOf, projectRoot...) is NOT part of enablement any
+     * more: a diff viewer popup shows a greyed-out item's description nowhere the user can see, so
+     * a refusal there used to be indistinguishable from a bug. actionPerformed shows the same
+     * reason at the caret instead, where it is guaranteed visible. The description is still set,
+     * because the main menu and Search Everywhere DO show it.
      */
     override fun update(e: AnActionEvent) {
         val editor = e.getData(CommonDataKeys.EDITOR)
@@ -37,7 +41,7 @@ class AddRemarkAction : AnAction() {
             else -> remarkTargetProblem(project, editor)
         }
         e.presentation.isVisible = true
-        e.presentation.isEnabled = problem == null
+        e.presentation.isEnabled = project != null && editor != null
         e.presentation.description = problem ?: ADD_HINT
     }
 
@@ -48,9 +52,20 @@ class AddRemarkAction : AnAction() {
     }
 }
 
-/** Opens the input at the caret for a new remark on the current selection. EDT only. */
+/**
+ * Opens the input at the caret for a new remark on the current selection. EDT only.
+ *
+ * Both callers (the action and the Alt+Enter intention) funnel through here, so the refusal
+ * reason is shown in exactly one place: showErrorHint puts it at the caret, which works in every
+ * context an editor exists in, including a diff viewer popup where a presentation description is
+ * never shown to the user.
+ */
 fun openNewRemarkInput(project: Project, editor: Editor) {
-    if (remarkTargetProblem(project, editor) != null) return
+    val problem = remarkTargetProblem(project, editor)
+    if (problem != null) {
+        HintManager.getInstance().showErrorHint(editor, problem)
+        return
+    }
     val path = relativePathOf(project, editor) ?: return
     val document = editor.document
     val selection = editor.selectionModel

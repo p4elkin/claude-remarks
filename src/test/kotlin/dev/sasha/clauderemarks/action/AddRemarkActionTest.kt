@@ -28,7 +28,10 @@ import java.nio.file.Path
  * The three setups are carried over from the debug action's tests, because the question they ask
  * has not changed: is the edited file under project.basePath. What HAS changed is the answer when
  * it is not. The old action removed itself from the menu, which reads as "the plugin is broken".
- * This one stays visible, greys out, and says why.
+ * The greyed-out successor was no better: a diff viewer popup shows nobody the presentation
+ * description, so a disabled item was still indistinguishable from a bug. Now the action stays
+ * enabled everywhere a project and an editor exist, and openNewRemarkInput shows the reason with
+ * HintManager instead of silently storing nothing or silently returning.
  */
 class AddRemarkActionTest : BasePlatformTestCase() {
 
@@ -48,7 +51,13 @@ class AddRemarkActionTest : BasePlatformTestCase() {
         assertTrue(event.presentation.isEnabled)
     }
 
-    fun testAnInMemoryFixtureFileLeavesTheItemVisibleButDisabled() {
+    /**
+     * A fixture file has no project-relative path (it lives on the "temp" file system), so
+     * remarkTargetProblem refuses it. The action must still be enabled and visible — a diff
+     * viewer popup never shows a disabled item's description, so the old greyed-out behaviour was
+     * indistinguishable from a bug. Invoking the action must show the reason and store nothing.
+     */
+    fun testAnInMemoryFixtureFileIsEnabledButStoresNoRemark() {
         myFixture.configureByText("Foo.kt", CONTENT)
         val documentFile = FileDocumentManager.getInstance().getFile(myFixture.editor.document)!!
 
@@ -59,16 +68,27 @@ class AddRemarkActionTest : BasePlatformTestCase() {
         action.update(event)
 
         assertTrue("the item must not vanish", event.presentation.isVisible)
-        assertFalse(event.presentation.isEnabled)
-        assertNotNull(event.presentation.description)
+        assertTrue("must stay enabled: nothing shows a disabled item's description here", event.presentation.isEnabled)
+
+        action.actionPerformed(event)
+
+        assertTrue(
+            "no remark may be stored for a file with no project-relative path",
+            RemarkStore.getInstance(project).all().isEmpty(),
+        )
+        assertEquals(
+            "Foo.kt is outside the project directory, so a remark on it could not be found again.",
+            remarkTargetProblem(project, myFixture.editor),
+        )
     }
 
     /**
      * The same file through a symlink to the project directory. VFS keeps the symlink as its own
      * node, so the root is not an ancestor and getRelativePath returns null. On macOS this is
-     * ordinary: /tmp and /var are symlinks into /private.
+     * ordinary: /tmp and /var are symlinks into /private. Same expectations as the fixture-file
+     * case: enabled, no remark stored, and remarkTargetProblem names the reason.
      */
-    fun testAFileReachedThroughASymlinkLeavesTheItemVisibleButDisabled() {
+    fun testAFileReachedThroughASymlinkIsEnabledButStoresNoRemark() {
         val real = fileUnderProjectRoot()
         val root = Path.of(project.basePath!!)
         val link = root.resolveSibling(root.fileName.toString() + "_link")
@@ -77,12 +97,24 @@ class AddRemarkActionTest : BasePlatformTestCase() {
             VfsRootAccess.allowRootAccess(testRootDisposable, link.toString())
             val throughLink = LocalFileSystem.getInstance()
                 .refreshAndFindFileByPath(link.resolve(real.name).toString())!!
+            val editor = editorFor(throughLink)
 
-            val event = TestActionEvent.createTestEvent(action, contextFor(editorFor(throughLink)))
+            val event = TestActionEvent.createTestEvent(action, contextFor(editor))
             action.update(event)
 
             assertTrue("the item must not vanish", event.presentation.isVisible)
-            assertFalse(event.presentation.isEnabled)
+            assertTrue("must stay enabled: nothing shows a disabled item's description here", event.presentation.isEnabled)
+
+            action.actionPerformed(event)
+
+            assertTrue(
+                "no remark may be stored for a file reached through a symlink",
+                RemarkStore.getInstance(project).all().isEmpty(),
+            )
+            assertEquals(
+                "${throughLink.name} is outside the project directory, so a remark on it could not be found again.",
+                remarkTargetProblem(project, editor),
+            )
         } finally {
             Files.deleteIfExists(link)
         }
