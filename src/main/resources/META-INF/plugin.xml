@@ -22,6 +22,7 @@
                                  id="dev.sasha.clauderemarks.settings"
                                  displayName="Claude Remarks"
                                  parentId="tools"/>
+        <notificationGroup id="Claude Remarks" displayType="BALLOON"/>
     </extensions>
 
     <actions>

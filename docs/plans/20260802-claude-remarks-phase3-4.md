@@ -3706,7 +3706,7 @@ finished `Clipboard`, file and all. An earlier draft called `clipboardPayload` i
 only for payloads over 100 KB, which is exactly when the write is slowest. The EDT step now does
 three cheap things: copy, mark sent, show the balloon.
 
-- [ ] add to `plugin.xml`, inside `<extensions defaultExtensionNs="com.intellij">`:
+- [x] add to `plugin.xml`, inside `<extensions defaultExtensionNs="com.intellij">`:
 
 ```xml
         <notificationGroup id="Claude Remarks" displayType="BALLOON"/>
@@ -3721,7 +3721,7 @@ bytecode carries no `Deprecated` attribute on `getNotificationGroup`. What **is*
 most `createNotification` overloads. The two that are not are `createNotification(String content, NotificationType)`
 and `createNotification(String title, String content, NotificationType)`. Use one of those.
 
-- [ ] create `CopyRemarks.kt`:
+- [x] create `CopyRemarks.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.action
@@ -3819,7 +3819,7 @@ internal fun notifyRemarks(project: Project, message: String) {
 
 `.expireWith(project)` compiles: `Project` extends `Disposable`. Checked by compiling it.
 
-- [ ] write the test in `CopyRemarksTest.kt`:
+- [x] write the test in `CopyRemarksTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.action
@@ -3872,12 +3872,12 @@ class CopyRemarksTest : BasePlatformTestCase() {
 }
 ```
 
-- [ ] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.action.*"` — must pass
-- [ ] **mutation check**: change the `wanted == null` branch in `prepare` to take every remark
+- [x] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.action.*"` — must pass
+- [x] **mutation check**: change the `wanted == null` branch in `prepare` to take every remark
       rather than the pending ones. `testCopyAllLeavesOutRemarksThatWereAlreadySent` must fail.
       Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 11: The toolbar (ends phase 4)
 
