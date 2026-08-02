@@ -1666,7 +1666,7 @@ Four cases have to work, and each has a test:
 And the project directory may be below the repository root — a module inside a monorepo — so the
 search walks up.
 
-- [ ] write the failing tests in `GitHeadTest.kt`:
+- [x] write the failing tests in `GitHeadTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.store
@@ -1767,9 +1767,9 @@ class GitHeadTest {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.GitHeadTest"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.GitHeadTest"` — expect a compile
       failure
-- [ ] create `store/GitHead.kt`:
+- [x] create `store/GitHead.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.store
@@ -1845,15 +1845,15 @@ private fun readTrimmed(path: Path): String? =
     runCatching { Files.readString(path).trim() }.getOrNull()
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.GitHeadTest"` — must pass
-- [ ] confirm the file has no platform import:
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.GitHeadTest"` — must pass
+- [x] confirm the file has no platform import:
       `grep -n "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/store/GitHead.kt` must find
       nothing
-- [ ] **mutation check**: change `commonDir` to always be `gitDir`.
+- [x] **mutation check**: change `commonDir` to always be `gitDir`.
       `a worktree reads its own HEAD and the shared refs` must fail. Restore it. Then delete the
       `packedRef` fallback (return `loose` alone) and confirm
       `a packed ref is found when there is no loose one` fails.
-- [ ] commit
+- [x] commit
 
 ### Task 9: Stamp each remark with the commit, and show it
 
