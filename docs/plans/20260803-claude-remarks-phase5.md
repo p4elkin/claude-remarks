@@ -2217,7 +2217,7 @@ Both functions take the history file as a defaulted parameter. That is what make
 testable: a test can point them at a temporary file, and at a path whose parent is an existing
 *file*, which makes `createDirectories` throw on every platform.
 
-- [ ] write the failing tests in `RemarkEditsTest.kt`:
+- [x] write the failing tests in `RemarkEditsTest.kt`:
 
 ```kotlin
     fun testClearSentWritesTheRemarksToTheHistoryFileFirst() {
@@ -2255,9 +2255,9 @@ testable: a test can point them at a temporary file, and at a path whose parent 
     }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkEditsTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkEditsTest"` — expect a
       compile failure
-- [ ] change the two functions in `RemarkEdits.kt`:
+- [x] change the two functions in `RemarkEdits.kt`:
 
 ```kotlin
 /**
@@ -2305,10 +2305,10 @@ Imports to add: `com.intellij.notification.NotificationType`,
 `java.io.IOException`, `java.nio.file.Path`. `notifyRemarks` is `internal`, and Kotlin's `internal`
 is module-wide, so it is reachable from this package.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` — all must pass
-- [ ] **mutation check**: change `archive` to `return true` in its catch block instead of `false`.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` — all must pass
+- [x] **mutation check**: change `archive` to `return true` in its catch block instead of `false`.
       `testNothingIsDeletedWhenTheHistoryFileCannotBeWritten` must fail. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 12: Class-name completion — read the recommendation first
 

@@ -4,6 +4,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
+import java.nio.file.Files
 
 /**
  * The six functions that are the only way production code changes a remark. Each one must both
@@ -161,6 +162,40 @@ class RemarkEditsTest : BasePlatformTestCase() {
 
         assertEquals(3, heard)
         assertEquals(0, RemarkStore.getInstance(project).all().size)
+    }
+
+    fun testClearSentWritesTheRemarksToTheHistoryFileFirst() {
+        val stored = addOne()
+        markRemarksSent(project, listOf(stored.id!!))
+        val history = Files.createTempDirectory("h").resolve("history.md")
+
+        assertEquals(1, clearSentRemarks(project, history))
+
+        assertEquals(0, RemarkStore.getInstance(project).all().size)
+        assertTrue(Files.readString(history).contains("note"))
+    }
+
+    fun testClearAllWritesEveryRemarkToTheHistoryFileFirst() {
+        addOne()
+        addOne()
+        val history = Files.createTempDirectory("h").resolve("history.md")
+
+        assertEquals(2, clearAllRemarks(project, history))
+
+        assertEquals(0, RemarkStore.getInstance(project).all().size)
+    }
+
+    /**
+     * The rule that matters. A remark that could not be archived must still be in the store: an
+     * archive that failed followed by a delete that succeeded is a remark lost with nothing said.
+     */
+    fun testNothingIsDeletedWhenTheHistoryFileCannotBeWritten() {
+        addOne()
+        val blocked = Files.createTempFile("blocked", ".txt").resolve("history.md")
+
+        assertEquals(0, clearAllRemarks(project, blocked))
+
+        assertEquals(1, RemarkStore.getInstance(project).all().size)
     }
 
     private fun addOne() = addRemark(
