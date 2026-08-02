@@ -8,6 +8,22 @@ Raised by Sasha on 2026-08-02, after the first real install into IntelliJ.
 
 ## Named buckets in the tool window
 
+**Built in phase 5.** See `docs/claude/design.md`, section "Buckets", for the actual shape:
+`RemarkState.bucket`, a third tree level that appears only once a bucket is used, and
+`remarkNodesUnder` walking the whole subtree under a selected node. Two of the open questions below
+were answered by cutting rather than building:
+
+- **No current bucket.** A whole reading pass is bucketed at once, by selecting several rows and
+  choosing Move to Bucket, so there was nothing for a "current bucket" default to save. Add one if
+  someone forgets to move remarks afterwards and minds.
+- **No Copy Bucket button.** Selecting the bucket node and pressing Copy Selected already means
+  "copy this bucket," once Copy Selected walks the whole subtree instead of one level down. One
+  fewer button, one fewer thing to grey out correctly.
+
+The nesting order shipped as bucket → file → remark, not bucket → tag → file, for the reason
+already given below: it keeps the file grouping people already have, and the copied prompt is
+grouped by file for the same reason. There is no toggle between the two orders.
+
 Group remarks into buckets the user names, instead of only by file. A bucket would be something
 like "auth refactor" or "review of MR 412". Inside a bucket, sub-group by the tags that already
 exist (bug, question, refactor, note).
@@ -33,6 +49,18 @@ Open questions, worth settling before writing code:
   Copy All keeps meaning everything.
 
 ## Class name completion in the remark input
+
+**Built in phase 5, the cheap version only.** `Ctrl+Space` in the remark box opens a chooser
+(`ui/ClassNameInsert.kt`) listing every class name in the project and inserts the one picked at the
+caret. See `docs/claude/design.md`, section "Tag chips, and picking one from the keyboard".
+
+**The `EditorTextField` swap described below was cut, not built.** The phase 5 plan's own
+recommendation was to drop it: the prompt already quotes the code each remark points at, so a
+symbol name in the remark text is only useful when it names a *different* place, and the platform's
+own Copy Reference (`Ctrl+Alt+Shift+C`) already puts a fully qualified name on the clipboard for
+that — the remark box already accepts paste. The full swap would have cost the Enter and
+Shift+Enter bindings, a fight over which of two nested popups owns Escape, and an IdeaVim
+interaction nobody has tested, all to save typing a name that pasting already solves.
 
 Offer completion for class names and fully qualified names while typing a remark, so a remark can
 say `see JcrSessionProvider` without typing it out or getting it wrong.
@@ -93,6 +121,20 @@ changes how much of this is left to build.
 
 ## Keep the history, and stamp each remark with the commit it was written against
 
+**Built in phase 5, with one change from the recommendation below.** See `docs/claude/design.md`,
+sections "The commit stamp" and "The history file, and archiving before delete". The commit is read
+from `.git` directly (`store/GitHead.kt`), captured once when the remark is written, never
+refreshed — exactly as recommended. The history itself is a markdown file, not a second list: this
+note below leans toward "move cleared remarks into a second list," but a persisted collection would
+have copied `RemarkStore`'s whole thread-safety shape for a second time and added a second
+`@get:XCollection` with its own silent-data-loss trap, for something that still needed a browse
+window before anyone could read one archived remark either way. A markdown file gives the same
+"nothing in the active list grows" property for about fifteen lines, and is readable, greppable and
+pasteable today. What that trade gives up: there is no button that restores an archived remark. A
+single Delete on one row still does not archive — only Clear Sent and Clear All do — for the reason
+given in the phase 5 plan: an explicit "this one was a mistake" shouldn't be mixed into a history
+file with every real remark.
+
 Stop throwing remarks away when they are cleared. Keep every remark ever written, including the
 ones Clear Sent and Clear All remove today. When one is stored, also record the repository HEAD
 commit at that moment, so it is possible to say which version of the code the remark was written
@@ -139,6 +181,16 @@ or refreshed. Once is right — the point is to record what the author was looki
 
 ## Pick the tag without the drop-down
 
+**Built in phase 5.** See `docs/claude/design.md`, section "Tag chips, and picking one from the
+keyboard". The chips are `Row.segmentedButton`, as this note expected, with one correction the
+phase 5 plan made and recorded: the lambda's first parameter is a receiver (`$this$segmentedButton`
+in the bytecode), so the call is `segmentedButton(items) { text = it }`, not the
+`{ presentation, item -> ... }` two-parameter shape written below. `Alt+0` through `Alt+4` pick the
+chips from the keyboard, added as Swing input-map bindings — the same mechanism as Enter and
+Shift+Enter — before the class-name-completion idea's `EditorTextField` swap, which this repo also
+decided against (see "Class name completion in the remark input" above), so the ordering question
+raised below never came up.
+
 Replace the tag drop-down in the input popup with a row of chip buttons, and let the tag be chosen
 from the keyboard so writing a remark never needs the mouse.
 
@@ -167,6 +219,11 @@ them. If both are wanted, do the input-component swap first and add the tag keys
 mechanism, not the old one.
 
 ## IdeaVim
+
+**Built in phase 5's task 1.** The two action ids and the tool window's activation id are now
+documented in the README's "IdeaVim" section and pinned by `ActionIdsTest`, exactly as the cheap
+path below describes — no code change was needed, only documenting and pinning the ids that already
+worked.
 
 Short answer: this already works, and the hassle is close to zero. What is missing is that nobody
 is told.
@@ -210,6 +267,16 @@ A real `VimExtension` is available but is not worth it. Action ids plus a docume
 the same result.
 
 ## How much a remark matters
+
+**Built in phase 5, as `RemarkSeverity`.** See `docs/claude/design.md`, section "Severity". Named
+`vibe / suggestion / should / must` as this note suggested, defaulting to `should`. The chooser
+question below was answered by the second option listed: default the level and change it afterwards
+from the gutter icon menu or the tree's right-click menu, rather than adding a second chooser to the
+input popup or folding it into the tag chips. The scale note is appended by the renderer
+(`SEVERITY_SCALE_NOTE` in `render/PromptRenderer.kt`), not stored in the editable header, exactly as
+recommended: rewriting the header cannot silently strip the levels' meaning out from under them. The
+copied prompt keeps its file grouping rather than leading with the must-dos, as this note also
+recommended.
 
 A second axis next to the tag: how strongly the remark should be acted on. The range runs from
 "this is a vibe, take it or leave it" to "do this whatever it costs".

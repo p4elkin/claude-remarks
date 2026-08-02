@@ -2596,7 +2596,7 @@ grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include=*.kt \
 `docs/claude/design.md` is the living record of what the system is. This plan file is the record of
 how the work happened. Do not let them drift.
 
-- [ ] update `docs/claude/design.md`:
+- [x] update `docs/claude/design.md`:
       - the field list gains `severity`, `bucket` and `commit`, each with one line on why it exists
         and, for severity, why it is non-null with a default.
       - a new section on severity: that the scale is `vibe / suggestion / should / must`, that the
@@ -2616,16 +2616,16 @@ how the work happened. Do not let them drift.
         a project below the repository root; shown in the gutter tooltip, in the prompt heading, and
         in the tree only on an orphaned row.
       - the anchoring sections are untouched. Nothing in phase 5 goes near `anchor/Anchoring.kt`.
-- [ ] update `CLAUDE.md`: the structure block gains `store/GitHead.kt`, `store/RemarkHistory.kt` and
+- [x] update `CLAUDE.md`: the structure block gains `store/GitHead.kt`, `store/RemarkHistory.kt` and
       `ui/RemarkActions.kt`; rule 3 says eight functions and carries the new grep; the testing block
       names `ActionIdsTest`, `RemarkActionsTest`, `GitHeadTest` and `RemarkHistoryTest`.
-- [ ] update `README.md`: the workflow paragraph mentions the chips and the Alt keys, the tool
+- [x] update `README.md`: the workflow paragraph mentions the chips and the Alt keys, the tool
       window paragraph mentions buckets and the right-click menu, and there is one sentence saying
       cleared remarks are written to a file in the IDE configuration directory rather than deleted.
-- [ ] update `docs/ideas.md`: strike through or remove what phase 5 built, and record what was cut
+- [x] update `docs/ideas.md`: strike through or remove what phase 5 built, and record what was cut
       and why — the current bucket, the Copy Bucket button, and (if you take the recommendation) the
       `EditorTextField` swap.
-- [ ] commit
+- [x] commit
 
 ## 9. Known limits
 

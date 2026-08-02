@@ -3,22 +3,33 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-4 are implemented and covered by unit tests. None of it has been loaded into a running
-IDE in this run: every `runIde` check in the phase 1-2 and phase 3-4 plans was skipped in the
-autonomous sessions that did the work, so treat "it works" as "the tests pass" until someone does
-the hand checks listed at the end of each plan. Select lines, press `Ctrl+Alt+Shift+R` (or use the
-"Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag, and press
-Enter. A gutter icon appears on the marked lines and follows the code as you keep editing. The
-tool window lists every remark as a tree grouped by file. Press Copy All Pending in the tool
-window to turn every pending remark into one markdown prompt on the clipboard; a balloon says how
-many. Copied remarks turn gray rather than disappearing, so Copy Selected can send them again if
-the paste went to the wrong place.
+Phases 1-5 are implemented and covered by unit tests. None of it has been loaded into a running
+IDE in this run: every `runIde` check in the phase 1-2, phase 3-4 and phase 5 plans was skipped in
+the autonomous sessions that did the work, so treat "it works" as "the tests pass" until someone
+does the hand checks listed at the end of each plan — phase 5's hand checks are the more important
+ones, since a few of its pieces are proven only by reading the platform source, not by a test. See
+`docs/claude/design.md` for exactly which. Select lines, press `Ctrl+Alt+Shift+R` (or use the "Add
+Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a severity
+level, and press Enter. A gutter icon appears on the marked lines and follows the code as you keep
+editing. The tool window lists every remark as a tree grouped by file, with a bucket level above
+the files once any remark is put in one. Press Copy All Pending in the tool window to turn every
+pending remark into one markdown prompt on the clipboard; a balloon says how many. Copied remarks
+turn gray rather than disappearing, so Copy Selected can send them again if the paste went to the
+wrong place. Clearing (Clear Sent, Clear All) archives to a history file in the IDE configuration
+directory before it removes anything.
 
-For the design — how anchoring, the gutter, the change notification, and the copy pipeline work —
-see `docs/claude/design.md`.
+For the design — how anchoring, the gutter, the change notification, severity and buckets, the
+commit stamp, the history file, and the copy pipeline work — see `docs/claude/design.md`.
 
-Phase 5, an automated dispatch step beyond the clipboard, does not exist and was dropped before it
-was built. See `docs/claude/design.md`, section "The Copy Pipeline", for why.
+**Phase 5 is built.** It added a severity level and named buckets to a remark, tag chips with Alt
+keys in place of the old tag drop-down, a commit stamp read straight out of `.git`, a history file
+that cleared remarks are archived to instead of deleted, and a keystroke that inserts a class name
+into the remark text. What was dropped before it was built is a separate, larger idea: an
+automated dispatch step beyond the clipboard — a pluggable `Dispatcher` interface, a tmux pane, a
+file inside `.idea/`. Copy Remarks already gets a prompt into a Claude Code session with none of
+that machinery, so it was never built. See `docs/claude/design.md`, section "The Copy Pipeline",
+for the reasoning, and `docs/ideas.md` for the larger version of that idea that is still only a
+note.
 
 ## Rules that must not break
 
@@ -79,12 +90,19 @@ src/main/kotlin/dev/sasha/clauderemarks/
   anchor/Anchoring.kt              hashing, capture, the two-pass resolve. No platform imports.
   model/RemarkState.kt             the persisted record, RemarkTag (+ its label extension), RemarkStatus
   store/RemarkStore.kt             @Service project component, state in workspace.xml
-  store/RemarkEdits.kt             the six mutation functions, the REMARKS_CHANGED topic
+  store/RemarkEdits.kt             the eight mutation functions, the REMARKS_CHANGED topic
   store/RemarkResolver.kt          projectRoot, resolveAll, and anchorOf
   store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, and the diff fallback
   store/ContextFormat.kt           joinContext/splitContext, how context lines are stored
-  ui/RemarkInputPanel.kt           the popup's panel, the Enter/Shift+Enter keys, tag labels
-  ui/RemarksTree.kt                node building and the tree cell renderer
+  store/GitHead.kt                 headCommit, reads .git directly, no platform import, no Git4Idea
+  store/RemarkHistory.kt           historyFile, appendToHistory, renderHistory: the archive
+  ui/RemarkInputPanel.kt           the popup's panel, the Enter/Shift+Enter keys, the tag chips and
+                                   their Alt keys, Ctrl+Space to insert a class name
+  ui/RemarkActions.kt              remarkChangeActions: the severity and bucket menu, shared by the
+                                   gutter icon and the tree
+  ui/ClassNameInsert.kt            projectClassNames, chooseClassName: Ctrl+Space in the input popup
+  ui/RemarksTree.kt                node building (files, and buckets above them) and the tree cell
+                                   renderer
   ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar, self-refresh on REMARKS_CHANGED
   action/AddRemarkAction.kt        the shortcut / popup-menu entry point, plus selectedLines()
   action/AddRemarkIntention.kt     the Alt+Enter entry point
@@ -151,21 +169,26 @@ never exits on its own.
 ## Testing
 
 Anchoring, storage round-trips, the resolver helpers, the tree's node-building, the markdown
-renderer, and the settings round trip are plain JUnit tests with no fixture, so they run in
-milliseconds. The rest need a light IDE fixture (`BasePlatformTestCase`, which needs
-`testFramework(TestFrameworkType.Platform)` in `build.gradle.kts`) and are slower, because each
-goes through a real project service, a real `Document`, or a real markup model:
-`RemarkStoreServiceTest`, `ResolveAllTest` (stored remarks resolved against real files, including
-a path that tries to climb out of the project), `SelectedLinesTest` (the selection line math
-against a real `Document`), `RemarkEditsTest` (the six mutation functions publish
-`REMARKS_CHANGED`), the key-binding half of `RemarkInputPanelTest`, `AddRemarkActionTest`,
-`DiffRemarkTargetTest` (adding a remark from a diff pane: a real `DiffContentFactory` content
-standing in for a VCS revision, since a light fixture cannot build a diff viewer), the
-renderer-equality half of `RemarkGutterIconTest`, `RemarkGutterTest` (the gutter service),
-`RemarksPanelTest` (the tool window panel: every file group ends up expanded, and the selection
-survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s 0-based line argument),
-the collector half
-of `PromptPayloadTest`, and `CopyRemarksTest`.
+renderer, the settings round trip, `GitHeadTest` (reads real `.git` directories built on disk for
+the test, including a worktree, a detached HEAD and packed refs) and `RemarkHistoryTest` (the
+archive's markdown rendering, and the write itself against a temp file) are plain JUnit tests with
+no fixture, so they run in milliseconds. The rest need a light IDE fixture
+(`BasePlatformTestCase`, which needs `testFramework(TestFrameworkType.Platform)` in
+`build.gradle.kts`) and are slower, because each goes through a real project service, a real
+`Document`, or a real markup model: `RemarkStoreServiceTest`, `ResolveAllTest` (stored remarks
+resolved against real files, including a path that tries to climb out of the project),
+`SelectedLinesTest` (the selection line math against a real `Document`), `RemarkEditsTest` (the
+eight mutation functions publish `REMARKS_CHANGED`), the key-binding half of
+`RemarkInputPanelTest`, `AddRemarkActionTest`, `ActionIdsTest` (pins the two action ids and the
+tool window's derived activation id, so a rename is caught rather than silently breaking every
+`.ideavimrc`), `RemarkActionsTest` (the severity and bucket menu acts on the ids it is given at
+press time, not at build time), `ClassNameInsertTest` (inserting a class name at the caret, and
+over a selection), `DiffRemarkTargetTest` (adding a remark from a diff pane: a real
+`DiffContentFactory` content standing in for a VCS revision, since a light fixture cannot build a
+diff viewer), the renderer-equality half of `RemarkGutterIconTest`, `RemarkGutterTest` (the gutter
+service), `RemarksPanelTest` (the tool window panel: every file and bucket group ends up expanded,
+and the selection survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
+0-based line argument), the collector half of `PromptPayloadTest`, and `CopyRemarksTest`.
 
 Every fixture-backed test class that asserts on the whole store clears it in `setUp`, not only in
 `tearDown`: the light fixture project is shared across test classes, so remarks left behind by an

@@ -24,6 +24,16 @@ A remark has these fields:
 - `createdAt`: Timestamp when the remark was created.
 - `textHash`: The first 16 hex characters of a SHA-256 hash of the lines at creation time.
 - `contextBefore`, `contextAfter`: A few lines of context from above and below the remark, joined with newlines in a single string. Stored this way instead of as a list because the serializer handles single strings more predictably.
+- `severity`: One of `RemarkSeverity.VIBE | SUGGESTION | SHOULD | MUST`, low to high. Defaults to
+  `SHOULD` rather than being nullable — a remark you bothered to write is usually something you want
+  done, the two ends of the scale are the ones worth choosing on purpose, and a non-null default
+  means a remark stored before this field existed loads with `SHOULD` instead of a null nothing
+  downstream checks for. See "Severity" under "What Phase 5 Built" below.
+- `bucket`: An optional name the user picks, like "auth refactor", or null for no bucket. Set only
+  from the gutter icon menu or the tree's right-click menu, never in the input popup — see
+  "Buckets" below.
+- `commit`: The repository HEAD read straight out of `.git` when the remark was written, or null
+  when there was no readable git repository. Never refreshed. See "The commit stamp" below.
 
 All fields are stored flat as XML attributes on a single element.
 
@@ -450,10 +460,205 @@ no way to re-point a remark from the UI, so they become dead records.
 
 The fix is a `BulkFileListener` on `VFS_CHANGES` reading `VFileMoveEvent` and the rename form of
 `VFilePropertyChangeEvent`, rewriting `RemarkState.path` for every remark under the old path —
-including the remarks in every file under a renamed *directory*. It needs a seventh mutation
+including the remarks in every file under a renamed *directory*. It needs a ninth mutation
 function in `store/RemarkEdits.kt`, because that file holds the only route that changes a remark,
 and it needs its own tests. That is a task in its own right rather than a review fix, which is why
 it is written down here instead of being half-built.
+
+## What Phase 5 Built
+
+Phase 5 adds three scalar fields to a remark — `severity`, `bucket`, `commit` — and everything that
+reads and writes them. Nothing about how a remark is stored changes: they are plain `BaseState`
+properties, the same shape as `tag`, and the eight-function rule in "The Change Notification" above
+covers the two new mutators the same way it covers the older six.
+
+### Severity
+
+`RemarkSeverity` (`model/RemarkState.kt`) is a four-level enum, low to high: `VIBE`, `SUGGESTION`,
+`SHOULD`, `MUST`. It is a second axis next to the tag. The tag says what kind of remark it is;
+severity says how strongly to act on it. Without it a `refactor` remark reads the same in the
+prompt whether it was an idle thought or the whole point of the reading pass, so the model reading
+it either does everything or guesses.
+
+`RemarkState.severity` defaults to `SHOULD` rather than being nullable. A remark you bothered to
+write is usually something you want done, and the two ends of the scale are the ones worth choosing
+on purpose. Non-null also means the renderer, the tree and the gutter tooltip can print it with no
+null check, and a remark stored before this field existed loads with the default instead of a
+null — `RemarkStoreStateTest` pins that by deserializing a hand-written XML element with no
+`severity` attribute at all.
+
+Severity is worthless unless the prompt acts on it, so `render/PromptRenderer.kt` carries a second
+piece of text next to the header: `SEVERITY_SCALE_NOTE`, a `const val` appended under the header on
+every copy, spelling out what each level asks of the reader — do a `must` whatever it costs, do a
+`should` unless there is a concrete reason not to and say why if you skip it, and so on down to
+`vibe`. It is deliberately not folded into `DEFAULT_PROMPT_HEADER`: the header is the one setting
+this plugin lets the user rewrite, and anything living only inside it would vanish the moment
+somebody replaced it with their own words, while the levels kept printing with nothing left to say
+what they mean. Appending the note in the renderer instead means it survives any header, including
+one written from scratch.
+
+The input popup does not ask for a severity. That popup is the action that has to stay fast, and a
+second chooser in it would turn a fast action into a form. The default is applied when the remark is
+written, and changed afterwards from the gutter icon menu or the tree's right-click menu — see "One
+menu, two places" below.
+
+### Buckets
+
+`RemarkState.bucket` is a nullable string, a name the user picks, like "auth refactor". Unlike
+severity there is no default and no current bucket: a remark starts in no bucket, and a whole
+reading pass is moved into one at once, by selecting several rows and choosing Move to Bucket —
+buckets are assigned to a selection, not to one remark at a time, so there is nothing to default.
+`setRemarkBucket` (`store/RemarkEdits.kt`) trims the name and turns a blank string into null, so
+"auth refactor" typed with trailing whitespace cannot become a second bucket that looks identical to
+the first one in the tree.
+
+The tree (`ui/RemarksTree.kt`) grows a third level, but only when it is used: `buildTreeRoot` checks
+whether any remark actually has a bucket before adding the level at all, so someone who never touches
+buckets keeps exactly the tree they had before — root, then file, then remark. Once any bucket
+exists, buckets sort by name with the unbucketed ones first, under the `(no bucket)` label
+(`NO_BUCKET_LABEL`), because those are the remarks just written and the ones most likely to be
+moved next.
+
+A group row — a bucket or a file — is `GroupNode(key, label)`, not a bare string the way a file
+group used to be. A bucket named "src" and a directory named "src" can coexist, and the panel
+restores a selection after every rebuild by matching a key, so two groups sharing a key would
+restore the wrong one after a refresh. The key is the whole path from the root down to that node;
+the label is only what gets drawn.
+
+`remarkNodesUnder` (also `RemarksTree.kt`) walks the whole subtree under a selected node, not one
+level down the way it used to. That is what makes Copy Selected on a bucket node mean "copy this
+bucket," and it is the entire reason there is no separate Copy Bucket button: select the bucket row
+and press Copy Selected. The one-level walk this replaced would have found file nodes under a
+bucket — not `RemarkNode`s — and silently answered an empty list, so Copy Selected and Delete on a
+bucket node would have done nothing at all, with no message saying why.
+
+### Tag chips, and picking one from the keyboard
+
+The tag drop-down (a Swing `ComboBox`) is gone from `ui/RemarkInputPanel.kt`, replaced by a row of
+chips built with the Kotlin UI DSL: `row("Tag:") { chips = segmentedButton(TAG_CHOICES) { text = it
+} }`. `TAG_CHOICES` is `(no tag)` followed by the four tags in enum order, and the Alt keys below
+index into that same list, so the chips and the keys cannot drift apart from each other.
+
+This removes a special case rather than adding one. The drop-down made Enter ambiguous: with the
+list open, Enter meant "commit the highlighted item"; closed, it meant "save the remark" — and the
+plugin's own Enter-submits binding won both times, so arrowing down to "bug" and pressing Enter
+saved the remark with whatever tag had been selected before. A chip selection is immediate, with no
+open state, so that whole branch of behaviour no longer exists to reason about.
+
+`Alt+0` through `Alt+4` pick a chip directly: `Alt+0` clears the tag, `Alt+1` through `Alt+4` pick
+the four tags in the order `TAG_CHOICES` lists them. They are Swing input-map bindings on the text
+area, the same mechanism Enter and Shift+Enter already use — ten lines added onto a mechanism that
+already existed, rather than waiting on the larger rewrite covered next. See "What is proven and
+what is not" below for the real limit of what this proves.
+
+`Ctrl+Space` in the text area opens a chooser (`ui/ClassNameInsert.kt`) listing every class name the
+project knows about — the same source, `ChooseByNameContributor.CLASS_EP_NAME`, that backs Ctrl+N.
+No extra platform dependency was needed for it: that extension point is declared in the same
+descriptor that declares `com.intellij.modules.platform`, so it is present wherever this plugin can
+load at all — a `runCatching` still guards the call, for an IDE that ships its own descriptor
+instead of IDEA CORE. Picking a name inserts it at the caret, or replaces the current selection if
+there is one.
+
+This is deliberately the cheap version of an idea in `docs/ideas.md`: no completion popup living
+inside the text area, no swap of the plain `JBTextArea` for an `EditorTextField`. That swap was
+scoped and rejected before being built. It would have cost the Enter and Shift+Enter bindings, a
+fight over which of two nested popups owns Escape, and an IdeaVim interaction nobody had tested —
+for a feature the platform's own Copy Reference (`Ctrl+Alt+Shift+C`) already covers for naming code
+elsewhere, since the remark box already accepts a paste.
+
+### One menu, two places
+
+`ui/RemarkActions.kt`'s `remarkChangeActions(project, ids)` builds one `ActionGroup` — a Severity
+submenu plus "Move to Bucket…" — used from two places: the gutter icon's click menu, which acts on
+the one remark under the icon, and the tree's right-click menu, which acts on whatever is selected.
+`ids` is a lambda, not a list, because the tree rebuilds itself on every remark change, so a list
+captured at the moment the menu was built would be stale by the time anything in it is pressed. The
+bucket chooser is `Messages.showEditableChooseDialog`, offering every bucket name already in use
+rather than a plain text prompt, because typing the name freehand each time is exactly how "auth
+refactor" and "auth-refactor" become two buckets that look like one from across the tree.
+
+### The commit stamp
+
+`store/GitHead.kt`'s `headCommit(startDir)` reads the repository HEAD straight out of `.git`, with
+no platform import and no dependency on Git4Idea — git integration lives in that separate plugin,
+and depending on it would mean requiring it to be installed. Reading `.git` directly is enough, and
+keeps this plugin loading in any JetBrains IDE.
+
+It walks up from the given directory to find the nearest `.git` (a project can be opened at a module
+below the repository root). `.git` is a file rather than a directory in a worktree or a submodule,
+holding one line, `gitdir: <path>`, which may be relative to the file's own directory. `HEAD` either
+holds a sha directly (a detached HEAD) or a line like `ref: refs/heads/main`; the ref is then read
+relative to the worktree's own directory joined with its `commondir` file — a plain repository has
+no `commondir`, and then the two are the same directory, so one lookup covers both shapes. If there
+is no loose ref file left — `git gc` or `git pack-refs` removes it — the sha is read out of
+`packed-refs` instead. Everything in this file answers null rather than throwing: a missing commit
+stamp is a missing field on the remark, never a reason for the remark not to be added.
+
+`addRemark` (`store/RemarkEdits.kt`) calls `headCommit` once, when the remark is written, and never
+again — the point is to record what the author was looking at, not to track the current branch. No
+result is cached: two small file reads on the EDT, once per remark, at human typing speed, cost less
+than the code a cache would add.
+
+The commit is shown in three places, each treating it differently because of how crowded the row
+already is. The gutter tooltip always has it (`editor/RemarkGutterIcon.kt`'s `tooltipFor`). The
+copied prompt's heading always has it (`— commit <sha, first 8 chars>` in
+`render/PromptRenderer.kt`). The tree row shows it only when the remark is orphaned (`", written at
+<sha>"`, in `ui/RemarksTree.kt`'s `remarkNode`), because everywhere else it would be one more thing
+on a row that already carries a position, a text, a tag and a level — and it matters most exactly
+when a remark has gone missing and someone needs to know which revision to diff the file against.
+
+### The history file, and archiving before delete
+
+Clearing used to delete outright. Now `clearSentRemarks` and `clearAllRemarks`
+(`store/RemarkEdits.kt`) write the remarks about to go to a history file first, and only call
+`removeSent()` or `clear()` if that write succeeds: the private `archive(...)` helper returns false
+and shows a red balloon on `IOException`, and nothing is removed when it does. A single Delete on
+one row does not archive anything. Picking out one row and deleting it is an explicit "this one was
+a mistake," and archiving every typo along with every real remark would make the history file
+useless to read later.
+
+The archive is a markdown file, not a second persisted collection. `store/RemarkHistory.kt`'s
+`historyFile(project)` names it `<IDE configuration directory>/claude-remarks/<project
+name>-<location hash>.md`, one file per project. This was a deliberate choice against a structured
+XML archive: the active remarks list must not grow, because every remark in it is resolved against
+its file on every change, and a markdown file satisfies that completely — nothing ever resolves it.
+The alternative, a second `PersistentStateComponentWithModificationTracker`, would copy
+`RemarkStore`'s whole thread-safety shape (the deep `snapshot()`, the `@Synchronized` mutators,
+`modCount()`), add a second `@get:XCollection` and its silent-data-loss trap, and still need a browse
+window before anyone could read a single archived remark — which this plan does not build either
+way. The markdown file is about fifteen lines of code, and can be opened, grepped and pasted from
+today. What is given up: there is no button that restores an archived remark.
+
+`appendToHistory` writes what was STORED about each remark — its stored line numbers, text, tag,
+severity, bucket and commit — not a fresh resolve against the file as it stands now: by the time
+anyone reads the archive the code has likely moved on, and the file it once lived in may not even
+exist any more. Each entry is indented under its heading, the same defence the prompt renderer uses
+against backtick fences and stray headings in a remark's own text, so a remark whose text happens to
+contain a markdown heading cannot restructure the archive around it.
+
+### What is proven and what is not
+
+Everything above is covered by a plain JUnit test, a fixture-backed test, or both, except for two
+things, both flagged here rather than claimed as working:
+
+- **Whether `Alt+1` through `Alt+4` actually reach the popup.** They are Swing input-map bindings on
+  a `JBTextArea` inside a `JBPopup`, and the IDE's default keymap binds those same key combinations
+  to the four numbered tool windows. The automated tests (`RemarkInputPanelTest`) prove the bindings
+  exist and act on the right chip when invoked directly — they cannot prove the key event reaches
+  the text area rather than the tool-window shortcut first. The reasoning for why it should still
+  work is source-level: the popup is a heavyweight, modal-context popup, and the platform does not
+  dispatch a modal-context-disabled action (`ActivateToolWindowAction`, behind the default Alt+1..4
+  bindings, is one) while such a popup is focused. That reasoning was worked out across several
+  platform classes during phase 5, not observed in a live IDE — `./gradlew runIde` is not run from
+  an agent session. Hand check 1 in the phase 5 plan (`docs/plans/20260803-claude-remarks-phase5.md`,
+  section 10) is the actual authority on this until someone runs it.
+- **The commit capture inside `addRemark`.** No test in the suite adds a remark inside an actual git
+  repository and asserts the stored `commit` matches `git rev-parse HEAD`, because the light fixture
+  project that `BasePlatformTestCase` provides has no `.git` directory at all. `GitHeadTest` proves
+  that `headCommit` itself works, against real `.git` directories built on disk for the test (a
+  plain repository, a worktree, a detached HEAD, packed refs) — what stays unproven is only the one
+  line inside `addRemark` that wires `project.basePath` into it. Hand check 6 in the phase 5 plan is
+  what actually exercises that path end to end.
 
 ## Adding a Remark While Reading a Diff
 
@@ -548,22 +753,27 @@ the manual escape for the gutter as well as for the tree.
 ## The Change Notification
 
 `REMARKS_CHANGED` (a `Topic<RemarksListener>`, project-level, `BroadcastDirection.NONE`) lives in
-`store/RemarkEdits.kt`, beside the six functions that publish it, not inside `RemarkStore`. Two
+`store/RemarkEdits.kt`, beside the eight functions that publish it, not inside `RemarkStore`. Two
 things need to hear about a change: the gutter service and the tool window tree. Keeping the topic
 out of the store is about cost, not purity: adding a `Project` constructor parameter to
 `RemarkStore` would touch fourteen call sites that build it directly, and keeping the store free
 of the message bus is what lets `RemarkStoreStateTest` stay a plain JUnit test with no IDE fixture.
 
-`store/RemarkEdits.kt` holds the only six functions production code uses to change a remark:
-`addRemark`, `editRemark`, `deleteRemark`, `markRemarksSent`, `clearSentRemarks`,
-`clearAllRemarks`. Each one mutates through `RemarkStore` and then publishes — that pairing is the
-whole mechanism, there is no separate listener list or observer class. `RemarkStore`'s own
-`add`/`remove`/`edit`/... stay public, and nothing in the language stops a caller from reaching
-past the six functions and calling them directly, so the rule is checked rather than assumed:
+`store/RemarkEdits.kt` holds the only eight functions production code uses to change a remark:
+`addRemark`, `editRemark`, `deleteRemark`, `markRemarksSent`, `setRemarkSeverity`,
+`setRemarkBucket`, `clearSentRemarks`, `clearAllRemarks`. Each one mutates through `RemarkStore` and
+then publishes — that pairing is the whole mechanism, there is no separate listener list or observer
+class. `RemarkStore`'s own `add`/`remove`/`edit`/`setSeverity`/`setBucket`/... stay public, and
+nothing in the language stops a caller from reaching past the eight functions and calling them
+directly, so the rule is checked rather than assumed. The check used to list the mutator names by
+hand, which is exactly what let phase 5 add `setSeverity`/`setBucket` to `RemarkStore` without the
+old grep noticing: a hand-picked list has to be edited every time a mutator is added, and forgetting
+is silent — the guard keeps passing while it stops covering the new function. The grep in
+`CLAUDE.md` now allows through the one read-only method by name, `all()`, instead:
 
 ```bash
-grep -rnE "RemarkStore\.getInstance\([^)]*\)\.(add|remove|edit|markSent|removeSent|clear)\(" \
-  src/main/kotlin --include=*.kt | grep -v RemarkEdits.kt   # must be empty
+grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include=*.kt \
+  | grep -v RemarkEdits.kt | grep -v "\.all()"   # must be empty
 ```
 
 Test code is outside that check on purpose: fixture-backed test classes call
