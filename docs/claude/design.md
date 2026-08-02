@@ -74,8 +74,9 @@ are one cheap line that makes every mutation mark the state changed without havi
 what the property tracker sees. `RemarkStoreStateTest` asserts the modification count goes
 up after an add and after a real remove, and stays put when `removeRemark` is given an unknown id.
 
-All four methods (`addRemark`, `removeRemark`, `snapshot`, `modCount`) are `@Synchronized` on the
-state object, so they all lock the same monitor. The tool window resolves remarks from a pooled
+Every method on the state class (`addRemark`, `removeRemark`, `editRemark`, `markSent`,
+`removeSent`, `clear`, `snapshot`, `modCount`) is `@Synchronized` on the state object, so they all
+lock the same monitor. The tool window resolves remarks from a pooled
 thread while the editor action adds them on the EDT, and the backing collection is
 `ModCountableList`, a plain `ArrayList` subclass with no thread safety. A read action does not
 help: it guards platform data, not ours. `RemarkStore.all()` returns `liveState.snapshot()`, a copy
@@ -138,8 +139,8 @@ directly:
 - The live state sits in a private `@Volatile` field. That matches what the base class did with its
   own `private volatile T state`.
 - `getState()` builds a new `RemarksState` and fills its list from `snapshot()`. The copy is taken
-  under the same lock `addRemark` and `removeRemark` hold, so the serializer only ever iterates a
-  list nothing else can reach.
+  under the same lock the mutators hold, and it copies the remarks as well as the list, so the
+  serializer walks objects nothing else can reach.
 - `loadState(state)` swaps the field.
 - `getStateModificationCount()` returns the live state's count, read through `modCount()` so that
   read also takes the lock. It is kept because dropping it would change when the platform saves:
@@ -149,11 +150,50 @@ directly:
 The `@State(name = "ClaudeRemarks", ...)` annotation, the storage, and the `@get:XCollection` on the
 list are all untouched, so what lands in `workspace.xml` is byte-for-byte the same shape as before.
 
-**The list copy is shallow: it shares the `RemarkState` objects with the live state.** `editRemark`
-and `markSent` do mutate an element in place, and that is safe: a single field write reads as either
-the old value or the new one, never as a corrupt one, and the next save writes the new value. A deep copy would mean cloning `RemarkState` field by field, and a
-field forgotten in that clone later would drop out of `workspace.xml` with no error — a worse bug
-than the one this fixes.
+**The copy goes all the way down: `snapshot()` copies each `RemarkState` too, so no reader shares
+an object with the live state.** It did not always. It used to be `remarks.toList()`, which copies
+the list and shares its elements, and there are two different readers to answer for. Both matter,
+and for a long time only the first was written down here.
+
+*The serializer, saving `workspace.xml` off the EDT.* `editRemark` writes `text` and then `tag`;
+`markSent` writes `status`. With the shallow copy a save could land between the two writes in
+`editRemark` and record the new text next to the old tag. That could never become permanent, and
+the reason is the ORDER in `editRemark`: `incrementModificationCount()` runs after both writes, so
+a save landing between them recorded the lower count it read on the way in, and the next save saw a
+higher count and wrote both fields again. One save stale, the one after it right, no path to
+permanent loss.
+
+*The prompt and the tool window, reading on a pooled thread.* `resolveAll` and `collectForPrompt`
+run inside a non-blocking read action, off the EDT, and walk the same objects `editRemark` and
+`markSent` change on the EDT. They read the fields long after leaving the store's lock — for as
+long as resolving every remark and slicing every file takes. The ordering argument above says
+nothing about this reader: it is about what ends up on disk, and a prompt that already reached the
+clipboard has no later pass to fix it. So the shallow copy let a copy in flight render a remark with
+its new text under its old tag, or send a remark whose edit had landed a moment earlier and then
+mark it sent, so the edit looked delivered when it was not. Narrow — the window is one copy — but
+real, and invisible when it happens.
+
+Making `snapshot()` deep closes the second reader without weakening the first. `BaseState.copyFrom`
+walks the property list every `BaseState` registers for itself, so a field added to `RemarkState`
+later is copied with no edit to `snapshot()`. That was the one recorded argument against a deep
+copy: cloning field by field, and a forgotten field then dropping out of `workspace.xml` with
+nothing logged. `copyFrom` has no such failure mode, and `RemarkStoreStateTest` pins it by comparing
+the serialized XML of a fully-populated remark against its copy, so the guard covers fields that do
+not exist yet. It also holds a deterministic test (a snapshot taken before an edit does not see it)
+and a bounded race probe (a reader looping on `snapshot()` while a writer flips `text` and `tag`
+never sees a mixed pair); the probe fails within milliseconds if `snapshot()` goes back to
+`remarks.toList()`.
+
+The cost: one small object per remark per call, and `snapshot()` runs on every resolve, which is
+every remark change and every editor open. A `RemarkState` is eleven stored properties, so a hundred
+remarks is tens of microseconds against a resolve that SHA-256s candidate positions and splits whole
+documents into lines. If a project ever holds enough remarks for that to be felt, the next step is
+not a shallower copy but an immutable value type for the read path, so the copy happens once at the
+store boundary and nothing downstream holds a `BaseState` at all.
+
+One thing the copy does not fix, because nothing can: an edit that lands *after* the snapshot is not
+in it. A copy in flight sends what the remarks said when it started. That is ordering, not a data
+race, and it is what "snapshot then act" means.
 
 Two things about the platform side, both read out of the bytecode before making the change:
 

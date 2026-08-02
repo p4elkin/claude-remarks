@@ -3,6 +3,7 @@ package dev.sasha.clauderemarks.store
 import com.intellij.configurationStore.ComponentSerializationUtil
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
+import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
 import java.util.concurrent.atomic.AtomicReference
@@ -11,6 +12,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 /**
@@ -267,6 +269,99 @@ class RemarkStoreStateTest {
     }
 
     /**
+     * The deep half of the copy, and the reason it exists.
+     *
+     * A remark handed to a reader must not change under it. `resolveAll` and `collectForPrompt`
+     * walk these objects on a pooled thread for as long as rendering a whole prompt takes, and an
+     * edit landing in that window used to reach them field by field.
+     */
+    @Test
+    fun `a snapshot does not see an edit that lands after it was taken`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", text = "old", tag = null))
+        val snapshot = state.snapshot()
+
+        state.editRemark("r-1", "new", RemarkTag.BUG)
+        state.markSent(setOf("r-1"))
+
+        assertEquals("old", snapshot.single().text)
+        assertNull(snapshot.single().tag)
+        assertEquals(RemarkStatus.PENDING, snapshot.single().status)
+    }
+
+    /**
+     * What makes the deep copy safe to keep. `BaseState.copyFrom` walks the property list the class
+     * registers for itself, so a field added to RemarkState later is copied with no edit to
+     * snapshot(). This compares the serialized form rather than listing fields, so it covers every
+     * stored field by name and value including any added afterwards: a field the copy dropped would
+     * disappear from workspace.xml with nothing logged.
+     */
+    @Test
+    fun `a snapshot carries every field a remark is stored with`() {
+        val state = RemarkStore.RemarksState()
+        val original = remark(
+            id = "r-1",
+            path = "src/main/kotlin/Foo.kt",
+            startLine = 10,
+            endLine = 12,
+            text = "why is this synchronized?",
+            tag = RemarkTag.QUESTION,
+            status = RemarkStatus.SENT,
+            createdAt = 1_700_000_000_000L,
+            textHash = "abcdef0123456789",
+            contextBefore = "line a\nline b",
+            contextAfter = "line c\nline d",
+        )
+        state.addRemark(original)
+
+        val copy = state.snapshot().single()
+
+        assertNotSame(original, copy)
+        assertEquals(asXml(original), asXml(copy))
+    }
+
+    /**
+     * The race the deep copy closes, probed the same way the modification-count race below is: not
+     * a deterministic reproduction, a bounded loop in which a bad pair may simply never appear.
+     *
+     * `editRemark` writes `text` and then `tag`, both under the lock. A reader holding the live
+     * objects reads them at some later moment of its own, outside that lock, so it can catch the
+     * new text next to the old tag — a prompt rendered with an edit half applied, and no later pass
+     * fixes a prompt that already went to the clipboard. Proven by mutation: with `snapshot()` back
+     * to `remarks.toList()` this fails almost immediately.
+     */
+    @Test(timeout = 5_000)
+    fun `a reader never sees an edit half applied`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", text = "old", tag = null))
+
+        val stopAt = System.nanoTime() + 300_000_000L // 300ms of racing, same as the probe below
+        val mixed = AtomicReference<String>()
+
+        val writer = Thread {
+            while (System.nanoTime() < stopAt) {
+                state.editRemark("r-1", "new", RemarkTag.BUG)
+                state.editRemark("r-1", "old", null)
+            }
+        }
+        val reader = Thread {
+            while (System.nanoTime() < stopAt) {
+                val seen = state.snapshot().single()
+                val text = seen.text
+                val tag = seen.tag
+                if ((text == "new") != (tag == RemarkTag.BUG)) mixed.set("text=$text tag=$tag")
+            }
+        }
+
+        writer.start()
+        reader.start()
+        writer.join()
+        reader.join()
+
+        mixed.get()?.let { fail("a reader saw an edit half applied: $it") }
+    }
+
+    /**
      * The guard for the whole reason RemarkStore implements PersistentStateComponent by hand.
      * The platform's serializer reads the object getState() returns, off the EDT and without
      * taking the store's lock, so that object must not be reachable by anything that mutates.
@@ -363,6 +458,8 @@ class RemarkStoreStateTest {
 
         failure.get()?.let { throw AssertionError("stateModificationCount read raced unsafely", it) }
     }
+
+    private fun asXml(remark: RemarkState) = JDOMUtil.write(XmlSerializer.serialize(remark))
 
     private fun roundTrip(state: RemarkStore.RemarksState) = XmlSerializer.deserialize(
         JDOMUtil.load(JDOMUtil.write(XmlSerializer.serialize(state))),

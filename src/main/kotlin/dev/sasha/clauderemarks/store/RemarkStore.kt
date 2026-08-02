@@ -54,7 +54,7 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
 
         // The mutators live here, not on RemarkStore: BaseState.incrementModificationCount() is
         // protected, so only a BaseState subclass can reach it. @Synchronized locks this state
-        // object (all four methods below lock the same monitor, `this` RemarksState instance), and
+        // object (every method below locks the same monitor, `this` RemarksState instance), and
         // every reader and writer of the list goes through one of them: the tool window snapshots
         // from a pooled thread, the editor action adds on the EDT, RemarkStore.getState() takes its
         // copy for the platform's serializer through snapshot(), and RemarkStore.getStateModificationCount()
@@ -75,19 +75,23 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
         /**
          * Changes a remark's text and tag in place, under the same lock every other mutator holds.
          *
-         * In place, not replace-with-a-copy. The list copy getState() hands the serializer is
-         * shallow, so it shares these objects: a save landing between the two field writes below
-         * would see the new text with the old tag.
+         * In place, not replace-with-a-copy, and the two writes below are not one atomic step. Two
+         * separate readers used to be able to catch the moment between them, and they need separate
+         * answers.
          *
-         * That torn write cannot become permanent, and the reason is the ORDER below.
-         * incrementModificationCount() runs after both fields are written, so a save that lands
-         * between them records the lower count it read on the way in. The next save sees a higher
-         * count and serializes both fields again. One save is stale, the one after it is right,
-         * and there is no path to permanent loss.
+         * The serializer, saving workspace.xml off the EDT. It only ever sees what snapshot()
+         * copied for it, and snapshot() takes this same lock, so it now gets both fields or
+         * neither. Even before the copy went deep this could not lose data permanently, because of
+         * the ORDER here: incrementModificationCount() runs after both writes, so a save that
+         * landed between them recorded the lower count it read on the way in, and the next save saw
+         * a higher count and wrote both fields again. That argument still holds and is why nothing
+         * on disk was ever wrong for good. It is kept because it is the reason the ordering below
+         * must not be rearranged.
          *
-         * (A copy would also be possible: BaseState.copyFrom(BaseState) exists and copies every
-         * stored property by reflection, so nothing would have to be cloned by hand. It is simply
-         * not needed once the ordering above holds.)
+         * The prompt and the tool window, reading on a pooled thread. These walk the fields long
+         * after leaving the lock, so the ordering argument above says nothing about them: they
+         * could read the new text next to the old tag, and there is no later pass that fixes an
+         * already-copied prompt. This is what snapshot() being a deep copy closes.
          */
         @Synchronized
         fun editRemark(id: String, text: String, tag: RemarkTag?): Boolean {
@@ -128,9 +132,33 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
             return removed
         }
 
-        /** A copy, so readers never iterate the live list while the EDT mutates it. */
+        /**
+         * A copy of the list AND of every remark in it, taken under the lock the mutators hold, so
+         * a reader never touches an object anything can still change.
+         *
+         * Deep, not shallow, and that is the whole point. `editRemark` and `markSent` write fields
+         * on a remark that is already in the list. A shallow copy hands those same objects to
+         * readers running on other threads: `resolveAll` and `collectForPrompt` walk them inside a
+         * non-blocking read action on a pooled thread, for as long as a copy of the whole project
+         * takes. An edit landing in that window is seen half-applied — `editRemark` writes `text`
+         * and then `tag`, so a prompt could be rendered with the new text under the old tag. The
+         * lock on the mutators did not stop that, because the reader had already left the lock and
+         * was reading fields outside it.
+         *
+         * `BaseState.copyFrom` walks the property list every `BaseState` registers for itself, so a
+         * field added to `RemarkState` later is copied without touching this line. That was the one
+         * argument recorded against a deep copy: cloning field by field, and a forgotten field then
+         * dropping out of workspace.xml with no error. `copyFrom` has no such failure mode, and
+         * "a snapshot carries every field a remark is stored with" in RemarkStoreStateTest pins it.
+         *
+         * The cost is one small object per remark per call, and snapshot() runs on every resolve. A
+         * RemarkState is eleven stored properties, so a project with a hundred remarks pays tens of
+         * microseconds — against a resolve that SHA-256s candidate positions and splits whole
+         * documents into lines.
+         */
         @Synchronized
-        fun snapshot(): List<RemarkState> = remarks.toList()
+        fun snapshot(): List<RemarkState> =
+            remarks.map { live -> RemarkState().also { it.copyFrom(live) } }
 
         /**
          * BaseState.getModificationCount() sums property.getModificationCount() over the stored
@@ -162,15 +190,12 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
     fun clear(): Int = liveState.clear()
 
     /**
-     * A fresh state carrying a copy of the list, taken under the same lock add and remove hold,
-     * so the serializer never iterates a list anyone can mutate.
+     * A fresh state carrying a copy of the list, taken under the same lock the mutators hold, so
+     * the serializer never iterates a list anyone can mutate.
      *
-     * The copy is shallow: it shares the RemarkState elements with the live state. `editRemark`
-     * and `markSent` do mutate an element in place, and that is safe here for the reason spelled
-     * out on editRemark: a single field write reads as either the old or the new value, never as a
-     * corrupt one, and the next save writes the new value. A deep copy would mean cloning
-     * RemarkState field by field, and a field forgotten there later would drop out of
-     * workspace.xml with no error — a worse bug than the one being fixed.
+     * The copy goes all the way down: snapshot() copies each RemarkState too, so the serializer
+     * shares no object with the live state at all. See snapshot() for why that is not the
+     * hand-cloning it once looked like.
      */
     override fun getState(): RemarksState =
         RemarksState().also { it.remarks.addAll(liveState.snapshot()) }

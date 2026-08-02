@@ -111,7 +111,7 @@ src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
 ```bash
 ./gradlew test                              # the whole suite
 ./gradlew build                             # compile, test, assemble
-./gradlew buildPlugin                       # build/distributions/claude-remarks-0.1.0.zip
+./gradlew buildPlugin                       # build/distributions/claude-remarks-0.1.1.zip
 ./gradlew verifyPluginProjectConfiguration  # after any plugin.xml or build.gradle.kts change
 ./gradlew verifyPlugin                      # compatibility report against the target IDE
 ```

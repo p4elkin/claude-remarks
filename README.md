@@ -25,7 +25,7 @@ You need a JDK (17 through 25) and network access on the first build. Gradle its
 ./gradlew buildPlugin
 ```
 
-`buildPlugin` writes the installable plugin as `build/distributions/claude-remarks-0.1.0.zip`. Plain jars land in `build/libs/`; the zip is what an IDE installs.
+`buildPlugin` writes the installable plugin as `build/distributions/claude-remarks-0.1.1.zip`. Plain jars land in `build/libs/`; the zip is what an IDE installs.
 
 ## Running in a Sandbox IDE
 
@@ -39,7 +39,7 @@ The sandbox IDE launches with the plugin loaded. Open or create any project insi
 
 ## Installing into your own IDE
 
-Build the zip, then in the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick `build/distributions/claude-remarks-0.1.0.zip`, and restart when asked. The plugin needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound set).
+Build the zip, then in the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick `build/distributions/claude-remarks-0.1.1.zip`, and restart when asked. The plugin needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound set).
 
 ## Testing
 
@@ -49,7 +49,7 @@ Run all tests:
 ./gradlew test
 ```
 
-147 tests. Most are plain JUnit with no fixture and run in milliseconds: anchoring, the stored state's XML round trip and its mutators, the resolver helpers, the tree's node-building, the markdown renderer, and the settings round trip. The rest start a light IDE fixture (`BasePlatformTestCase`) and are slower, because each goes through a real project service, a real `Document`, or a real markup model — among them the mutation functions and their change notification, the input popup's key bindings, the Add Remark action, the gutter icon renderer's equality, the gutter service itself, the tool window's tree and its navigation, the payload collector, and the copy action.
+159 tests. Most are plain JUnit with no fixture and run in milliseconds: anchoring, the stored state's XML round trip and its mutators, the resolver helpers, the tree's node-building, the markdown renderer, and the settings round trip. The rest start a light IDE fixture (`BasePlatformTestCase`) and are slower, because each goes through a real project service, a real `Document`, or a real markup model — among them the mutation functions and their change notification, the input popup's key bindings, the Add Remark action, the gutter icon renderer's equality, the gutter service itself, the tool window's tree and its navigation, the payload collector, and the copy action.
 
 There are no UI-rendering or end-to-end tests. The popup appearing at the caret, the gutter icon painting, the tree colours, the balloon, and the settings page layout are checked by hand in a sandbox IDE — see "Running in a Sandbox IDE" above.
 
