@@ -3198,7 +3198,7 @@ the doc comment below says "no platform imports" rather than naming the package:
 package name in the comment would make the plan's own acceptance check fail on the file the plan
 writes.
 
-- [ ] write the failing tests in `PromptRendererTest.kt`:
+- [x] write the failing tests in `PromptRendererTest.kt`:
 
 `````kotlin
 package dev.sasha.clauderemarks.render
@@ -3336,8 +3336,8 @@ class PromptRendererTest {
 The padding test allows two spellings of the marked line because the exact column of `>` next to a
 padded number is a judgment call. Pick one during implementation and tighten the assertion to it.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.render.*"` — expect a compile failure
-- [ ] create `PromptRenderer.kt`:
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.render.*"` — expect a compile failure
+- [x] create `PromptRenderer.kt`:
 
 `````kotlin
 package dev.sasha.clauderemarks.render
@@ -3407,14 +3407,14 @@ private fun codeBlock(remark: RenderedRemark): String {
 }
 `````
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.render.*"` — must pass. Adjust the exact
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.render.*"` — must pass. Adjust the exact
       spacing in the expected strings if the padding lands differently; the shape is what matters,
       and it must then match the same shape in every test.
-- [ ] run `grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt`
+- [x] run `grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt`
       — must find nothing
-- [ ] **mutation check**: remove the `if (remark.orphaned)` branch.
+- [x] **mutation check**: remove the `if (remark.orphaned)` branch.
       `an orphan is labelled so the reader does not trust the line numbers` must fail. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 9: Collecting the payload from the project
 
