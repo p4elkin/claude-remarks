@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.project.DumbAwareAction
@@ -13,10 +14,12 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.text.StringUtil
 import dev.sasha.clauderemarks.action.openRemarkEdit
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.deleteRemark
+import dev.sasha.clauderemarks.ui.remarkChangeActions
 import java.util.Objects
 import javax.swing.Icon
 
@@ -30,6 +33,7 @@ data class RemarkPlacement(
     val id: String,
     val text: String,
     val tag: RemarkTag?,
+    val severity: RemarkSeverity,
     val sent: Boolean,
     val startLine: Int,
     val endLine: Int,
@@ -47,6 +51,7 @@ fun tooltipFor(placement: RemarkPlacement): String = buildString {
     append("<html>")
     append(StringUtil.escapeXmlEntities(placement.text).replace("\n", "<br/>"))
     placement.tag?.let { append("  [").append(it.label).append("]") }
+    append("  ").append(placement.severity.label)
     if (placement.orphaned) append("<br/>(orphaned — these line numbers are stale)")
     if (placement.sent) append("<br/>(sent)")
     append("</html>")
@@ -96,5 +101,9 @@ private fun menuFor(project: Project, editor: Editor, id: String): ActionGroup =
         val stored = RemarkStore.getInstance(project).all().firstOrNull { it.id == id } ?: return@create
         openRemarkEdit(project, editor, id, stored.text.orEmpty(), stored.tag)
     },
+    // The same group the tree's right-click menu uses. Here the id is fixed: it is the remark whose
+    // icon was clicked.
+    remarkChangeActions(project) { listOf(id) },
+    Separator.getInstance(),
     DumbAwareAction.create("Delete Remark") { deleteRemark(project, id) },
 )

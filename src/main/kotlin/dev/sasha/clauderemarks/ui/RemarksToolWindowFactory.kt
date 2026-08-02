@@ -2,12 +2,14 @@ package dev.sasha.clauderemarks.ui
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonShortcuts
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -18,6 +20,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.ui.PopupHandler
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.treeStructure.Tree
@@ -80,6 +83,11 @@ class RemarksPanel(
         DumbAwareAction.create { deleteSelected() }
             .registerCustomShortcutSet(CommonShortcuts.getDelete(), tree, parent)
 
+        // The same actions the gutter icon menu offers, acting on the tree selection instead of on
+        // one icon. This is the only reason the tree needs a right-click menu at all: severity and
+        // buckets are set after the fact, and the tree is where a whole reading pass is triaged.
+        PopupHandler.installPopupMenu(tree, treeMenu(), "ClaudeRemarksTree")
+
         // One subscription is enough. RemarkGutter's own EditorFactoryListener already calls
         // notifyRemarksChanged when an editor opens or closes, so a second listener here would
         // refresh twice on every open — and, being unfiltered by project, would run a full
@@ -116,6 +124,12 @@ class RemarksPanel(
 
     /** The ids currently selected, in the order the tree shows them. */
     fun selectedIds(): List<String> = selectedNodes().map { it.id }
+
+    private fun treeMenu(): ActionGroup = DefaultActionGroup(
+        remarkChangeActions(project) { selectedIds() },
+        Separator.getInstance(),
+        DumbAwareAction.create("Delete") { deleteSelected() },
+    )
 
     /**
      * A while loop, NOT `for (row in 0 until tree.rowCount)`: that builds the range once, from the

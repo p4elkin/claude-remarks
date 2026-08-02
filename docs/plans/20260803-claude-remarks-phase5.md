@@ -1066,7 +1066,7 @@ The bucket chooser is an editable choose dialog, not a plain input prompt. Picki
 bucket by name is the common case, and typing it again by hand is exactly how "auth refactor" and
 "auth-refactor" become two buckets that look like one.
 
-- [ ] write the failing test in `RemarkActionsTest.kt`:
+- [x] write the failing test in `RemarkActionsTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.ui
@@ -1120,9 +1120,9 @@ class RemarkActionsTest : BasePlatformTestCase() {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkActionsTest"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarkActionsTest"` — expect a compile
       failure
-- [ ] create `ui/RemarkActions.kt`:
+- [x] create `ui/RemarkActions.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.ui
@@ -1186,7 +1186,7 @@ private fun chooseBucket(project: Project, ids: List<String>) {
 }
 ```
 
-- [ ] wire it into the gutter icon menu. In `editor/RemarkGutterIcon.kt`:
+- [x] wire it into the gutter icon menu. In `editor/RemarkGutterIcon.kt`:
 
 ```kotlin
 private fun menuFor(project: Project, editor: Editor, id: String): ActionGroup = DefaultActionGroup(
@@ -1231,7 +1231,7 @@ severity is inside it, so a severity change repaints and an unchanged one does n
                     severity = remark.severity,
 ```
 
-- [ ] install the tree menu. In `RemarksPanel.init`, after the Delete shortcut registration:
+- [x] install the tree menu. In `RemarksPanel.init`, after the Delete shortcut registration:
 
 ```kotlin
         // The same actions the gutter icon menu offers, acting on the tree selection instead of on
@@ -1253,13 +1253,13 @@ and beside it:
 Imports to add: `com.intellij.openapi.actionSystem.ActionGroup`,
 `com.intellij.openapi.actionSystem.Separator`, `com.intellij.ui.PopupHandler`.
 
-- [ ] update the tooltip expectation in `RemarkGutterIconTest.kt` so it includes the severity.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.*" --tests "dev.sasha.clauderemarks.editor.*"`
+- [x] update the tooltip expectation in `RemarkGutterIconTest.kt` so it includes the severity.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.*" --tests "dev.sasha.clauderemarks.editor.*"`
       — all must pass
-- [ ] **mutation check**: change `remarkChangeActions`'s parameter from `ids: () -> List<String>` to
+- [x] **mutation check**: change `remarkChangeActions`'s parameter from `ids: () -> List<String>` to
       a plain `ids: List<String>` and capture it at build time in the test.
       `testPressingASeverityItemActsOnTheIdsAtPressTime` must fail. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 5: Severity in the copied prompt, and the scale note
 

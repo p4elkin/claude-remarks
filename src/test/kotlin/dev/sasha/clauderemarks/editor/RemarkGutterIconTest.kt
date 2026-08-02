@@ -1,6 +1,7 @@
 package dev.sasha.clauderemarks.editor
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkTag
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -33,6 +34,11 @@ class RemarkTooltipTest {
     }
 
     @Test
+    fun `the severity is shown lowercase`() {
+        assertTrue(tooltipFor(placement(severity = RemarkSeverity.MUST)).contains("must"))
+    }
+
+    @Test
     fun `an orphan and a sent remark each say so on their own line`() {
         val html = tooltipFor(placement(orphaned = true, sent = true))
 
@@ -48,12 +54,14 @@ class RemarkTooltipTest {
     private fun placement(
         text: String = "why?",
         tag: RemarkTag? = null,
+        severity: RemarkSeverity = RemarkSeverity.SHOULD,
         sent: Boolean = false,
         orphaned: Boolean = false,
     ) = RemarkPlacement(
         id = "r-1",
         text = text,
         tag = tag,
+        severity = severity,
         sent = sent,
         startLine = 4,
         endLine = 6,
