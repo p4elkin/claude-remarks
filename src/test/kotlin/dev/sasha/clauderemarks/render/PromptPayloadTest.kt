@@ -77,6 +77,7 @@ class CollectForPromptTest : BasePlatformTestCase() {
         assertEquals(9, collected.startLine)
         assertEquals(10, collected.endLine)
         assertEquals("bug", collected.tag)
+        assertEquals("should", collected.severity)
         assertEquals(6, collected.codeStartLine)
         assertEquals(
             listOf("line 7", "line 8", "line 9", "line 10", "line 11", "line 12", "line 13", "line 14"),

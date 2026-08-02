@@ -17,6 +17,7 @@ class PromptRendererTest {
                     startLine = 2,
                     endLine = 3,
                     tag = "bug",
+                    severity = "should",
                     text = "why is this here?",
                     orphaned = false,
                     codeStartLine = 1,
@@ -25,27 +26,20 @@ class PromptRendererTest {
             ),
         )
 
-        assertEquals(
-            """
-            HEADER
+        // Built from the constant rather than hand-copied, so a wording change to the scale note
+        // does not also require editing this expected string.
+        val expected = "HEADER\n\n" + SEVERITY_SCALE_NOTE.trim() + "\n\n---\n" +
+            "\n## src/Foo.kt\n" +
+            "\n### 1. lines 3-4 — bug — should\n\n" +
+            "why is this here?\n\n" +
+            "```text\n" +
+            "  2 | beta\n" +
+            "> 3 | gamma\n" +
+            "> 4 | delta\n" +
+            "  5 | epsilon\n" +
+            "```"
 
-            ---
-
-            ## src/Foo.kt
-
-            ### 1. lines 3-4 — bug
-
-            why is this here?
-
-            ```text
-              2 | beta
-            > 3 | gamma
-            > 4 | delta
-              5 | epsilon
-            ```
-            """.trimIndent(),
-            out.trimEnd(),
-        )
+        assertEquals(expected, out.trimEnd())
     }
 
     @Test
@@ -70,7 +64,9 @@ class PromptRendererTest {
     fun `a remark with no tag has no tag on its heading`() {
         val out = renderPrompt("H", listOf(remark("a.kt", 0, tag = null)))
 
-        assertTrue(out.contains("### 1. lines 1-1\n"))
+        // Severity is now always printed, so "no tag" means the heading goes straight from the
+        // line range to the severity with nothing in between.
+        assertTrue(out.contains("### 1. lines 1-1 — should\n"))
     }
 
     @Test
@@ -79,7 +75,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 99, endLine = 99, tag = null, text = "t",
+                    path = "a.kt", startLine = 99, endLine = 99, tag = null, severity = "should", text = "t",
                     orphaned = false, codeStartLine = 97,
                     code = listOf("a", "b", "c", "d", "e"),
                 )
@@ -120,7 +116,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 0, endLine = 0, tag = null,
+                    path = "a.kt", startLine = 0, endLine = 0, tag = null, severity = "should",
                     text = "like this:\n```\nval a = 1\n```\n## not a heading\n---",
                     orphaned = false, codeStartLine = 0, code = listOf("one"),
                 )
@@ -145,7 +141,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 4, endLine = 4, tag = null, text = "why?",
+                    path = "a.kt", startLine = 4, endLine = 4, tag = null, severity = "should", text = "why?",
                     orphaned = true, codeStartLine = 4, code = emptyList(),
                     capturedBefore = listOf("fun foo() {"),
                     capturedAfter = listOf("} // end"),
@@ -185,10 +181,47 @@ class PromptRendererTest {
         assertFalse(out.contains("null"))
     }
 
+    @Test
+    fun `the heading carries the severity after the tag`() {
+        val out = renderPrompt("H", listOf(remark(tag = "bug", severity = "must")))
+
+        assertTrue(out, out.contains("### 1. lines 1-1 — bug — must"))
+    }
+
+    @Test
+    fun `a remark with no tag still carries its severity`() {
+        val out = renderPrompt("H", listOf(remark(tag = null, severity = "vibe")))
+
+        assertTrue(out, out.contains("### 1. lines 1-1 — vibe"))
+    }
+
+    /**
+     * The scale is appended by the renderer, not stored in the editable header. Somebody who
+     * rewrites the header in settings must not silently lose the meaning of the levels while the
+     * levels keep being printed.
+     */
+    @Test
+    fun `the scale is explained under whatever header the user wrote`() {
+        val out = renderPrompt("my own header", listOf(remark()))
+
+        assertTrue(out.startsWith("my own header"))
+        assertTrue(out.contains(SEVERITY_SCALE_NOTE.trim()))
+        assertTrue(
+            "the scale belongs above the remarks, not after them",
+            out.indexOf(SEVERITY_SCALE_NOTE.trim()) < out.indexOf("### 1."),
+        )
+    }
+
+    @Test
+    fun `an empty remark list gets the header and nothing else`() {
+        assertEquals("H\n", renderPrompt("H", emptyList()))
+    }
+
     private fun remark(
-        path: String,
-        startLine: Int,
+        path: String = "a.kt",
+        startLine: Int = 0,
         tag: String? = "note",
+        severity: String = "should",
         orphaned: Boolean = false,
         code: List<String> = listOf("one", "two", "three"),
     ) = RenderedRemark(
@@ -196,6 +229,7 @@ class PromptRendererTest {
         startLine = startLine,
         endLine = startLine,
         tag = tag,
+        severity = severity,
         text = "a note",
         orphaned = orphaned,
         codeStartLine = maxOf(0, startLine - 1),

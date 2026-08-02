@@ -108,6 +108,7 @@ fun collectForPrompt(
             startLine = start,
             endLine = end,
             tag = row.remark.tag?.label,
+            severity = row.remark.severity.label,
             text = row.remark.text.orEmpty(),
             orphaned = orphaned,
             codeStartLine = from,

@@ -14,6 +14,9 @@ data class RenderedRemark(
     val endLine: Int,
     /** "bug" | "question" | "refactor" | "note", already lowercase, or null. */
     val tag: String?,
+    /** "vibe" | "suggestion" | "should" | "must", already lowercase. Never null: every remark has
+     *  a level, defaulted when it was written. */
+    val severity: String,
     val text: String,
     val orphaned: Boolean,
     /** The 0-based line number that code[0] came from. */
@@ -31,7 +34,10 @@ data class RenderedRemark(
 fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
     if (remarks.isEmpty()) return header.trimEnd() + "\n"
 
-    val out = StringBuilder(header.trimEnd()).append("\n\n---\n")
+    val out = StringBuilder(header.trimEnd())
+        .append("\n\n")
+        .append(SEVERITY_SCALE_NOTE.trim())
+        .append("\n\n---\n")
     var number = 0
 
     remarks
@@ -44,6 +50,7 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
                 out.append("\n### ").append(number).append(". ")
                     .append("lines ").append(remark.startLine + 1).append("-").append(remark.endLine + 1)
                 remark.tag?.let { out.append(" — ").append(it) }
+                out.append(" — ").append(remark.severity)
                 if (remark.orphaned) out.append(" — orphaned, the line numbers are stale")
                 out.append("\n\n").append(escapeMarkdown(remark.text.trim())).append("\n\n")
                 out.append(codeBlock(remark)).append("\n")
@@ -52,6 +59,27 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
 
     return out.toString()
 }
+
+/**
+ * Appended under the header on every copy.
+ *
+ * Not part of DEFAULT_PROMPT_HEADER, and that is the whole point. The header is editable in
+ * settings, so anything living only inside it is gone the moment somebody rewrites it — and the
+ * levels would keep being printed with nothing left to say what they mean. This is part of the
+ * rendered document instead, so it survives any header.
+ */
+const val SEVERITY_SCALE_NOTE: String = """
+Each remark carries one of four levels, saying how strongly to act on it:
+
+- must — do it, whatever it costs.
+- should — do it unless there is a concrete reason not to. If you skip it, say why.
+- suggestion — do it if it is cheap and does not fight the surrounding code.
+- vibe — an idle thought. You may decline it. Say in one line whether you took it.
+
+A remark may also carry "commit <sha>". That is the revision the author was reading when they wrote
+it. For a remark marked orphaned, comparing the file against that revision is the fastest way to
+find where its code went.
+"""
 
 /**
  * The remark text is written into the document as prose, outside any fence, and it is free-form:

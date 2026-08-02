@@ -1291,7 +1291,7 @@ test, no branch.
 `PromptRenderer.kt` must gain no `com.intellij` import — check with the grep in
 [task 13](#task-13-verify-the-four-hard-constraints).
 
-- [ ] write the failing tests in `PromptRendererTest.kt`:
+- [x] write the failing tests in `PromptRendererTest.kt`:
 
 ```kotlin
     @Test
@@ -1331,9 +1331,9 @@ test, no branch.
     }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.render.PromptRendererTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.render.PromptRendererTest"` — expect a
       compile failure
-- [ ] change `PromptRenderer.kt`. `RenderedRemark` gains one required field, right after `tag`:
+- [x] change `PromptRenderer.kt`. `RenderedRemark` gains one required field, right after `tag`:
 
 ```kotlin
     /** "vibe" | "suggestion" | "should" | "must", already lowercase. Never null: every remark has
@@ -1389,7 +1389,7 @@ and the heading:
                 if (remark.orphaned) out.append(" — orphaned, the line numbers are stale")
 ```
 
-- [ ] fill the field in `collectForPrompt`, next to `tag`:
+- [x] fill the field in `collectForPrompt`, next to `tag`:
 
 ```kotlin
             severity = row.remark.severity.label,
@@ -1398,12 +1398,12 @@ and the heading:
 Add `import dev.sasha.clauderemarks.model.label` — it is already imported for `RemarkTag.label`, and
 the extension for `RemarkSeverity` lives in the same file, so one import covers both.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.render.*"` — all must pass
-- [ ] **mutation check**: delete the `.append(SEVERITY_SCALE_NOTE.trim())` line.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.render.*"` — all must pass
+- [x] **mutation check**: delete the `.append(SEVERITY_SCALE_NOTE.trim())` line.
       `the scale is explained under whatever header the user wrote` must fail. Restore it. Then
       delete `out.append(" — ").append(remark.severity)` and confirm
       `the heading carries the severity after the tag` fails.
-- [ ] commit
+- [x] commit
 
 ### Task 6: Tag chips replace the drop-down
 
