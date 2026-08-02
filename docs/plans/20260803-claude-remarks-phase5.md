@@ -2026,7 +2026,7 @@ that window. A markdown file is readable today.
 The rendering reads the **stored** fields, not a fresh resolve. By the time anyone reads this file
 the code has moved and the file may be gone.
 
-- [ ] write the failing tests in `RemarkHistoryTest.kt`:
+- [x] write the failing tests in `RemarkHistoryTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.store
@@ -2102,9 +2102,9 @@ class RemarkHistoryTest {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkHistoryTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkHistoryTest"` — expect a
       compile failure
-- [ ] create `store/RemarkHistory.kt`:
+- [x] create `store/RemarkHistory.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.store
@@ -2196,10 +2196,10 @@ internal fun renderHistory(
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkHistoryTest"` — must pass
-- [ ] **mutation check**: change `StandardOpenOption.APPEND` to `StandardOpenOption.TRUNCATE_EXISTING`.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkHistoryTest"` — must pass
+- [x] **mutation check**: change `StandardOpenOption.APPEND` to `StandardOpenOption.TRUNCATE_EXISTING`.
       `writing twice appends rather than replacing` must fail. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 11: Clear Sent and Clear All archive before they delete
 
