@@ -1,6 +1,7 @@
 package dev.sasha.clauderemarks.ui
 
 import dev.sasha.clauderemarks.anchor.AnchorResult
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
@@ -8,6 +9,7 @@ import dev.sasha.clauderemarks.store.ResolvedRemark
 import javax.swing.tree.DefaultMutableTreeNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -117,8 +119,106 @@ class RemarksTreeTest {
         assertEquals(2, remarkNodesUnder(listOf(file, firstRow)).size)
     }
 
+    /** Somebody who has never used a bucket must get exactly the tree they had before. */
+    @Test
+    fun `with no buckets in use the tree is still root then file then remark`() {
+        val root = buildTreeRoot(listOf(row(path = "src/Foo.kt", id = "r-1")))
+
+        assertEquals(1, root.childCount)
+        val file = root.getChildAt(0) as DefaultMutableTreeNode
+        assertEquals("src/Foo.kt", (file.userObject as GroupNode).label)
+        assertTrue((file.getChildAt(0) as DefaultMutableTreeNode).userObject is RemarkNode)
+    }
+
+    @Test
+    fun `one remark in a bucket puts every remark under a bucket level`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "r-1", path = "src/Foo.kt", bucket = "auth refactor"),
+                row(id = "r-2", path = "src/Foo.kt", bucket = null),
+            )
+        )
+
+        val labels = (0 until root.childCount)
+            .map { ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).label }
+        // Unbucketed first: those are the remarks just written, and they are the ones being moved.
+        assertEquals(listOf(NO_BUCKET_LABEL, "auth refactor"), labels)
+    }
+
+    /**
+     * A bucket and a file can carry the same name. The panel uses a group's key to put a selection
+     * back after a rebuild, so two groups sharing a key means restoring the wrong row.
+     */
+    @Test
+    fun `a bucket and a file with the same name have different keys`() {
+        val root = buildTreeRoot(listOf(row(id = "r-1", path = "src", bucket = "src")))
+
+        val bucket = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        val file = ((root.getChildAt(0) as DefaultMutableTreeNode)
+            .getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+
+        assertEquals("src", bucket.label)
+        assertEquals("src", file.label)
+        assertNotEquals(bucket.key, file.key)
+    }
+
+    /**
+     * The same file holds remarks in two different buckets, so it is drawn as a file group twice.
+     * Those two groups are different rows and need different keys: the panel restores the selection
+     * and the collapsed groups after every rebuild by matching keys, so one shared key means the
+     * wrong one of the two is picked. The test above does not cover this — a bucket key already
+     * starts with "bucket:", so it never collides with a bare path — which is why this one exists.
+     */
+    @Test
+    fun `the same file under two buckets gives two different keys`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "r-1", path = "src/Foo.kt", bucket = "a"),
+                row(id = "r-2", path = "src/Foo.kt", bucket = "b"),
+            )
+        )
+
+        val fileKeys = (0 until root.childCount).map {
+            val bucket = root.getChildAt(it) as DefaultMutableTreeNode
+            ((bucket.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode).key
+        }
+
+        assertEquals(2, fileKeys.size)
+        assertNotEquals(fileKeys[0], fileKeys[1])
+    }
+
+    /**
+     * Selecting a bucket and pressing Copy Selected is what "Copy Bucket" means, and it is the only
+     * reason no Copy Bucket button is needed. The old one-level walk found file nodes under a
+     * bucket, none of which is a RemarkNode, and answered an empty list — so Copy Selected and
+     * Delete would both have done nothing at all, silently.
+     */
+    @Test
+    fun `selecting a bucket node counts as selecting every row under every file in it`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "r-1", path = "src/A.kt", bucket = "b"),
+                row(id = "r-2", path = "src/Z.kt", bucket = "b"),
+            )
+        )
+
+        val ids = remarkNodesUnder(listOf(root.getChildAt(0) as DefaultMutableTreeNode)).map { it.id }
+
+        assertEquals(listOf("r-1", "r-2"), ids)
+    }
+
+    @Test
+    fun `a leaf carries its bucket and its severity`() {
+        val node = remarkNode(row(bucket = "b", severity = RemarkSeverity.MUST))
+
+        assertEquals("b", node.bucket)
+        assertEquals("must", node.severity)
+    }
+
     private fun fileNames(root: DefaultMutableTreeNode) =
-        (0 until root.childCount).map { (root.getChildAt(it) as DefaultMutableTreeNode).userObject }
+        (0 until root.childCount).map {
+            ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).label
+        }
 
     private fun idsUnder(root: DefaultMutableTreeNode, index: Int): List<String> {
         val file = root.getChildAt(index) as DefaultMutableTreeNode
@@ -134,6 +234,8 @@ class RemarksTreeTest {
         tag: RemarkTag? = null,
         status: RemarkStatus = RemarkStatus.PENDING,
         result: AnchorResult = AnchorResult.Exact(4, 6),
+        bucket: String? = null,
+        severity: RemarkSeverity = RemarkSeverity.SHOULD,
     ) = ResolvedRemark(
         RemarkState().also {
             it.id = id
@@ -143,6 +245,8 @@ class RemarksTreeTest {
             it.text = text
             it.tag = tag
             it.status = status
+            it.bucket = bucket
+            it.severity = severity
         },
         result,
     )

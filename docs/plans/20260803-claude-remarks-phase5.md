@@ -753,7 +753,7 @@ and a file named `src` would be the same key, and restoring a selection after a 
 the wrong one. `GroupNode(key, label)` separates what is drawn from what identifies it, and the key
 is the whole path from the root.
 
-- [ ] write the failing tests in `RemarksTreeTest.kt` (and change the `row()` helper and
+- [x] write the failing tests in `RemarksTreeTest.kt` (and change the `row()` helper and
       `fileNames` to match):
 
 ```kotlin
@@ -829,9 +829,9 @@ is the whole path from the root.
     }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` — expect a compile
       failure
-- [ ] rewrite the node-building half of `RemarksTree.kt`:
+- [x] rewrite the node-building half of `RemarksTree.kt`:
 
 ```kotlin
 /** The label shown for remarks that are in no bucket, once any bucket exists. */
@@ -945,7 +945,7 @@ and `RemarkTreeRenderer` changes its group branch and appends the severity:
             is GroupNode -> append(user.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
 ```
 
-- [ ] update `RemarksToolWindowFactory.kt`. Four changes, and they must agree with each other:
+- [x] update `RemarksToolWindowFactory.kt`. Four changes, and they must agree with each other:
 
 ```kotlin
     /** A remark row is its id, a group row is its key. The root is invisible and never a row. */
@@ -1000,7 +1000,7 @@ and `RemarkTreeRenderer` changes its group branch and appends the severity:
 `wasCollapsed = collapsedGroups()`. Nothing else in the panel changes: `expandAll` already walks by
 row index with a `while` loop, so it opens three levels as readily as two.
 
-- [ ] add the panel test to `RemarksPanelTest.kt`:
+- [x] add the panel test to `RemarksPanelTest.kt`:
 
 ```kotlin
     /**
@@ -1023,15 +1023,23 @@ row index with a `while` loop, so it opens three levels as readily as two.
     }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.*"` — all must pass
-- [ ] **mutation check**: two.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.*"` — all must pass
+- [x] **mutation check**: two.
       1. Change `leavesOf`'s recursive branch back to one level:
          `else -> (0 until node.childCount).mapNotNull { (node.getChildAt(it) as? DefaultMutableTreeNode)?.userObject as? RemarkNode }`.
          `selecting a bucket node counts as selecting every row under every file in it` must fail,
          and so must `testABucketTreeIsFullyExpandedAndABucketNodeSelectsEveryRowUnderIt`. Restore it.
+         Done: exactly those two failed, nothing else.
       2. Change `addFileGroups` to build `GroupNode(path, path)` instead of prefixing the key.
          `a bucket and a file with the same name have different keys` must fail. Restore it.
-- [ ] commit
+         **This did not hold, and the test was fixed rather than the check dropped.** A bucket key
+         already starts with `bucket:`, so it can never equal a bare path, and that test stayed
+         green under the mutation. The thing the key prefix really protects is the same file
+         appearing under two different buckets: both file groups would answer to one key, and the
+         panel would restore the wrong one. A second test,
+         `the same file under two buckets gives two different keys`, covers that, and it does fail
+         under the mutation. Both tests are kept.
+- [x] commit
 
 ### Task 4: One menu for changing a remark, used by the gutter and the tree
 

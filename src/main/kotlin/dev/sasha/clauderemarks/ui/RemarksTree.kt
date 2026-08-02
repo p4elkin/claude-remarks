@@ -9,6 +9,19 @@ import dev.sasha.clauderemarks.store.ResolvedRemark
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 
+/** The label shown for remarks that are in no bucket, once any bucket exists. */
+const val NO_BUCKET_LABEL = "(no bucket)"
+
+/**
+ * A group row: a bucket or a file.
+ *
+ * The key and the label are separate on purpose. A bucket can be called "src" and so can a
+ * directory, and the panel puts a selection back after every rebuild by matching keys. Two groups
+ * sharing a key means restoring the wrong one. The key is the whole path from the root; the label
+ * is what is drawn.
+ */
+data class GroupNode(val key: String, val label: String)
+
 /** One leaf. Everything a row needs to draw itself and to navigate. */
 data class RemarkNode(
     val id: String,
@@ -16,6 +29,8 @@ data class RemarkNode(
     val position: String,
     val text: String,
     val tag: String?,
+    val severity: String,
+    val bucket: String?,
     val sent: Boolean,
     val startLine: Int,
 )
@@ -46,30 +61,41 @@ fun remarkNode(row: ResolvedRemark): RemarkNode {
         // flattened, and the copied prompt still gets the remark as written.
         text = row.remark.text.orEmpty().replace('\n', ' '),
         tag = row.remark.tag?.label,
+        severity = row.remark.severity.label,
+        bucket = row.remark.bucket,
         sent = row.remark.status == RemarkStatus.SENT,
         startLine = result.startLine,
     )
 }
 
 /**
- * The remark rows a set of selected tree nodes covers. A file node counts as every row under it,
- * so selecting a file and pressing Delete, or Copy Selected, does what it looks like it should.
- * Distinct, because selecting a file together with one of its own rows would otherwise count that
- * row twice.
+ * The remark rows a set of selected tree nodes covers, at any depth. Distinct, because selecting a
+ * bucket together with a file inside it would otherwise count that file's rows twice.
  */
 fun remarkNodesUnder(selected: List<DefaultMutableTreeNode>): List<RemarkNode> =
-    selected.flatMap { node ->
-        when (val user = node.userObject) {
-            is RemarkNode -> listOf(user)
-            else -> (0 until node.childCount).mapNotNull {
-                (node.getChildAt(it) as? DefaultMutableTreeNode)?.userObject as? RemarkNode
-            }
+    selected.flatMap(::leavesOf).distinct()
+
+/**
+ * Recursive, not one level down. A bucket node's children are file nodes, and a one-level walk over
+ * them finds GroupNodes and answers nothing at all — so selecting a bucket and pressing Copy
+ * Selected or Delete would do nothing, with no message.
+ */
+private fun leavesOf(node: DefaultMutableTreeNode): List<RemarkNode> =
+    when (val user = node.userObject) {
+        is RemarkNode -> listOf(user)
+        else -> (0 until node.childCount).flatMap { index ->
+            (node.getChildAt(index) as? DefaultMutableTreeNode)?.let(::leavesOf).orEmpty()
         }
-    }.distinct()
+    }
 
 /**
  * The whole tree, rebuilt from scratch. Files in path order, rows inside a file in resolved line
- * order, so the tree reads the way the code does.
+ * order, and buckets in name order with the unbucketed ones first — those are the remarks just
+ * written, and the ones about to be moved.
+ *
+ * The bucket level appears only once some remark is actually in a bucket. Without that check,
+ * anyone who never uses buckets would get a "(no bucket)" node wrapped around their whole tree for
+ * a feature they never asked for.
  *
  * A remark with no id is left out. Its node would draw normally and then do nothing: Delete and
  * Copy Selected both match on the id, and an empty id matches no stored remark. RemarkGutter drops
@@ -77,16 +103,35 @@ fun remarkNodesUnder(selected: List<DefaultMutableTreeNode>): List<RemarkNode> =
  */
 fun buildTreeRoot(rows: List<ResolvedRemark>): DefaultMutableTreeNode {
     val root = DefaultMutableTreeNode("remarks")
-    rows.filter { it.remark.id != null }
+    val nodes = rows.filter { it.remark.id != null }
         .map(::remarkNode)
-        .sortedWith(compareBy({ it.path }, { it.startLine }))
-        .groupBy { it.path }
-        .forEach { (path, nodes) ->
-            val fileNode = DefaultMutableTreeNode(path)
-            nodes.forEach { fileNode.add(DefaultMutableTreeNode(it)) }
-            root.add(fileNode)
-        }
+        .sortedWith(compareBy({ it.bucket ?: "" }, { it.path }, { it.startLine }))
+
+    if (nodes.none { it.bucket != null }) {
+        addFileGroups(root, "", nodes)
+        return root
+    }
+
+    nodes.groupBy { it.bucket }.forEach { (bucket, inBucket) ->
+        val label = bucket ?: NO_BUCKET_LABEL
+        val key = "bucket:$label"
+        val bucketNode = DefaultMutableTreeNode(GroupNode(key, label))
+        addFileGroups(bucketNode, "$key/", inBucket)
+        root.add(bucketNode)
+    }
     return root
+}
+
+private fun addFileGroups(
+    parent: DefaultMutableTreeNode,
+    keyPrefix: String,
+    nodes: List<RemarkNode>,
+) {
+    nodes.groupBy { it.path }.forEach { (path, inFile) ->
+        val fileNode = DefaultMutableTreeNode(GroupNode("${keyPrefix}file:$path", path))
+        inFile.forEach { fileNode.add(DefaultMutableTreeNode(it)) }
+        parent.add(fileNode)
+    }
 }
 
 /**
@@ -113,10 +158,11 @@ class RemarkTreeRenderer : ColoredTreeCellRenderer() {
                 append("${user.position}  ", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 append(user.text, body)
                 user.tag?.let { append("  [$it]", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
+                append("  ${user.severity}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 if (user.sent) append("  sent", SimpleTextAttributes.GRAYED_ATTRIBUTES)
             }
 
-            is String -> append(user, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+            is GroupNode -> append(user.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
         }
     }
 }

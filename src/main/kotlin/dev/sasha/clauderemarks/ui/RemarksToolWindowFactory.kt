@@ -105,7 +105,7 @@ class RemarksPanel(
                 // greys itself out, and a file group you closed springs open again as soon as you
                 // open any file that holds a remark.
                 val wasSelected = selectionKeys()
-                val wasCollapsed = collapsedFiles()
+                val wasCollapsed = collapsedGroups()
                 (tree.model as DefaultTreeModel).setRoot(buildTreeRoot(rows))
                 expandAll()
                 recollapse(wasCollapsed)
@@ -142,11 +142,11 @@ class RemarksPanel(
     private fun selectionKeys(): Set<String> =
         tree.selectionPaths.orEmpty().mapNotNull { keyOf(it.lastPathComponent) }.toSet()
 
-    /** A remark row is its id, a file group is its path. The root is invisible and never a row. */
+    /** A remark row is its id, a group row is its key. The root is invisible and never a row. */
     private fun keyOf(component: Any?): String? =
         when (val user = (component as? DefaultMutableTreeNode)?.userObject) {
             is RemarkNode -> user.id
-            is String -> user
+            is GroupNode -> user.key
             else -> null
         }
 
@@ -163,29 +163,46 @@ class RemarksPanel(
         if (paths.isNotEmpty()) tree.selectionPaths = paths.toTypedArray()
     }
 
-    /** The file groups that are shut right now, read before setRoot throws the rows away. */
-    private fun collapsedFiles(): Set<String> =
-        fileNodes().filterNot { tree.isExpanded(it.second) }.map { it.first }.toSet()
+    /**
+     * The group rows that are shut right now, read before setRoot throws the rows away.
+     *
+     * isVisible is not decoration. JTree reports a node inside a collapsed ancestor as not
+     * expanded, so without it every file group inside a collapsed bucket would be recorded as
+     * collapsed and would stay shut after the rebuild even when the bucket is opened again. The
+     * cost of the check: a file group you shut inside a bucket you then shut is forgotten. That is
+     * the smaller surprise of the two.
+     */
+    private fun collapsedGroups(): Set<String> =
+        groupNodes()
+            .filter { (_, path) -> tree.isVisible(path) && !tree.isExpanded(path) }
+            .map { it.first }
+            .toSet()
 
     /** Shuts them again after expandAll, so a group you closed stays closed across a refresh. */
-    private fun recollapse(files: Set<String>) {
-        if (files.isEmpty()) return
-        fileNodes().forEach { (path, treePath) -> if (path in files) tree.collapsePath(treePath) }
+    private fun recollapse(groups: Set<String>) {
+        if (groups.isEmpty()) return
+        groupNodes().forEach { (key, treePath) -> if (key in groups) tree.collapsePath(treePath) }
     }
 
-    /** Each file group with the TreePath that reaches it. Read from the model, not from row
-     *  indexes, so it does not depend on what is expanded at the time. */
-    private fun fileNodes(): List<Pair<String, TreePath>> {
+    /**
+     * Every group row with the TreePath that reaches it, at any depth. Read from the model, not
+     * from row indexes, so it does not depend on what is expanded at the time.
+     */
+    private fun groupNodes(): List<Pair<String, TreePath>> {
         val root = tree.model.root as? DefaultMutableTreeNode ?: return emptyList()
-        return (0 until root.childCount).mapNotNull { index ->
-            val node = root.getChildAt(index) as? DefaultMutableTreeNode
-            (node?.userObject as? String)?.let {
-                it to TreePath(arrayOf<Any>(root, node))
+        val found = mutableListOf<Pair<String, TreePath>>()
+        fun walk(node: DefaultMutableTreeNode, path: TreePath) {
+            (node.userObject as? GroupNode)?.let { found += it.key to path }
+            for (index in 0 until node.childCount) {
+                val child = node.getChildAt(index) as? DefaultMutableTreeNode ?: continue
+                walk(child, path.pathByAddingChild(child))
             }
         }
+        walk(root, TreePath(root))
+        return found
     }
 
-    /** A selected file node counts as all its rows; see remarkNodesUnder in RemarksTree.kt. */
+    /** A selected group node counts as all its rows; see remarkNodesUnder in RemarksTree.kt. */
     private fun selectedNodes(): List<RemarkNode> =
         remarkNodesUnder(
             tree.selectionPaths.orEmpty().mapNotNull { it.lastPathComponent as? DefaultMutableTreeNode }
@@ -207,9 +224,9 @@ class RemarksPanel(
 
     /**
      * Deleting the rows you picked out asks nothing: you selected them and then pressed Delete,
-     * which is not silent. Selecting a file node is the other case — it stands for every row under
-     * it, and on a collapsed node that is an unknown number of remarks nobody has copied yet. That
-     * one asks, the same way Clear All does.
+     * which is not silent. Selecting a group node — a file or a bucket — is the other case. It
+     * stands for every row under it, and on a collapsed node that is an unknown number of remarks
+     * nobody has copied yet. That one asks, the same way Clear All does.
      */
     private fun deleteSelected() {
         val nodes = selectedNodes()
@@ -223,8 +240,8 @@ class RemarksPanel(
     private fun confirmDelete(count: Int): Boolean =
         Messages.showYesNoDialog(
             project,
-            "Delete $count remark${if (count == 1) "" else "s"} under the selected file" +
-                "${if (count == 1) "" else "s"}? This cannot be undone.",
+            "Delete $count remark${if (count == 1) "" else "s"} under the selection? " +
+                "This cannot be undone.",
             "Delete Claude Remarks",
             Messages.getWarningIcon(),
         ) == Messages.YES

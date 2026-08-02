@@ -10,6 +10,7 @@ import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.editor.RemarkGutter
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
+import dev.sasha.clauderemarks.store.setRemarkBucket
 import java.io.File
 
 /**
@@ -138,6 +139,25 @@ class RemarksPanelTest : BasePlatformTestCase() {
             rootBefore,
             panel.tree.model.root,
         )
+    }
+
+    /**
+     * expandAll walks by row index and grows the range as rows appear, so it opens a third level
+     * too. This pins that, and pins that a bucket node is one selection covering every row under it.
+     */
+    fun testABucketTreeIsFullyExpandedAndABucketNodeSelectsEveryRowUnderIt() {
+        val first = addRemark(project, "A.kt", LINES, 0..0, "one", null)
+        val second = addRemark(project, "B.kt", LINES, 0..0, "two", null)
+        setRemarkBucket(project, listOf(first.id!!, second.id!!), "auth refactor")
+
+        val panel = panel()
+
+        // one bucket + two file groups + two rows
+        assertEquals(5, panel.tree.rowCount)
+
+        panel.tree.setSelectionRow(0)
+        assertEquals(1, panel.tree.selectionCount)
+        assertEquals(2, panel.selectedIds().size)
     }
 
     private fun panel(): RemarksPanel {
