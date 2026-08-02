@@ -350,7 +350,7 @@ task 9 consumes task 8, task 11 consumes task 10.
 Nothing to build. The ids work with `:action` today. What is missing is that nobody is told, and
 that nothing stops a later change from renaming them.
 
-- [ ] write the failing test in `ActionIdsTest.kt`:
+- [x] write the failing test in `ActionIdsTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.action
@@ -388,11 +388,11 @@ class ActionIdsTest : BasePlatformTestCase() {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.action.ActionIdsTest"` — must pass
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.action.ActionIdsTest"` — must pass
       without any production change. If `getAction` returns null for either id, the plugin
       descriptor is not being loaded in the fixture, and that is a finding worth reporting rather
       than working around.
-- [ ] add the comment to `plugin.xml`, directly above the `<toolWindow>` element:
+- [x] add the comment to `plugin.xml`, directly above the `<toolWindow>` element:
 
 ```xml
         <!-- The id is part of the plugin's public interface: the platform derives the action id
@@ -400,7 +400,7 @@ class ActionIdsTest : BasePlatformTestCase() {
              mappings. Renaming this breaks every user's .ideavimrc without any error. -->
 ```
 
-- [ ] add the `## IdeaVim` section to `README.md`:
+- [x] add the `## IdeaVim` section to `README.md`:
 
 ````markdown
 ## IdeaVim
@@ -435,13 +435,13 @@ Two things to check the first time you use it, rather than assume:
   typing, Enter and Escape all behave normally.
 ````
 
-- [ ] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
-- [ ] **mutation check**: change `ClaudeRemarks.AddRemark` to `ClaudeRemarks.AddRemarkX` in
+- [x] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
+- [x] **mutation check**: change `ClaudeRemarks.AddRemark` to `ClaudeRemarks.AddRemarkX` in
       `plugin.xml`. `testTheRegisteredActionIdsAreTheDocumentedOnes` must fail. Restore it. Then
       change the `<toolWindow id>` to `"Claude Remarks 2"` and confirm
       `testTheToolWindowActivationIdIsTheDocumentedOne` does **not** fail — that is the limit of
       this guard, and the plugin.xml comment is what covers the gap.
-- [ ] commit
+- [x] commit
 
 ### Task 2: Severity and bucket on the record, and their mutation functions
 
