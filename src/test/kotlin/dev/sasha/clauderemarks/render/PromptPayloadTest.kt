@@ -1,0 +1,143 @@
+package dev.sasha.clauderemarks.render
+
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import dev.sasha.clauderemarks.model.RemarkTag
+import dev.sasha.clauderemarks.store.RemarkStore
+import dev.sasha.clauderemarks.store.addRemark
+import dev.sasha.clauderemarks.store.projectRoot
+import dev.sasha.clauderemarks.store.resolveAll
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.Path
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** The size decision, without a project. */
+class ClipboardPayloadTest {
+
+    @Test
+    fun `a small payload goes straight to the clipboard`() {
+        val result = clipboardPayload("small", tempDir(), limitBytes = 1024)
+
+        assertEquals("small", result.text)
+        assertNull(result.file)
+    }
+
+    @Test
+    fun `a large payload is written to a file and the path is copied instead`() {
+        val big = "x".repeat(4096)
+
+        val result = clipboardPayload(big, tempDir(), limitBytes = 1024)
+
+        assertNotNull(result.file)
+        assertEquals(result.file!!.toAbsolutePath().toString(), result.text)
+        assertEquals(big, Files.readString(result.file))
+    }
+
+    /** The limit is on bytes, not characters: a document of emoji is bigger than it looks. */
+    @Test
+    fun `the limit counts utf-8 bytes`() {
+        val fourBytesEach = "😀".repeat(100) // 400 bytes, 200 chars
+
+        assertNull(clipboardPayload(fourBytesEach, tempDir(), limitBytes = 500).file)
+        assertNotNull(clipboardPayload(fourBytesEach, tempDir(), limitBytes = 300).file)
+    }
+
+    @Test
+    fun `the written file is outside the project, so it can never enter version control`() {
+        val result = clipboardPayload("x".repeat(4096), tempDir(), limitBytes = 1024)
+
+        assertTrue(result.file!!.toString().endsWith(".md"))
+    }
+
+    private fun tempDir(): Path = Files.createTempDirectory("claude-remarks-test")
+}
+
+/** The collection step, against real files and real Documents. */
+class CollectForPromptTest : BasePlatformTestCase() {
+
+    override fun setUp() {
+        super.setUp()
+        // The light fixture project is shared across test classes, so the store is cleared here
+        // as well as in tearDown. tearDown alone is not enough: another class that forgets it
+        // leaves its remarks behind for the first test in this one.
+        RemarkStore.getInstance(project).clear()
+    }
+
+    fun testTheAnchoredLinesComeBackWithContextEitherSide() {
+        writeFile("Foo.kt", (1..20).joinToString("\n") { "line $it" })
+        addRemark(project, "Foo.kt", (1..20).map { "line $it" }, 9..10, "why?", RemarkTag.BUG)
+
+        val collected = collectForPrompt(project, resolveAll(project)).single()
+
+        assertEquals("Foo.kt", collected.path)
+        assertEquals(9, collected.startLine)
+        assertEquals(10, collected.endLine)
+        assertEquals("bug", collected.tag)
+        assertEquals(6, collected.codeStartLine)
+        assertEquals(
+            listOf("line 7", "line 8", "line 9", "line 10", "line 11", "line 12", "line 13", "line 14"),
+            collected.code,
+        )
+    }
+
+    fun testContextIsClampedAtTheStartOfAFile() {
+        writeFile("Foo.kt", "a\nb\nc\nd")
+        addRemark(project, "Foo.kt", listOf("a", "b", "c", "d"), 0..0, "why?", null)
+
+        val collected = collectForPrompt(project, resolveAll(project)).single()
+
+        assertEquals(0, collected.codeStartLine)
+        assertEquals(listOf("a", "b", "c", "d"), collected.code)
+    }
+
+    fun testARemarkOnAMissingFileStillComesBack() {
+        addRemark(project, "NoSuchFile.kt", listOf("a"), 0..0, "why?", null)
+
+        val collected = collectForPrompt(project, resolveAll(project)).single()
+
+        assertEquals("NoSuchFile.kt", collected.path)
+        assertTrue(collected.orphaned)
+        assertTrue(collected.code.isEmpty())
+    }
+
+    /**
+     * Renamed from testEachFileIsReadOnceEvenWithSeveralRemarksInIt, which asserted only the row
+     * count and passed with the cache deleted outright. The name now says what it checks: two
+     * remarks in one file each come back with their own slice of it.
+     */
+    fun testSeveralRemarksInOneFileEachComeBackWithTheirOwnSlice() {
+        writeFile("Foo.kt", (1..30).joinToString("\n") { "line $it" })
+        val lines = (1..30).map { "line $it" }
+        addRemark(project, "Foo.kt", lines, 2..2, "one", null)
+        addRemark(project, "Foo.kt", lines, 20..20, "two", null)
+
+        val collected = collectForPrompt(project, resolveAll(project))
+
+        assertEquals(listOf("Foo.kt", "Foo.kt"), collected.map { it.path })
+        assertEquals(listOf(0, 17), collected.map { it.codeStartLine })
+        assertEquals("line 3", collected[0].code[collected[0].startLine - collected[0].codeStartLine])
+        assertEquals("line 21", collected[1].code[collected[1].startLine - collected[1].codeStartLine])
+    }
+
+    private fun writeFile(name: String, content: String) {
+        val onDisk = File(project.basePath!!, name)
+        onDisk.parentFile.mkdirs()
+        onDisk.writeText(content)
+        val file = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+            .refreshAndFindFileByIoFile(onDisk)!!
+        // refreshAndFindFileByIoFile does NOT re-read a file VFS already knows about, and every
+        // test here writes the same project directory. Without this line the second test sees the
+        // first test's content and its remark resolves as orphaned.
+        file.refresh(false, false)
+        assertNotNull(projectRoot(project))
+    }
+
+    override fun tearDown() {
+        RemarkStore.getInstance(project).clear()
+        super.tearDown()
+    }
+}

@@ -3427,7 +3427,7 @@ private fun codeBlock(remark: RenderedRemark): String {
 Two things live here: reading the code out of each file, and deciding where the payload goes when
 it is large. The second one is the "one code path with a size check" from the brief.
 
-- [ ] write the failing tests in `PromptPayloadTest.kt`:
+- [x] write the failing tests in `PromptPayloadTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.render
@@ -3575,8 +3575,8 @@ class CollectForPromptTest : BasePlatformTestCase() {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.render.*"` — expect a compile failure
-- [ ] create `PromptPayload.kt`:
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.render.*"` — expect a compile failure
+- [x] create `PromptPayload.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.render
@@ -3679,13 +3679,13 @@ fun collectForPrompt(
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.render.*"` — must pass
-- [ ] **mutation check**: change `markdown.toByteArray(StandardCharsets.UTF_8).size` to
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.render.*"` — must pass
+- [x] **mutation check**: change `markdown.toByteArray(StandardCharsets.UTF_8).size` to
       `markdown.length`. `the limit counts utf-8 bytes` must fail. Restore it.
-- [ ] **mutation check**: change the missing-file branch in `collectForPrompt` to drop the row
+- [x] **mutation check**: change the missing-file branch in `collectForPrompt` to drop the row
       (`return@map null` with a `mapNotNull`). `testARemarkOnAMissingFileStillComesBack` must fail.
       Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 10: Copy Remarks for Claude
 
