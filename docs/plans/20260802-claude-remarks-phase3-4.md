@@ -1631,7 +1631,7 @@ defaults. So only five members need writing. The `Editor` and `PsiFile` paramete
 nullability annotation in the bytecode, so they arrive in Kotlin as platform types; declaring them
 nullable is the safe choice.
 
-- [ ] create `AddRemarkIntention.kt`:
+- [x] create `AddRemarkIntention.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.action
@@ -1665,7 +1665,7 @@ class AddRemarkIntention : IntentionAction {
 }
 ```
 
-- [ ] create `src/main/resources/intentionDescriptions/AddRemarkIntention/description.html`. The
+- [x] create `src/main/resources/intentionDescriptions/AddRemarkIntention/description.html`. The
       directory name defaults to the class's simple name. Without this file the intention still
       works, but its entry in Settings | Editor | Intentions has no description:
 
@@ -1678,7 +1678,7 @@ The remark is stored in the IDE only. Your source files are never changed.
 </html>
 ```
 
-- [ ] add to `plugin.xml`, inside `<extensions defaultExtensionNs="com.intellij">`:
+- [x] add to `plugin.xml`, inside `<extensions defaultExtensionNs="com.intellij">`:
 
 ```xml
         <intentionAction>
@@ -1691,9 +1691,9 @@ The remark is stored in the IDE only. Your source files are never changed.
 optional. Leaving `language` out means the intention offers itself in every language, which is
 what this one wants.
 
-- [ ] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
-- [ ] run `./gradlew test` — nothing should have changed
-- [ ] commit
+- [x] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
+- [x] run `./gradlew test` — nothing should have changed
+- [x] commit
 
 ### Task 5a: The gutter icon and its tooltip
 

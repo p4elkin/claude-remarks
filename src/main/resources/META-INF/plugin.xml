@@ -13,6 +13,10 @@
         <toolWindow id="Claude Remarks"
                     anchor="right"
                     factoryClass="dev.sasha.clauderemarks.ui.RemarksToolWindowFactory"/>
+        <intentionAction>
+            <className>dev.sasha.clauderemarks.action.AddRemarkIntention</className>
+            <category>Claude Remarks</category>
+        </intentionAction>
     </extensions>
 
     <actions>
