@@ -10,6 +10,9 @@
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <!-- The id is part of the plugin's public interface: the platform derives the action id
+             ActivateClaudeRemarksToolWindow from it, and the README documents that id for IdeaVim
+             mappings. Renaming this breaks every user's .ideavimrc without any error. -->
         <toolWindow id="Claude Remarks"
                     anchor="right"
                     factoryClass="dev.sasha.clauderemarks.ui.RemarksToolWindowFactory"/>

@@ -41,6 +41,37 @@ The sandbox IDE launches with the plugin loaded. Open or create any project insi
 
 Build the zip, then in the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick `build/distributions/claude-remarks-0.1.1.zip`, and restart when asked. The plugin needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound set).
 
+## IdeaVim
+
+IdeaVim can run any registered action by id with `:action <id>`, so the plugin works from a
+`.ideavimrc` mapping with no extra code. These three ids are a public interface and will not be
+renamed:
+
+| Id | What it does |
+| --- | --- |
+| `ClaudeRemarks.AddRemark` | Open the remark box on the selection, or on the caret line |
+| `ClaudeRemarks.CopyAll` | Turn every pending remark into one prompt on the clipboard |
+| `ActivateClaudeRemarksToolWindow` | Open and focus the Claude Remarks tool window |
+
+Example mappings:
+
+```vim
+nnoremap <leader>r :action ClaudeRemarks.AddRemark<CR>
+vnoremap <leader>r :action ClaudeRemarks.AddRemark<CR>
+nnoremap <leader>c :action ClaudeRemarks.CopyAll<CR>
+nnoremap <leader>R :action ActivateClaudeRemarksToolWindow<CR>
+```
+
+Two things to check the first time you use it, rather than assume:
+
+- **Visual mode.** Select lines with `V`, then `<leader>r`. `:action` invoked from visual mode has
+  historically been awkward about whether the selection still exists when the action runs. The
+  action reads `editor.selectionModel`, so if the selection is gone it falls back to the caret line
+  and you get a one-line remark instead of the block you chose. If that happens, the fix is on the
+  mapping side, not in the plugin.
+- **Typing in the box.** The remark box is a plain Swing text area, which IdeaVim does not touch, so
+  typing, Enter and Escape all behave normally.
+
 ## Testing
 
 Run all tests:
