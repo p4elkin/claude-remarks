@@ -347,10 +347,20 @@ plus:
   waiting agent should do the same, and the history idea above becomes more valuable here, because
   a review handed over is exactly the thing worth keeping.
 
-### Worth doing?
+### Decided
 
-The value is real: reading a diff in the IDE is much better than reading it in a terminal, and the
-clipboard round trip is the one manual step left in the loop. But it is a phase of its own, it
-spans two code bases, and it undoes a constraint that shaped everything built so far. It should not
-be started until the phase 5 work has been used for a while and the clipboard step is confirmed to
-be the thing that actually annoys.
+Sasha approved this on 2026-08-03, with the file transport rather than a socket. Two things follow
+and neither should be quietly revisited:
+
+- **The no-server constraint is deliberately reversed for this feature.** It was reversed with the
+  reason known: reading a diff in the IDE beats reading it in a terminal, and the clipboard round
+  trip is the last manual step in the loop. Everything already built stays as it is — the clipboard
+  path is not removed, and the plugin must keep working with no skill installed and nothing
+  listening.
+- **The transport is a file the skill watches.** Not a socket. Failure then looks like a file that
+  never appeared, which is easy to report and easy to reason about, instead of two sides each
+  handling the other vanishing. Moving to a socket later changes only the transport.
+
+This becomes its own phase, planned after phase 5 lands. Half of it is a Claude Code skill under
+`~/.claude/skills`, outside this repository, and the two halves have to be designed together even
+though they ship separately.
