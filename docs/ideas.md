@@ -284,3 +284,73 @@ Keeping both would leave two competing notions of "chosen" on screen at once.
 
 Timing: this rewrites the tree, and phase 5 is already rewriting it to add the bucket level. Build
 it after phase 5 lands, not alongside, or the two rewrites collide.
+
+## A review session shared between Claude Code and the IDE
+
+The largest idea here, and the one that changes what the plugin is.
+
+The shape: a skill in Claude Code starts a review. It opens the IDE on a specific set of commits or
+on the local diff. The agent session then waits. In the IDE you read the diff and write remarks as
+usual, and one control hands them straight to the waiting session, which shows who is waiting for
+them.
+
+**This reverses a stated constraint, on purpose.** The original brief said: no MCP, no server, no
+background process — annotate, dispatch, flush. The clipboard exists precisely because of that
+rule. Anything that lets an agent wait for the IDE breaks it. That may well be the right trade now
+that the plugin is used daily, but it should be a decision someone makes, not something that
+happens because a feature seemed nice. Everything below assumes the reversal is wanted.
+
+**Half of this does not live in this repository.** The skill side is a Claude Code skill under
+`~/.claude/skills`. The plugin side is an endpoint and a button. They have to be designed together
+but they ship separately, and the plugin must keep working with no skill installed.
+
+### Going in: the IDE already has a server
+
+Nothing new needs to be started on the IDE side, which removes most of the objection. IntelliJ runs
+a built-in HTTP server, and a plugin registers an endpoint on it by extending `RestService`
+(`platform/built-in-server/src/org/jetbrains/ide/RestService.kt`, confirmed in the checkout). The
+default port is 63342. So the skill can ask a running IDE to open a diff for a commit range, and to
+label the session that is waiting, with an ordinary HTTP call.
+
+Two things to check before relying on it: the built-in server rejects or challenges requests it
+does not trust, so the token handling has to be worked out; and the skill has to find the right IDE
+when several are open on different projects. Passing the project path and letting the endpoint
+refuse if it does not match is probably enough.
+
+### Coming back: a socket, or a file
+
+The plain choice. A socket delivers the remarks the moment the button is pressed, and carries the
+waiting session's label naturally. A file the skill watches needs no port, no protocol and no
+cleanup, and the skill side is a loop that waits for the file to appear.
+
+What happens with a socket: the IDE connects and writes, the agent wakes at once, and both sides
+have to handle the other going away — an IDE that quits mid-review, a session that was interrupted,
+a stale port from a previous run.
+
+What happens with a file: the agent notices within its poll interval instead of instantly, and
+nothing has to be cleaned up because the path is chosen per run. Failure looks like a file that
+never appears, which is easy to reason about and easy to report.
+
+The file is the smaller, more reversible option, and the delay it costs is a second or two on a
+task that took minutes of reading. Start there. Moving to a socket later changes only the transport
+and neither the skill's shape nor the plugin's.
+
+### What the IDE side actually needs
+
+Less than it sounds, because the payload already exists. `copyRemarks` builds the whole markdown
+prompt today and puts it on the clipboard. This is the same function with a different destination,
+plus:
+
+- somewhere to record that a session is waiting, and its label, so the tool window can say so
+- one more toolbar action, enabled only while a session is waiting
+- a decision about what "sent" means now. Today copying marks remarks SENT. Handing them to a
+  waiting agent should do the same, and the history idea above becomes more valuable here, because
+  a review handed over is exactly the thing worth keeping.
+
+### Worth doing?
+
+The value is real: reading a diff in the IDE is much better than reading it in a terminal, and the
+clipboard round trip is the one manual step left in the loop. But it is a phase of its own, it
+spans two code bases, and it undoes a constraint that shaped everything built so far. It should not
+be started until the phase 5 work has been used for a while and the clipboard step is confirmed to
+be the thing that actually annoys.
