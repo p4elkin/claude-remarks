@@ -1982,7 +1982,7 @@ document rather than per editor, so one set of highlighters serves every split s
    `placementsFor` runs on a pooled thread against a snapshot; `apply` runs later on the EDT. So
    `placementsFor` records the document's `modificationStamp` and `apply` checks it.
 
-- [ ] write the failing tests in `RemarkGutterTest.kt`:
+- [x] write the failing tests in `RemarkGutterTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.editor
@@ -2181,9 +2181,9 @@ class RemarkGutterTest : BasePlatformTestCase() {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.editor.RemarkGutterTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.editor.RemarkGutterTest"` — expect a
       compile failure
-- [ ] create `RemarkGutter.kt`:
+- [x] create `RemarkGutter.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.editor
@@ -2430,7 +2430,7 @@ class RemarkGutter(private val project: Project) : Disposable {
 }
 ```
 
-- [ ] create `RemarkGutterStartup.kt`:
+- [x] create `RemarkGutterStartup.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.editor
@@ -2450,7 +2450,7 @@ class RemarkGutterStartup : ProjectActivity {
 }
 ```
 
-- [ ] add to `plugin.xml`, inside `<extensions defaultExtensionNs="com.intellij">`:
+- [x] add to `plugin.xml`, inside `<extensions defaultExtensionNs="com.intellij">`:
 
 ```xml
         <postStartupActivity implementation="dev.sasha.clauderemarks.editor.RemarkGutterStartup"/>
@@ -2460,19 +2460,19 @@ The platform declares this point as
 `<extensionPoint name="postStartupActivity" interface="com.intellij.openapi.startup.ProjectActivity" dynamic="true"/>`,
 checked in the 2025.2 jars.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.editor.*"` — must pass
-- [ ] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
-- [ ] **mutation check for rule 1**: make `syncAll()` iterate `byDocument.keys` instead of
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.editor.*"` — must pass
+- [x] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
+- [x] **mutation check for rule 1**: make `syncAll()` iterate `byDocument.keys` instead of
       `tracked`, and put back the old early return at the top of `apply`
       (`if (computed.placements.isEmpty()) { byDocument.remove(document); return }`). Together
       those two are the original bug, and
       `testAddingTheFirstRemarkToAnOpenFilePutsAnIconInTheGutter` must fail. Restore both.
-- [ ] **mutation check for rule 2**: delete the seeding block at the end of `start()`.
+- [x] **mutation check for rule 2**: delete the seeding block at the end of `start()`.
       `testAnEditorAlreadyOpenWhenTheServiceStartsIsSeeded` must fail. Restore it.
-- [ ] **mutation check for rule 3**: delete the `placement.orphaned` guard in `apply`, so an
+- [x] **mutation check for rule 3**: delete the `placement.orphaned` guard in `apply`, so an
       existing highlighter is always removed and re-added.
       `testALineTypedInsideTheBlockDoesNotMoveTheIconBack` must fail. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 6: The tree tool window (ends phase 3)
 

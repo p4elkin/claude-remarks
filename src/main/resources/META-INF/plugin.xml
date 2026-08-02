@@ -17,6 +17,7 @@
             <className>dev.sasha.clauderemarks.action.AddRemarkIntention</className>
             <category>Claude Remarks</category>
         </intentionAction>
+        <postStartupActivity implementation="dev.sasha.clauderemarks.editor.RemarkGutterStartup"/>
     </extensions>
 
     <actions>
