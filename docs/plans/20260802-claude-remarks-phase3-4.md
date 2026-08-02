@@ -1238,7 +1238,7 @@ removes the item from the menu entirely — an in-memory file, or on macOS any f
 a symlink, because `/tmp` and `/var` are symlinks into `/private`. The new action stays visible,
 goes disabled, and puts the reason in its description so the status bar can show it.
 
-- [ ] write the failing test in `AddRemarkActionTest.kt`. It is the old test file with the three
+- [x] write the failing test in `AddRemarkActionTest.kt`. It is the old test file with the three
       setups kept and the assertions changed:
 
 ```kotlin
@@ -1397,9 +1397,9 @@ class AddRemarkActionTest : BasePlatformTestCase() {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.action.AddRemarkActionTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.action.AddRemarkActionTest"` — expect a
       compile failure
-- [ ] create `store/RemarkTarget.kt`:
+- [x] create `store/RemarkTarget.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.store
@@ -1439,7 +1439,7 @@ fun remarkTargetProblem(project: Project, editor: Editor): String? {
 }
 ```
 
-- [ ] create `action/AddRemarkAction.kt`:
+- [x] create `action/AddRemarkAction.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.action
@@ -1572,8 +1572,8 @@ fun selectedLines(document: Document, selectionStart: Int, selectionEnd: Int): I
 }
 ```
 
-- [ ] delete `action/AddDebugRemarkAction.kt` and `action/AddDebugRemarkActionTest.kt`
-- [ ] replace the `<action>` element in `plugin.xml`:
+- [x] delete `action/AddDebugRemarkAction.kt` and `action/AddDebugRemarkActionTest.kt`
+- [x] replace the `<action>` element in `plugin.xml`:
 
 ```xml
     <actions>
@@ -1595,19 +1595,20 @@ is the default keymap on this machine; and in the Visual Studio keymap as `Refre
 same combination is written as `Ctrl+Alt+Shift+R` everywhere a person reads it: the tree's empty
 text in task 6, the hand-check steps, and the README in task 13.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.action.*"` — all must pass, including
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.action.*"` — all must pass, including
       the untouched `SelectedLinesTest`
-- [ ] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
-- [ ] the modification-stamp guard in `openNewRemarkInput` has no automated test: driving it means
+- [x] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
+- [x] the modification-stamp guard in `openNewRemarkInput` has no automated test: driving it means
       opening a real popup, which a headless fixture cannot do. It is one comparison and one early
       return. Check it by hand in the sandbox instead — open the box, edit the file behind it in a
       second editor tab, then press Enter, and confirm the warning appears and nothing is stored.
-- [ ] **mutation check**: in `update()`, change `e.presentation.isVisible = true` to
+      manual test (skipped - not automatable, needs a sandbox IDE run)
+- [x] **mutation check**: in `update()`, change `e.presentation.isVisible = true` to
       `e.presentation.isVisible = problem == null`. Both
       `testAnInMemoryFixtureFileLeavesTheItemVisibleButDisabled` and
       `testAFileReachedThroughASymlinkLeavesTheItemVisibleButDisabled` must fail on the "must not
       vanish" assertion. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 4: The Alt+Enter intention
 

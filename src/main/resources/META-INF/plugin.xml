@@ -16,11 +16,12 @@
     </extensions>
 
     <actions>
-        <action id="ClaudeRemarks.AddDebug"
-                class="dev.sasha.clauderemarks.action.AddDebugRemarkAction"
-                text="Add Claude Remark (Debug)"
-                description="Temporary phase 2 action, replaced in phase 3">
+        <action id="ClaudeRemarks.AddRemark"
+                class="dev.sasha.clauderemarks.action.AddRemarkAction"
+                text="Add Claude Remark"
+                description="Attach a remark to the selected lines">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt shift R"/>
         </action>
     </actions>
 </idea-plugin>
