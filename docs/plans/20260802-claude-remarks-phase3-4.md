@@ -1713,7 +1713,7 @@ the service, which needs a real markup model to test, is task 5b.
 nothing. The intent behind them — that an orphan keeps an icon rather than losing it — moves to
 task 5b, where `placementsFor` can actually drop one.
 
-- [ ] write the failing tests in `RemarkGutterIconTest.kt`:
+- [x] write the failing tests in `RemarkGutterIconTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.editor
@@ -1816,8 +1816,8 @@ class RemarkGutterRendererTest : BasePlatformTestCase() {
 assertions, which have no `assertNotEquals`, and mixing in the JUnit 4 one next to the inherited
 `assertEquals` is more confusing than the plain comparison.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.editor.*"` — expect a compile failure
-- [ ] create `RemarkGutterIcon.kt`:
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.editor.*"` — expect a compile failure
+- [x] create `RemarkGutterIcon.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.editor
@@ -1930,13 +1930,13 @@ private fun menuFor(project: Project, editor: Editor, id: String): ActionGroup =
 with a note to "drop it if the compiler warns" — Kotlin never warns about an unused parameter, so
 that note would have fired never. It is simply gone.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.editor.*"` — must pass
-- [ ] **mutation check**: change `equals` to `other === this`.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.editor.*"` — must pass
+- [x] **mutation check**: change `equals` to `other === this`.
       `testTwoRenderersForTheSameUnchangedRemarkAreEqual` must fail. Restore it.
-- [ ] **mutation check**: drop the `StringUtil.escapeXmlEntities(...)` call and append
+- [x] **mutation check**: drop the `StringUtil.escapeXmlEntities(...)` call and append
       `placement.text` directly. `angle brackets in a remark survive instead of being eaten as a tag`
       must fail. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 5b: The gutter service that keeps the icons in step
 
