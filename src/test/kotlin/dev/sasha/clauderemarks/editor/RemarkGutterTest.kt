@@ -1,6 +1,9 @@
 package dev.sasha.clauderemarks.editor
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.impl.DocumentMarkupModel
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -112,6 +115,38 @@ class RemarkGutterTest : BasePlatformTestCase() {
     }
 
     /**
+     * A git checkout, a branch switch, a VCS revert or an external edit replaces the whole document
+     * text in one write action. Nothing else in the service re-resolves after that, so the icons
+     * kept whatever offsets the platform left them at — which after a branch switch can be
+     * unrelated code, with no orphan marking.
+     *
+     * The assertion is that the highlighters are REBUILT, not merely that an icon is still there.
+     * A highlighter that survived carries a position the platform kept across a full text
+     * replacement, which means nothing, and rule 3 would then keep it for ever.
+     */
+    fun testAFileReloadedFromDiskGetsItsIconsResolvedAgain() {
+        openFoo()
+        addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
+        gutter.start()
+        settle()
+        val before = remarkHighlighters()
+        assertEquals(1, iconCount())
+
+        // The same call FileDocumentManager makes after it reloads a document. Publishing it
+        // directly avoids the write action that the CLAUDE.md grep forbids anywhere under src/.
+        ApplicationManager.getApplication().messageBus
+            .syncPublisher(FileDocumentManagerListener.TOPIC)
+            .fileContentReloaded(
+                FileDocumentManager.getInstance().getFile(myFixture.editor.document)!!,
+                myFixture.editor.document,
+            )
+        settle()
+
+        assertEquals(1, iconCount())
+        assertTrue("the icons should have been rebuilt", remarkHighlighters().none { it in before })
+    }
+
+    /**
      * Rule 3, the one that matters most. A line typed inside the marked block stretches the
      * highlighter, which is right. A fresh resolve can only orphan, because the search keeps the
      * block pinned to its stored length. The icon must stay where the platform put it.
@@ -173,6 +208,10 @@ class RemarkGutterTest : BasePlatformTestCase() {
     /** Every remark icon on the document, counting one per highlighter rather than per remark. */
     private fun rawIconCount(): Int =
         highlighters().count { it.gutterIconRenderer is RemarkGutterIconRenderer }
+
+    /** The same highlighters as objects, so a test can tell a rebuild from a survivor. */
+    private fun remarkHighlighters() =
+        highlighters().filter { it.gutterIconRenderer is RemarkGutterIconRenderer }
 
     /** The line range the icons in this file cover, again collapsed to the distinct answer. */
     private fun iconLines(): IntRange {

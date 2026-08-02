@@ -79,6 +79,12 @@ class RemarksTreeTest {
         assertEquals(null, remarkNode(row(tag = null)).tag)
     }
 
+    /** Shift+Enter in the input popup makes this ordinary, and a row is one line of text. */
+    @Test
+    fun `a multi-line remark is flattened onto one row`() {
+        assertEquals("first line second line", remarkNode(row(text = "first line\nsecond line")).text)
+    }
+
     @Test
     fun `an empty list gives a root with no children`() {
         assertEquals(0, buildTreeRoot(emptyList()).childCount)

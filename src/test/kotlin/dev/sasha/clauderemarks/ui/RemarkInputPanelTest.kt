@@ -2,6 +2,7 @@ package dev.sasha.clauderemarks.ui
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.model.RemarkTag
+import java.awt.event.ActionEvent
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import javax.swing.JComponent
@@ -89,6 +90,25 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
         panel.submit()
 
         assertFalse(fired)
+    }
+
+    /**
+     * The binding is on the chooser's own WHEN_FOCUSED map, which Swing consults before the look
+     * and feel's ancestor map, and a non-editable combo box keeps focus while its drop-down shows.
+     * So Enter on an open drop-down used to save the remark with the tag the chooser held BEFORE it
+     * was opened, instead of the one the arrow keys had just highlighted.
+     */
+    fun testEnterInTheTagChooserSavesOnlyWhenTheDropDownIsClosed() {
+        val panel = RemarkInputPanel("a note", null)
+        var fired = 0
+        panel.onSubmit = { fired++ }
+        val event = ActionEvent(panel.tagBox, ActionEvent.ACTION_PERFORMED, SUBMIT_KEY)
+
+        panel.enterInTagBox(popupOpen = true, event = event)
+        assertEquals(0, fired)
+
+        panel.enterInTagBox(popupOpen = false, event = event)
+        assertEquals(1, fired)
     }
 
     fun testAnExistingRemarkOpensPreFilled() {

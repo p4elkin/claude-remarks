@@ -390,6 +390,20 @@ Add it when someone reports remarks orphaning during ordinary use. The trigger i
 `editorReleased` for the last editor of a document; the guard is that the lines under the live
 highlighter must still hash to the remark's stored `textHash`.
 
+**Following a file that is renamed or moved.** A remark stores a project-relative path and nothing
+ever updates it. Rename a file through Refactor > Rename, drag it in the project view, or move it
+with `git mv`, and every remark in it is orphaned for good: `fileForStoredPath` finds nothing, the
+resolver refuses with "no file under the project root at that path", the gutter drops the icons
+because it matches on the path, and the copied prompt ships those remarks with their text and no
+code. There is no way to re-point a remark from the UI, so they become dead records.
+
+The fix is a `BulkFileListener` on `VFS_CHANGES` reading `VFileMoveEvent` and the rename form of
+`VFilePropertyChangeEvent`, rewriting `RemarkState.path` for every remark under the old path —
+including the remarks in every file under a renamed *directory*. It needs a seventh mutation
+function in `store/RemarkEdits.kt`, because that file holds the only route that changes a remark,
+and it needs its own tests. That is a task in its own right rather than a review fix, which is why
+it is written down here instead of being half-built.
+
 ## The Editor Side
 
 The single fact that shapes this whole side: `RangeHighlighter extends RangeMarker`. One object
@@ -419,6 +433,16 @@ One more rule the service holds by hand: when a fresh resolve for a remark that 
 live, valid highlighter comes back `Orphaned`, the service keeps the highlighter where the
 platform moved it, and only repaints what is drawn on it. Rebuilding the highlighter from the
 (stale) orphaned line numbers would throw away a position the platform has been keeping exact.
+
+That rule has one exception, and it is the reason the service also listens to
+`FileDocumentManagerListener.fileContentReloaded`. A git checkout, a branch switch, a VCS revert or
+an external edit replaces an open document's whole text in one write action. The position the
+platform kept through that means nothing, so keeping the live highlighter would leave the icon on
+whatever code now sits at those offsets, with nothing saying it moved — the wrong relocation that
+this plugin's anchoring rules exist to avoid. On a reload the service therefore drops the document
+and tracks it again, which resolves its remarks against the new content exactly as opening the file
+would. The Refresh button in the tool window publishes `REMARKS_CHANGED` for the same reason: it is
+the manual escape for the gutter as well as for the tree.
 
 ## The Change Notification
 
@@ -454,11 +478,10 @@ place work.
 
 Everything expensive runs inside one `ReadAction.nonBlocking` block, off the EDT: resolving
 (`resolveAll`), reading each file's `Document` once and slicing the anchored lines plus
-`PROMPT_CONTEXT_LINES` (3) either side (`render/PromptPayload.kt`'s `collectForPrompt`), rendering
-the markdown (`render/PromptRenderer.kt`'s `renderPrompt`, zero platform imports, the same shape
-as `anchor/Anchoring.kt`), and building the clipboard payload (`clipboardPayload`). The EDT step
-that follows does three cheap things only: copy to the clipboard, `markRemarksSent`, show a
-balloon.
+`PROMPT_CONTEXT_LINES` (3) either side (`render/PromptPayload.kt`'s `collectForPrompt`), and
+rendering the markdown (`render/PromptRenderer.kt`'s `renderPrompt`, zero platform imports, the
+same shape as `anchor/Anchoring.kt`). The EDT step that follows builds the clipboard payload, copies
+it, runs `markRemarksSent` and shows a balloon.
 
 **`clipboardPayload` is one function with a size check, not two implementations.** Under
 `INLINE_LIMIT_BYTES` (100 KB, measured in UTF-8 bytes, not characters) the markdown goes on the
@@ -467,9 +490,19 @@ path is copied instead — `Clipboard(text = path, file = path)`. The caller doe
 which mode ran; it reads `Clipboard.file` only to word the balloon differently. There is no
 `Dispatcher` interface, because there is one implementation.
 
-The write happens inside `prepare()`, not in the `finishOnUiThread` block. Writing a 100 KB+ file
-is exactly the case where doing it on the EDT would freeze the UI, so the whole payload — the
-render and any file write — is built off the EDT.
+**`clipboardPayload` runs in the `finishOnUiThread` block, so the file write is on the EDT.** An
+earlier design put it inside the read action, to keep every slow thing off the EDT. That is wrong
+for this particular write: `ReadAction.nonBlocking` cancels and re-runs its block whenever a write
+action asks for the lock, so a file write in there runs again on each retry and leaves a temp file
+behind every time. The third option — a second executor hop after the read action and then back to
+the EDT — was weighed and dropped: it is more machinery than the case is worth. Below the 100 KB
+inline limit nothing is written at all, and above it one `Files.writeString` of a few hundred
+kilobytes into the system temp directory is a millisecond or two. If a payload ever grows large
+enough for that to be felt, the extra hop is the fix.
+
+The copy has a failure path. `IOException` from the write and `IllegalStateException` from the
+clipboard are both reported through a red balloon, and `markRemarksSent` is skipped — nothing was
+handed over, so nothing is marked as handed over.
 
 **The temp file is why nothing remark-related can enter version control by this route.** A file
 under `java.io.tmpdir` is outside the project directory, so no `.gitignore` question ever arises.

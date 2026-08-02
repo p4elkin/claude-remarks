@@ -21,8 +21,14 @@ class RemarkSettingsConfigurable : BoundConfigurable("Claude Remarks") {
         row {
             // bindText is generic over <T : JTextComponent>, so it binds a text area as well as a
             // text field. AlignX.FILL is a nested object, not a companion field.
+            //
+            // The getter reads the STORED string, not RemarkSettings.promptHeader, which falls back
+            // to the default when the stored one is blank. Binding to the falling-back getter left
+            // Apply lit for ever once the box was cleared: the box said "" and the getter said the
+            // default, so the page counted as modified no matter how often Apply was pressed. The
+            // fallback still happens where it matters, when a prompt is rendered.
             header = textArea()
-                .bindText(settings::promptHeader)
+                .bindText({ settings.state.promptHeader.orEmpty() }, { settings.promptHeader = it })
                 .align(AlignX.FILL)
                 .rows(16)
         }.resizableRow()

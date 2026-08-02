@@ -66,20 +66,27 @@ private fun refuse(remark: RemarkState, why: String): AnchorResult {
     return AnchorResult.Orphaned(remark.startLine, remark.endLine)
 }
 
+/**
+ * The file a stored path points at, or null when there is no such file or the path leaves the
+ * project.
+ *
+ * Every reader of a stored path comes through here, and that is the point. findRelativeFile takes
+ * the root FIRST, then each path segment as its own vararg: findRelativeFile(VirtualFile, String...).
+ * Passing "a/b/Foo.kt" as a single element finds nothing, and passing (path, root) does not compile.
+ * It also walks ".." through getParent(), so a hand-edited or committed workspace.xml holding
+ * `path="../../../../etc/passwd"` would otherwise reach any file on the machine. The isAncestor
+ * check lived in three separate places and one of them — the tool window's double-click navigation —
+ * did not have it.
+ */
+fun fileForStoredPath(root: VirtualFile, path: String): VirtualFile? =
+    VfsUtil.findRelativeFile(root, *path.split('/').toTypedArray())
+        ?.takeIf { VfsUtilCore.isAncestor(root, it, false) }
+
 private fun resolveOne(root: VirtualFile, remark: RemarkState): AnchorResult {
     val path = remark.path ?: return refuse(remark, "no path stored")
 
-    // findRelativeFile takes the root FIRST, then each path segment as its own vararg:
-    // findRelativeFile(VirtualFile, String...). Passing "a/b/Foo.kt" as a single element
-    // finds nothing, and passing (path, root) does not compile.
-    val file = VfsUtil.findRelativeFile(root, *path.split('/').toTypedArray())
+    val file = fileForStoredPath(root, path)
         ?: return refuse(remark, "no file under the project root at that path")
-
-    // findRelativeFile walks ".." through getParent(), so a hand-edited workspace.xml could
-    // otherwise point a remark at any file on the machine.
-    if (!VfsUtilCore.isAncestor(root, file, false)) {
-        return refuse(remark, "the stored path climbs out of the project root")
-    }
 
     val document = FileDocumentManager.getInstance().getDocument(file)
         ?: return refuse(remark, "the file has no Document (binary, or too large)")

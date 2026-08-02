@@ -15,8 +15,10 @@ import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VfsUtilCore
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.anchor.AnchorResult
 import dev.sasha.clauderemarks.anchor.resolveAnchor
@@ -112,6 +114,28 @@ class RemarkGutter(private val project: Project) : Disposable {
             },
         )
 
+        // A git checkout, a branch switch, a VCS revert or an external edit replaces an open
+        // document's whole text in one write action, and nothing else here ever re-resolves after
+        // that. The highlighters keep whatever offsets the platform left them at, which after a
+        // branch switch can be unrelated code with nothing saying so — rule 4, a wrong relocation
+        // is worse than an orphan. Reading code across branches is what these remarks are for, so
+        // this is the routine case, not the exotic one. App level, because the topic is app level.
+        ApplicationManager.getApplication().messageBus.connect(this).subscribe(
+            FileDocumentManagerListener.TOPIC,
+            object : FileDocumentManagerListener {
+                override fun fileContentReloaded(file: VirtualFile, document: Document) {
+                    if (project.isDisposed || document !in tracked) return
+                    // drop + track, not scheduleSync. apply() keeps a live highlighter whenever the
+                    // fresh resolve comes back Orphaned, because while you type the platform has
+                    // been keeping that position exact. A reload replaced the text wholesale, so
+                    // that position means nothing any more. Starting from none resolves the remarks
+                    // against the new content exactly as opening the file would.
+                    drop(document)
+                    track(document)
+                }
+            },
+        )
+
         // Editors restored with the project are already open by the time a postStartupActivity
         // runs, and nothing orders the two. Without this, reopening the IDE shows no icons at all
         // until every file is closed and opened again. invokeLater because start() runs off the
@@ -119,7 +143,13 @@ class RemarkGutter(private val project: Project) : Disposable {
         ApplicationManager.getApplication().invokeLater {
             if (project.isDisposed) return@invokeLater
             EditorFactory.getInstance().allEditors
-                .filter { it.project == project && it.virtualFile != null }
+                // The same question editorReleased asks, on purpose. Filtering on editor.virtualFile
+                // here instead let a document that has one but no FileDocumentManager file get
+                // tracked at startup and never dropped, because editorReleased would ignore it.
+                .filter {
+                    it.project == project &&
+                        FileDocumentManager.getInstance().getFile(it.document) != null
+                }
                 .map { it.document }
                 .distinct()
                 .forEach { track(it) }

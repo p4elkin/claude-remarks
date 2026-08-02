@@ -40,7 +40,11 @@ fun remarkNode(row: ResolvedRemark): RemarkNode {
         id = row.remark.id.orEmpty(),
         path = row.remark.path.orEmpty(),
         position = "${result.startLine + 1}-${result.endLine + 1}$label",
-        text = row.remark.text.orEmpty(),
+        // On one line, whatever was typed. The row is drawn by SimpleColoredComponent, which has no
+        // idea what to do with a newline, and Shift+Enter in the input popup makes multi-line remark
+        // text ordinary rather than exotic. The stored text keeps its newlines; only the row is
+        // flattened, and the copied prompt still gets the remark as written.
+        text = row.remark.text.orEmpty().replace('\n', ' '),
         tag = row.remark.tag?.label,
         sent = row.remark.status == RemarkStatus.SENT,
         startLine = result.startLine,

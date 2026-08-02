@@ -26,6 +26,9 @@ const val NO_TAG_LABEL = "(no tag)"
 const val SUBMIT_KEY = "claudeRemarks.submit"
 const val NEWLINE_KEY = "claudeRemarks.newline"
 
+/** The look and feel's own Enter action on a combo box, installed by BasicComboBoxUI. */
+private const val COMBO_ENTER_KEY = "enterPressed"
+
 /** The chooser's label for a tag, or the "no tag" entry. RemarkTag.label is the lowercase name. */
 fun tagLabel(tag: RemarkTag?): String = tag?.label ?: NO_TAG_LABEL
 
@@ -75,11 +78,12 @@ class RemarkInputPanel(initialText: String, initialTag: RemarkTag?) : JPanel(Bor
             override fun actionPerformed(e: ActionEvent) = textArea.replaceSelection("\n")
         })
 
-        // Enter from the tag chooser submits too, so tabbing to it is not a dead end.
+        // Enter from the tag chooser submits too, so tabbing to it is not a dead end. What it means
+        // while the drop-down is open is in enterInTagBox below.
         tagBox.getInputMap(JComponent.WHEN_FOCUSED)
             .put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), SUBMIT_KEY)
         tagBox.actionMap.put(SUBMIT_KEY, object : AbstractAction() {
-            override fun actionPerformed(e: ActionEvent) = submit()
+            override fun actionPerformed(e: ActionEvent) = enterInTagBox(tagBox.isPopupVisible, e)
         })
 
         add(JBScrollPane(textArea).apply { preferredSize = Dimension(520, 84) }, BorderLayout.CENTER)
@@ -90,6 +94,31 @@ class RemarkInputPanel(initialText: String, initialTag: RemarkTag?) : JPanel(Bor
             },
             BorderLayout.SOUTH,
         )
+    }
+
+    /**
+     * What Enter means inside the tag chooser.
+     *
+     * With the drop-down closed it saves the remark. With the drop-down OPEN it belongs to the look
+     * and feel, whose Enter action commits the item the arrow keys highlighted.
+     *
+     * The binding above sits in the chooser's own WHEN_FOCUSED map, and Swing consults that before
+     * the WHEN_ANCESTOR_OF_FOCUSED_COMPONENT map the look and feel puts its Enter action in. A
+     * non-editable combo box also keeps the focus while its drop-down shows, because the popup's
+     * list is not focusable. So without this branch the plugin's action always won: arrowing down to
+     * "bug" and pressing Enter saved the remark with the PREVIOUS tag and closed the drop-down, with
+     * no second chance.
+     *
+     * [popupOpen] is a parameter rather than read from tagBox here, so both branches can be tested
+     * without a real drop-down, which needs a window.
+     */
+    internal fun enterInTagBox(popupOpen: Boolean, event: ActionEvent) {
+        if (!popupOpen) {
+            submit()
+            return
+        }
+        val lookAndFeelEnter = tagBox.actionMap.get(COMBO_ENTER_KEY)
+        if (lookAndFeelEnter == null) tagBox.hidePopup() else lookAndFeelEnter.actionPerformed(event)
     }
 
     fun submit() {

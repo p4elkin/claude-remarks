@@ -2,11 +2,10 @@ package dev.sasha.clauderemarks.render
 
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.VfsUtil
-import com.intellij.openapi.vfs.VfsUtilCore
 import dev.sasha.clauderemarks.anchor.AnchorResult
 import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.ResolvedRemark
+import dev.sasha.clauderemarks.store.fileForStoredPath
 import dev.sasha.clauderemarks.store.projectRoot
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -76,8 +75,9 @@ fun collectForPrompt(
 
     fun readLines(path: String): List<String>? {
         val base = root ?: return null
-        val file = VfsUtil.findRelativeFile(base, *path.split('/').toTypedArray()) ?: return null
-        if (!VfsUtilCore.isAncestor(base, file, false)) return null
+        // fileForStoredPath makes the isAncestor check, so a stored path full of ".." cannot pull
+        // a file from outside the project into the copied prompt.
+        val file = fileForStoredPath(base, path) ?: return null
         return FileDocumentManager.getInstance().getDocument(file)?.text?.split("\n")
     }
 

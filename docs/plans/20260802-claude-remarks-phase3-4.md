@@ -247,7 +247,7 @@ flowchart TD
     E --> G["collectForPrompt:<br/>read each file's Document once,<br/>slice the anchored lines<br/>plus 3 lines either side"]
     F --> G
     G --> H["renderPrompt(header, remarks)<br/>pure Kotlin, no platform imports"]
-    H --> I["clipboardPayload(markdown, tempDir)<br/>still off the EDT, because it may write a file"]
+    H --> I["EDT: clipboardPayload(markdown, tempDir)<br/>a cancelled read action would leak<br/>a temp file on every retry"]
     I --> J{"UTF-8 size<br/>&lt; 100 KB?"}
     J -- "yes" --> K["Clipboard(text = markdown, file = null)"]
     J -- "no" --> L["write a .md file in the system<br/>temp directory<br/>Clipboard(text = path, file = path)"]
@@ -263,11 +263,16 @@ function that returns a single type. The caller does not branch on which mode ra
 `Clipboard.file` only to word the balloon. There is no `Dispatcher` interface, because there is
 one implementation.
 
-**The whole payload is built off the EDT, including the file write.** `clipboardPayload` runs
-inside `prepare()`, not in the `finishOnUiThread` block. It writes a file only for payloads over
-100 KB, which is exactly when the write is slowest, so putting it on the EDT would freeze the UI
-in the one case that matters. The EDT step does three cheap things: copy to the clipboard, mark
-the remarks sent, show the balloon.
+**The render is built off the EDT; the file write is not.** This is where the plan was corrected
+during implementation. `prepare()` runs inside the read action and does everything expensive that
+reads the project: resolve, read each file's `Document`, render the markdown. `clipboardPayload`
+then runs in the `finishOnUiThread` block, so the file write is on the EDT. A `ReadAction.nonBlocking`
+block is cancelled and re-run whenever a write action asks for the lock, so a file write inside it
+runs again on every retry and leaves a temp file behind each time. A second executor hop after the
+read action would keep the write off the EDT, but it is more machinery than the case is worth:
+below the 100 KB inline limit nothing is written at all, and above it one `Files.writeString` of a
+few hundred kilobytes into the system temp directory costs a millisecond or two. If a payload ever
+grows large enough to be felt, the extra hop is the fix.
 
 **The temp file is why nothing remark-related can enter version control.** A file under
 `java.io.tmpdir` is outside the project directory, so no `.gitignore` question arises at all. The
@@ -4170,6 +4175,16 @@ and its last step restarts the sandbox IDE, which is what proves the platform re
   stored length. The icon then stays where the platform moved it, which is right, but the tree row
   says orphaned for the same remark. They disagree until the block is edited back or the remark is
   rewritten. Both are honest about what they know; neither is silently wrong.
+- **Renaming or moving a file orphans every remark in it, for good.** A remark stores a
+  project-relative path and nothing updates it. After Refactor > Rename, a drag in the project view
+  or a `git mv`, the resolver finds no file at the stored path, the gutter drops the icons, and the
+  copied prompt ships those remarks with their text and no code. Nothing in the UI can re-point
+  them, so they are dead records. The fix is a `BulkFileListener` on `VFS_CHANGES` reading
+  `VFileMoveEvent` and the rename form of `VFilePropertyChangeEvent`, rewriting the stored path for
+  every remark under the old one — including remarks in files under a renamed directory. It needs a
+  seventh function in `store/RemarkEdits.kt`, since that file holds the only route that changes a
+  remark, and its own tests. It is a task in its own right, not a review fix, which is why it is
+  recorded here rather than half-built.
 - **The search radius of 200 lines and the 3 lines of context are still guesses.** Both are in
   `anchor/Anchoring.kt` as `SEARCH_RADIUS` and `CONTEXT_LINES`. The prompt context is separate and
   lives in `render/PromptPayload.kt` as `PROMPT_CONTEXT_LINES`, because how much code Claude should

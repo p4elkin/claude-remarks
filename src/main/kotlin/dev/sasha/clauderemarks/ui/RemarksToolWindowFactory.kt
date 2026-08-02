@@ -16,7 +16,6 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
-import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.components.JBScrollPane
@@ -34,6 +33,8 @@ import dev.sasha.clauderemarks.store.ResolvedRemark
 import dev.sasha.clauderemarks.store.clearAllRemarks
 import dev.sasha.clauderemarks.store.clearSentRemarks
 import dev.sasha.clauderemarks.store.deleteRemark
+import dev.sasha.clauderemarks.store.fileForStoredPath
+import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.resolveAll
 import javax.swing.Icon
@@ -145,7 +146,11 @@ class RemarksPanel(
     private fun navigateToSelected() {
         val node = selectedNodes().firstOrNull() ?: return
         val root = projectRoot(project) ?: return
-        val file = VfsUtil.findRelativeFile(root, *node.path.split('/').toTypedArray()) ?: return
+        // fileForStoredPath, not findRelativeFile: it makes the isAncestor check the resolver and
+        // the code slicer make. Without it a stored path of "../../../../etc/passwd" — which
+        // resolveAll refuses to read, so its row shows as orphaned — still opened that file in an
+        // editor on double click, because the row keeps the raw stored path.
+        val file = fileForStoredPath(root, node.path) ?: return
         // The line is 0-based: OpenFileDescriptor builds a LogicalPosition straight from it, and
         // LogicalPosition shares its base with Document.getLineNumber. Checked in the bytecode.
         FileEditorManager.getInstance(project)
@@ -229,7 +234,14 @@ class RemarksPanel(
             ToolbarAction("Clear All", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
                 confirmClearAll()
             },
-            ToolbarAction("Refresh", AllIcons.Actions.Refresh, { true }) { refresh() },
+            // notifyRemarksChanged, not refresh(): this panel's own subscription rebuilds the tree
+            // either way, and publishing resyncs the gutter icons too. Refresh is the manual escape
+            // for everything that can go stale, and the gutter is the half that has no other way
+            // back — an editor whose document was reloaded from disk outside the IDE keeps its old
+            // icons until something re-resolves them.
+            ToolbarAction("Refresh", AllIcons.Actions.Refresh, { true }) {
+                notifyRemarksChanged(project)
+            },
         )
         return ActionManager.getInstance()
             .createActionToolbar("ClaudeRemarks", group, true)
