@@ -2043,15 +2043,25 @@ class RemarkGutterTest : BasePlatformTestCase() {
         assertEquals(0, iconCount())
     }
 
-    /** What reopening the IDE looks like: the editor exists before the service starts. */
+    /**
+     * What reopening the IDE looks like: the editor exists before the service starts.
+     *
+     * This one counts raw highlighters before and after start(), not distinct renderers. The
+     * project-level RemarkGutter that the postStartupActivity creates is running in this same
+     * fixture, and it paints a renderer equal to ours on the same markup model — so iconCount()
+     * would read 1 whether or not the gutter under test painted anything, and the seeding block
+     * could be deleted with this test still green.
+     */
     fun testAnEditorAlreadyOpenWhenTheServiceStartsIsSeeded() {
         openFoo()
         addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
+        settle()
+        val paintedByAnyoneElse = rawIconCount()
 
         gutter.start()
         settle()
 
-        assertEquals(1, iconCount())
+        assertEquals(paintedByAnyoneElse + 1, rawIconCount())
     }
 
     fun testOpeningAFileAfterTheServiceStartedAlsoGetsIcons() {
@@ -2093,7 +2103,8 @@ class RemarkGutterTest : BasePlatformTestCase() {
      * block pinned to its stored length. The icon must stay where the platform put it.
      *
      * myFixture.type is how the document is changed here. A write action would be the direct way,
-     * but WriteCommandAction and friends are banned across src/ by the grep in CLAUDE.md.
+     * but the write-action helpers are banned across src/ by the grep in CLAUDE.md — and that
+     * grep is a plain text search, so it would match one of those names even inside this comment.
      */
     fun testALineTypedInsideTheBlockDoesNotMoveTheIconBack() {
         openFoo()
@@ -2144,6 +2155,10 @@ class RemarkGutterTest : BasePlatformTestCase() {
      */
     private fun iconCount(): Int =
         highlighters().mapNotNull { it.gutterIconRenderer as? RemarkGutterIconRenderer }.distinct().size
+
+    /** Every remark icon on the document, counting one per highlighter rather than per remark. */
+    private fun rawIconCount(): Int =
+        highlighters().count { it.gutterIconRenderer is RemarkGutterIconRenderer }
 
     /** The line range the icons in this file cover, again collapsed to the distinct answer. */
     private fun iconLines(): IntRange {
@@ -2234,7 +2249,15 @@ class RemarkGutter(private val project: Project) : Disposable {
             object : EditorFactoryListener {
                 override fun editorCreated(event: EditorFactoryEvent) {
                     val editor = event.editor
-                    if (editor.project != project || editor.virtualFile == null) return
+                    // NOT editor.virtualFile: it is still null while editorCreated runs, because
+                    // the platform attaches the file to the editor after firing this event. Asking
+                    // FileDocumentManager for the document's file works at this moment, and it is
+                    // the same question placementsFor asks anyway.
+                    if (editor.project != project ||
+                        FileDocumentManager.getInstance().getFile(editor.document) == null
+                    ) {
+                        return
+                    }
                     track(editor.document)
                     // The tool window resolves against open documents, so opening one can change
                     // what it should show, not only what the gutter should show.
