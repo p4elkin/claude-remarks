@@ -57,7 +57,7 @@ class RemarkInputRulesTest {
 class RemarkInputPanelTest : BasePlatformTestCase() {
 
     fun testEnterIsBoundToSubmitAndShiftEnterToANewline() {
-        val panel = RemarkInputPanel("", null)
+        val panel = RemarkInputPanel(project, "", null)
         val map = panel.textArea.getInputMap(JComponent.WHEN_FOCUSED)
 
         assertEquals(SUBMIT_KEY, map.get(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0)))
@@ -70,7 +70,7 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
     }
 
     fun testSubmitHandsBackTheTypedTextAndTheChosenTag() {
-        val panel = RemarkInputPanel("", null)
+        val panel = RemarkInputPanel(project, "", null)
         panel.textArea.text = "  why is this locked?  "
         panel.selectedTag = RemarkTag.QUESTION
         var got: RemarkInput? = null
@@ -83,7 +83,7 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
     }
 
     fun testSubmittingEmptyTextDoesNothing() {
-        val panel = RemarkInputPanel("   ", null)
+        val panel = RemarkInputPanel(project, "   ", null)
         var fired = false
         panel.onSubmit = { fired = true }
 
@@ -93,7 +93,7 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
     }
 
     fun testAnExistingRemarkOpensPreFilled() {
-        val panel = RemarkInputPanel("old note", RemarkTag.REFACTOR)
+        val panel = RemarkInputPanel(project, "old note", RemarkTag.REFACTOR)
 
         assertEquals("old note", panel.textArea.text)
         assertEquals(RemarkTag.REFACTOR, panel.selectedTag)
@@ -101,7 +101,7 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
 
     /** "(no tag)" is a chip like any other, so clearing the tag is one click, not a drop-down. */
     fun testTheNoTagChipIsFirstAndMeansNull() {
-        val panel = RemarkInputPanel("x", RemarkTag.BUG)
+        val panel = RemarkInputPanel(project, "x", RemarkTag.BUG)
 
         assertEquals(NO_TAG_LABEL, TAG_CHOICES.first())
         panel.selectedTag = null
@@ -122,7 +122,7 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
      * no separate confirm step, and that `submit()` can be called right after choosing one.
      */
     fun testChoosingATagIsImmediateWithNoSeparateCommitStep() {
-        val panel = RemarkInputPanel("note", null)
+        val panel = RemarkInputPanel(project, "note", null)
         panel.textArea.text = "note"
 
         panel.selectedTag = RemarkTag.BUG
@@ -142,7 +142,7 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
      * The promise this popup makes is "type your remark, press Enter", wherever focus happens to be.
      */
     fun testEnterOnTheChipRowSubmitsToo() {
-        val panel = RemarkInputPanel("note", null)
+        val panel = RemarkInputPanel(project, "note", null)
         var got: RemarkInput? = null
         panel.onSubmit = { got = it }
 
@@ -156,7 +156,7 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
     }
 
     fun testEveryChipHasAnAltKey() {
-        val panel = RemarkInputPanel("", null)
+        val panel = RemarkInputPanel(project, "", null)
         val map = panel.textArea.getInputMap(JComponent.WHEN_FOCUSED)
 
         TAG_CHOICES.indices.forEach { index ->
@@ -171,7 +171,7 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
      * actions and checks what the chips ended up saying, so a key wired to the wrong chip fails.
      */
     fun testAltOneSelectsTheFirstTagAndAltZeroClearsIt() {
-        val panel = RemarkInputPanel("", null)
+        val panel = RemarkInputPanel(project, "", null)
         val event = ActionEvent(panel, ActionEvent.ACTION_PERFORMED, "")
 
         panel.textArea.actionMap.get("${TAG_KEY_PREFIX}1").actionPerformed(event)

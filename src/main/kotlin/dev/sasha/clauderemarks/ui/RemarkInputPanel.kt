@@ -1,5 +1,6 @@
 package dev.sasha.clauderemarks.ui
 
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
@@ -29,6 +30,9 @@ const val NEWLINE_KEY = "claudeRemarks.newline"
 /** Action map keys for the tag chips, one per entry in TAG_CHOICES. */
 const val TAG_KEY_PREFIX = "claudeRemarks.tag."
 
+/** Action map key for the class-name chooser. */
+const val CLASS_NAME_KEY = "claudeRemarks.className"
+
 /** The chips, "(no tag)" first, then the four tags in enum order. The Alt keys in the next task
  *  index into this list, so the order here is the order there. */
 val TAG_CHOICES: List<String> = listOf(NO_TAG_LABEL) + RemarkTag.entries.map { tagLabel(it) }
@@ -55,12 +59,17 @@ fun remarkInputResult(rawText: String, tag: RemarkTag?): RemarkInput? {
  * The Enter override is required, not a nicety: a plain JTextArea maps bare Enter to
  * insert-newline by default, so without replacing that binding Enter would never submit.
  */
-class RemarkInputPanel(initialText: String, initialTag: RemarkTag?) : JPanel(BorderLayout(0, 4)) {
+class RemarkInputPanel(
+    private val project: Project,
+    initialText: String,
+    initialTag: RemarkTag?,
+) : JPanel(BorderLayout(0, 4)) {
 
     val textArea = JBTextArea(initialText, 3, 48).apply {
         lineWrap = true
         wrapStyleWord = true
-        emptyText.text = "Your remark. Enter saves, Shift+Enter adds a line, Alt+1-4 picks a tag, Esc cancels."
+        emptyText.text = "Your remark. Enter saves, Shift+Enter adds a line, Alt+1-4 picks a tag, " +
+            "Ctrl+Space inserts a class name, Esc cancels."
     }
 
     // Assigned by the panel { } builder below, which runs eagerly, so it is set before the init
@@ -133,6 +142,16 @@ class RemarkInputPanel(initialText: String, initialTag: RemarkTag?) : JPanel(Bor
                 }
             })
         }
+
+        // Ctrl+Space, the key people already press for completion, even though this opens a chooser
+        // rather than completing inline.
+        map.put(
+            KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK),
+            CLASS_NAME_KEY,
+        )
+        textArea.actionMap.put(CLASS_NAME_KEY, object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent) = chooseClassName(project, textArea)
+        })
 
         selectedTag = initialTag
 

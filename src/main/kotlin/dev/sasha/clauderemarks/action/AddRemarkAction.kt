@@ -77,7 +77,7 @@ fun openNewRemarkInput(project: Project, editor: Editor, dataContext: DataContex
     val range = selectedLines(document, selection.selectionStart, selection.selectionEnd)
     val stampWhenOpened = document.modificationStamp
 
-    showRemarkInput(editor, "Add Claude Remark", "", null) { input ->
+    showRemarkInput(project, editor, "Add Claude Remark", "", null) { input ->
         // The line range was taken when the box opened; the text is read now, seconds later. If
         // the document changed in between, those line numbers point at code the user never chose,
         // and the anchor would be captured from it. Refuse rather than anchor to the wrong lines.
@@ -96,7 +96,7 @@ fun openNewRemarkInput(project: Project, editor: Editor, dataContext: DataContex
 
 /** Opens the input on a remark that already exists. EDT only. */
 fun openRemarkEdit(project: Project, editor: Editor, id: String, text: String, tag: RemarkTag?) {
-    showRemarkInput(editor, "Edit Claude Remark", text, tag) { input ->
+    showRemarkInput(project, editor, "Edit Claude Remark", text, tag) { input ->
         editRemark(project, id, input.text, input.tag)
     }
 }
@@ -106,13 +106,14 @@ fun openRemarkEdit(project: Project, editor: Editor, id: String, text: String, t
  * popup at the caret in one call, without guessBestPopupLocation.
  */
 private fun showRemarkInput(
+    project: Project,
     editor: Editor,
     title: String,
     text: String,
     tag: RemarkTag?,
     onSubmit: (RemarkInput) -> Unit,
 ) {
-    val panel = RemarkInputPanel(text, tag)
+    val panel = RemarkInputPanel(project, text, tag)
     val popup = JBPopupFactory.getInstance()
         .createComponentPopupBuilder(panel, panel.textArea)
         .setTitle(title)

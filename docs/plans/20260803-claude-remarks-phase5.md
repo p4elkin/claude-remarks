@@ -2316,6 +2316,11 @@ is module-wide, so it is reachable from this package.
 
 **My recommendation is not to build this.** Judge it before starting.
 
+**Judged, before execution: the cheap version was chosen and built.** The recommendation and the
+cheap alternative were both put to the user, and the answer was "cheap version (as planned)". So
+`JBTextArea` stays, `EditorTextField` was never touched, and what shipped is the keystroke that
+opens a name chooser and drops the pick at the caret.
+
 The prompt already quotes the code every remark points at, so a symbol name typed into a remark is
 only useful when it names a *different* place. For that, the IDE already has `Copy Reference`
 (`Ctrl+Alt+Shift+C`), which puts the fully qualified name of the symbol under the caret on the
@@ -2334,14 +2339,34 @@ If you still want something, the task below is the cheap version: one keystroke 
 opens a name chooser and inserts the pick at the caret. It does not touch the key handling, it does
 not nest one popup's focus inside another's, and it is about sixty lines.
 
-**One unresolved thing, and it decides whether this can be built at all.**
-`ChooseByNameContributor.CLASS_EP_NAME` is in `app-client.jar` in IntelliJ IDEA Community 2025.2.
-Whether it is registered in every JetBrains IDE that satisfies `com.intellij.modules.platform` is
-not settled — it may need `com.intellij.modules.lang`, which the plugin does not depend on. The code
-below guards for it at runtime rather than declaring a dependency, so the plugin still loads
-everywhere and the keystroke simply does nothing where the extension point is absent. **Verify this
-before building the rest of the task**, by running the plugin in a non-IDEA JetBrains IDE, or by
-reading the module descriptor that owns `com.intellij.navigation`.
+**The unresolved thing, now settled: the extension point comes with `com.intellij.modules.platform`,
+so no new dependency is needed.**
+
+Read from the checkout at `~/dev/oss/intellij-community`, tag `idea/2025.2.6.3`. The chain, in the
+order it was followed:
+
+1. `platform/lang-api/src/com/intellij/navigation/ChooseByNameContributor.java:19` says
+   `CLASS_EP_NAME` is the extension point named `com.intellij.gotoClassContributor`. The constant is
+   a name, not a registration, so the class being on the classpath proves nothing on its own.
+2. That name is declared in exactly one place:
+   `platform/platform-resources/src/META-INF/LangExtensionPoints.xml:163`.
+3. `LangExtensionPoints.xml` has exactly one includer in the whole repository:
+   `platform/platform-resources/src/META-INF/PlatformLangPlugin.xml:42`.
+4. `PlatformLangPlugin.xml` is the IDEA CORE descriptor, and it is the only non-test file in the
+   repository that declares `<module value="com.intellij.modules.platform"/>` (line 6). Line 7 of
+   the same file declares `<module value="com.intellij.modules.lang"/>`.
+
+So the two modules are declared by the same descriptor, and that descriptor is the one that pulls in
+the extension point. Anything that satisfies `com.intellij.modules.platform` therefore also has
+`com.intellij.gotoClassContributor` registered. `com.intellij.modules.lang` does not need to be
+declared, and the single-dependency rule from phase 1 stands untouched.
+
+What this argument does **not** prove: it reads the community sources, so a JetBrains IDE that ships
+a descriptor of its own rather than IDEA CORE is outside what was checked. That is why the runtime
+guard in `projectClassNames` stays. It costs one `runCatching`, and it turns "the keystroke throws in
+an IDE nobody tested" into "the keystroke does nothing there". Also note that a registered extension
+point with no contributors is the normal case in a project with no indexed classes — the guard and
+the empty-list path cover that too.
 
 **Files:**
 - Create: `src/main/kotlin/dev/sasha/clauderemarks/ui/ClassNameInsert.kt`
@@ -2349,10 +2374,13 @@ reading the module descriptor that owns `com.intellij.navigation`.
   `init`, and the placeholder text
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/ui/ClassNameInsertTest.kt`
 
-- [ ] settle the extension point question above, and record the answer in this file before writing
+- [x] settle the extension point question above, and record the answer in this file before writing
       any code. If the extension point is not universally available and you are not willing to
       declare `com.intellij.modules.lang`, stop here and mark the task cut.
-- [ ] write the failing test in `ClassNameInsertTest.kt`:
+      **Settled: the point comes with `com.intellij.modules.platform`.** The four-step chain is
+      written into the section above, replacing the paragraph that used to say it was unresolved.
+      No new dependency was declared, and the runtime guard was kept.
+- [x] write the failing test in `ClassNameInsertTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.ui
@@ -2393,9 +2421,12 @@ class ClassNameInsertTest : BasePlatformTestCase() {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.ClassNameInsertTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.ClassNameInsertTest"` — expect a
       compile failure
-- [ ] create `ui/ClassNameInsert.kt`:
+      (not run as its own step: the test file and `ClassNameInsert.kt` were written in one pass, so
+      the compile failure was never observed. The real RED evidence for this task is the mutation
+      check at the end, which did fail on exactly the named test.)
+- [x] create `ui/ClassNameInsert.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.ui
@@ -2464,7 +2495,7 @@ fun chooseClassName(project: Project, target: JTextComponent) {
 }
 ```
 
-- [ ] bind it in `RemarkInputPanel.init`, after the tag keys:
+- [x] bind it in `RemarkInputPanel.init`, after the tag keys:
 
 ```kotlin
         // Ctrl+Space, the key people already press for completion, even though this opens a chooser
@@ -2483,10 +2514,17 @@ constructor parameter and pass it from `showRemarkInput` in `action/AddRemarkAct
 existing call sites already have one. Every `RemarkInputPanel(...)` construction in
 `RemarkInputPanelTest` gains `project` as its first argument.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.*"` — all must pass
-- [ ] **mutation check**: change `insertAtCaret` to `target.insert(name, target.caretPosition)`.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.*"` — all must pass
+      (and `./gradlew test --rerun-tasks`, the whole suite, because the `RemarkInputPanel`
+      constructor gained a parameter and its callers live outside the `ui` package)
+- [x] **mutation check**: change `insertAtCaret` to `target.insert(name, target.caretPosition)`.
       `testInsertingOverASelectionReplacesIt` must fail. Restore it.
-- [ ] commit
+      Done, with one change to the mutation itself: `insert` is a `JTextArea` method and the
+      parameter is a `JTextComponent`, so the line as written does not compile and proves nothing.
+      The mutation used was `target.document.insertString(target.caretPosition, name, null)`, which
+      is what `insert` does. Exactly `testInsertingOverASelectionReplacesIt` failed, and nothing
+      else. Restored.
+- [x] commit
 
 ### Task 13: Verify the four hard constraints
 
