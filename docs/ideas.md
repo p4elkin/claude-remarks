@@ -208,3 +208,48 @@ Two things to actually test before claiming it works, rather than assuming:
 
 A real `VimExtension` is available but is not worth it. Action ids plus a documented mapping give
 the same result.
+
+## How much a remark matters
+
+A second axis next to the tag: how strongly the remark should be acted on. The range runs from
+"this is a vibe, take it or leave it" to "do this whatever it costs".
+
+Why: the tag says what kind of remark it is, never how much it matters. A `refactor` remark might
+be an idle thought or the whole point of the reading pass, and right now the prompt reads the same
+either way. Claude has no way to tell which remarks are optional, so it either does everything or
+guesses.
+
+Storage is trivial — one more enum on `RemarkState`, same shape as `tag`. Two things are not.
+
+**The prompt has to act on it, or it is decoration.** This is the part that decides whether the
+idea is worth anything. The renderer must put the level where it cannot be missed, and the default
+prompt header must explain the scale — something like: do every "must", do a "should" unless there
+is a reason not to, treat a "vibe" as a suggestion you may decline and say why. Without that the
+level is a word in a heading that nothing responds to.
+
+There is a wrinkle in that: the header is user-editable. Someone who rewrites it loses the scale's
+meaning without noticing, because the levels keep rendering. Either the scale is appended to
+whatever header the user wrote, or the settings page says plainly that the header has to explain
+the levels. The first is less fragile.
+
+**The chooser is getting crowded.** The input popup already has a text area and a tag chooser. A
+second chooser makes a small fast popup into a form, which is the opposite of what it is for. Some
+options, none obviously right:
+
+- One chip row for tag, one for level. Honest but doubles the popup's furniture.
+- Default the level and let it be changed after the fact, from the gutter icon menu or the tree.
+  Most remarks are probably the middle level, so most of the time nothing is chosen.
+- Fold it into the tag chips: a modifier key when clicking, or repeated presses of the same tag key
+  cycling the level. Compact, and unguessable without being told.
+
+The second is the smallest thing that works and the easiest to undo.
+
+**Naming.** "Severity" reads oddly for a scale whose bottom end is "nice to have" — severity
+suggests bugs. Something like `vibe / suggestion / should / must` says what each level means
+without borrowing a word from issue trackers. Four levels also matches the four tags, which keeps
+the keyboard idea above symmetrical.
+
+Two smaller choices that follow: whether the tree sorts or groups by level, and whether the copied
+prompt keeps its file grouping or leads with the must-dos. Keep the file grouping — the code is
+what makes a remark understandable, and splitting a file's remarks across sections to sort by level
+costs more than it buys.

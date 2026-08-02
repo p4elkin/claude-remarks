@@ -106,6 +106,30 @@ src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
 - `kotlin.stdlib.default.dependency = false` in `gradle.properties`: the IDE ships its own Kotlin
   stdlib, and bundling a second copy in the plugin zip is a known source of conflicts.
 
+## Reading the platform
+
+A checkout of IntelliJ Community sits at `~/dev/oss/intellij-community`, shallow, pinned to tag
+`idea/2025.2.6.3`. Use it. Grepping it is far cheaper than unzipping jars, and it answers a kind of
+question the jars cannot.
+
+Which source to trust for which question:
+
+- **What does this actually do?** Read the checkout. `javap` gives signatures and nothing else, so
+  any question about behaviour is unanswerable from the jars. A real example from this project: we
+  needed to know whether a diff pane's editor carries the real project file. Guessing said yes.
+  `DiffUtil.configureEditor` says no — it sets the editor's file from
+  `FileDocumentManager.getFile(content.getDocument())`, the same call that already fails there. Only
+  the source settled it.
+- **Does this method exist, with this signature?** Check the jars, with `javap` against the exact
+  build under
+  `~/.gradle/caches/9.1.0/transforms/*/transformed/ideaIC-2025.2-aarch64/lib/`.
+  The checkout is tag `2025.2.6.3` and we compile against `2025.2` (build 252.28539.97). Same 252
+  line, so this is stable in practice, but the jars are what the code is actually compiled against.
+
+The exact tag `idea/252.28539.97` does exist upstream. It would not fetch into the shallow clone,
+and re-cloning for a patch-level difference costs another 1.9G, so the mismatch is accepted and
+written down here rather than silently carried.
+
 ## Commands
 
 ```bash
