@@ -1,10 +1,16 @@
 package dev.sasha.clauderemarks.ui
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.ui.UIUtil
+import dev.sasha.clauderemarks.editor.RemarkGutter
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
+import java.io.File
 
 /**
  * The panel, not just the nodes it builds. RemarksTreeTest only ever looks at the node model, so
@@ -90,6 +96,48 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
         assertEquals(1, panel.tree.selectionCount)
         assertEquals(2, panel.selectedIds().size)
+    }
+
+    /**
+     * The gutter's own fileContentReloaded handler re-resolves its icons AND republishes
+     * REMARKS_CHANGED, which is the only thing this panel listens to. Before that publish
+     * existed, a branch switch, a VCS revert or an external edit left this tree showing rows
+     * resolved against the pre-reload text — the gutter recovered on its own and the tree did
+     * not — until something else (the Refresh button, an editor open/close) rebuilt it.
+     */
+    fun testAFileReloadRefreshesTheTreeTooNotJustTheGutter() {
+        val onDisk = File(project.basePath!!, "Reloaded.kt")
+        onDisk.parentFile.mkdirs()
+        onDisk.writeText(LINES.joinToString("\n"))
+        val file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(onDisk)!!
+        myFixture.openFileInEditor(file)
+        val document = FileDocumentManager.getInstance().getDocument(file)!!
+        addRemark(project, "Reloaded.kt", LINES, 0..0, "a note", null)
+
+        // Built by hand, exactly as RemarkGutterTest does, so this test gets its own tracked set
+        // instead of racing the project-level instance that a postStartupActivity would create.
+        val gutter = RemarkGutter(project)
+        Disposer.register(testRootDisposable, gutter)
+        gutter.start()
+        settle() // lets the startup seeding's invokeLater track the already-open editor
+
+        val panel = panel()
+        val rootBefore = panel.tree.model.root
+
+        // The same call FileDocumentManager makes after it reloads a document, same technique as
+        // RemarkGutterTest.testAFileReloadedFromDiskGetsItsIconsResolvedAgain.
+        ApplicationManager.getApplication().messageBus
+            .syncPublisher(FileDocumentManagerListener.TOPIC)
+            .fileContentReloaded(file, document)
+        settle()
+
+        // buildTreeRoot constructs a fresh node graph on every refresh, so a new root object
+        // proves refresh() ran — which only happens if the reload republished REMARKS_CHANGED.
+        assertNotSame(
+            "the reload should have republished REMARKS_CHANGED and rebuilt the tree",
+            rootBefore,
+            panel.tree.model.root,
+        )
     }
 
     private fun panel(): RemarksPanel {

@@ -132,6 +132,15 @@ class RemarkGutter(private val project: Project) : Disposable {
                     // against the new content exactly as opening the file would.
                     drop(document)
                     track(document)
+                    // The tool window resolves the same store against the same (now reloaded)
+                    // document, so its rows go stale in exactly the way the gutter icons just
+                    // stopped going stale. Without this the tree keeps line numbers and
+                    // moved/orphaned labels resolved against the pre-reload text until something
+                    // else publishes REMARKS_CHANGED, and double-click navigation lands on the
+                    // wrong line. Safe to publish from here: RemarksPanel's listener only submits a
+                    // non-blocking read action, and this service's own listener hops through
+                    // invokeLater, so neither runs inline inside this reload.
+                    notifyRemarksChanged(project)
                 }
             },
         )

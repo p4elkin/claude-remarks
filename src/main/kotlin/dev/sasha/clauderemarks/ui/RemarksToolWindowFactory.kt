@@ -284,10 +284,10 @@ class RemarksPanel(
                 confirmClearAll()
             },
             // notifyRemarksChanged, not refresh(): this panel's own subscription rebuilds the tree
-            // either way, and publishing resyncs the gutter icons too. Refresh is the manual escape
-            // for everything that can go stale, and the gutter is the half that has no other way
-            // back — an editor whose document was reloaded from disk outside the IDE keeps its old
-            // icons until something re-resolves them.
+            // either way, and publishing resyncs the gutter icons too. A file reload (a branch
+            // switch, a VCS revert, an external edit) already publishes this on its own now — both
+            // the gutter and this tree re-resolve without any button — so Refresh is left as the
+            // manual catch-all for anything else that could leave either view stale.
             ToolbarAction("Refresh", AllIcons.Actions.Refresh, { true }) {
                 notifyRemarksChanged(project)
             },
