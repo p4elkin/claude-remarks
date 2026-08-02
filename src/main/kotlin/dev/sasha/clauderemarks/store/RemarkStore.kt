@@ -11,6 +11,8 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.util.xmlb.annotations.XCollection
 import dev.sasha.clauderemarks.model.RemarkState
+import dev.sasha.clauderemarks.model.RemarkStatus
+import dev.sasha.clauderemarks.model.RemarkTag
 
 /**
  * Holds every remark for one project.
@@ -70,6 +72,62 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
             return removed
         }
 
+        /**
+         * Changes a remark's text and tag in place, under the same lock every other mutator holds.
+         *
+         * In place, not replace-with-a-copy. The list copy getState() hands the serializer is
+         * shallow, so it shares these objects: a save landing between the two field writes below
+         * would see the new text with the old tag.
+         *
+         * That torn write cannot become permanent, and the reason is the ORDER below.
+         * incrementModificationCount() runs after both fields are written, so a save that lands
+         * between them records the lower count it read on the way in. The next save sees a higher
+         * count and serializes both fields again. One save is stale, the one after it is right,
+         * and there is no path to permanent loss.
+         *
+         * (A copy would also be possible: BaseState.copyFrom(BaseState) exists and copies every
+         * stored property by reflection, so nothing would have to be cloned by hand. It is simply
+         * not needed once the ordering above holds.)
+         */
+        @Synchronized
+        fun editRemark(id: String, text: String, tag: RemarkTag?): Boolean {
+            val target = remarks.firstOrNull { it.id == id } ?: return false
+            target.text = text
+            target.tag = tag
+            incrementModificationCount()
+            return true
+        }
+
+        /** Returns how many actually changed, so marking an already-sent remark is a no-op. */
+        @Synchronized
+        fun markSent(ids: Set<String>): Int {
+            val changed = remarks.filter { it.id in ids && it.status != RemarkStatus.SENT }
+            changed.forEach { it.status = RemarkStatus.SENT }
+            if (changed.isNotEmpty()) incrementModificationCount()
+            return changed.size
+        }
+
+        /** Returns how many were removed. */
+        @Synchronized
+        fun removeSent(): Int {
+            val before = remarks.size
+            remarks.removeIf { it.status == RemarkStatus.SENT }
+            val removed = before - remarks.size
+            if (removed > 0) incrementModificationCount()
+            return removed
+        }
+
+        /** Returns how many were removed. */
+        @Synchronized
+        fun clear(): Int {
+            val removed = remarks.size
+            if (removed > 0) {
+                remarks.clear()
+                incrementModificationCount()
+            }
+            return removed
+        }
+
         /** A copy, so readers never iterate the live list while the EDT mutates it. */
         @Synchronized
         fun snapshot(): List<RemarkState> = remarks.toList()
@@ -93,8 +151,15 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
         liveState.addRemark(remark)
     }
 
-    /** No production caller yet: phase 3 is where deleting a remark from the tool window lands. */
     fun remove(id: String): Boolean = liveState.removeRemark(id)
+
+    fun edit(id: String, text: String, tag: RemarkTag?): Boolean = liveState.editRemark(id, text, tag)
+
+    fun markSent(ids: Set<String>): Int = liveState.markSent(ids)
+
+    fun removeSent(): Int = liveState.removeSent()
+
+    fun clear(): Int = liveState.clear()
 
     /**
      * A fresh state carrying a copy of the list, taken under the same lock add and remove hold,

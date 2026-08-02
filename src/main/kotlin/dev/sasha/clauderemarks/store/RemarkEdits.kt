@@ -1,0 +1,93 @@
+package dev.sasha.clauderemarks.store
+
+import com.intellij.openapi.project.Project
+import com.intellij.util.messages.Topic
+import dev.sasha.clauderemarks.anchor.captureAnchor
+import dev.sasha.clauderemarks.model.RemarkState
+import dev.sasha.clauderemarks.model.RemarkTag
+import java.util.UUID
+
+/**
+ * Told when the remark list changed, or when something changed that makes the current view of it
+ * out of date.
+ */
+fun interface RemarksListener {
+    fun remarksChanged()
+}
+
+/**
+ * Project level, and not broadcast. The default direction is TO_CHILDREN; NONE says plainly that
+ * this event belongs to one project's bus and goes nowhere else.
+ */
+@Topic.ProjectLevel
+val REMARKS_CHANGED: Topic<RemarksListener> =
+    Topic.create("Claude remarks changed", RemarksListener::class.java, Topic.BroadcastDirection.NONE)
+
+/**
+ * These six functions are the only way production code changes a remark. Nothing calls
+ * RemarkStore.add / RemarkStore.remove directly any more, and task 12 greps to keep that true.
+ *
+ * The reason is not tidiness. The tool window and the gutter both have to redraw after any change,
+ * and pairing the mutation with the notification in one function is what stops a caller doing one
+ * without the other. The store itself stays out of it so that RemarkStoreStateTest can keep
+ * building RemarkStore() directly, with no fixture, in fourteen places.
+ */
+
+/** Captures the anchor for [range] out of [lines] and stores a new remark. Returns what was stored. */
+fun addRemark(
+    project: Project,
+    path: String,
+    lines: List<String>,
+    range: IntRange,
+    text: String,
+    tag: RemarkTag?,
+): RemarkState {
+    val anchor = captureAnchor(lines, range.first, range.last)
+    val remark = RemarkState().apply {
+        this.id = UUID.randomUUID().toString()
+        this.path = path
+        this.startLine = anchor.startLine
+        this.endLine = anchor.endLine
+        this.text = text
+        this.tag = tag
+        this.createdAt = System.currentTimeMillis()
+        this.textHash = anchor.textHash
+        this.contextBefore = joinContext(anchor.contextBefore)
+        this.contextAfter = joinContext(anchor.contextAfter)
+    }
+    RemarkStore.getInstance(project).add(remark)
+    notifyRemarksChanged(project)
+    return remark
+}
+
+fun editRemark(project: Project, id: String, text: String, tag: RemarkTag?) {
+    if (RemarkStore.getInstance(project).edit(id, text, tag)) notifyRemarksChanged(project)
+}
+
+fun deleteRemark(project: Project, id: String) {
+    if (RemarkStore.getInstance(project).remove(id)) notifyRemarksChanged(project)
+}
+
+fun markRemarksSent(project: Project, ids: Collection<String>) {
+    if (RemarkStore.getInstance(project).markSent(ids.toSet()) > 0) notifyRemarksChanged(project)
+}
+
+fun clearSentRemarks(project: Project): Int {
+    val removed = RemarkStore.getInstance(project).removeSent()
+    if (removed > 0) notifyRemarksChanged(project)
+    return removed
+}
+
+fun clearAllRemarks(project: Project): Int {
+    val removed = RemarkStore.getInstance(project).clear()
+    if (removed > 0) notifyRemarksChanged(project)
+    return removed
+}
+
+/**
+ * Also published when an editor opens or closes, because that changes which remarks can be
+ * resolved at all, not only when the list itself changed.
+ */
+fun notifyRemarksChanged(project: Project) {
+    if (!project.isDisposed) project.messageBus.syncPublisher(REMARKS_CHANGED).remarksChanged()
+}

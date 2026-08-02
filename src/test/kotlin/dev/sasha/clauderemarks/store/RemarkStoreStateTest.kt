@@ -149,6 +149,112 @@ class RemarkStoreStateTest {
     }
 
     @Test
+    fun `editing a remark changes its text and tag and marks the state as changed`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", text = "old", tag = null))
+        val before = state.modificationCount
+
+        assertTrue(state.editRemark("r-1", "new", RemarkTag.BUG))
+
+        assertEquals("new", state.snapshot().single().text)
+        assertEquals(RemarkTag.BUG, state.snapshot().single().tag)
+        assertTrue(state.modificationCount > before)
+    }
+
+    @Test
+    fun `editing an id that is not there changes nothing`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", text = "old"))
+        val before = state.modificationCount
+
+        assertFalse(state.editRemark("no-such-id", "new", null))
+
+        assertEquals("old", state.snapshot().single().text)
+        assertEquals(before, state.modificationCount)
+    }
+
+    @Test
+    fun `marking sent only touches the ids given`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        state.addRemark(remark(id = "r-2"))
+        val before = state.modificationCount
+
+        assertEquals(1, state.markSent(setOf("r-1")))
+
+        assertEquals(RemarkStatus.SENT, state.snapshot().first { it.id == "r-1" }.status)
+        assertEquals(RemarkStatus.PENDING, state.snapshot().first { it.id == "r-2" }.status)
+        // markSent writes a FIELD on a remark that is already in the list, which is not the same
+        // as adding or removing a list element. Whether that alone would reach the outer state's
+        // modification count is not settled, and if it does not, the SENT flag is lost on restart
+        // with nothing logged. So the count is pinned here.
+        assertTrue(state.modificationCount > before)
+    }
+
+    @Test
+    fun `marking a remark sent twice does not change it a second time`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        state.markSent(setOf("r-1"))
+        val before = state.modificationCount
+
+        assertEquals(0, state.markSent(setOf("r-1")))
+
+        assertEquals(before, state.modificationCount)
+    }
+
+    @Test
+    fun `removing sent keeps the pending ones`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", status = RemarkStatus.SENT))
+        state.addRemark(remark(id = "r-2", status = RemarkStatus.PENDING))
+        val before = state.modificationCount
+
+        assertEquals(1, state.removeSent())
+
+        assertEquals(listOf("r-2"), state.snapshot().map { it.id })
+        assertTrue(state.modificationCount > before)
+    }
+
+    @Test
+    fun `removing sent when there are none changes nothing`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        val before = state.modificationCount
+
+        assertEquals(0, state.removeSent())
+
+        assertEquals(before, state.modificationCount)
+    }
+
+    @Test
+    fun `clear removes everything`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        state.addRemark(remark(id = "r-2", status = RemarkStatus.SENT))
+        val before = state.modificationCount
+
+        assertEquals(2, state.clear())
+
+        assertEquals(0, state.snapshot().size)
+        assertTrue(state.modificationCount > before)
+    }
+
+    @Test
+    fun `an edited remark survives the round trip through xml`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", text = "old", tag = null))
+        state.editRemark("r-1", "new", RemarkTag.REFACTOR)
+        state.markSent(setOf("r-1"))
+
+        val restored = roundTrip(state).remarks.single()
+
+        assertEquals("new", restored.text)
+        assertEquals(RemarkTag.REFACTOR, restored.tag)
+        assertEquals(RemarkStatus.SENT, restored.status)
+    }
+
+    @Test
     fun `a snapshot does not change when a remark is added afterwards`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1"))

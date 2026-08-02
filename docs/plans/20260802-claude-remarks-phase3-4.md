@@ -520,7 +520,7 @@ copy. A single string read on the EDT has no such problem.
 
 This is the foundation for everything after it. No UI.
 
-- [ ] add the failing tests to `RemarkStoreStateTest.kt`:
+- [x] add the failing tests to `RemarkStoreStateTest.kt`:
 
 ```kotlin
     @Test
@@ -633,9 +633,9 @@ This is the foundation for everything after it. No UI.
 `RemarkStatus` is already imported in that file. Add `import dev.sasha.clauderemarks.model.RemarkStatus`
 only if the compiler says it is missing.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkStoreStateTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkStoreStateTest"` — expect a
       compile failure, the four methods do not exist yet
-- [ ] add the four methods to `RemarksState` in `RemarkStore.kt`, after `removeRemark`:
+- [x] add the four methods to `RemarksState` in `RemarkStore.kt`, after `removeRemark`:
 
 ```kotlin
         /**
@@ -702,8 +702,8 @@ import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkStoreStateTest"` — must pass
-- [ ] **mutation check**: delete the `incrementModificationCount()` call inside `markSent`.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkStoreStateTest"` — must pass
+- [x] **mutation check**: delete the `incrementModificationCount()` call inside `markSent`.
       `marking sent only touches the ids given` must fail on its count assertion. Restore it, then
       do the same for `removeSent` (`removing sent keeps the pending ones` must fail), for `clear`
       (`clear removes everything` must fail) and for `editRemark`
@@ -715,7 +715,7 @@ import dev.sasha.clauderemarks.model.RemarkTag
       or removing a list element. `an edited remark survives the round trip through xml` does not
       catch a missing increment, because `XmlSerializer` never consults the count — the edit or the
       SENT flag would just be missing after a restart, with nothing logged.
-- [ ] write the failing test in `RemarkEditsTest.kt`. This one needs a project, so it extends
+- [x] write the failing test in `RemarkEditsTest.kt`. This one needs a project, so it extends
       `BasePlatformTestCase`:
 
 ```kotlin
@@ -849,9 +849,9 @@ class RemarkEditsTest : BasePlatformTestCase() {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkEditsTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkEditsTest"` — expect a
       compile failure, nothing in `RemarkEdits.kt` exists yet
-- [ ] create `RemarkEdits.kt`:
+- [x] create `RemarkEdits.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.store
@@ -949,7 +949,7 @@ fun notifyRemarksChanged(project: Project) {
 }
 ```
 
-- [ ] add the four forwarding methods to `RemarkStore`, next to the existing `add` and `remove`.
+- [x] add the four forwarding methods to `RemarkStore`, next to the existing `add` and `remove`.
       Drop the stale comment on `remove` while you are there — phase 3 is now the caller:
 
 ```kotlin
@@ -962,10 +962,10 @@ fun notifyRemarksChanged(project: Project) {
     fun clear(): Int = liveState.clear()
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` — all must pass
-- [ ] **mutation check**: delete the `notifyRemarksChanged(project)` line from `deleteRemark`.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` — all must pass
+- [x] **mutation check**: delete the `notifyRemarksChanged(project)` line from `deleteRemark`.
       `testDeletingARemarkPublishes` must fail on `assertEquals(2, heard)`. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 2: The input panel, its keys, and its tag labels
 
