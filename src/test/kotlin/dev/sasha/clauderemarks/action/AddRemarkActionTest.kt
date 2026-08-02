@@ -17,7 +17,7 @@ import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.remarkTargetProblem
 import dev.sasha.clauderemarks.store.resolveAll
-import dev.sasha.clauderemarks.ui.describe
+import dev.sasha.clauderemarks.ui.remarkNode
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -115,9 +115,7 @@ class AddRemarkActionTest : BasePlatformTestCase() {
         assertEquals(1, stored.startLine)
         assertEquals(2, stored.endLine)
         assertEquals(RemarkTag.BUG, stored.tag)
-        // describe() is the phase 2 flat-list row. Task 6 deletes it, and updates this one line to
-        // remarkNode(resolveAll(project).single()).position instead.
-        assertEquals("Foo.kt:2-3  why beta?  [PENDING]", describe(resolveAll(project).single()))
+        assertEquals("2-3", remarkNode(resolveAll(project).single()).position)
     }
 
     private val action = AddRemarkAction()

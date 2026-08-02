@@ -2510,7 +2510,7 @@ wired to `ItemPresentation` and `NodeDescriptor`, not to plain user objects.
 The tests cover node building and row text. The colours are checked by eye in the sandbox, because
 asserting on `SimpleColoredComponent` internals costs more than it protects.
 
-- [ ] write the failing tests in `RemarksTreeTest.kt`:
+- [x] write the failing tests in `RemarksTreeTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.ui
@@ -2658,9 +2658,9 @@ class RemarksTreeTest {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` — expect a compile
       failure
-- [ ] create `RemarksTree.kt`:
+- [x] create `RemarksTree.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.ui
@@ -2778,8 +2778,8 @@ class RemarkTreeRenderer : ColoredTreeCellRenderer() {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` — must pass
-- [ ] rewrite `RemarksToolWindowFactory.kt` in full. `describe(row)` at the bottom goes away with
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` — must pass
+- [x] rewrite `RemarksToolWindowFactory.kt` in full. `describe(row)` at the bottom goes away with
       the flat list it belonged to:
 
 ```kotlin
@@ -2910,12 +2910,12 @@ only copy of the rule now.
 
 The toolbar is deliberately missing here. It arrives in task 11 with the four actions it holds.
 
-- [ ] delete `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarkRowTest.kt`, and change the one
+- [x] delete `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarkRowTest.kt`, and change the one
       line in `AddRemarkActionTest` that used `describe` to
       `assertEquals("2-3", remarkNode(resolveAll(project).single()).position)`, with the import
       changed to `dev.sasha.clauderemarks.ui.remarkNode`
-- [ ] run `./gradlew test` — the whole suite must pass
-- [ ] add a test pinning the navigation line base, to
+- [x] run `./gradlew test` — the whole suite must pass
+- [x] add a test pinning the navigation line base, to
       `src/test/kotlin/dev/sasha/clauderemarks/ui/` as `NavigationLineBaseTest.kt`. The bytecode
       says 0-based; this makes it fail loudly if a future platform changes it:
 
@@ -2945,11 +2945,11 @@ class NavigationLineBaseTest : BasePlatformTestCase() {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.*"` — must pass
-- [ ] **mutation check**: change `buildTreeRoot` to sort by `it.id` instead of by path and line.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.*"` — must pass
+- [x] **mutation check**: change `buildTreeRoot` to sort by `it.id` instead of by path and line.
       `rows are grouped under their file, in path order` and
       `rows inside a file are ordered by the line they resolved to` must both fail. Restore it.
-- [ ] **hand check in a sandbox IDE — this is what ends phase 3.** `./gradlew runIde`, then:
+- [x] manual test (skipped - not automatable): **hand check in a sandbox IDE — this is what ends phase 3.** `./gradlew runIde`, then:
       1. Select two lines. Press `Ctrl+Alt+Shift+R`. Type a note, pick `bug`, press Enter.
       2. Confirm a gutter icon appears on those lines and hovering shows the note with `[bug]`.
          The icon must appear at once, in the file you are already looking at.
@@ -2970,7 +2970,7 @@ class NavigationLineBaseTest : BasePlatformTestCase() {
           tree's empty text, and every mention of the shortcut in this plan.
       12. Close the sandbox IDE and run `./gradlew runIde` again. Confirm the gutter icons are
           there as soon as the restored editors appear, without touching anything.
-- [ ] commit
+- [x] commit
 
 ### Task 7: Settings — the editable prompt header
 
