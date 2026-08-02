@@ -136,3 +136,75 @@ worktree or a submodule, and a detached HEAD holds the sha directly instead of a
 
 Worth deciding at the same time: whether the commit is captured once when the remark is written,
 or refreshed. Once is right — the point is to record what the author was looking at.
+
+## Pick the tag without the drop-down
+
+Replace the tag drop-down in the input popup with a row of chip buttons, and let the tag be chosen
+from the keyboard so writing a remark never needs the mouse.
+
+Note on wording: the drop-down chooses the **tag** (bug, question, refactor, note). Status is
+pending or sent, and the user never picks it — copying sets it. This idea is about the tag.
+
+Why: adding a remark is the action that has to stay fast. Reaching for a drop-down breaks the
+flow of typing a sentence and pressing Enter.
+
+How hard: both halves are small, and the keyboard half is nearly free.
+
+**Chips.** The platform already has the control. `SegmentedButton` is in the 2025.2 Kotlin UI DSL,
+reached as `row.segmentedButton(items) { presentation, item -> ... }`, confirmed against the
+downloaded jars. That renders exactly the chip row this asks for, and it handles selection and
+theming without hand-built toggle buttons. Five items including "no tag".
+
+**Keyboard.** The input panel already binds Enter and Shift+Enter through Swing input maps, and
+`RemarkInputPanelTest` already pins that mechanism. Adding Alt+1 to Alt+4 for the four tags, and
+something for "no tag", is the same mechanism again — a few lines and one more test in the shape
+that already exists.
+
+One interaction worth deciding before either is built: the class-name completion idea above
+replaces the `JBTextArea` with an `EditorTextField`, which moves Enter and Shift+Enter out of Swing
+input maps and into the editor's action system. Any tag keys added now would have to move with
+them. If both are wanted, do the input-component swap first and add the tag keys on top of the new
+mechanism, not the old one.
+
+## IdeaVim
+
+Short answer: this already works, and the hassle is close to zero. What is missing is that nobody
+is told.
+
+IdeaVim can invoke any registered action by id with `:action <id>`, so the plugin's actions are
+already reachable from a `.ideavimrc` mapping today, with no code change:
+
+```
+nnoremap <leader>r :action ClaudeRemarks.AddRemark<CR>
+vnoremap <leader>r :action ClaudeRemarks.AddRemark<CR>
+nnoremap <leader>c :action ClaudeRemarks.CopyAll<CR>
+```
+
+Both ids are already namespaced and stable. The cheap work is documenting them in the README, and
+treating them from then on as a public interface that does not get renamed.
+
+Two things to actually test before claiming it works, rather than assuming:
+
+- **Visual-mode selection.** The whole point is to select lines with `V` and remark on them.
+  `:action` invoked from visual mode has historically been awkward about whether the selection is
+  still there when the action runs. `AddRemarkAction` reads `editor.selectionModel`, so if the
+  selection is gone it would fall back to the caret line. Try it; if the selection is lost, the fix
+  is on the mapping side (`:action` after leaving visual mode with the marks intact), not in this
+  plugin.
+- **Typing inside the popup.** Today the input is a plain `JBTextArea`, which IdeaVim does not
+  touch, so typing behaves normally. The class-name completion idea above would replace it with an
+  `EditorTextField`, which is a real editor. That is fine on its own: IdeaVim already supports
+  editors that are not files — the Git commit message box is one, and it works there, starting in
+  insert mode. IdeaVim has an option governing this (`ideavimsupport`), worth checking rather than
+  assuming a default.
+
+  What does need deciding is Escape and Enter, which the popup has opinions about. Escape cancels
+  the input today; with vim active in the box, the first Escape would leave insert mode instead,
+  and cancelling would take a second one. Enter submits today; in an editor with vim active, the
+  editor's own action system sees it first. Neither is a blocker, and neither is a reason to prefer
+  the cheaper completion variant. They are two behaviours to choose deliberately when the input
+  component changes, and to cover with tests, since the current Enter and Shift+Enter behaviour is
+  already pinned by a test that would have to be rewritten anyway.
+
+A real `VimExtension` is available but is not worth it. Action ids plus a documented mapping give
+the same result.
