@@ -346,6 +346,35 @@ Phases 3-5 are deferred:
 
 - **Inline input, gutter icons, prompt rendering, dispatch**: Not built. Phase 2 uses a debug action with fixed text.
 
+- **Dispatch was simplified on 2026-08-02, before it was built.** The original brief had a
+  pluggable `Dispatcher` interface with two implementations, the second one writing a file into
+  `.idea/claude-remarks/` and driving a tmux pane with `send-keys`. That is dropped. Dispatch is
+  now one action, "Copy Remarks for Claude": render the markdown, put it on the clipboard, show a
+  balloon, mark those remarks `sent`. If the payload is large (about 100 KB or more), write it to
+  a file in the system temp directory and copy that path instead — one code path with a size
+  check, not two implementations.
+
+  What this removes, and why it is worth removing:
+  - No tmux pane discovery, no "which pane did you mean", no `send-keys`. Claude Code's TUI
+    submits on newline, so sending a multi-line payload through `send-keys` fires fragments. The
+    original brief worked around this by sending only a path reference. Not sending anything at
+    all is simpler and cannot break that way.
+  - No `Dispatcher` interface. With one implementation it is a function.
+  - No `.idea/claude-remarks/` directory, so no gitignore check and no offer to add one. The
+    IDE's generated `.idea/.gitignore` does not cover a custom subdirectory there, so that path
+    would have been committed in any repo that tracks `.idea/`. A system temp file cannot enter
+    version control at all, so "nothing remark-related enters VCS" holds by construction.
+  - Settings shrink to one editable thing: the prompt template.
+
+  The sent/flush lifecycle is unchanged: copied remarks are marked `sent`, stay listed in gray,
+  are removed by `Clear Sent`, and can be copied again if the paste went to the wrong place.
+
+  The payload is a markdown document: a short instruction header saying each remark is a
+  directive, then remarks grouped by file, numbered, each with its project-relative path, line
+  range, tag, text, and the anchored code with a few lines of context. A remark that resolved as
+  orphaned is labelled as such so the reader knows the line numbers are stale. The header follows
+  revdiff's model — a remark that asks a question gets answered rather than turned into an edit.
+
 - **The two-pass search has never been exercised in a real IDE.** Phase 2 was tested in unit tests only. A person should run `./gradlew runIde` once to confirm the tool window launches and remarks persist before phase 3 starts.
 
 ## Build Choices Worth Remembering
