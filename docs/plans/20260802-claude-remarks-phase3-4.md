@@ -2986,7 +2986,7 @@ class NavigationLineBaseTest : BasePlatformTestCase() {
 This is the one new persisted field in phases 3-4, so it gets its own round-trip test, following
 the rule from phase 1-2.
 
-- [ ] write the failing test in `RemarkSettingsTest.kt`:
+- [x] write the failing test in `RemarkSettingsTest.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.settings
@@ -3040,8 +3040,8 @@ class RemarkSettingsTest {
 }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.settings.*"` — expect a compile failure
-- [ ] create `RemarkSettings.kt`:
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.settings.*"` — expect a compile failure
+- [x] create `RemarkSettings.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.settings
@@ -3116,7 +3116,7 @@ class RemarkSettings : SimplePersistentStateComponent<RemarkSettings.SettingsSta
 }
 ```
 
-- [ ] create `RemarkSettingsConfigurable.kt`:
+- [x] create `RemarkSettingsConfigurable.kt`:
 
 ```kotlin
 package dev.sasha.clauderemarks.settings
@@ -3160,7 +3160,7 @@ class RemarkSettingsConfigurable : BoundConfigurable("Claude Remarks") {
 }
 ```
 
-- [ ] add to `plugin.xml`, inside `<extensions defaultExtensionNs="com.intellij">`:
+- [x] add to `plugin.xml`, inside `<extensions defaultExtensionNs="com.intellij">`:
 
 ```xml
         <applicationConfigurable instance="dev.sasha.clauderemarks.settings.RemarkSettingsConfigurable"
@@ -3175,11 +3175,11 @@ The attribute is `instance`, not `implementation`. Verified twice against the 20
 `<with attribute="instance" implements="com.intellij.openapi.options.Configurable"/>`. The
 `implementation` attribute maps to `implementationClass`, which is marked `Deprecated`.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.settings.*"` — must pass
-- [ ] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
-- [ ] **mutation check**: remove the `takeIf { it.isNotBlank() }` from the getter.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.settings.*"` — must pass
+- [x] run `./gradlew verifyPluginProjectConfiguration` — must report no errors
+- [x] **mutation check**: remove the `takeIf { it.isNotBlank() }` from the getter.
       `a blank header falls back to the default rather than sending nothing` must fail. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 8: The markdown renderer
 
