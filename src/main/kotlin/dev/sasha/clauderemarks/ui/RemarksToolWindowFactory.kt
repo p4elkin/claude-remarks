@@ -26,6 +26,10 @@ class RemarksToolWindowFactory : ToolWindowFactory {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val list = JBList<String>()
+        // The list does not update by itself in phase 2, so an empty list after adding a remark
+        // looks like the action failed. Say what to do instead of showing nothing. Phase 3
+        // refreshes on editor events and this goes away with the rest of this screen.
+        list.emptyText.text = "No remarks yet. Press Refresh after adding one."
         val refreshButton = JButton("Refresh")
         val panel = JPanel(BorderLayout()).apply {
             add(refreshButton, BorderLayout.NORTH)
