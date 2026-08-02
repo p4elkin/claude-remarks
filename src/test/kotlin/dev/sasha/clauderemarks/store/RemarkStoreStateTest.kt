@@ -341,6 +341,18 @@ class RemarkStoreStateTest {
     }
 
     @Test
+    fun `the commit survives the round trip and is null when there was none`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", commit = "0123456789abcdef0123456789abcdef01234567"))
+        state.addRemark(remark(id = "r-2", commit = null))
+
+        val restored = roundTrip(state).remarks
+
+        assertEquals("0123456789abcdef0123456789abcdef01234567", restored.first { it.id == "r-1" }.commit)
+        assertNull(restored.first { it.id == "r-2" }.commit)
+    }
+
+    @Test
     fun `a snapshot does not change when a remark is added afterwards`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1"))

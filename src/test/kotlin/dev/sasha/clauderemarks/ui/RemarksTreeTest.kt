@@ -71,6 +71,27 @@ class RemarksTreeTest {
         assertEquals("5-7 (orphaned)", remarkNode(row(result = AnchorResult.Orphaned(4, 6))).position)
     }
 
+    /**
+     * An orphan is exactly when the commit is worth something: the code moved, and diffing against
+     * the revision the remark was written at is the fastest way to find where it went.
+     */
+    @Test
+    fun `an orphaned row says which commit the remark was written at`() {
+        val node = remarkNode(
+            row(result = AnchorResult.Orphaned(4, 6), commit = "0123456789abcdef0123456789abcdef01234567")
+        )
+
+        assertEquals("5-7 (orphaned, written at 01234567)", node.position)
+    }
+
+    @Test
+    fun `an orphaned row with no commit says only that it is orphaned`() {
+        assertEquals(
+            "5-7 (orphaned)",
+            remarkNode(row(result = AnchorResult.Orphaned(4, 6), commit = null)).position,
+        )
+    }
+
     @Test
     fun `a sent row is flagged, not dropped`() {
         assertTrue(remarkNode(row(status = RemarkStatus.SENT)).sent)
@@ -236,6 +257,7 @@ class RemarksTreeTest {
         result: AnchorResult = AnchorResult.Exact(4, 6),
         bucket: String? = null,
         severity: RemarkSeverity = RemarkSeverity.SHOULD,
+        commit: String? = null,
     ) = ResolvedRemark(
         RemarkState().also {
             it.id = id
@@ -247,6 +269,7 @@ class RemarksTreeTest {
             it.status = status
             it.bucket = bucket
             it.severity = severity
+            it.commit = commit
         },
         result,
     )

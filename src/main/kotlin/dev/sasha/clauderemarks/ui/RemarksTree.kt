@@ -47,7 +47,7 @@ fun remarkNode(row: ResolvedRemark): RemarkNode {
     val movedFromStored =
         result.startLine != row.remark.startLine || result.endLine != row.remark.endLine
     val label = when {
-        result is AnchorResult.Orphaned -> " (orphaned)"
+        result is AnchorResult.Orphaned -> " (orphaned${writtenAt(row.remark.commit)})"
         result is AnchorResult.Relocated && movedFromStored -> " (moved)"
         else -> ""
     }
@@ -67,6 +67,10 @@ fun remarkNode(row: ResolvedRemark): RemarkNode {
         startLine = result.startLine,
     )
 }
+
+/** Short, because a tree row is already carrying a position, a text, a tag and a level. */
+private fun writtenAt(commit: String?): String =
+    commit?.let { ", written at ${it.take(8)}" }.orEmpty()
 
 /**
  * The remark rows a set of selected tree nodes covers, at any depth. Distinct, because selecting a

@@ -57,4 +57,12 @@ class RemarkState : BaseState() {
     /** Null means no bucket. Set from the tree or the gutter menu, never in the input popup: the
      *  popup has to stay fast, and a second chooser in it makes it a form. */
     var bucket by string()
+
+    /**
+     * The repository HEAD when this remark was written, or null when there was no readable git
+     * repository. Captured once and never refreshed: it records what the author was looking at.
+     * The stored line numbers and the textHash only mean anything against one revision, and this
+     * is the one.
+     */
+    var commit by string()
 }

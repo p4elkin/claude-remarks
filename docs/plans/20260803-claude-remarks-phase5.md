@@ -1888,7 +1888,7 @@ clutter on the rows that need nothing.
 at human pace. There is no cache, on purpose: a cache keyed on the HEAD file's timestamp is more
 code than the read it saves.
 
-- [ ] add the round-trip test to `RemarkStoreStateTest.kt`:
+- [x] add the round-trip test to `RemarkStoreStateTest.kt`:
 
 ```kotlin
     @Test
@@ -1943,9 +1943,9 @@ and to `PromptRendererTest.kt`:
     }
 ```
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkStoreStateTest" --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest" --tests "dev.sasha.clauderemarks.render.PromptRendererTest"`
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkStoreStateTest" --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest" --tests "dev.sasha.clauderemarks.render.PromptRendererTest"`
       — expect compile failures
-- [ ] add to `RemarkState`, after `bucket`:
+- [x] add to `RemarkState`, after `bucket`:
 
 ```kotlin
     /**
@@ -1957,7 +1957,7 @@ and to `PromptRendererTest.kt`:
     var commit by string()
 ```
 
-- [ ] fill it in `addRemark` in `RemarkEdits.kt`:
+- [x] fill it in `addRemark` in `RemarkEdits.kt`:
 
 ```kotlin
         // Two small file reads on the EDT, once per remark, at human pace. No cache: one keyed on
@@ -1967,7 +1967,7 @@ and to `PromptRendererTest.kt`:
 
 with `import java.nio.file.Path`.
 
-- [ ] change the orphan label in `remarkNode`:
+- [x] change the orphan label in `remarkNode`:
 
 ```kotlin
     val label = when {
@@ -1983,7 +1983,7 @@ private fun writtenAt(commit: String?): String =
     commit?.let { ", written at ${it.take(8)}" }.orEmpty()
 ```
 
-- [ ] add `val commit: String? = null` to `RenderedRemark`, after `severity`, and add it to the
+- [x] add `val commit: String? = null` to `RenderedRemark`, after `severity`, and add it to the
       heading in `renderPrompt`, between the severity and the orphan note:
 
 ```kotlin
@@ -1993,17 +1993,17 @@ private fun writtenAt(commit: String?): String =
 Defaulted to null here, unlike `severity`: a remark genuinely may not have one, so a caller that
 omits it is not necessarily a caller that forgot.
 
-- [ ] fill it in `collectForPrompt`: `commit = row.remark.commit,`
-- [ ] add `commit: String? = null` to the `remark()` builder in `TestRemarks.kt` and to the `row()`
+- [x] fill it in `collectForPrompt`: `commit = row.remark.commit,`
+- [x] add `commit: String? = null` to the `remark()` builder in `TestRemarks.kt` and to the `row()`
       helper in `RemarksTreeTest.kt`
-- [ ] run `./gradlew test` — the whole suite must pass
-- [ ] **mutation check**: change `writtenAt` to return `""` always.
+- [x] run `./gradlew test` — the whole suite must pass
+- [x] **mutation check**: change `writtenAt` to return `""` always.
       `an orphaned row says which commit the remark was written at` must fail. Restore it. Then
       delete the `this.commit = ...` line in `addRemark` and confirm the hand check in
       [section 10](#10-hand-checks-in-a-sandbox-ide) is the only thing that would have caught it —
       no automated test covers the capture itself, because the light fixture project has no git
       repository. Note that gap rather than building a fixture for it.
-- [ ] commit
+- [x] commit
 
 ### Task 10: Write cleared remarks to a history file
 

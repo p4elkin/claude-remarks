@@ -17,6 +17,12 @@ data class RenderedRemark(
     /** "vibe" | "suggestion" | "should" | "must", already lowercase. Never null: every remark has
      *  a level, defaulted when it was written. */
     val severity: String,
+    /**
+     * The repository HEAD when the remark was written, short-formed, or null. Defaulted to null
+     * here, unlike severity: a remark genuinely may not have one, so a caller that omits it is not
+     * necessarily a caller that forgot.
+     */
+    val commit: String? = null,
     val text: String,
     val orphaned: Boolean,
     /** The 0-based line number that code[0] came from. */
@@ -51,6 +57,7 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
                     .append("lines ").append(remark.startLine + 1).append("-").append(remark.endLine + 1)
                 remark.tag?.let { out.append(" — ").append(it) }
                 out.append(" — ").append(remark.severity)
+                remark.commit?.let { out.append(" — commit ").append(it.take(8)) }
                 if (remark.orphaned) out.append(" — orphaned, the line numbers are stale")
                 out.append("\n\n").append(escapeMarkdown(remark.text.trim())).append("\n\n")
                 out.append(codeBlock(remark)).append("\n")

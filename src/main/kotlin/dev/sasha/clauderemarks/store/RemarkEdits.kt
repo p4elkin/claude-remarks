@@ -6,6 +6,7 @@ import dev.sasha.clauderemarks.anchor.captureAnchor
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkTag
+import java.nio.file.Path
 import java.util.UUID
 
 /**
@@ -55,6 +56,9 @@ fun addRemark(
         this.textHash = anchor.textHash
         this.contextBefore = joinContext(anchor.contextBefore)
         this.contextAfter = joinContext(anchor.contextAfter)
+        // Two small file reads on the EDT, once per remark, at human pace. No cache: one keyed on
+        // the HEAD file's timestamp would be more code than the read it saves.
+        this.commit = project.basePath?.let { headCommit(Path.of(it)) }
     }
     RemarkStore.getInstance(project).add(remark)
     notifyRemarksChanged(project)

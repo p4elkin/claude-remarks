@@ -182,6 +182,16 @@ class PromptRendererTest {
     }
 
     @Test
+    fun `the heading carries the short commit when there is one`() {
+        val out = renderPrompt(
+            "H",
+            listOf(remark(severity = "must", commit = "0123456789abcdef0123456789abcdef01234567")),
+        )
+
+        assertTrue(out, out.contains("— must — commit 01234567"))
+    }
+
+    @Test
     fun `the heading carries the severity after the tag`() {
         val out = renderPrompt("H", listOf(remark(tag = "bug", severity = "must")))
 
@@ -222,6 +232,7 @@ class PromptRendererTest {
         startLine: Int = 0,
         tag: String? = "note",
         severity: String = "should",
+        commit: String? = null,
         orphaned: Boolean = false,
         code: List<String> = listOf("one", "two", "three"),
     ) = RenderedRemark(
@@ -230,6 +241,7 @@ class PromptRendererTest {
         endLine = startLine,
         tag = tag,
         severity = severity,
+        commit = commit,
         text = "a note",
         orphaned = orphaned,
         codeStartLine = maxOf(0, startLine - 1),
