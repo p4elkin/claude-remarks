@@ -4178,7 +4178,8 @@ and its last step restarts the sandbox IDE, which is what proves the platform re
 - **Renaming or moving a file orphans every remark in it, for good.** A remark stores a
   project-relative path and nothing updates it. After Refactor > Rename, a drag in the project view
   or a `git mv`, the resolver finds no file at the stored path, the gutter drops the icons, and the
-  copied prompt ships those remarks with their text and no code. Nothing in the UI can re-point
+  copied prompt ships those remarks with their text and the lines that surrounded them when they
+  were written, but with no code out of the file itself. Nothing in the UI can re-point
   them, so they are dead records. The fix is a `BulkFileListener` on `VFS_CHANGES` reading
   `VFileMoveEvent` and the rename form of `VFilePropertyChangeEvent`, rewriting the stored path for
   every remark under the old one — including remarks in files under a renamed directory. It needs a

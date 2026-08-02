@@ -8,6 +8,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.model.RemarkStatus
@@ -19,6 +20,7 @@ import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.markRemarksSent
 import dev.sasha.clauderemarks.store.resolveAll
 import java.io.IOException
+import java.util.concurrent.CancellationException
 
 private const val NOTIFICATION_GROUP = "Claude Remarks"
 
@@ -89,6 +91,22 @@ fun copyRemarks(project: Project, ids: Collection<String>?) {
             )
         }
         .submit(AppExecutorUtil.getAppExecutorService())
+        // Everything expensive runs inside the read action: resolving, reading Documents,
+        // rendering. If any of it throws, finishOnUiThread never runs — nothing reaches the
+        // clipboard, nothing is marked sent, and no balloon appears. Without this the whole action
+        // would look like it did nothing at all, with the reason only in the platform log.
+        .onError { error ->
+            // A run dropped by coalesceBy, or one expired with the project, arrives here too. That
+            // is not a failure and stays quiet. Both types are checked because which of them the
+            // platform throws depends on why the read action stopped.
+            if (error !is ProcessCanceledException && error !is CancellationException) {
+                notifyRemarks(
+                    project,
+                    "The remarks could not be prepared: ${error.message ?: error}",
+                    NotificationType.ERROR,
+                )
+            }
+        }
 }
 
 /**

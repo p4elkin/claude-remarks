@@ -40,6 +40,7 @@ import dev.sasha.clauderemarks.store.resolveAll
 import javax.swing.Icon
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
+import javax.swing.tree.TreePath
 
 class RemarksToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -98,12 +99,16 @@ class RemarksPanel(
             .expireWith(parent)
             .coalesceBy(this)
             .finishOnUiThread(ModalityState.defaultModalityState()) { rows ->
-                // setRoot throws the selection away, and the tree is rebuilt on every remark change
-                // and on every editor opening, so without this a row you selected stops being
-                // selected the moment you use it and Copy Selected greys itself out.
-                val wasSelected = selectedIds().toSet()
+                // setRoot throws away both what was selected and which groups were shut, and the
+                // tree is rebuilt on every remark change and on every editor opening. Without this
+                // a row you selected stops being selected the moment you use it, Copy Selected
+                // greys itself out, and a file group you closed springs open again as soon as you
+                // open any file that holds a remark.
+                val wasSelected = selectionKeys()
+                val wasCollapsed = collapsedFiles()
                 (tree.model as DefaultTreeModel).setRoot(buildTreeRoot(rows))
                 expandAll()
+                recollapse(wasCollapsed)
                 restoreSelection(wasSelected)
             }
             .submit(AppExecutorUtil.getAppExecutorService())
@@ -125,17 +130,60 @@ class RemarksPanel(
         }
     }
 
-    /** Called after expandAll, so every row is on screen and has a row index to select. */
-    private fun restoreSelection(ids: Set<String>) {
-        if (ids.isEmpty()) return
+    /**
+     * What is selected, keyed so that the same selection can be made again after the rebuild.
+     *
+     * NOT selectedIds(): that turns a selected file node into every remark id under it, and
+     * restoring from it selected N rows instead of the one file. The delete guard below reads the
+     * difference between "a file node" and "N rows the user picked out", so the first refresh after
+     * selecting a file node used to turn a whole file's remarks into rows Delete removes without
+     * asking. Capture and restore have to describe the same thing.
+     */
+    private fun selectionKeys(): Set<String> =
+        tree.selectionPaths.orEmpty().mapNotNull { keyOf(it.lastPathComponent) }.toSet()
+
+    /** A remark row is its id, a file group is its path. The root is invisible and never a row. */
+    private fun keyOf(component: Any?): String? =
+        when (val user = (component as? DefaultMutableTreeNode)?.userObject) {
+            is RemarkNode -> user.id
+            is String -> user
+            else -> null
+        }
+
+    /**
+     * Called after expandAll and recollapse, so it works on rows that are actually on screen. A row
+     * inside a group the user shut is not restored: selecting it would re-expand the group, because
+     * JTree expands the ancestors of anything you select.
+     */
+    private fun restoreSelection(keys: Set<String>) {
+        if (keys.isEmpty()) return
         val paths = (0 until tree.rowCount)
             .map { tree.getPathForRow(it) }
-            .filter { nodeOf(it.lastPathComponent)?.id in ids }
+            .filter { keyOf(it.lastPathComponent) in keys }
         if (paths.isNotEmpty()) tree.selectionPaths = paths.toTypedArray()
     }
 
-    private fun nodeOf(component: Any?): RemarkNode? =
-        (component as? DefaultMutableTreeNode)?.userObject as? RemarkNode
+    /** The file groups that are shut right now, read before setRoot throws the rows away. */
+    private fun collapsedFiles(): Set<String> =
+        fileNodes().filterNot { tree.isExpanded(it.second) }.map { it.first }.toSet()
+
+    /** Shuts them again after expandAll, so a group you closed stays closed across a refresh. */
+    private fun recollapse(files: Set<String>) {
+        if (files.isEmpty()) return
+        fileNodes().forEach { (path, treePath) -> if (path in files) tree.collapsePath(treePath) }
+    }
+
+    /** Each file group with the TreePath that reaches it. Read from the model, not from row
+     *  indexes, so it does not depend on what is expanded at the time. */
+    private fun fileNodes(): List<Pair<String, TreePath>> {
+        val root = tree.model.root as? DefaultMutableTreeNode ?: return emptyList()
+        return (0 until root.childCount).mapNotNull { index ->
+            val node = root.getChildAt(index) as? DefaultMutableTreeNode
+            (node?.userObject as? String)?.let {
+                it to TreePath(arrayOf<Any>(root, node))
+            }
+        }
+    }
 
     /** A selected file node counts as all its rows; see remarkNodesUnder in RemarksTree.kt. */
     private fun selectedNodes(): List<RemarkNode> =
@@ -166,7 +214,8 @@ class RemarksPanel(
     private fun deleteSelected() {
         val nodes = selectedNodes()
         if (nodes.isEmpty()) return
-        val pickedOut = tree.selectionPaths.orEmpty().count { nodeOf(it.lastPathComponent) != null }
+        val pickedOut = tree.selectionPaths.orEmpty()
+            .count { (it.lastPathComponent as? DefaultMutableTreeNode)?.userObject is RemarkNode }
         if (nodes.size > pickedOut && !confirmDelete(nodes.size)) return
         nodes.forEach { deleteRemark(project, it.id) }
     }

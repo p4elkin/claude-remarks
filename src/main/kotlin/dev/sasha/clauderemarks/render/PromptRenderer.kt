@@ -19,6 +19,13 @@ data class RenderedRemark(
     /** The 0-based line number that code[0] came from. */
     val codeStartLine: Int,
     val code: List<String>,
+    /**
+     * What sat just above and just below the remark when it was written, straight out of the stored
+     * anchor. Filled for an orphan only: that is the one case with no code to quote, and these lines
+     * are then the only thing left to search the file for. Empty for every other remark.
+     */
+    val capturedBefore: List<String> = emptyList(),
+    val capturedAfter: List<String> = emptyList(),
 )
 
 fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
@@ -38,7 +45,7 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
                     .append("lines ").append(remark.startLine + 1).append("-").append(remark.endLine + 1)
                 remark.tag?.let { out.append(" — ").append(it) }
                 if (remark.orphaned) out.append(" — orphaned, the line numbers are stale")
-                out.append("\n\n").append(remark.text.trim()).append("\n\n")
+                out.append("\n\n").append(escapeMarkdown(remark.text.trim())).append("\n\n")
                 out.append(codeBlock(remark)).append("\n")
             }
         }
@@ -47,23 +54,33 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
 }
 
 /**
+ * The remark text is written into the document as prose, outside any fence, and it is free-form:
+ * Shift+Enter in the input popup makes several lines ordinary, so pasting a snippet into it is the
+ * obvious thing to do. A line of three backticks there would open a fence that never closes, and
+ * every remark listed after it — headings, line numbers, ">" markers and all — would be read as
+ * code. A line starting with "#" forges a file or remark heading and can move a remark under the
+ * wrong file. A line of three dashes turns the text above it into a heading.
+ *
+ * A backslash rather than four spaces of indent: "\```", "\#" and "\---" are plain CommonMark
+ * escapes, and the raw text a model reads keeps its characters where they were written.
+ */
+private fun escapeMarkdown(text: String): String =
+    text.lines().joinToString("\n") { line ->
+        if (!STRUCTURE_LINE.containsMatchIn(line)) line
+        else line.takeWhile { it == ' ' }.let { indent -> "$indent\\${line.removePrefix(indent)}" }
+    }
+
+private val STRUCTURE_LINE = Regex("""^ {0,3}(`{3,}|~{3,}|#{1,6}(\s|$)|-{3,}\s*$)""")
+
+/**
  * The anchored lines, marked with ">", plus whatever context came with them. The fence is tagged
  * "text" rather than a real language: the line-number gutter breaks syntax highlighting anyway,
  * and a wrong language tag reads worse than none.
- *
- * An orphan arrives here with no code, on purpose: its stored line numbers no longer point at its
- * own code, so there is nothing honest to quote. Saying that is not the same as saying the file
- * could not be read, so the two cases get different words.
  */
 private fun codeBlock(remark: RenderedRemark): String {
-    val fence = "`".repeat(maxOf(3, longestBacktickRun(remark.code) + 1))
-    if (remark.code.isEmpty()) {
-        val why =
-            if (remark.orphaned) "(the code this remark points at could not be found in the file)"
-            else "(the file could not be read)"
-        return "${fence}text\n$why\n$fence\n"
-    }
+    if (remark.code.isEmpty()) return blockWithoutCode(remark)
 
+    val fence = fenceFor(remark.code)
     val lastNumber = remark.codeStartLine + remark.code.size
     val width = lastNumber.toString().length
     val body = remark.code.mapIndexed { index, line ->
@@ -73,6 +90,43 @@ private fun codeBlock(remark: RenderedRemark): String {
     }
     return "${fence}text\n" + body.joinToString("\n") + "\n$fence\n"
 }
+
+/**
+ * An orphan has no code of its own to quote: its stored line numbers no longer point at it, and
+ * whatever drifted into that position is not the remark's code.
+ *
+ * What it does still carry is the context captured when it was written, the lines just above and
+ * just below. Those are quoted instead, under words of their own. The prompt header sends the
+ * reader looking for the code by reading rather than by trusting the numbers, so without them an
+ * orphan would arrive with a path, numbers it is told to ignore, and nothing to search for. No ">"
+ * markers and no line numbers on these lines: neither would be true, and ">" means "the lines the
+ * remark points at" everywhere else in the document.
+ *
+ * A file that could not be read is a different case and gets different words. So is an orphan
+ * stored without any context, which older remarks and a one-line file can both be.
+ */
+private fun blockWithoutCode(remark: RenderedRemark): String {
+    val captured = remark.capturedBefore + remark.capturedAfter
+    if (!remark.orphaned || captured.isEmpty()) {
+        val why =
+            if (remark.orphaned) "(the code this remark points at could not be found in the file)"
+            else "(the file could not be read)"
+        val fence = fenceFor(emptyList())
+        return "${fence}text\n$why\n$fence\n"
+    }
+
+    val fence = fenceFor(captured)
+    val body = remark.capturedBefore + MISSING_LINES + remark.capturedAfter
+    return "The code this remark points at could not be found in the file. These are the lines " +
+        "that sat around it when the remark was written — search for them to find the code:\n\n" +
+        "${fence}text\n" + body.joinToString("\n") + "\n$fence\n"
+}
+
+/** Stands in for the remark's own lines, which are not stored: only their hash and their context. */
+private const val MISSING_LINES = "... the lines this remark points at were here ..."
+
+private fun fenceFor(lines: List<String>): String =
+    "`".repeat(maxOf(3, longestBacktickRun(lines) + 1))
 
 /**
  * How long the longest run of backticks inside the quoted code is, so the fence can be made longer

@@ -50,6 +50,48 @@ class RemarksPanelTest : BasePlatformTestCase() {
         assertEquals(listOf(remark.id), panel.selectedIds())
     }
 
+    /**
+     * expandAll runs on every refresh, and a refresh happens whenever any editor of a remarked file
+     * opens or closes. Without the collapsed groups being put back, a group you shut re-opened as
+     * soon as you navigated anywhere.
+     */
+    fun testACollapsedFileGroupStaysCollapsedAcrossARefresh() {
+        listOf("A.kt", "B.kt").forEach { path ->
+            addRemark(project, path, LINES, 0..0, "first note in $path", null)
+            addRemark(project, path, LINES, 1..1, "second note in $path", null)
+        }
+        val panel = panel()
+        assertEquals(6, panel.tree.rowCount)
+
+        panel.tree.collapseRow(0)
+        assertEquals(4, panel.tree.rowCount)
+
+        panel.refresh()
+        settle()
+
+        assertEquals(4, panel.tree.rowCount)
+    }
+
+    /**
+     * The delete confirmation reads a file-node selection as more rows covered than rows picked out.
+     * The refresh used to capture the selection as remark ids and restore it as leaf rows, so the
+     * first refresh after selecting a file node turned it into N picked-out rows — and Delete then
+     * removed a whole file's remarks with no question asked.
+     */
+    fun testAFileNodeStaysSelectedAsAFileNodeAcrossARefresh() {
+        addRemark(project, "A.kt", LINES, 0..0, "one", null)
+        addRemark(project, "A.kt", LINES, 1..1, "two", null)
+        val panel = panel()
+        panel.tree.setSelectionRow(0)
+        assertEquals(2, panel.selectedIds().size)
+
+        panel.refresh()
+        settle()
+
+        assertEquals(1, panel.tree.selectionCount)
+        assertEquals(2, panel.selectedIds().size)
+    }
+
     private fun panel(): RemarksPanel {
         val disposable = Disposer.newDisposable()
         Disposer.register(testRootDisposable, disposable)

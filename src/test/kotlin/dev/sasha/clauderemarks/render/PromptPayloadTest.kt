@@ -122,6 +122,28 @@ class CollectForPromptTest : BasePlatformTestCase() {
             "an orphan must not quote the code that now sits at its stale line numbers",
             collected.code.isEmpty(),
         )
+        // What it does carry instead: the context stored with it. Without this the prompt would
+        // give the model a path, numbers the header tells it to ignore, and nothing to search for.
+        assertEquals(
+            listOf("unrelated 7", "unrelated 8", "unrelated 9"),
+            collected.capturedBefore,
+        )
+        assertEquals(
+            listOf("unrelated 12", "unrelated 13", "unrelated 14"),
+            collected.capturedAfter,
+        )
+    }
+
+    /** The context is for the orphan case only; a resolved remark would otherwise ship its
+     *  surroundings twice, once as real code and once as capture-time context. */
+    fun testAResolvedRemarkCarriesNoCaptureTimeContext() {
+        writeFile("Foo.kt", (1..20).joinToString("\n") { "line $it" })
+        addRemark(project, "Foo.kt", (1..20).map { "line $it" }, 9..10, "why?", null)
+
+        val collected = collectForPrompt(project, resolveAll(project)).single()
+
+        assertTrue(collected.capturedBefore.isEmpty())
+        assertTrue(collected.capturedAfter.isEmpty())
     }
 
     /**

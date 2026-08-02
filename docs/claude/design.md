@@ -355,9 +355,19 @@ Phase 3 is the editor side: creating and viewing remarks without leaving the edi
 - **A gutter icon that follows the code.** Covered in "The Editor Side" below.
 - **The tool window is a tree, not a flat list.** `RemarksPanel` (in
   `ui/RemarksToolWindowFactory.kt`) builds a `Tree` grouped by file, refreshes itself on
-  `REMARKS_CHANGED`, navigates on double click through `EditSourceOnDoubleClickHandler`, and
-  deletes the selection on the Delete key with no confirmation dialog — selecting the row and then
-  pressing Delete on it is the confirmation. `describe()` and the old `JBList<String>` are gone.
+  `REMARKS_CHANGED`, and navigates on double click through `EditSourceOnDoubleClickHandler`.
+  `describe()` and the old `JBList<String>` are gone.
+
+  Delete on rows the user picked out asks nothing — selecting a row and then pressing Delete on it
+  is the confirmation. Delete on a *file* node asks, because that node stands for every remark
+  under it and a shut node hides how many. The panel tells the two apart by counting rows covered
+  against rows picked out, which only works if a refresh puts back the same kind of selection it
+  found. So the rebuild captures and restores by key — a remark row is its id, a file group is its
+  path — rather than capturing ids and restoring rows. Capturing ids turned a file-node selection
+  into N picked-out rows on the first refresh, and refreshes are frequent, so the question stopped
+  being asked. The rebuild remembers which file groups were shut for the same reason: `expandAll`
+  runs on every refresh, so without putting them back, a group you closed sprang open again as soon
+  as you opened any file holding a remark.
 
 Phase 4 is the output side: turning pending remarks into one prompt.
 
@@ -394,8 +404,9 @@ highlighter must still hash to the remark's stored `textHash`.
 ever updates it. Rename a file through Refactor > Rename, drag it in the project view, or move it
 with `git mv`, and every remark in it is orphaned for good: `fileForStoredPath` finds nothing, the
 resolver refuses with "no file under the project root at that path", the gutter drops the icons
-because it matches on the path, and the copied prompt ships those remarks with their text and no
-code. There is no way to re-point a remark from the UI, so they become dead records.
+because it matches on the path, and the copied prompt ships those remarks with their text and the
+lines that surrounded them when they were written, but with no code from the file itself. There is
+no way to re-point a remark from the UI, so they become dead records.
 
 The fix is a `BulkFileListener` on `VFS_CHANGES` reading `VFileMoveEvent` and the rename form of
 `VFilePropertyChangeEvent`, rewriting `RemarkState.path` for every remark under the old path —
@@ -502,7 +513,12 @@ enough for that to be felt, the extra hop is the fix.
 
 The copy has a failure path. `IOException` from the write and `IllegalStateException` from the
 clipboard are both reported through a red balloon, and `markRemarksSent` is skipped — nothing was
-handed over, so nothing is marked as handed over.
+handed over, so nothing is marked as handed over. The read action has one too: `onError` on the
+promise reports anything thrown inside `prepare` the same way. Without it a failure there skipped
+`finishOnUiThread` entirely, so the whole action put nothing on the clipboard, marked nothing sent
+and said nothing at all, with the reason only in the platform log. A run dropped by `coalesceBy` or
+expired with the project lands in `onError` too and stays quiet, which is why the cancellation types
+are checked there.
 
 **The temp file is why nothing remark-related can enter version control by this route.** A file
 under `java.io.tmpdir` is outside the project directory, so no `.gitignore` question ever arises.
@@ -518,9 +534,27 @@ fragmenting problem — Claude Code's TUI submits on newline, so sending a multi
 prompt header.
 
 `resolveAll` and `collectForPrompt` never drop a remark. A file that cannot be read, or a remark
-that resolves as `Orphaned`, still gets a row in the prompt — with no code and a note that the
-line numbers are stale — rather than silently disappearing from the copy. The prompt header
-itself follows revdiff's model: a remark that asks a question gets answered rather than turned
+that resolves as `Orphaned`, still gets a row in the prompt rather than silently disappearing from
+the copy. Neither quotes code at the stale line numbers: whatever drifted into that position is
+not the remark's code, and the header tells the reader to trust the quoted lines over the numbers,
+so quoting unrelated code under a `>` marker would be an instruction to edit the wrong lines.
+
+What an orphan does quote is the context stored with it — the lines that sat just above and just
+below it when it was written, with `... the lines this remark points at were here ...` between the
+two halves and no line numbers or `>` markers, because neither would be true. That block is the
+only thing left to search the file for, and it costs nothing: the context is already persisted for
+the anchor search. Without it a renamed file, which orphans every remark in it at once, would ship
+a whole file's remarks with a path, numbers the header says to ignore, and nothing to look for.
+
+Two things go into the markdown that the plugin does not control. The quoted code can hold a fence
+of its own (a `.md` file, a doc comment with an example), so the fence is sized one backtick past
+the longest backtick run inside the block. The remark text is prose outside every fence, and
+Shift+Enter makes a pasted snippet ordinary, so each of its lines that would open a fence, forge a
+heading or turn the line above into one is escaped with a backslash. Either one, left alone, breaks
+every remark listed after it. The prompt header itself is the user's own text and is written out as
+given: it is deliberate markdown, at the top, where its author can see what it did.
+
+The header follows revdiff's model: a remark that asks a question gets answered rather than turned
 into an edit.
 
 ## Two Positions On Screen, And When They Differ

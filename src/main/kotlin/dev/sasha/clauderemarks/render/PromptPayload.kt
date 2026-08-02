@@ -7,6 +7,7 @@ import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import dev.sasha.clauderemarks.store.fileForStoredPath
 import dev.sasha.clauderemarks.store.projectRoot
+import dev.sasha.clauderemarks.store.splitContext
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -61,6 +62,12 @@ fun clipboardPayload(
  * to find the code by reading the quoted lines rather than by trusting the numbers, so unrelated
  * code shipped under a ">" marker is an instruction to act on the wrong lines.
  *
+ * What an orphan does carry out of here is the context stored with it: the lines that sat just
+ * above and just below it when it was written. Nothing else is left to look for, and those lines
+ * are already persisted, so the renderer quotes them under words of their own. Without them a
+ * renamed file — which orphans every remark in it — would ship a whole file's remarks with a path,
+ * line numbers the header says to ignore, and no way to find the code at all.
+ *
  * Each file is read once, even with several remarks in it: a Document read is cheap, but
  * document.text.split on a large file is not, and a marked-up file usually holds several remarks.
  * A file that cannot be read counts as read too — see the note on the cache below.
@@ -106,6 +113,10 @@ fun collectForPrompt(
             codeStartLine = from,
             code = if (orphaned || lines == null || from >= to) emptyList()
             else lines.subList(from, to),
+            // Only for an orphan. Every other remark quotes its real code, so shipping the
+            // capture-time context as well would be the same lines twice in one prompt.
+            capturedBefore = if (orphaned) splitContext(row.remark.contextBefore) else emptyList(),
+            capturedAfter = if (orphaned) splitContext(row.remark.contextAfter) else emptyList(),
         )
     }
 }

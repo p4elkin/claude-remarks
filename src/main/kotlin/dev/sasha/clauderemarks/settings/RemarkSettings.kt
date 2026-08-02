@@ -20,10 +20,11 @@ val DEFAULT_PROMPT_HEADER: String = """
       Answer it in your reply. Do not change the code for it.
     - Any other remark is an INSTRUCTION. Carry it out.
     - A remark marked "orphaned" has stale line numbers: the code moved or changed after the
-      remark was written. Find the code it means by reading the quoted lines, not by trusting the
-      numbers.
+      remark was written, so its own lines are not quoted. What is quoted for it instead, when
+      anything is, are the lines that sat just above and just below it at the time. Search the
+      file for those to find what the remark means. Do not trust the numbers.
     - In each code block, lines prefixed with ">" are the lines the remark points at. The other
-      lines are surrounding context.
+      lines are surrounding context. An orphan's block has no ">" lines, for the reason above.
 
     Work through the remarks in the order they are listed. When you are done, say briefly what you
     changed and what you answered.

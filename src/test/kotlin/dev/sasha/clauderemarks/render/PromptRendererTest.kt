@@ -109,6 +109,58 @@ class PromptRendererTest {
         assertFalse(out.contains("could not be read"))
     }
 
+    /**
+     * The remark text is prose in the document, outside every fence, and Shift+Enter in the input
+     * popup makes a pasted snippet an ordinary thing to have in it. An unescaped fence there opened
+     * a block that never closed, and every remark after it was read as code.
+     */
+    @Test
+    fun `a fence or a heading in the remark text cannot break the document`() {
+        val out = renderPrompt(
+            "H",
+            listOf(
+                RenderedRemark(
+                    path = "a.kt", startLine = 0, endLine = 0, tag = null,
+                    text = "like this:\n```\nval a = 1\n```\n## not a heading\n---",
+                    orphaned = false, codeStartLine = 0, code = listOf("one"),
+                )
+            ),
+        )
+
+        // Two fence lines in the whole document: the pair around the quoted code.
+        assertEquals(2, out.lines().count { it.startsWith("```") })
+        assertTrue(out.contains("\\```"))
+        assertTrue(out.contains("\\## not a heading"))
+        assertTrue(out.contains("\\---"))
+    }
+
+    /**
+     * An orphan has no code to quote, but it still carries the lines that surrounded it when it was
+     * written. Those are the only thing left to search the file for, and a renamed file orphans
+     * every remark in it, so without them a whole file's remarks arrive unactionable.
+     */
+    @Test
+    fun `an orphan quotes the lines that surrounded it when it was written`() {
+        val out = renderPrompt(
+            "H",
+            listOf(
+                RenderedRemark(
+                    path = "a.kt", startLine = 4, endLine = 4, tag = null, text = "why?",
+                    orphaned = true, codeStartLine = 4, code = emptyList(),
+                    capturedBefore = listOf("fun foo() {"),
+                    capturedAfter = listOf("} // end"),
+                )
+            ),
+        )
+
+        assertTrue(out.contains("fun foo() {"))
+        assertTrue(out.contains("} // end"))
+        assertTrue(out.contains("search for them"))
+        // No ">" marker anywhere: these are not the lines the remark points at, and ">" means
+        // exactly that everywhere else in the document.
+        assertFalse(out.lines().any { it.startsWith(">") })
+    }
+
     /** A remark on a .md file, or on any code holding an example fence. */
     @Test
     fun `code holding a fence gets a longer fence, so the block cannot close early`() {
