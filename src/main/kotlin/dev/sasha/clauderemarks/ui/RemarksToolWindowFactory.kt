@@ -1,13 +1,20 @@
 package dev.sasha.clauderemarks.ui
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionToolbar
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonShortcuts
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.wm.ToolWindow
@@ -17,12 +24,19 @@ import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.EditSourceOnDoubleClickHandler
 import com.intellij.util.concurrency.AppExecutorUtil
+import dev.sasha.clauderemarks.action.copyRemarks
+import dev.sasha.clauderemarks.action.notifyRemarks
+import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.REMARKS_CHANGED
+import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.RemarksListener
 import dev.sasha.clauderemarks.store.ResolvedRemark
+import dev.sasha.clauderemarks.store.clearAllRemarks
+import dev.sasha.clauderemarks.store.clearSentRemarks
 import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.resolveAll
+import javax.swing.Icon
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 
@@ -63,13 +77,14 @@ class RemarksPanel(
         DumbAwareAction.create { deleteSelected() }
             .registerCustomShortcutSet(CommonShortcuts.getDelete(), tree, parent)
 
-        setContent(JBScrollPane(tree))
-
         // One subscription is enough. RemarkGutter's own EditorFactoryListener already calls
         // notifyRemarksChanged when an editor opens or closes, so a second listener here would
         // refresh twice on every open — and, being unfiltered by project, would run a full
         // resolveAll for this project whenever a file opened in ANY project.
         project.messageBus.connect(parent).subscribe(REMARKS_CHANGED, RemarksListener { refresh() })
+
+        setToolbar(buildToolbar().component)
+        setContent(JBScrollPane(tree))
 
         refresh()
     }
@@ -116,5 +131,99 @@ class RemarksPanel(
      */
     private fun deleteSelected() {
         selectedNodes().forEach { deleteRemark(project, it.id) }
+    }
+
+    /**
+     * A toolbar button that greys out when it would do nothing.
+     *
+     * DumbAwareAction.create returns an action whose update() cannot be overridden, so a button
+     * built that way is always live. Task 3 went to real trouble to make the editor action
+     * visible-but-disabled with a reason rather than silently dead; the same rule belongs here.
+     * Copy Selected with nothing selected and Clear Sent with nothing sent were live buttons that
+     * did nothing at all when pressed.
+     *
+     * ActionUpdateThread.EDT, because [enabled] reads the tree selection and the store.
+     */
+    private inner class ToolbarAction(
+        text: String,
+        icon: Icon,
+        private val enabled: () -> Boolean,
+        private val onPress: () -> Unit,
+    ) : DumbAwareAction(text, text, icon) {
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        override fun update(e: AnActionEvent) {
+            e.presentation.isEnabled = enabled()
+        }
+        override fun actionPerformed(e: AnActionEvent) = onPress()
+    }
+
+    private fun remarks() = RemarkStore.getInstance(project).all()
+
+    private fun sentCount() = remarks().count { it.status == RemarkStatus.SENT }
+
+    /**
+     * Built in code, not registered as a <group> in plugin.xml: these actions are private to this
+     * tool window, so a global registration would only add a name nobody can use elsewhere.
+     *
+     * targetComponent is effectively required. Without it the platform logs "toolbar by default
+     * uses any focused component to update its actions... Please call toolbar.setTargetComponent()
+     * explicitly", and the actions read whichever component happens to have focus.
+     */
+    private fun buildToolbar(): ActionToolbar {
+        val group = DefaultActionGroup(
+            ToolbarAction(
+                "Copy All Pending",
+                AllIcons.Actions.Copy,
+                { remarks().any { it.status == RemarkStatus.PENDING } },
+            ) { copyRemarks(project, null) },
+            ToolbarAction(
+                "Copy Selected",
+                AllIcons.Actions.InSelection,
+                { selectedIds().isNotEmpty() },
+            ) { copyRemarks(project, selectedIds()) },
+            ToolbarAction("Clear Sent", AllIcons.Actions.GC, { sentCount() > 0 }) {
+                confirmClearSent()
+            },
+            ToolbarAction("Clear All", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
+                confirmClearAll()
+            },
+            ToolbarAction("Refresh", AllIcons.Actions.Refresh, { true }) { refresh() },
+        )
+        return ActionManager.getInstance()
+            .createActionToolbar("ClaudeRemarks", group, true)
+            .also { it.targetComponent = tree }
+    }
+
+    /**
+     * Asks first, and says how many went. "Already copied" is not a reason to skip the question:
+     * copied means one clipboard buffer that the next copy overwrites, and sent remarks are kept
+     * precisely so that a paste which went to the wrong place can be copied again. The button also
+     * sits next to Clear All, so a misclick between two destructive buttons is easy.
+     */
+    private fun confirmClearSent() {
+        val sent = sentCount()
+        if (sent == 0) return
+        val answer = Messages.showYesNoDialog(
+            project,
+            "Remove $sent sent remark${if (sent == 1) "" else "s"}? They cannot be copied again.",
+            "Clear Sent Claude Remarks",
+            Messages.getWarningIcon(),
+        )
+        if (answer != Messages.YES) return
+        val removed = clearSentRemarks(project)
+        notifyRemarks(project, "Removed $removed sent remark${if (removed == 1) "" else "s"}.")
+    }
+
+    /** The other destructive one, and the only one that also throws away work not handed over. */
+    private fun confirmClearAll() {
+        val total = remarks().size
+        if (total == 0) return
+        val answer = Messages.showYesNoDialog(
+            project,
+            "Delete all $total remarks, including the ones not yet copied? This cannot be undone.",
+            "Clear All Claude Remarks",
+            Messages.getWarningIcon(),
+        )
+        if (answer == Messages.YES) clearAllRemarks(project)
     }
 }
