@@ -90,3 +90,49 @@ How hard: partly free, partly blocked, and the blocked part is worth knowing bef
 
 Start by opening a diff with the plugin installed and seeing what already happens. The answer
 changes how much of this is left to build.
+
+## Keep the history, and stamp each remark with the commit it was written against
+
+Stop throwing remarks away when they are cleared. Keep every remark ever written, including the
+ones Clear Sent and Clear All remove today. When one is stored, also record the repository HEAD
+commit at that moment, so it is possible to say which version of the code the remark was written
+about.
+
+Why: a remark's line numbers and its stored hash only mean anything against one revision. Right
+now nothing records which one, so an orphan is a mystery — the code may have moved, or the remark
+may simply belong to a different commit. The commit turns that from a guess into a fact. Keeping
+the history also means a cleared remark is recoverable, and that a past reading pass can be looked
+at again.
+
+How hard: two separate pieces, one easy and one with a real decision in it.
+
+**Keeping the history** is easy in itself. Either add a cleared state and stop deleting, or move
+cleared remarks into a second list. Prefer the second. Everything in the active list gets resolved
+against its file on every change, and that cost is per remark, so an active list that only grows
+would make the whole plugin slower the longer it is used. An archive that nothing resolves does
+not.
+
+The real decision is where the history lives, and the hard rule that nothing remark-related enters
+version control decides it. `.idea/workspace.xml` is where remarks live today, and it grows
+without bound if history goes in it. Two options:
+
+- The IDE config directory (`PathManager.getConfigDir()`), keyed by project. Cannot ever be
+  committed by accident, which is the whole point. Does not travel with the project, and is lost
+  if the IDE config is wiped.
+- A separate file next to the project. Travels with the project, and is exactly the thing the
+  no-VCS rule exists to prevent from being committed.
+
+The first is the safer default. Pick it unless there is a reason not to.
+
+**Recording the commit** needs care about dependencies. The plugin depends only on
+`com.intellij.modules.platform` today, which is why it loads in any JetBrains IDE. Git integration
+lives in the separate Git4Idea plugin, so using its API would mean declaring a dependency on it
+and requiring it to be installed.
+
+The cheap way avoids that entirely: read `.git/HEAD` under the project root, and if it names a ref,
+read that ref file. A few lines, no dependency, no VCS API. It only understands git, which is
+almost certainly enough. Two cases to handle: `.git` is a file rather than a directory in a
+worktree or a submodule, and a detached HEAD holds the sha directly instead of a ref.
+
+Worth deciding at the same time: whether the commit is captured once when the remark is written,
+or refreshed. Once is right — the point is to record what the author was looking at.
