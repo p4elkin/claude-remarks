@@ -2533,25 +2533,25 @@ existing call sites already have one. Every `RemarkInputPanel(...)` construction
 **Files:**
 - Modify: `CLAUDE.md` — rule 3's grep and its wording
 
-- [ ] no code writes to a source file. Must return nothing:
+- [x] no code writes to a source file. Must return nothing:
 
 ```bash
 grep -rnE "WriteCommandAction|WriteAction\.|runWriteAction|insertString|replaceString|deleteString|[Dd]ocument\.setText|setBinaryContent" src/
 ```
 
-- [ ] the anchoring module has no platform dependency. Must return nothing:
+- [x] the anchoring module has no platform dependency. Must return nothing:
 
 ```bash
 grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/anchor/
 ```
 
-- [ ] the prompt renderer has none either. Must return nothing:
+- [x] the prompt renderer has none either. Must return nothing:
 
 ```bash
 grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt
 ```
 
-- [ ] `store/RemarkEdits.kt` holds the only functions that change a remark. **Replace the grep in
+- [x] `store/RemarkEdits.kt` holds the only functions that change a remark. **Replace the grep in
       `CLAUDE.md` with this form.** The old one lists the store's mutator names by hand, so it has
       to be edited every time one is added — and forgetting is silent: the guard keeps passing while
       it stops covering the new function. Phase 5 adds `setSeverity` and `setBucket`, which the old
@@ -2566,20 +2566,20 @@ grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include=*.kt \
   Test code stays outside on purpose: fixture-backed classes call
   `RemarkStore.getInstance(project).clear()` in `setUp` to clear the shared light-fixture project.
 
-- [ ] confirm the new grep really is stronger: temporarily add
+- [x] confirm the new grep really is stronger: temporarily add
       `RemarkStore.getInstance(project).setBucket(setOf("x"), null)` to
       `ui/RemarksToolWindowFactory.kt`, run **both** patterns, and confirm the old one stays quiet
       while the new one catches it. Remove the line.
-- [ ] nothing remark-related can enter version control: remarks are in `.idea/workspace.xml`, the
+- [x] nothing remark-related can enter version control: remarks are in `.idea/workspace.xml`, the
       settings and the history file are in the IDE configuration directory, and the large-payload
       copy is under `java.io.tmpdir`. Confirm no `Files.write`, `Files.createDirectories` or
       `Path.of` in `src/main` resolves anything under `project.basePath`.
-- [ ] update `CLAUDE.md` rule 3's text: eight functions, not six, and the new grep.
-- [ ] `./gradlew test` — the whole suite
-- [ ] `./gradlew verifyPluginProjectConfiguration` — no errors
-- [ ] `./gradlew verifyPlugin` — read the report for anything incompatible with 2025.2
-- [ ] `./gradlew buildPlugin` — a zip appears under `build/distributions/`
-- [ ] commit
+- [x] update `CLAUDE.md` rule 3's text: eight functions, not six, and the new grep.
+- [x] `./gradlew test` — the whole suite
+- [x] `./gradlew verifyPluginProjectConfiguration` — no errors
+- [x] `./gradlew verifyPlugin` — read the report for anything incompatible with 2025.2
+- [x] `./gradlew buildPlugin` — a zip appears under `build/distributions/`
+- [x] commit
 
 ### Task 14: Update design.md, CLAUDE.md and the README
 

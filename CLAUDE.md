@@ -37,14 +37,19 @@ was built. See `docs/claude/design.md`, section "The Copy Pipeline", for why.
    grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt   # must find nothing
    ```
 
-3. **`store/RemarkEdits.kt` holds the only six functions that change a remark.**
+3. **`store/RemarkEdits.kt` holds the only eight functions that change a remark.**
    `RemarkStore`'s own mutators stay public, and `RemarkEdits.kt` sits in the same package, so
-   nothing but this check keeps the claim true. A caller that reaches past the six functions
-   mutates the store without telling the gutter or the tool window to redraw.
+   nothing but this check keeps the claim true. A caller that reaches past the eight functions
+   mutates the store without telling the gutter or the tool window to redraw. The grep allows
+   through the one read-only method by name, `all()`, rather than listing the mutator names by
+   hand: a hand-picked list has to be edited every time a mutator is added, and forgetting is
+   silent — the guard keeps passing while it stops covering the new function. That is exactly
+   what happened here: phase 5 added `setSeverity`/`setBucket`, and the old six-name list never
+   saw them.
 
    ```bash
-   grep -rnE "RemarkStore\.getInstance\([^)]*\)\.(add|remove|edit|markSent|removeSent|clear)\(" \
-     src/main/kotlin --include=*.kt | grep -v RemarkEdits.kt   # must be empty
+   grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include=*.kt \
+     | grep -v RemarkEdits.kt | grep -v "\.all()"   # must be empty
    ```
 
    Test code is outside this one on purpose: fixture-backed test classes call
