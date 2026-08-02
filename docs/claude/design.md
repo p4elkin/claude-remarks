@@ -336,46 +336,177 @@ The IntelliJ Platform's Bookmarks API is close:
 
 **But it does not fit for one concrete reason.** `LineBookmark.line` is a single `Int`. There is no range bookmark in the provider hierarchy. Remarks need line ranges. Building that would mean writing a custom `BookmarkProvider` against an API designed around one line. The only gain would be reusing `BookmarkState` for storage — a handful of lines. So we built a custom persistent state component.
 
-## What Is Not Yet Built
+## What Phases 3-4 Built
 
-Phases 3-5 are deferred:
+Phase 3 is the editor side: creating and viewing remarks without leaving the editor.
 
-- **RangeMarker tracking**: While a document is open, a `RangeMarker` per remark lets the platform move the marker as you type. Phase 2 does not need this — there is no gutter and no live editing yet. It belongs with the gutter work in phase 3.
+- **The input popup.** `Ctrl+Alt+Shift+R`, the "Add Claude Remark" intention (Alt+Enter), or the
+  editor popup menu opens `RemarkInputPanel` at the caret through `JBPopup.showInBestPositionFor`.
+  Enter submits, Shift+Enter inserts a newline, Esc cancels through the popup's own
+  `setCancelKeyEnabled`. An inlay was considered and rejected: `EditorCustomElementRenderer` only
+  paints and hit-tests (`calcWidthInPixels`, `paint`, ...), so it cannot host a focusable text
+  field. A popup is the only option that can.
+- **The Add Remark action stays visible when it cannot fire.** `AddRemarkAction` replaces the
+  debug action. `RemarkTarget.remarkTargetProblem` returns a reason string instead of a boolean,
+  and the action goes disabled with that reason in its description instead of vanishing from the
+  menu. The old `isEnabledAndVisible = false` made the whole item disappear, which read as "the
+  plugin is broken" rather than "this file is out of scope" — worst on macOS, where `/tmp` and
+  `/var` are symlinks into `/private`, so any project reached through one of them hid the action
+  for every file in it.
+- **A gutter icon that follows the code.** Covered in "The Editor Side" below.
+- **The tool window is a tree, not a flat list.** `RemarksPanel` (in
+  `ui/RemarksToolWindowFactory.kt`) builds a `Tree` grouped by file, refreshes itself on
+  `REMARKS_CHANGED`, navigates on double click through `EditSourceOnDoubleClickHandler`, and
+  deletes the selection on the Delete key with no confirmation dialog — selecting the row and then
+  pressing Delete on it is the confirmation. `describe()` and the old `JBList<String>` are gone.
 
-- **FileEditorManagerListener**: Phase 2 resolves remarks on demand when you click Refresh. Phase 3 should subscribe to file editor events for live refresh when you open or edit a file. Use `project.messageBus.connect(disposable)` in Kotlin; do not use the XML `<projectListeners>` route, whose `topic=` attribute format is not clearly documented.
+Phase 4 is the output side: turning pending remarks into one prompt.
 
-- **Inline input, gutter icons, prompt rendering, dispatch**: Not built. Phase 2 uses a debug action with fixed text.
+- **Settings hold one editable string**, the prompt header. `RemarkSettings` is an app-level
+  `SimplePersistentStateComponent` with the default `RoamingType`, so the header travels through
+  JetBrains Settings Sync — right for a template written once and wanted on every machine, unlike
+  the project data, which is `RoamingType.DISABLED` because file paths do not travel.
+- **The markdown renderer** (`render/PromptRenderer.kt`) and **the copy pipeline**
+  (`render/PromptPayload.kt`, `action/CopyRemarks.kt`) are covered in "The Copy Pipeline" below.
+- **The toolbar** has five buttons: Copy All Pending, Copy Selected, Clear Sent, Clear All,
+  Refresh. Both Clear buttons ask first and name their count. Copy Selected and Clear Sent grey
+  out when there is nothing to act on, because a live button that does nothing when pressed is
+  its own kind of silent failure — the same reasoning that keeps `AddRemarkAction` visible above.
 
-- **Dispatch was simplified on 2026-08-02, before it was built.** The original brief had a
-  pluggable `Dispatcher` interface with two implementations, the second one writing a file into
-  `.idea/claude-remarks/` and driving a tmux pane with `send-keys`. That is dropped. Dispatch is
-  now one action, "Copy Remarks for Claude": render the markdown, put it on the clipboard, show a
-  balloon, mark those remarks `sent`. If the payload is large (about 100 KB or more), write it to
-  a file in the system temp directory and copy that path instead — one code path with a size
-  check, not two implementations.
+### What is still not built
 
-  What this removes, and why it is worth removing:
-  - No tmux pane discovery, no "which pane did you mean", no `send-keys`. Claude Code's TUI
-    submits on newline, so sending a multi-line payload through `send-keys` fires fragments. The
-    original brief worked around this by sending only a path reference. Not sending anything at
-    all is simpler and cannot break that way.
-  - No `Dispatcher` interface. With one implementation it is a function.
-  - No `.idea/claude-remarks/` directory, so no gitignore check and no offer to add one. The
-    IDE's generated `.idea/.gitignore` does not cover a custom subdirectory there, so that path
-    would have been committed in any repo that tracks `.idea/`. A system temp file cannot enter
-    version control at all, so "nothing remark-related enters VCS" holds by construction.
-  - Settings shrink to one editable thing: the prompt template.
+**Writing a resolved position back into the stored `RemarkState`.** Every refresh still searches
+again from the original stored line numbers. A remark whose code drifts more than 200 lines from
+where it was first stored orphans, even though every refresh along the way found it.
 
-  The sent/flush lifecycle is unchanged: copied remarks are marked `sent`, stay listed in gray,
-  are removed by `Clear Sent`, and can be copied again if the paste went to the wrong place.
+It stays unbuilt because the win is small against the risk. What it would cost: a new persistence
+write path, a hook to decide when to run it, and a guard so that deleting the marked lines does
+not write a collapsed range back over a good anchor. Getting that guard wrong destroys the anchor,
+which is the one failure this plugin promises not to have. What happens without it: remarks are
+written and copied within about an hour in ordinary use, which is what the 200-line search radius
+was sized for, and an orphaned remark is still listed, still shows its text, and the prompt header
+tells the reader to find it by content rather than by the stale line numbers.
 
-  The payload is a markdown document: a short instruction header saying each remark is a
-  directive, then remarks grouped by file, numbered, each with its project-relative path, line
-  range, tag, text, and the anchored code with a few lines of context. A remark that resolved as
-  orphaned is labelled as such so the reader knows the line numbers are stale. The header follows
-  revdiff's model — a remark that asks a question gets answered rather than turned into an edit.
+Add it when someone reports remarks orphaning during ordinary use. The trigger is
+`editorReleased` for the last editor of a document; the guard is that the lines under the live
+highlighter must still hash to the remark's stored `textHash`.
 
-- **The two-pass search has never been exercised in a real IDE.** Phase 2 was tested in unit tests only. A person should run `./gradlew runIde` once to confirm the tool window launches and remarks persist before phase 3 starts.
+## The Editor Side
+
+The single fact that shapes this whole side: `RangeHighlighter extends RangeMarker`. One object
+carries both the gutter icon and the live position. There is no separate `RangeMarker` to keep in
+step — an earlier draft of this document assumed there would be one, and that assumption is gone.
+
+`RemarkGutter` (`editor/RemarkGutter.kt`) is a project service, started by the
+`postStartupActivity` `RemarkGutterStartup`. It listens with `EditorFactoryListener`, not
+`FileEditorManagerListener`: the factory listener fires once per raw editor, including a diff
+viewer's editors and a split's second view of the same file, and the gutter icon has to appear in
+all of them. `DocumentMarkupModel.forDocument` is keyed on the `Document`, not the editor, so two
+splits of the same file share one set of highlighters without the service doing anything extra for
+the second one.
+
+The service tracks every open document in `tracked`, not only the ones that currently carry a
+remark: that is what makes the *first* remark added to an open file show its icon at once, rather
+than only after the next unrelated refresh. Rebuilding highlighters runs on `REMARKS_CHANGED`, on
+an editor opening, and on an editor closing — not on every keystroke, because resolving one remark
+can cost a SHA-256 over every candidate position inside the 200-line search radius.
+
+`RemarkGutterIconRenderer.equals` and `hashCode` are keyed on the remark's id plus everything that
+changes what gets painted — the tooltip text and the sent flag. They must not fall back to
+instance identity. The platform compares the old and new renderer on every highlighting pass to
+decide whether to repaint, so identity equality would make the icon flicker on every pass.
+
+One more rule the service holds by hand: when a fresh resolve for a remark that already has a
+live, valid highlighter comes back `Orphaned`, the service keeps the highlighter where the
+platform moved it, and only repaints what is drawn on it. Rebuilding the highlighter from the
+(stale) orphaned line numbers would throw away a position the platform has been keeping exact.
+
+## The Change Notification
+
+`REMARKS_CHANGED` (a `Topic<RemarksListener>`, project-level, `BroadcastDirection.NONE`) lives in
+`store/RemarkEdits.kt`, beside the six functions that publish it, not inside `RemarkStore`. Two
+things need to hear about a change: the gutter service and the tool window tree. Keeping the topic
+out of the store is about cost, not purity: adding a `Project` constructor parameter to
+`RemarkStore` would touch fourteen call sites that build it directly, and keeping the store free
+of the message bus is what lets `RemarkStoreStateTest` stay a plain JUnit test with no IDE fixture.
+
+`store/RemarkEdits.kt` holds the only six functions production code uses to change a remark:
+`addRemark`, `editRemark`, `deleteRemark`, `markRemarksSent`, `clearSentRemarks`,
+`clearAllRemarks`. Each one mutates through `RemarkStore` and then publishes — that pairing is the
+whole mechanism, there is no separate listener list or observer class. `RemarkStore`'s own
+`add`/`remove`/`edit`/... stay public, and nothing in the language stops a caller from reaching
+past the six functions and calling them directly, so the rule is checked rather than assumed:
+
+```bash
+grep -rnE "RemarkStore\.getInstance\([^)]*\)\.(add|remove|edit|markSent|removeSent|clear)\(" \
+  src/main/kotlin --include=*.kt | grep -v RemarkEdits.kt   # must be empty
+```
+
+Test code is outside that check on purpose: fixture-backed test classes call
+`RemarkStore.getInstance(project).clear()` in `setUp` to clear the shared light-fixture project
+between test classes, and that call has nothing to publish to.
+
+## The Copy Pipeline
+
+Copy All Pending and Copy Selected both end up in `copyRemarks(project, ids)`
+(`action/CopyRemarks.kt`). `ids == null` means every `PENDING` remark; a non-null list is used as
+given, sent remarks included, which is what makes copying again after a paste went to the wrong
+place work.
+
+Everything expensive runs inside one `ReadAction.nonBlocking` block, off the EDT: resolving
+(`resolveAll`), reading each file's `Document` once and slicing the anchored lines plus
+`PROMPT_CONTEXT_LINES` (3) either side (`render/PromptPayload.kt`'s `collectForPrompt`), rendering
+the markdown (`render/PromptRenderer.kt`'s `renderPrompt`, zero platform imports, the same shape
+as `anchor/Anchoring.kt`), and building the clipboard payload (`clipboardPayload`). The EDT step
+that follows does three cheap things only: copy to the clipboard, `markRemarksSent`, show a
+balloon.
+
+**`clipboardPayload` is one function with a size check, not two implementations.** Under
+`INLINE_LIMIT_BYTES` (100 KB, measured in UTF-8 bytes, not characters) the markdown goes on the
+clipboard as text. At or above that, it is written to a file under `java.io.tmpdir` and the file's
+path is copied instead — `Clipboard(text = path, file = path)`. The caller does not branch on
+which mode ran; it reads `Clipboard.file` only to word the balloon differently. There is no
+`Dispatcher` interface, because there is one implementation.
+
+The write happens inside `prepare()`, not in the `finishOnUiThread` block. Writing a 100 KB+ file
+is exactly the case where doing it on the EDT would freeze the UI, so the whole payload — the
+render and any file write — is built off the EDT.
+
+**The temp file is why nothing remark-related can enter version control by this route.** A file
+under `java.io.tmpdir` is outside the project directory, so no `.gitignore` question ever arises.
+An earlier brief's plan of a pluggable `Dispatcher` interface — one implementation writing a file
+into `.idea/claude-remarks/` and driving a tmux pane with `send-keys` — was dropped for the same
+reason, before it was built: the IDE's generated `.idea/.gitignore` does not cover a custom
+subdirectory there, so that path would have been committed in any repository that tracks
+`.idea/`. A system temp file cannot enter version control at all, so "nothing remark-related
+enters VCS" holds by construction rather than by a gitignore rule someone has to remember to add.
+Dropping the `Dispatcher` interface also removed the tmux pane discovery and the `send-keys`
+fragmenting problem — Claude Code's TUI submits on newline, so sending a multi-line payload through
+`send-keys` fires fragments — and shrank settings to the one editable thing that is left: the
+prompt header.
+
+`resolveAll` and `collectForPrompt` never drop a remark. A file that cannot be read, or a remark
+that resolves as `Orphaned`, still gets a row in the prompt — with no code and a note that the
+line numbers are stale — rather than silently disappearing from the copy. The prompt header
+itself follows revdiff's model: a remark that asks a question gets answered rather than turned
+into an edit.
+
+## Two Positions On Screen, And When They Differ
+
+The gutter shows the live highlighter position. The platform moves it as you type, for free and
+exactly, because it is a `RangeMarker`. The tree shows the position `resolveAll` last computed,
+and that only happens on a remark change or an editor opening or closing — not on every keystroke,
+for the same SHA-256 cost reason as the gutter's own rebuild.
+
+So while you are typing, the gutter is right and the tree can be a few lines stale. They agree
+again the moment anything triggers a refresh, and there is a Refresh button in the toolbar as the
+manual escape.
+
+The one case where they say genuinely different things, and keep disagreeing, is a block edited
+inside the marked lines: a line added or removed there changes the block's length, and the search
+keeps the block pinned to its stored length, so the resolve for that remark comes back `Orphaned`.
+The gutter icon stays exactly where the platform moved the highlighter; the tree row says orphaned
+at the stale stored numbers. Both are honest about what they know. Neither is silently wrong.
 
 ## Build Choices Worth Remembering
 

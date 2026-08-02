@@ -4098,7 +4098,7 @@ grep -rnE "RemarkStore\\.getInstance\\([^)]*\\)\\.(add|remove|edit|markSent|remo
 The design doc is the living record of what the system is. This plan file is the record of how the
 work happened. Do not let them drift.
 
-- [ ] update `docs/claude/design.md`:
+- [x] update `docs/claude/design.md`:
       - replace "What Is Not Yet Built" with what actually got built, and keep only the genuinely
         deferred item: writing the resolved position back into the stored record, with the reason
         it was not done and the trigger to do it.
@@ -4117,15 +4117,15 @@ work happened. Do not let them drift.
         and why that is acceptable.
       - update the two-pass search section only if something there actually changed. It should not
         have: nothing in phases 3-4 touches `anchor/Anchoring.kt`.
-- [ ] update `CLAUDE.md`:
+- [x] update `CLAUDE.md`:
       - the project structure block, which currently lists `AddDebugRemarkAction.kt`.
       - the rules block: add the renderer grep and the `RemarkEdits.kt` grep beside the anchoring
         grep.
       - the testing block: name the new fixture-backed test classes.
       - remove the line saying phases 3-5 are deferred.
-- [ ] update `README.md`: phases 3-4 are done, phase 5 no longer exists, and describe the actual
+- [x] update `README.md`: phases 3-4 are done, phase 5 no longer exists, and describe the actual
       workflow — select lines, `Ctrl+Alt+Shift+R`, type, Enter, Copy All Pending, paste.
-- [ ] commit
+- [x] commit
 
 ## Post-Completion
 
