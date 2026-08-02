@@ -3,6 +3,7 @@ package dev.sasha.clauderemarks.store
 import com.intellij.openapi.project.Project
 import com.intellij.util.messages.Topic
 import dev.sasha.clauderemarks.anchor.captureAnchor
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkTag
 import java.util.UUID
@@ -24,7 +25,7 @@ val REMARKS_CHANGED: Topic<RemarksListener> =
     Topic.create("Claude remarks changed", RemarksListener::class.java, Topic.BroadcastDirection.NONE)
 
 /**
- * These six functions are the only way production code changes a remark. Nothing calls
+ * These eight functions are the only way production code changes a remark. Nothing calls
  * RemarkStore.add / RemarkStore.remove directly any more, and task 12 greps to keep that true.
  *
  * The reason is not tidiness. The tool window and the gutter both have to redraw after any change,
@@ -70,6 +71,24 @@ fun deleteRemark(project: Project, id: String) {
 
 fun markRemarksSent(project: Project, ids: Collection<String>) {
     if (RemarkStore.getInstance(project).markSent(ids.toSet()) > 0) notifyRemarksChanged(project)
+}
+
+fun setRemarkSeverity(project: Project, ids: Collection<String>, severity: RemarkSeverity) {
+    if (RemarkStore.getInstance(project).setSeverity(ids.toSet(), severity) > 0) {
+        notifyRemarksChanged(project)
+    }
+}
+
+/**
+ * Blank means no bucket, and the name is trimmed. Both live here rather than at the call site,
+ * because there are two call sites — the gutter icon menu and the tree — and a bucket name that
+ * differs only by whitespace is a second group in the tree that looks identical to the first.
+ */
+fun setRemarkBucket(project: Project, ids: Collection<String>, bucket: String?) {
+    val clean = bucket?.trim()?.takeIf { it.isNotEmpty() }
+    if (RemarkStore.getInstance(project).setBucket(ids.toSet(), clean) > 0) {
+        notifyRemarksChanged(project)
+    }
 }
 
 fun clearSentRemarks(project: Project): Int {

@@ -10,6 +10,7 @@ import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.util.xmlb.annotations.XCollection
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
@@ -111,6 +112,25 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
             return changed.size
         }
 
+        /** Returns how many actually changed, so re-applying the level a remark already has is a
+         *  no-op — the same shape as markSent, for the same reason. */
+        @Synchronized
+        fun setSeverity(ids: Set<String>, severity: RemarkSeverity): Int {
+            val changed = remarks.filter { it.id in ids && it.severity != severity }
+            changed.forEach { it.severity = severity }
+            if (changed.isNotEmpty()) incrementModificationCount()
+            return changed.size
+        }
+
+        /** [bucket] null takes a remark out of every bucket. Returns how many actually changed. */
+        @Synchronized
+        fun setBucket(ids: Set<String>, bucket: String?): Int {
+            val changed = remarks.filter { it.id in ids && it.bucket != bucket }
+            changed.forEach { it.bucket = bucket }
+            if (changed.isNotEmpty()) incrementModificationCount()
+            return changed.size
+        }
+
         /** Returns how many were removed. */
         @Synchronized
         fun removeSent(): Int {
@@ -184,6 +204,11 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
     fun edit(id: String, text: String, tag: RemarkTag?): Boolean = liveState.editRemark(id, text, tag)
 
     fun markSent(ids: Set<String>): Int = liveState.markSent(ids)
+
+    fun setSeverity(ids: Set<String>, severity: RemarkSeverity): Int =
+        liveState.setSeverity(ids, severity)
+
+    fun setBucket(ids: Set<String>, bucket: String?): Int = liveState.setBucket(ids, bucket)
 
     fun removeSent(): Int = liveState.removeSent()
 

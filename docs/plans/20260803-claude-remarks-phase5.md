@@ -466,7 +466,7 @@ Both fields are plain scalars on an existing `BaseState`, so the `@get:XCollecti
 apply. What does apply is that `severity` has a non-null default, and a remark written before this
 field existed has no attribute for it in `workspace.xml`. That case gets its own test.
 
-- [ ] add the failing tests to `RemarkStoreStateTest.kt`:
+- [x] add the failing tests to `RemarkStoreStateTest.kt`:
 
 ```kotlin
     @Test
@@ -555,9 +555,9 @@ field existed has no attribute for it in `workspace.xml`. That case gets its own
 
 Add `import dev.sasha.clauderemarks.model.RemarkSeverity` to that file.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkStoreStateTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkStoreStateTest"` — expect a
       compile failure
-- [ ] add to `model/RemarkState.kt`:
+- [x] add to `model/RemarkState.kt`:
 
 ```kotlin
 /**
@@ -591,7 +591,7 @@ and inside `RemarkState`, after `status`:
     var bucket by string()
 ```
 
-- [ ] add to `RemarkStore.RemarksState`, after `markSent`:
+- [x] add to `RemarkStore.RemarksState`, after `markSent`:
 
 ```kotlin
         /** Returns how many actually changed, so re-applying the level a remark already has is a
@@ -625,7 +625,7 @@ and the forwarders on `RemarkStore`, next to `markSent`:
 
 Add `import dev.sasha.clauderemarks.model.RemarkSeverity` to `RemarkStore.kt`.
 
-- [ ] add the two parameters to the `remark()` builder in `TestRemarks.kt`:
+- [x] add the two parameters to the `remark()` builder in `TestRemarks.kt`:
 
 ```kotlin
     severity: RemarkSeverity = RemarkSeverity.SHOULD,
@@ -634,8 +634,8 @@ Add `import dev.sasha.clauderemarks.model.RemarkSeverity` to `RemarkStore.kt`.
 
 and the two assignments in its body.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkStoreStateTest"` — must pass
-- [ ] add the failing tests to `RemarkEditsTest.kt`:
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkStoreStateTest"` — must pass
+- [x] add the failing tests to `RemarkEditsTest.kt`:
 
 ```kotlin
     fun testSettingTheSeverityPublishes() {
@@ -684,7 +684,7 @@ and the two assignments in its body.
     }
 ```
 
-- [ ] add the two functions to `RemarkEdits.kt`, after `markRemarksSent`:
+- [x] add the two functions to `RemarkEdits.kt`, after `markRemarksSent`:
 
 ```kotlin
 fun setRemarkSeverity(project: Project, ids: Collection<String>, severity: RemarkSeverity) {
@@ -709,8 +709,8 @@ fun setRemarkBucket(project: Project, ids: Collection<String>, bucket: String?) 
 Change the file's doc comment from "These six functions" to "These eight functions", and add
 `import dev.sasha.clauderemarks.model.RemarkSeverity`.
 
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` — all must pass
-- [ ] **mutation check**: three of them, because three separate things could be wrong.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` — all must pass
+- [x] **mutation check**: three of them, because three separate things could be wrong.
       1. Change `var severity by enum(RemarkSeverity.SHOULD)` to `var severity by enum<RemarkSeverity>()`
          (nullable, no default). `a remark stored before severity existed loads with the default`
          must fail. Restore it.
@@ -719,7 +719,7 @@ Change the file's doc comment from "These six functions" to "These eight functio
          on its count assertion. Restore it.
       3. Delete the `?.trim()?.takeIf { it.isNotEmpty() }` in `setRemarkBucket`.
          `testABlankBucketMeansNoBucket` must fail. Restore it.
-- [ ] commit
+- [x] commit
 
 ### Task 3: The tree grows a bucket level
 

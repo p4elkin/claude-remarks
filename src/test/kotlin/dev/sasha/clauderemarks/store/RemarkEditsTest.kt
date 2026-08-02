@@ -1,6 +1,7 @@
 package dev.sasha.clauderemarks.store
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
 
@@ -92,6 +93,51 @@ class RemarkEditsTest : BasePlatformTestCase() {
 
         assertEquals(2, heard)
         assertEquals(RemarkStatus.SENT, RemarkStore.getInstance(project).all().single().status)
+    }
+
+    fun testSettingTheSeverityPublishes() {
+        val stored = addOne()
+
+        setRemarkSeverity(project, listOf(stored.id!!), RemarkSeverity.MUST)
+
+        assertEquals(2, heard)
+        assertEquals(RemarkSeverity.MUST, RemarkStore.getInstance(project).all().single().severity)
+    }
+
+    fun testSettingTheSeverityToWhatItAlreadyIsDoesNotPublish() {
+        val stored = addOne()
+
+        setRemarkSeverity(project, listOf(stored.id!!), RemarkSeverity.SHOULD)
+
+        assertEquals(1, heard)
+    }
+
+    fun testSettingTheBucketPublishes() {
+        val stored = addOne()
+
+        setRemarkBucket(project, listOf(stored.id!!), "auth refactor")
+
+        assertEquals(2, heard)
+        assertEquals("auth refactor", RemarkStore.getInstance(project).all().single().bucket)
+    }
+
+    /**
+     * A bucket typed as "  " is not a bucket. Without the trim it becomes a group in the tree whose
+     * label is invisible, and a second one every time somebody types a different amount of
+     * whitespace.
+     */
+    fun testABlankBucketMeansNoBucket() {
+        val stored = addOne()
+        setRemarkBucket(project, listOf(stored.id!!), "  ")
+
+        assertNull(RemarkStore.getInstance(project).all().single().bucket)
+    }
+
+    fun testABucketIsTrimmedBeforeItIsStored() {
+        val stored = addOne()
+        setRemarkBucket(project, listOf(stored.id!!), "  auth refactor  ")
+
+        assertEquals("auth refactor", RemarkStore.getInstance(project).all().single().bucket)
     }
 
     fun testClearSentPublishesOnlyWhenSomethingWentAway() {

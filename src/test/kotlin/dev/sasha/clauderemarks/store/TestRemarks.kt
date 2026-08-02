@@ -1,5 +1,6 @@
 package dev.sasha.clauderemarks.store
 
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
@@ -20,6 +21,8 @@ internal fun remark(
     textHash: String = "0000000000000000",
     contextBefore: String? = "",
     contextAfter: String? = "",
+    severity: RemarkSeverity = RemarkSeverity.SHOULD,
+    bucket: String? = null,
 ) = RemarkState().also {
     it.id = id
     it.path = path
@@ -32,4 +35,6 @@ internal fun remark(
     it.textHash = textHash
     it.contextBefore = contextBefore
     it.contextAfter = contextAfter
+    it.severity = severity
+    it.bucket = bucket
 }

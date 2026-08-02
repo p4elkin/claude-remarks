@@ -3,6 +3,7 @@ package dev.sasha.clauderemarks.store
 import com.intellij.configurationStore.ComponentSerializationUtil
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
@@ -254,6 +255,89 @@ class RemarkStoreStateTest {
         assertEquals("new", restored.text)
         assertEquals(RemarkTag.REFACTOR, restored.tag)
         assertEquals(RemarkStatus.SENT, restored.status)
+    }
+
+    @Test
+    fun `severity and bucket survive the round trip`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", severity = RemarkSeverity.MUST, bucket = "auth refactor"))
+
+        val restored = roundTrip(state).remarks.single()
+
+        assertEquals(RemarkSeverity.MUST, restored.severity)
+        assertEquals("auth refactor", restored.bucket)
+    }
+
+    @Test
+    fun `a remark with no bucket round-trips as null`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", bucket = null))
+
+        assertNull(roundTrip(state).remarks.single().bucket)
+    }
+
+    /**
+     * Every remark already in someone's workspace.xml was written before the severity field
+     * existed, so its element has no severity attribute at all. The default has to come back, not
+     * null: a null severity would reach the renderer and the tree, both of which read it without a
+     * null check, and the failure would be a crash on the first copy after upgrading.
+     */
+    @Test
+    fun `a remark stored before severity existed loads with the default`() {
+        val restored = XmlSerializer.deserialize(
+            JDOMUtil.load("""<RemarksState><remarks><RemarkState id="r-1" path="src/Foo.kt" /></remarks></RemarksState>"""),
+            RemarkStore.RemarksState::class.java,
+        )
+
+        assertEquals(RemarkSeverity.SHOULD, restored.remarks.single().severity)
+    }
+
+    @Test
+    fun `setting the severity only touches the ids given and marks the state as changed`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        state.addRemark(remark(id = "r-2"))
+        val before = state.modificationCount
+
+        assertEquals(1, state.setSeverity(setOf("r-1"), RemarkSeverity.MUST))
+
+        assertEquals(RemarkSeverity.MUST, state.snapshot().first { it.id == "r-1" }.severity)
+        assertEquals(RemarkSeverity.SHOULD, state.snapshot().first { it.id == "r-2" }.severity)
+        assertTrue(state.modificationCount > before)
+    }
+
+    @Test
+    fun `setting the severity to what it already is changes nothing`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", severity = RemarkSeverity.MUST))
+        val before = state.modificationCount
+
+        assertEquals(0, state.setSeverity(setOf("r-1"), RemarkSeverity.MUST))
+
+        assertEquals(before, state.modificationCount)
+    }
+
+    @Test
+    fun `setting the bucket writes it and clearing it writes null`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+
+        assertEquals(1, state.setBucket(setOf("r-1"), "auth refactor"))
+        assertEquals("auth refactor", state.snapshot().single().bucket)
+
+        assertEquals(1, state.setBucket(setOf("r-1"), null))
+        assertNull(state.snapshot().single().bucket)
+    }
+
+    @Test
+    fun `setting the bucket to what it already is changes nothing`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", bucket = "b"))
+        val before = state.modificationCount
+
+        assertEquals(0, state.setBucket(setOf("r-1"), "b"))
+
+        assertEquals(before, state.modificationCount)
     }
 
     @Test
