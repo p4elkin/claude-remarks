@@ -312,6 +312,9 @@ agent:
    trap 'ack abandoned >/dev/null; trap - EXIT; exit 130' INT TERM
 
    # 0 = the remarks are now in $handoff. 1 = not yet, keep waiting. 2 = stop, the reason is printed.
+   # A 429 sets backoff_seconds so the loop below sleeps 20 seconds instead of poll_seconds for that
+   # one iteration only; it must not also sleep here, or the real wait becomes poll_seconds longer
+   # than the 20 seconds this file and design.md both document.
    handoff_ready() {
      if [ -z "$remote" ]; then
        [ -e "$handoff" ] || return 1
@@ -324,7 +327,7 @@ agent:
            -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-)
      if [ "$fetch_code" = 429 ]; then
        echo "the IDE is rate limiting (30 requests a minute from one address); backing off"
-       sleep 20
+       backoff_seconds=20
        return 1
      fi
      if [ "$fetch_code" != 200 ]; then
@@ -357,7 +360,8 @@ agent:
      ready_status=$?
      [ "$ready_status" -eq 2 ] && exit 1
      [ "$(date +%s)" -ge "$deadline" ] && { echo "timed out waiting for the IDE"; exit 1; }
-     sleep "$poll_seconds"
+     sleep "${backoff_seconds:-$poll_seconds}"
+     backoff_seconds=
    done
    cat "$handoff" || { echo "the handoff file could not be read"; exit 1; }
    trap - EXIT INT TERM

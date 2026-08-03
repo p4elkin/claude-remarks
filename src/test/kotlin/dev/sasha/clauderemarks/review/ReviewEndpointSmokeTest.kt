@@ -220,6 +220,22 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
+     * The other two answers `handleFetch` can give for a malformed or misdirected request, the same
+     * pair `start` and `ack` already have their own parity tests for.
+     */
+    fun testAFetchWithNoSessionAnswersBadRequest() {
+        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"bad-request\""))
+    }
+
+    fun testAFetchForAProjectNothingHasOpenAnswersUnknownProject() {
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"/nope"}""")
+
+        assertTrue(sent, sent.contains("\"unknown-project\""))
+    }
+
+    /**
      * The one test that exercises the real MAX_HANDOFF_BYTES; the boundary itself is task 3's job.
      */
     fun testAFetchOverTheSizeLimitAnswersTooLargeAndNoContent() {

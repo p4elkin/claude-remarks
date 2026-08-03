@@ -67,15 +67,15 @@ carries forward.
 **Phase 8 is built.** It lets a Claude Code session on another machine read remarks too, over an SSH
 tunnel the person sets up by hand. The IDE's built-in server gains a third action,
 `POST /api/claude-remarks/fetch`. It reads the waiting review's handoff file and returns the content
-in the response body, instead of a path — a path on the IDE machine means nothing to an agent on a
-different machine, but an HTTP response body crosses the tunnel the same way any other response
-does. The fetch changes nothing: no remark is marked sent, no state moves. The `read`
+in the response body, instead of a path. A path on the IDE machine means nothing to an agent on a
+different machine. An HTTP response body crosses the tunnel the same way any other response does.
+The fetch changes nothing: no remark is marked sent, no state moves. The `read`
 acknowledgement is still the only thing that marks remarks sent, so the fetch can be repeated as
 often as the skill's poll needs, and a lost response only costs one retry. Fetching a review that
-ended by rejection still works: the service now remembers the most recently ended review's output
-path, one review at a time, because a rejection is written into the handoff file and then the review
-is cleared, and without this a fetch after that point would answer "nothing is waiting" — leaving a
-remote agent unable to tell a rejection from a timeout. A response over one megabyte is refused
+ended by rejection still works. The service now remembers the most recently ended review's output
+path, one review at a time. A rejection is written into the handoff file, and then the review is
+cleared. Without this, a fetch after that point would answer "nothing is waiting", and a remote
+agent could not tell a rejection from a timeout. A response over one megabyte is refused
 rather than truncated, because a markdown prompt cut in the middle looks complete to a model reading
 it. The skill (`docs/skill/claude-remarks-review/SKILL.md`) now takes four connection values — host,
 port, token and the repository path as the IDE machine sees it — and keeps one wait loop for both
@@ -175,6 +175,11 @@ this carries forward.
    for exactly this rule. The comment in `ReviewRestService.kt` that explains why says "the file that
    owns the editor side" and names `review/SendReview.kt` by path, and does not spell out any of the
    five forbidden symbols, even to say they are absent.
+
+   Phase 8's fetch handler, `handleFetch`, also reads a file inside this class, through `readHandoff`.
+   Plain `java.nio` calls are what make that allowed, the same reason `toRealPath()` is allowed above.
+   The comment trap is still live: the grep is line-based, so a comment naming any of the five
+   forbidden symbols would trip it, even to say they are absent.
 
 Every command above must come back empty.
 
@@ -329,7 +334,8 @@ real `EmbeddedChannel`, so the response actually carries a body, plus the ack ac
 the unknown-action refusal, that the deadline the request declares really reaches the review, and,
 since phase 8, the fetch action's answers — `waiting` before a send, `ready` with the whole prompt
 after one, that a fetch marks nothing sent and leaves the review alone, that a fetch still carries a
-rejection's body, `no-review` for a session nothing knows about, and `too-large` over the size cap),
+rejection's body, `no-review` for a session nothing knows about, `too-large` over the size cap,
+`bad-request` for a missing field, and `unknown-project` for a project nothing has open),
 `OpenReviewFilesTest` (the string-only half of the path
 filter: absolute paths and `..` segments are dropped, plus a fixture-backed class for the
 diff-or-editor decision, since a light fixture project has no VCS root and every file takes the

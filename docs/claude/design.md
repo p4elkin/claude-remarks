@@ -1440,6 +1440,25 @@ checks `!project.isDisposed`, then `expireStaleReview` calls `getInstance(projec
 `AlreadyDisposedException` if disposal lands between the two. Costs a logged exception in the shared
 scheduler, no data loss. Needs a project closed within microseconds of a deadline firing.
 
+**A short window lets a fetch miss a real, unread review.** `current()` masks a review the moment
+`isStale()` turns true. That happens before the scheduled expiry task actually runs and calls
+`endReview()`. In that window a review can be `Sent`, with a real handoff file already on disk,
+while `current()` already returns null and `lastEnded` has not been set yet. A fetch that lands in
+exactly that window falls through both checks in `handleFetch` and answers `no-review`, even though a
+file with real, unread remarks is sitting there. The local skill is not affected: it reads the file
+directly and never calls `current()` at all. `handleAck` is not affected either: it reads the raw
+`state` field, not `current()`. The window is as short as the scheduler's own latency, normally
+milliseconds, so it takes a fetch landing in exactly that gap to see it. Not fixed here: the fix would
+mean `handleFetch` reading past `current()`'s own staleness masking, which is a real change to the
+phase 7 deadline design, not a small one.
+
+**The fetch action inherits the same-session-retry defect above.** `handleFetch` reads through
+`current()` and `endedOutputPath`, and both are fed by the same state that `startOrConflict`'s
+same-session branch copies forward with its old `phase`. So a `start` retried with the same session id
+after a send still answers `waiting` with an output path whose file already exists, and a fetch right
+after that first poll returns the previous review's remarks immediately — the same defect the local
+skill's file-existence check already has. Not made worse by the fetch action, and not fixed by it.
+
 **A file path is written into the prompt as a Markdown heading, unescaped.** `render/PromptRenderer.kt`
 emits `## <path>` per group. The prompt is instructions a model then acts on, so a path containing a
 newline or heading characters can forge structure outside the code fence — a fake heading, or text

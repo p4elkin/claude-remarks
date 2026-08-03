@@ -1103,6 +1103,9 @@ trap 'ack abandoned >/dev/null' EXIT
 trap 'ack abandoned >/dev/null; trap - EXIT; exit 130' INT TERM
 
 # 0 = the remarks are now in $handoff. 1 = not yet, keep waiting. 2 = stop, the reason is printed.
+# A 429 sets backoff_seconds so the loop below sleeps 20 seconds instead of poll_seconds for that
+# one iteration only; it must not also sleep here, or the real wait becomes poll_seconds longer than
+# the 20 seconds this file and design.md both document.
 handoff_ready() {
   if [ -z "$remote" ]; then
     [ -e "$handoff" ] || return 1
@@ -1115,7 +1118,7 @@ handoff_ready() {
         -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-)
   if [ "$fetch_code" = 429 ]; then
     echo "the IDE is rate limiting (30 requests a minute from one address); backing off"
-    sleep 20
+    backoff_seconds=20
     return 1
   fi
   if [ "$fetch_code" != 200 ]; then
@@ -1148,7 +1151,8 @@ while :; do
   ready_status=$?
   [ "$ready_status" -eq 2 ] && exit 1
   [ "$(date +%s)" -ge "$deadline" ] && { echo "timed out waiting for the IDE"; exit 1; }
-  sleep "$poll_seconds"
+  sleep "${backoff_seconds:-$poll_seconds}"
+  backoff_seconds=
 done
 cat "$handoff" || { echo "the handoff file could not be read"; exit 1; }
 trap - EXIT INT TERM
@@ -1232,6 +1236,30 @@ already run, so the request is sent and the script dies believing nothing happen
       Exits non-zero with both numbers (`1200000`, `1048576`) in the message. (One `ack abandoned` was
       sent by the `EXIT` trap on the way out, which is correct — the trap was still armed at that exit
       point — and is separate from the "no `ack read`" property sequence B checks.)
+
+      **D — two `429`s, then `ready`, added by a later code-review pass.** This sequence was missing
+      from the original three, and it caught a real defect: `handoff_ready`'s `429` branch slept 20
+      seconds itself, and the loop's own tail then slept `poll_seconds` (5) again before the next
+      iteration, so a real `429` cost 25 seconds, not the 20 this section and `docs/claude/design.md`
+      both document. Fixed by having the `429` branch set `backoff_seconds=20` instead of sleeping, and
+      having the loop sleep `"${backoff_seconds:-$poll_seconds}"` and then clear it — one sleep per
+      iteration, always. Re-extracted from `SKILL.md` after the fix and run against a fake `curl` that
+      answers `429` twice on `/fetch` and then `ready`:
+      ```
+      remote: 127.0.0.1:9999, project /fake/ide/repo
+      start: http 200
+      {"status":"waiting","output":"/fake/path/on/ide/machine/remarks.md"}
+      the IDE is rate limiting (30 requests a minute from one address); backing off
+      the IDE is rate limiting (30 requests a minute from one address); backing off
+      a note about Aack read: http 200, status ok
+      elapsed seconds : 40
+      fetch calls made: 3
+      ack calls made: 1
+      ```
+      40 seconds for two `429`s is exactly 20 seconds each, with no added `poll_seconds`. The same
+      sequence run against a scratch copy with the double sleep reintroduced measured 50 seconds (25
+      each), confirming the bug and the fix by direct measurement, not just by reading the code. The
+      stub files were left in the scratchpad, not committed, same as sequences A-C.
 
       The stub files (`stub.sh`, `fakecurl/curl`, and the mutation copies below) were left in the
       scratchpad, not committed.
@@ -1425,9 +1453,10 @@ tunnel costs at most one poll interval plus 30 seconds before the skill reports 
 tunnel between requests, by design.
 
 **The `too-large` case has no way out except the person.** A review over the cap cannot be re-sent from
-the IDE, because the phase guard refuses a second send. The person reads the file on the IDE machine, or
-rejects and starts again with fewer remarks. Reachable only with thousands of remarks or one enormous
-remark text.
+the IDE: the still-armed `EXIT` trap fires `ack abandoned` on the way out, and `ABANDONED` has no phase
+guard, so the review is cleared automatically. There is no live review left to send from. The person
+reads the file on the IDE machine, or starts a new review with fewer remarks. Reachable only with
+thousands of remarks or one enormous remark text.
 
 ## 13. Hand checks, and why this phase needs two machines
 
