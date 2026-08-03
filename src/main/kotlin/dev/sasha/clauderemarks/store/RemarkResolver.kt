@@ -99,9 +99,26 @@ fun fileForStoredPath(root: VirtualFile, path: String): VirtualFile? =
     VfsUtil.findRelativeFile(root, *path.split('/').toTypedArray())
         ?.takeIf { VfsUtilCore.isAncestor(root, it, false) }
 
-private fun resolveOne(root: VirtualFile, remark: RemarkState): ResolvedRemark {
-    val path = remark.path ?: return stale(remark, "no path stored")
+/**
+ * A remark that names no file: never had a path, or was stored with an empty one. The same
+ * convention `render/PromptRenderer.kt`'s `RenderedRemark.path` already partitions on — an empty
+ * string means "about no file" — so this reads `RemarkState.path` the same way rather than
+ * inventing a second convention. Every reader that needs to tell a general remark apart asks this,
+ * instead of a fourth `AnchorResult` case that would say the same thing again in the sealed
+ * interface.
+ */
+fun isAboutNoFile(remark: RemarkState): Boolean = remark.path.isNullOrEmpty()
 
+private fun resolveOne(root: VirtualFile, remark: RemarkState): ResolvedRemark {
+    // A general remark is not a remark whose file disappeared: it resolves as itself, at
+    // Exact(0, 0), the same "no sub-line range" pair a whole-line remark already carries. A remark
+    // with a REAL path pointing at a file that genuinely is not there still falls through to the
+    // refusal below — this check must never widen to cover that case.
+    if (isAboutNoFile(remark)) {
+        return ResolvedRemark(remark, AnchorResult.Exact(0, 0), remark.startColumn, remark.endColumn)
+    }
+
+    val path = remark.path!!
     val file = fileForStoredPath(root, path)
         ?: return stale(remark, "no file under the project root at that path")
 

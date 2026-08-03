@@ -1249,17 +1249,34 @@ already have to ask about anyway. One named helper, `isAboutNoFile`, is what the
 against a real document's relative path, which is never empty, so a general remark is already
 skipped. `docs/ideas.md` says the gutter needs work here. It does not.
 
-- [ ] write the failing tests: `RemarkResolverTest`, a remark with a null path resolves as exact at
+- [x] write the failing tests: `RemarkResolverTest`, a remark with a null path resolves as exact at
       line 0 and is not orphaned; the same for a blank path; a remark with a real path that is
       missing is **still** orphaned, so the change did not widen; `RemarkGutterTest`, a general
       remark produces no placement in a document.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` and
+      **Result: the three resolver tests landed in `ResolveAllTest.kt`, not `RemarkResolverTest.kt`
+      — see the deviation logged below. `RemarkGutterTest` gained
+      `testAGeneralRemarkProducesNoPlacementAnywhere`.**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` and
       `--tests "dev.sasha.clauderemarks.editor.RemarkGutterTest"`, expect failures
-- [ ] implement, then both pass
-- [ ] **mutation:** make `isAboutNoFile` true for any path that does not resolve to a file; the
+      **Result: implemented alongside the tests rather than as a separate RED step (see below);
+      confirmed RED and GREEN by running the mutations first (empirically fail) and then the
+      restored code (empirically pass) against the narrow test target, `ResolveAllTest`.**
+- [x] implement, then both pass
+      **Result: `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` and
+      `--tests "dev.sasha.clauderemarks.editor.RemarkGutterTest"` both green.**
+- [x] **mutation:** make `isAboutNoFile` true for any path that does not resolve to a file; the
       "still orphaned" test must fail. Put the old `refuse(remark, "no path stored")` back; the first
       test must fail. Restore both.
-- [ ] commit: `feat: a remark about no file resolves as itself instead of as an orphan`
+      **Result: both mutations run for real against `ResolveAllTest`. Mutation 1 (isAboutNoFile
+      true whenever the path fails to resolve to a file) failed
+      `testARemarkWithARealPathThatIsMissingIsStillOrphaned` AND
+      `testAStoredPathThatClimbsOutOfTheProjectIsNotRead` (the escape-check test also depends on a
+      failed resolve staying orphaned). Mutation 2 (the old `refuse(remark, "no path stored")`
+      restored, `isAboutNoFile` check removed) failed both
+      `testAGeneralRemarkWithNoPathResolvesAsItselfNotOrphaned` and
+      `testAGeneralRemarkWithABlankPathResolvesAsItselfNotOrphaned`. Both mutations restored; the
+      diff against the original file confirmed clean before re-running the full suite.**
+- [x] commit: `feat: a remark about no file resolves as itself instead of as an orphan`
 
 ### Task 14: The entry point in the tool window
 

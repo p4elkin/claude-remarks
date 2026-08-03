@@ -14,6 +14,7 @@ import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
+import dev.sasha.clauderemarks.store.remark
 import dev.sasha.clauderemarks.store.setRemarkSeverity
 import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.io.File
@@ -133,6 +134,24 @@ class RemarkGutterTest : BasePlatformTestCase() {
         settleInvocationQueue()
 
         assertEquals(1, iconCount())
+    }
+
+    /**
+     * A general remark, about no file, is not stored under a document at all: placementsFor
+     * filters on `it.path == path` against a real document's relative path, which is never null
+     * or empty, so a general remark is already skipped there with no change needed. This proves
+     * it rather than leaving it as a comment's claim.
+     */
+    fun testAGeneralRemarkProducesNoPlacementAnywhere() {
+        openFoo()
+        gutter.start()
+        settleInvocationQueue()
+
+        RemarkStore.getInstance(project).add(remark(id = "general-1", path = null))
+        notifyRemarksChanged(project)
+        settleInvocationQueue()
+
+        assertEquals(0, iconCount())
     }
 
     /**

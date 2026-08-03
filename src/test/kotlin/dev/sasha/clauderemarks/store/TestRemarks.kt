@@ -24,7 +24,7 @@ import java.nio.file.Path
  */
 internal fun remark(
     id: String = "r-1",
-    path: String = "src/Foo.kt",
+    path: String? = "src/Foo.kt",
     startLine: Int = 0,
     endLine: Int = 0,
     startColumn: Int = 0,

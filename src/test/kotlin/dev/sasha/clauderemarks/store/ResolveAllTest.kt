@@ -43,6 +43,37 @@ class ResolveAllTest : BasePlatformTestCase() {
     }
 
     /**
+     * A general remark, no path ever stored, is not a remark whose file disappeared. It resolves
+     * as itself rather than as an orphan.
+     */
+    fun testAGeneralRemarkWithNoPathResolvesAsItselfNotOrphaned() {
+        val root = rootWithFiles()
+        val general = remark(path = null)
+
+        assertEquals(AnchorResult.Exact(0, 0), resolveAll(root, listOf(general)).single().result)
+    }
+
+    /** The same convention RenderedRemark.path already uses: an empty string also means "about no
+     *  file", not a real path that happens to be empty. */
+    fun testAGeneralRemarkWithABlankPathResolvesAsItselfNotOrphaned() {
+        val root = rootWithFiles()
+        val general = remark(path = "")
+
+        assertEquals(AnchorResult.Exact(0, 0), resolveAll(root, listOf(general)).single().result)
+    }
+
+    /**
+     * The change above must not widen. A remark with a REAL path pointing at a file that is
+     * genuinely missing is still the one case that must stay orphaned.
+     */
+    fun testARemarkWithARealPathThatIsMissingIsStillOrphaned() {
+        val root = rootWithFiles()
+        val missing = remark(path = "nowhere.kt")
+
+        assertEquals(AnchorResult.Orphaned(0, 0), resolveAll(root, listOf(missing)).single().result)
+    }
+
+    /**
      * A row carries the columns the phrase sits at *now*, not the pair the store holds. The file
      * on disk is indented four characters further than the remark was written against, so the
      * line still resolves exactly — the hash trims — and only the columns move.
