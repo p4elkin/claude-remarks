@@ -22,5 +22,6 @@ endpoint it talks to are one protocol, and three separate pairs of halves have t
 - the five values the `ack` action answers — `ok`, `no-review`, `not-sent`, `unknown-project`,
   `bad-request` — and the branch in `SKILL.md` that reads them.
 
-Keeping both halves of each in one place is what stops them drifting apart. It only works when the IDE and the Claude Code session run on the same machine —
-see "Same machine only" in `claude-remarks-review/SKILL.md`.
+Keeping both halves of each in one place is what stops them drifting apart. The IDE and the
+Claude Code session run on the same machine in the normal case, and over a tunnel in the remote
+one — see "Over SSH: the IDE on another machine" in `claude-remarks-review/SKILL.md`.

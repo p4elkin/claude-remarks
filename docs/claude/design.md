@@ -1296,6 +1296,76 @@ region had actually changed, which is the case the review is usually about. Mapp
 the diff's own line mapping onto the working copy is real work and stays a later phase; refusing costs
 one branch and a sentence the person can act on immediately.
 
+### Reaching an agent on another machine
+
+Phase 8 lets the skill run on a machine other than the one the IDE is on, connected through an SSH
+tunnel the person sets up by hand. Three things had to change for that. Nothing else did.
+
+**The transport fact.** An HTTP response body crosses a tunnel. A filesystem path does not. Phase 6
+handed back a path because both sides shared one filesystem. Two machines do not share a filesystem,
+so the handover has to put the bytes inside the response instead. This is the whole reason a fetch
+action exists. `POST /api/claude-remarks/fetch` reads the waiting review's handoff file and returns
+its content, in the same JSON body shape the other two actions already use.
+
+**Why the security model needs no change.** The built-in server only binds `127.0.0.1`. So the only
+way into it from another machine is a tunnel, and a tunnelled request still arrives at the endpoint
+from `127.0.0.1`, the same address a local `curl` uses. It still carries no `Origin` and no
+`Referer`, so the refusal rule from phase 6 admits it, with no new branch needed. The token is what
+makes exposing the endpoint through a tunnel safe at all. On the agent machine, the near end of the
+tunnel is a loopback port that every process on that machine can reach. Without the token, any
+process there could drive the IDE: start reviews, read someone else's remarks, end their sessions.
+
+**Fetching is not reading.** The `read` acknowledgement is still the only thing that marks a remark
+sent. A fetch changes nothing: not the store, not the review's phase, not the deadline. Two reasons
+decide this. A fetch is a poll, so it runs many times in one review, and anything it changed would
+have to be idempotent. And a fetch response can be lost in the tunnel. If the fetch itself marked
+remarks sent, a lost response would leave the IDE believing the remarks were delivered when they
+never arrived. Keeping the two separate means the skill can fetch again as often as it likes, and
+the IDE only believes delivery once the agent says so, in a request that can only be sent after the
+bytes arrived.
+
+**Why the plugin remembers one ended review's output path.** Rejecting a review writes the rejection
+into the handoff file, then clears the review. See "Three signals that the remarks arrived" above.
+A fetch keyed only to a live review would answer "nothing is waiting" for a review that just ended,
+and a remote agent could not tell a rejection from a timeout. So `WaitingReviewService` now keeps
+`lastEnded`, one nullable field set in `endReview()`, the one place every ending already goes
+through. `endedOutputPath(session)` reads it back, checked against the session id, so one agent still
+cannot read another agent's remarks this way. The same field covers a second case for free.
+`markSent` can fail if the deadline task ends the review in the gap between the write and the stamp,
+and then the file holds real remarks that no live review points at any more. `endedOutputPath` finds
+those too.
+
+**The size cap, and why it refuses instead of truncating.** A response over 1 MiB is refused with
+`status: "too-large"`, and no content field at all. Truncating was the alternative, and it is worse:
+a markdown prompt cut in the middle looks complete to a model reading it. The check runs on the
+file's size, before any of it is read, so an oversized file never becomes an oversized allocation
+either.
+
+**The rate limit as a design input.** The built-in server allows 30 requests a minute from one
+address, and every tunnelled request shares one address, `127.0.0.1`. So the remote poll interval is
+5 seconds, not the local case's 1 second, and a `429` answer means "wait longer," never "stop." The
+skill sleeps 20 seconds and keeps polling; its own deadline is still the only thing that gives up.
+
+**Four connection values, not three.** `docs/ideas.md`'s original plan named host, port and token.
+It missed a fourth: the repository path as the IDE machine sees it. The `start` request's `project`
+field is matched against the IDE machine's own open project paths, and two machines can have the
+same repository checked out at two different paths. The fourth value defaults to the agent's own
+`git rev-parse --show-toplevel`, so the common case, where both machines agree, needs nothing extra.
+
+**The handshake file did not change.** It already carries the host, the port and the token, so it
+stays the way the person reads those three values, from the IDE machine, by hand. Nothing that could
+be added to it would help the agent. The agent cannot read a file on the other machine no matter what
+is in it, and a field describing a tunnel would be state the plugin does not manage, does not detect
+and does not report on.
+
+**The skill keeps one wait loop, with a small switch inside it.** `handoff_ready()` is the one thing
+that differs between the two transports: the local case checks whether the file exists, the remote
+case posts a fetch. Everything else, the deadline, the two traps, the rejection check, the
+acknowledgement, is one copy of code instead of two. The loop is written as
+`while :; do handoff_ready && break; ...`, never as `while ! handoff_ready`. `!` collapses the
+function's three possible answers, ready, not yet, and stop, down to two, so a hard stop would be
+read as "keep waiting" until the deadline.
+
 ## Two Positions On Screen, And When They Differ
 
 The gutter shows the live highlighter position. The platform moves it as you type, for free and

@@ -646,10 +646,21 @@ so this has to be designed, not borrowed.
 
 ## Sending remarks to a remote agent session
 
-**Decided for phase 8.** Not an open question — the only open part is the plan. (Renumbered from
-phase 7: phase 7 turned out to carry the delivery-acknowledgement signals and the diff opening
-instead — see "Tell the IDE the remarks were actually delivered" and "Open the real diff for just
-the files the skill named" below.)
+**Built in phase 8.** See `docs/claude/design.md`, section "The Shared Review Session", subsection
+"Reaching an agent on another machine", for the actual shape: a fetch action on the endpoint that
+returns the handoff file's content in the response body, the plugin remembering one ended review's
+output path so a rejection still reaches a remote agent, a size cap that refuses rather than
+truncates, and a skill that keeps one wait loop for both transports. (Renumbered from phase 7: phase
+7 turned out to carry the delivery-acknowledgement signals and the diff opening instead — see "Tell
+the IDE the remarks were actually delivered" and "Open the real diff for just the files the skill
+named" below.)
+
+**One thing below turned out wrong, and it is worth keeping rather than deleting.** The plan below
+says the person passes three values: host, port and token. It is four. The `start` request's
+`project` field is matched against the IDE machine's own open project paths, and two machines can
+have the same repository checked out at two different paths. The fourth value, the repository path
+as the IDE machine sees it, defaults to the agent's own `git rev-parse --show-toplevel`, so the
+common case, where both machines agree, needs nothing extra.
 
 Sasha sometimes works from a laptop and attaches to a Claude Code session running on the main
 machine over SSH. Today the remarks cannot reach that session at all.

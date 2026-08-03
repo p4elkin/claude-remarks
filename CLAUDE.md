@@ -3,14 +3,19 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-7 are implemented and covered by unit tests. What has and has not been in front of a real
+Phases 1-8 are implemented and covered by unit tests. What has and has not been in front of a real
 IDE, per phase: **phase 6's seven security hand checks were run in a real IDE before 0.3.0 was
 released**, and phase 5's commit stamp was checked in a real IDE too. The `runIde` checks in the
-phase 1-2, phase 3-4, phase 5 and **phase 7** plans were skipped in the autonomous sessions that did
-that work, so for those treat "it works" as "the tests pass" until someone runs the hand checks at
-the end of the plan. **Phase 7's matter most now**, and none of them has been run: a second delivery
+phase 1-2, phase 3-4, phase 5, **phase 7** and **phase 8** plans were skipped in the autonomous
+sessions that did that work, so for those treat "it works" as "the tests pass" until someone runs
+the hand checks at the end of the plan. **Phase 7's matter most now**, and none of them has been run: a second delivery
 signal, a scheduled deadline, and a diff opened over VCS all depend on platform behaviour no
-automated test in this project reaches. See `docs/claude/design.md` for exactly which. Select lines, press `Ctrl+Alt+Shift+R` (or
+automated test in this project reaches. See `docs/claude/design.md` for exactly which. **Phase 8
+owes hand checks too, and it needs something no earlier phase did: a second machine.** A tunnel, an
+`sshd`, and an agent session on the far side of it are needed to check the remote path at all — one
+machine is enough for the fetch action's own answers, but not for the tunnel. None of phase 8's
+checks have been run. Section 13 of `docs/plans/20260803-claude-remarks-phase8.md` lists all of
+them, split by which group needs the second machine. Select lines, press `Ctrl+Alt+Shift+R` (or
 use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a
 severity level, and press Enter. A gutter icon appears on the marked lines and follows the code as
 you keep editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a
@@ -58,6 +63,28 @@ revision side of a diff is now refused, with a sentence pointing at the working 
 stored with line numbers that described a different revision. See `docs/claude/design.md`, section
 "The Shared Review Session", for both new subsections, and `docs/ideas.md` for the ideas this
 carries forward.
+
+**Phase 8 is built.** It lets a Claude Code session on another machine read remarks too, over an SSH
+tunnel the person sets up by hand. The IDE's built-in server gains a third action,
+`POST /api/claude-remarks/fetch`. It reads the waiting review's handoff file and returns the content
+in the response body, instead of a path — a path on the IDE machine means nothing to an agent on a
+different machine, but an HTTP response body crosses the tunnel the same way any other response
+does. The fetch changes nothing: no remark is marked sent, no state moves. The `read`
+acknowledgement is still the only thing that marks remarks sent, so the fetch can be repeated as
+often as the skill's poll needs, and a lost response only costs one retry. Fetching a review that
+ended by rejection still works: the service now remembers the most recently ended review's output
+path, one review at a time, because a rejection is written into the handoff file and then the review
+is cleared, and without this a fetch after that point would answer "nothing is waiting" — leaving a
+remote agent unable to tell a rejection from a timeout. A response over one megabyte is refused
+rather than truncated, because a markdown prompt cut in the middle looks complete to a model reading
+it. The skill (`docs/skill/claude-remarks-review/SKILL.md`) now takes four connection values — host,
+port, token and the repository path as the IDE machine sees it — and keeps one wait loop for both
+the local case and the remote case, switching only on how it checks whether the remarks are ready.
+Nothing about the security model changed: the built-in server only binds `127.0.0.1`, so a tunnel is
+the only way in, and a tunnelled request still arrives from loopback and still carries no `Origin`
+and no `Referer`. See `docs/claude/design.md`, section "The Shared Review Session", subsection
+"Reaching an agent on another machine", for the whole design, and `docs/ideas.md` for the reasoning
+this carries forward.
 
 ## Rules that must not break
 
@@ -195,11 +222,15 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    isStale), StartResult, the pure startOrConflict, and
                                    WaitingReviewService (@Service PROJECT, Disposable) — at most one
                                    waiting review per project, in memory only, plus markSent,
-                                   acknowledge and the scheduled expiry
-  review/ReviewRestService.kt      the RestService at POST /api/claude-remarks/{start,ack}:
+                                   acknowledge, the scheduled expiry, and endedOutputPath (the
+                                   most-recently-ended review's output path, so a fetch can still
+                                   reach a rejection)
+  review/ReviewRestService.kt      the RestService at POST /api/claude-remarks/{start,ack,fetch}:
                                    isHostTrusted, execute (dispatches on the sub-path),
-                                   clampDeadlineSeconds, and the pure requestIsAllowed/projectForPath
-                                   helpers. Rule 5 above governs this file specifically
+                                   clampDeadlineSeconds, readHandoff/HandoffRead (the handoff file
+                                   read back with a size cap), and the pure
+                                   requestIsAllowed/projectForPath helpers. Rule 5 above governs this
+                                   file specifically
   review/SendReview.kt             sendToWaitingReview and SendReviewAction: the same prepare()
                                    pipeline Copy All Pending uses, written to the handoff file
                                    instead of the clipboard; rejectWaitingReview; finishReview and
@@ -273,8 +304,9 @@ temp file lands beside the target, not in the system temp directory, and no temp
 behind), `ReviewHandshakeTest` (the name, the rendering, the escaping, and the owner-only
 permissions), `WaitingReviewTest` (the pure `startOrConflict`: accept, honest-retry reuse, a
 same-session retry after the deadline, and conflict, plus `isStale`'s boundary), and
-`ReviewRequestTest` (the pure `requestIsAllowed`, `projectForPath`, and, since phase 7,
-`clampDeadlineSeconds`) are plain JUnit tests with no fixture, so they run in milliseconds. The rest
+`ReviewRequestTest` (the pure `requestIsAllowed`, `projectForPath`, since phase 7
+`clampDeadlineSeconds`, and since phase 8 `readHandoff` and its size cap) are plain JUnit tests with
+no fixture, so they run in milliseconds. The rest
 need a light IDE fixture
 (`BasePlatformTestCase`, which needs `testFramework(TestFrameworkType.Platform)` in
 `build.gradle.kts`) and are slower, because each goes through a real project service, a real
@@ -294,7 +326,11 @@ and the selection survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileD
 0-based line argument), the collector half of `PromptPayloadTest`, `CopyRemarksTest`,
 `ReviewEndpointSmokeTest` (the one test that calls `ReviewRestService.execute` itself, through a
 real `EmbeddedChannel`, so the response actually carries a body, plus the ack action's five answers,
-the unknown-action refusal, and that the deadline the request declares really reaches the review), `OpenReviewFilesTest` (the string-only half of the path
+the unknown-action refusal, that the deadline the request declares really reaches the review, and,
+since phase 8, the fetch action's answers — `waiting` before a send, `ready` with the whole prompt
+after one, that a fetch marks nothing sent and leaves the review alone, that a fetch still carries a
+rejection's body, `no-review` for a session nothing knows about, and `too-large` over the size cap),
+`OpenReviewFilesTest` (the string-only half of the path
 filter: absolute paths and `..` segments are dropped, plus a fixture-backed class for the
 diff-or-editor decision, since a light fixture project has no VCS root and every file takes the
 plain-editor branch), `SendReviewTest` (the send action's success and failure paths, that nothing is
@@ -302,7 +338,9 @@ marked sent until the read acknowledgement, that an abandoned acknowledgement an
 leave the remarks pending, the reject action, and the phase guards that refuse a second send or an
 overwrite after a send), and `WaitingReviewServiceTest` (fixture-backed, because a
 project-level service needs a project: `markSent` and the session it names, `acknowledge`,
-`expireIfStale`, that `clear` cancels the deadline task, and that a stale review is not `current()`).
+`expireIfStale`, that `clear` cancels the deadline task, that a stale review is not `current()`, and,
+since phase 8, `endedOutputPath` — findable by its own session, not by a different one, and only the
+most recently ended review is remembered).
 
 Every fixture-backed test class that asserts on the whole store clears it in `setUp`, not only in
 `tearDown`: the light fixture project is shared across test classes, so remarks left behind by an

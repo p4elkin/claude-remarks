@@ -14,7 +14,8 @@ Remarks stay on your machine, stored in `.idea/workspace.xml`. The `.idea/.gitig
 - **Phase 3-4**: The input popup, the gutter icon, the tree tool window, the settings page, and the Copy Remarks action described above.
 - **Phase 5**: Severity and named buckets, tag chips picked from the keyboard, a commit stamp read straight out of `.git`, a history file that cleared remarks are archived to instead of deleted, and the `Cmd+Ctrl+Shift+Space` class-name insert — all described above, and in more depth in `docs/claude/design.md`.
 - **Phase 6**: A review session shared between a Claude Code skill and the IDE — described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session".
-- **Phase 7** (this build): The review session tells the truth about what happened to it. Rejecting it in the banner now writes that decision to the handoff file instead of only closing the banner, and the link is called Reject. A remark is marked sent only once the skill acknowledges it read the handoff file, not the moment the file is written; a review that never gets a reply goes stale on its own deadline, declared by the skill and enforced by the IDE. The review also opens a real diff over just the files the skill named, instead of a plain editor per file — described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session".
+- **Phase 7**: The review session tells the truth about what happened to it. Rejecting it in the banner now writes that decision to the handoff file instead of only closing the banner, and the link is called Reject. A remark is marked sent only once the skill acknowledges it read the handoff file, not the moment the file is written; a review that never gets a reply goes stale on its own deadline, declared by the skill and enforced by the IDE. The review also opens a real diff over just the files the skill named, instead of a plain editor per file — described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session".
+- **Phase 8** (this build): A Claude Code session on another machine can read remarks too, over an SSH tunnel the person sets up by hand. The IDE's endpoint gains a fetch action that returns the handoff file's content in the response body instead of a path, since a path on the IDE machine means nothing to an agent on a different one. Fetching never marks anything sent — the `read` acknowledgement still does that — so it is safe to repeat as often as the skill's poll needs. Described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session", subsection "Reaching an agent on another machine".
 
 An earlier brief also planned a pluggable dispatch step beyond the clipboard — a `Dispatcher` interface, a tmux pane, a file inside `.idea/`. That was dropped before it was built: Copy Remarks already gets a prompt into a Claude Code session with none of that machinery. See `docs/claude/design.md`, section "The Copy Pipeline", for the reasoning. Phase 6 below adds a different, later automated path; that earlier idea stays dropped regardless.
 
@@ -55,12 +56,20 @@ Writing a remark from a diff pane's revision side (the "before" of a change) is 
 stored: its line numbers describe the revision, not the file on disk, and the working copy is one
 click away. Working-copy remarks are unaffected.
 
-**This only works when the IDE and the Claude Code session run on the same machine.** Both the
-handshake file and the handoff file are local paths, so there is nothing to read if the skill runs
-on a different machine from the IDE — the common case being a laptop attached over SSH to a session
-running elsewhere. Sending to a remote agent session is planned for phase 8 and is not built yet;
-see `docs/ideas.md` for the reasoning. Nothing about this limitation is silent: the skill checks for
-it and says so rather than trying and failing confusingly.
+**The same machine is the normal case.** Both the handshake file and the handoff file are local
+paths, on the machine the IDE runs on. A Claude Code session on that same machine reads them
+directly. Nothing extra is needed beyond installing the skill.
+
+**Reaching a session on another machine needs a tunnel, and four values.** The person sets the
+tunnel up by hand, with `ssh -R`. Then they give the skill four things: the tunnel's local port on
+the agent machine, the token from the IDE machine's handshake file, the repository path as the IDE
+machine sees it, and the host, only if it is not `127.0.0.1`. `SKILL.md`'s "Over SSH" section has the
+two lines that read the port and the token on the IDE machine, and the `ssh -R` command that starts
+the tunnel from there.
+
+Nothing about a missing tunnel is silent. The built-in server only binds `127.0.0.1`, so a request
+with no tunnel gets connection refused. The skill says so and stops, rather than retrying or
+guessing.
 
 ## Building
 
@@ -83,7 +92,7 @@ To test the plugin in an isolated IntelliJ instance:
 
 The sandbox IDE launches with the plugin loaded. Open or create any project inside it, open a file, select some lines, and press `Ctrl+Alt+Shift+R` (or place the caret on a line and use Alt+Enter, then pick "Add Claude Remark"). Type a note, optionally pick a tag, and press Enter. A gutter icon should appear on the marked lines, and the "Claude Remarks" tool window on the right edge should show the remark under its file without pressing anything. Typing lines above the marked block should move the icon with the code. With a remark pending, press Copy All Pending in the tool window's toolbar and paste somewhere to see the rendered prompt — the remark's row should turn gray afterward. Close and reopen the sandbox IDE to confirm the remark, its tag, and its status persist.
 
-That walkthrough covers the phase 3-4 flow only. Phase 5 added severity, buckets, the `Alt+0`-`Alt+4` tag keys, the class-name insert, the commit stamp and the history file, and none of those is checked by an automated test end to end — the key combinations in particular can be taken by the IDE keymap or by the OS before the plugin sees them. Section 10 of `docs/plans/20260803-claude-remarks-phase5.md` lists ten specific hand checks for exactly these. Work through that list in the sandbox before trusting any of phase 5. Phase 6 and phase 7 each added their own list, and section 12 of `docs/plans/20260805-claude-remarks-phase7.md` is the one that matters most: it is the only thing that can show the scheduled deadline really firing, the read acknowledgement turning remarks gray, and one real diff window opening over just the changed files. None of those has been run yet.
+That walkthrough covers the phase 3-4 flow only. Phase 5 added severity, buckets, the `Alt+0`-`Alt+4` tag keys, the class-name insert, the commit stamp and the history file, and none of those is checked by an automated test end to end — the key combinations in particular can be taken by the IDE keymap or by the OS before the plugin sees them. Section 10 of `docs/plans/20260803-claude-remarks-phase5.md` lists ten specific hand checks for exactly these. Work through that list in the sandbox before trusting any of phase 5. Phase 6 and phase 7 each added their own list, and section 12 of `docs/plans/20260805-claude-remarks-phase7.md` is the one that matters most: it is the only thing that can show the scheduled deadline really firing, the read acknowledgement turning remarks gray, and one real diff window opening over just the changed files. None of those has been run yet. Phase 8 added its own list too, in section 13 of `docs/plans/20260803-claude-remarks-phase8.md`, and it needs something no earlier phase did: a second machine, an `sshd`, and an agent session on the far side of a tunnel, for the checks that prove the remote path actually works. None of those has been run either.
 
 ## Installing into your own IDE
 

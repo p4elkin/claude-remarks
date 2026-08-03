@@ -1363,16 +1363,34 @@ of the old paragraph — nothing about a missing tunnel is silent, it is connect
 as a correction in place, in one or two sentences, pointing at the design doc. What was assumed and how
 it turned out is the useful part of that file.
 
-- [ ] write the design doc subsection
-- [ ] update `CLAUDE.md`, `README.md`, `docs/ideas.md`
-- [ ] grep for every remaining promise that the remote case is not built, and fix each:
+- [x] write the design doc subsection. Added "Reaching an agent on another machine" at the end of
+      "The Shared Review Session" in `docs/claude/design.md`, covering all nine points the task listed.
+- [x] update `CLAUDE.md`, `README.md`, `docs/ideas.md`. Done: `CLAUDE.md` gained a "Phase 8 is built."
+      paragraph, an updated opening-paragraph honesty note (phases 1-8, phase 8's hand checks needing a
+      second machine), the `review/` project-structure lines for `endedOutputPath`, `readHandoff`,
+      `HandoffRead` and the fetch action, and the testing section's new tests. `README.md`'s "This only
+      works when the IDE and the Claude Code session run on the same machine" paragraph was replaced with
+      the tunnel-and-four-values version, a Phase 8 bullet was added to the Phases list, and the sandbox-IDE
+      section gained a sentence about phase 8's two-machine hand checks. `docs/ideas.md`'s "Sending remarks
+      to a remote agent session" section now opens "Built in phase 8" and records the fourth value as a
+      correction, without deleting the original three-value assumption.
+- [x] grep for every remaining promise that the remote case is not built, and fix each:
 
       ```bash
       grep -rn "same machine\|Same machine\|not built\|planned for phase 8" --include="*.md" . | grep -v '^./build'
       ```
-- [ ] bump `version = "0.5.0"` in `build.gradle.kts`
-- [ ] `./gradlew verifyPluginProjectConfiguration` after the version change, and paste the output
-- [ ] commit: `docs: record how remarks reach an agent on another machine` — stage exactly the files
+
+      Ran it. Found one real stale promise outside the plan's own file list: `docs/skill/README.md` still
+      pointed at the now-removed "Same machine only" section in `SKILL.md`. Fixed it to point at "Over SSH:
+      the IDE on another machine" instead. Every other hit was either new text this task just wrote (the
+      README's own "same machine is the normal case" sentence, `SKILL.md`'s own already-correct text from
+      task 5), an unrelated heading (`design.md`'s "What is still not built"), or a historical plan file
+      under `docs/plans/` that records what an earlier phase said and is not touched.
+- [x] bump `version = "0.5.0"` in `build.gradle.kts`. Done.
+- [x] `./gradlew verifyPluginProjectConfiguration` after the version change, and paste the output.
+      `BUILD SUCCESSFUL in 1s`, 3 actionable tasks (3 executed) — matches task 7's clean baseline
+      (`BUILD SUCCESSFUL in 518ms`), no failure introduced by the version bump.
+- [x] commit: `docs: record how remarks reach an agent on another machine` — stage exactly the files
       listed above
 
 ## 12. Known limits
