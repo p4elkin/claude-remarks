@@ -47,7 +47,10 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    is broken. Do not retry and do not scan ports; re-opening the project in the IDE is what
    creates this file.
 
-3. **POST to the start endpoint.** **Run steps 3 to 6 as one Bash call, in one shell.** The Bash
+3. **POST to the start endpoint.** **Run steps 1 to 6 as one Bash call, in one shell** — every step,
+   from `git rev-parse` onwards, not just this one and the ones after it. `root` is set in step 1 and
+   `port` and `token` in step 2, and this step needs all three. Split them off and this step posts to
+   `http://127.0.0.1:/api/claude-remarks/start` with an empty token and an empty project. The Bash
    tool starts a new shell for every call, and nothing crosses that boundary: no variables and no
    shell functions. Steps 4 and 5 are decisions about the answer this step writes to a file, so they
    cost nothing extra inside the same shell, and step 6 needs `$session`, `$port`, `$token`, `$root`
@@ -198,14 +201,15 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
          -X POST "http://127.0.0.1:$port/api/claude-remarks/ack" \
          -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-
    }
-   trap 'ack abandoned >/dev/null' EXIT INT TERM
+   trap 'ack abandoned >/dev/null' EXIT
+   trap 'ack abandoned >/dev/null; trap - EXIT; exit 130' INT TERM
 
    deadline=$(( $(date +%s) + ${deadline_seconds:-1800} ))
    while [ ! -e "$output" ]; do
      [ "$(date +%s)" -ge "$deadline" ] && { echo "timed out waiting for the IDE"; exit 1; }
      sleep 1
    done
-   cat "$output"
+   cat "$output" || { echo "the handoff file could not be read"; exit 1; }
    trap - EXIT INT TERM
 
    if grep -q '^<!-- claude-remarks: rejected -->' "$output"; then
@@ -234,14 +238,24 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
 
    - **The trap is set only after a `waiting` response.** Before that there is no review to
      abandon, and an acknowledgement for a review that does not exist just gets `no-review`.
-   - **The trap is cleared after `cat` succeeds and before `ack read`.** Once the content is read,
-     the read is a fact — even if the acknowledgement request then fails. Clearing the trap first
-     means a failing `ack read` leaves the IDE to its own deadline, which keeps the remarks
-     pending. The other order would tell the IDE the agent left after it had already read them.
+   - **The trap is cleared after `cat` succeeds and before `ack read`, and `cat` is checked so that
+     "succeeds" is a fact rather than a hope.** Once the content is read, the read really has
+     happened — even if the acknowledgement request then fails. Clearing the trap first means a
+     failing `ack read` leaves the IDE to its own deadline, which keeps the remarks pending. The
+     other order would tell the IDE the agent left after it had already read them. Without the `||`
+     on `cat` the sentence above was a claim nothing enforced: an unreadable file would fall
+     through to `ack read`, and the IDE would mark the remarks sent to an agent that never saw a
+     byte of them.
+   - **The `INT`/`TERM` handler ends with `exit 130`; the `EXIT` one must not.** A trap handler that
+     returns without exiting hands control back to the interrupted command, so an interrupted wait
+     would carry on polling, then read the file and send `ack read` — after having already told the
+     IDE the agent abandoned the review. The handler also clears the `EXIT` trap before exiting, or
+     leaving the shell would send a second `ack abandoned`. `EXIT` is separate because it fires on
+     every exit path, including the clean ones, and must not itself exit.
    - **`trap - EXIT INT TERM` restores the default; it does not run the handler.** Writing
      `trap "" EXIT` instead would also work but reads as "run nothing", which is easy to misread
      as "run the old thing".
-   - **The trap covers this one shell, which is why steps 3 to 6 belong in one Bash call.** It
+   - **The trap covers this one shell, which is why steps 1 to 6 belong in one Bash call.** It
      catches a timeout inside this loop and an interrupt of this command. An agent process killed
      between two Bash calls sends nothing at all, and the IDE's own deadline is what covers that
      case instead. `${deadline_seconds:-1800}` is a seatbelt for exactly that mistake: split across

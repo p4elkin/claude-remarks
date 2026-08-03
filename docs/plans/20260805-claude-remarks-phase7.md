@@ -1848,9 +1848,16 @@ POST() { curl -s -X POST -H "X-Claude-Remarks-Token: $TOKEN" -H 'Content-Type: a
 - [x] **NOT RUN — owed hand check in a sandbox IDE.** `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"read"}'` answers `ok`; the remarks turn
       gray; the banner disappears; a balloon says "Claude Code read 2 remarks."
 - [x] **NOT RUN — owed hand check in a sandbox IDE.** repeat the same ack — it now answers `no-review` and nothing on screen changes
-- [x] **NOT RUN — owed hand check in a sandbox IDE.** start a review, send the remarks, then
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** start a review **with `"session":"s2"`**, send
+      the remarks, then
       `POST ack '{"session":"s2","project":"'"$ROOT"'","event":"abandoned"}'` — the banner disappears,
-      the balloon says the agent left without reading, and the remarks are **still black**
+      the balloon says the agent left without reading, and the remarks are **still black**. The
+      session id has to match the one the review was started with: `acknowledge` refuses a mismatch,
+      so acking `s2` against a review started as `s1` answers `no-review` and leaves the banner up.
+      That is the contract, not a bug — the next check is the one that proves it.
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** with that review still waiting, `POST ack` for a
+      **different** session id — it answers `no-review`, the banner stays, and nothing on screen
+      changes. One agent must not be able to end another agent's review.
 - [x] **NOT RUN — owed hand check in a sandbox IDE.** start a review and abandon it **before** sending — the banner disappears and the balloon says
       Claude Code stopped waiting
 - [x] **NOT RUN — owed hand check in a sandbox IDE.** **the defect, which is the reason this phase starts where it does:** start a review, press
