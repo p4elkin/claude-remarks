@@ -852,7 +852,7 @@ compare-and-set would create a second directory. `@Synchronized` on `start` and 
 call rate, and `RemarkStore` already uses `@Synchronized` mutators, so it is the house pattern. One
 consequence is recorded in [section 11](#11-known-limits) rather than fixed.
 
-- [ ] write the failing tests in `WaitingReviewTest.kt`. Plain JUnit, no fixture — `startOrConflict`
+- [x] write the failing tests in `WaitingReviewTest.kt`. Plain JUnit, no fixture — `startOrConflict`
       takes and returns plain data:
   - `a start with nothing waiting is accepted`
   - `the same session starting again gets the same output path back` — assert the returned state is the
@@ -860,21 +860,21 @@ consequence is recorded in [section 11](#11-known-limits) rather than fixed.
   - `a different session while one is waiting is a conflict` — assert the conflict carries the waiting
     label
   - `after clearing, a different session is accepted`
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewTest"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewTest"` — expect a compile
       failure
-- [ ] create `review/WaitingReview.kt`. The comments must record three things: why the field is
+- [x] create `review/WaitingReview.kt`. The comments must record three things: why the field is
       `@Volatile` and the methods `@Synchronized`, why the directory is created after the decision rather
       than before it, and why `outputPath` is a parameter at all.
-- [ ] both `start` and `clear` tell the tool window to redraw. Reuse `notifyRemarksChanged(project)` from
+- [x] both `start` and `clear` tell the tool window to redraw. Reuse `notifyRemarksChanged(project)` from
       `store/RemarkEdits.kt` rather than adding a second topic: the panel already subscribes to it, the
       banner and the toolbar both live in that panel, and this happens twice per review, so the extra
       `resolveAll` costs nothing worth a new topic. Wrap the publish in
       `ApplicationManager.getApplication().invokeLater { }` — `notifyRemarksChanged` uses
       `syncPublisher`, so the listener would otherwise run on the netty IO thread that called `start`.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewTest"` — must pass
-- [ ] **mutation check**: make the conflict branch return accept instead. `a different session while one
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewTest"` — must pass
+- [x] **mutation check**: make the conflict branch return accept instead. `a different session while one
       is waiting is a conflict` must fail. Restore it.
-- [ ] commit, staging exactly:
+- [x] commit, staging exactly:
 
   ```bash
   git add src/main/kotlin/dev/sasha/clauderemarks/review/WaitingReview.kt \
