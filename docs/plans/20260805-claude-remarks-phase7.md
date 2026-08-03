@@ -1550,21 +1550,42 @@ own tests, which cover the filtering that actually has logic in it.
 **Files:**
 - Read only: everything phase 7 touched
 
-- [ ] all five grep guards from [section 8](#8-rules-that-must-hold-at-every-step), each pasted with
-      its output. All five empty.
-- [ ] `./gradlew build` — compiles, runs the whole suite, assembles. Paste the tail.
-- [ ] `./gradlew verifyPluginProjectConfiguration` — task 10 edited `plugin.xml`, and
-      `build.gradle.kts` changes again in task 12, so run it and paste the output.
-- [ ] `./gradlew verifyPluginProjectConfiguration` again after task 10's `plugin.xml` and possible
-      `build.gradle.kts` change, and paste the output
-- [ ] `./gradlew verifyPlugin` — the report must still name **exactly one** internal-API usage,
+- [x] all five grep guards from [section 8](#8-rules-that-must-hold-at-every-step), each pasted with
+      its output. All five empty. Confirmed: guard 1 (`anchor/` free of `com.intellij`) empty, guard 2
+      (`render/PromptRenderer.kt` free of `com.intellij`) empty, guard 3
+      (`RemarkStore.getInstance(...)` only from `RemarkEdits.kt`/`.all()`) empty, guard 4 (no source-file
+      write calls) empty, guard 5 (`ReviewRestService.kt` free of `invokeAndWait`/`projectRoot(`/
+      `FileEditorManager`/`VfsUtil`/`SwingUtilities`) empty.
+- [x] `./gradlew build` — compiles, runs the whole suite, assembles. `BUILD SUCCESSFUL`.
+- [x] `./gradlew verifyPluginProjectConfiguration` — task 10 edited `plugin.xml`, and
+      `build.gradle.kts` changes again in task 12, so run it and paste the output. `BUILD SUCCESSFUL`,
+      no findings.
+- [x] `./gradlew verifyPluginProjectConfiguration` again after task 10's `plugin.xml` and possible
+      `build.gradle.kts` change, and paste the output. Ran a second time as the plan asks (the same
+      command as the previous bullet, since `build.gradle.kts` does not change again until task 12):
+      `BUILD SUCCESSFUL`, no findings.
+- [x] `./gradlew verifyPlugin` — the report must still name **exactly one** internal-API usage,
       `SegmentedButton.getComponent()`. A second one is not free; if one appeared, find it and remove
-      it rather than accepting it.
-- [ ] `./gradlew test` once more on its own and report the test count next to task 1's number, so a
-      test that quietly stopped being registered is visible.
-- [ ] confirm by reading that no file under `src/main/kotlin/dev/sasha/clauderemarks/review/` calls
-      `RemarkStore.getInstance` — guard 2's grep covers it, but say you looked
-- [ ] no commit — this task writes nothing
+      it rather than accepting it. Confirmed: "Compatible. 1 usage of internal API" —
+      `com.intellij.ui.dsl.builder.SegmentedButton.getComponent()` invoked from
+      `RemarkInputPanel.getTagChipsComponent()`, the same one recorded before this phase. **First
+      attempt failed** with "Only one instance of IDEA can be run at a time" — a sandbox IDE process
+      (pid 4193, `.intellijPlatform/sandbox/.../config`) was already running against this same worktree,
+      most likely someone's own `runIde` hand-check session started around 15:01, actively indexing
+      until at least 15:36. That process was left alone (not killed — it may be an in-progress manual
+      check) and had exited on its own by the retry a few minutes later, which then succeeded cleanly.
+      This was an environment collision, not a plugin defect; see the progress log for the full note.
+- [x] `./gradlew test` once more on its own and report the test count next to task 1's number, so a
+      test that quietly stopped being registered is visible. **Task 1's baseline: 31 test files.
+      Current: 32 test source files** (`WaitingReviewServiceTest.kt`, added in task 4, is the one new
+      file), **36 JUnit test-suite classes, 301 individual tests, 0 failures, 0 errors** — ran with
+      `--rerun-tasks` to force real execution rather than trust Gradle's UP-TO-DATE cache.
+- [x] confirm by reading that no file under `src/main/kotlin/dev/sasha/clauderemarks/review/` calls
+      `RemarkStore.getInstance` — guard 2's grep covers it, but say you looked. Confirmed: the only hit
+      for `RemarkStore.getInstance` under `review/` is `SendReview.kt:191`,
+      `RemarkStore.getInstance(project).all().any { it.status == RemarkStatus.PENDING }` — the
+      explicitly allowed read-only `.all()` call, not a mutation.
+- [x] no commit — this task writes nothing
 
 ### Task 12: Documentation, the phase renumbering, and the version
 
