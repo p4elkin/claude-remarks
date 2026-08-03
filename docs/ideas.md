@@ -1215,14 +1215,29 @@ the endpoint lives in the IDE and an endpoint cannot call out.
 So this feature is not an extension of the review session. It is a second, separate channel, and it
 has to be designed as one.
 
-### `/btw` is a keyboard feature, and that is what makes the idea look harder than it is
+### `/btw` is the wrong model for this, and the documentation says why
 
-`/btw` is Claude Code's side-question panel. A person types it into a running session, gets an answer
-without disturbing the main turn, and browses earlier answers with the arrow keys. There is no
-documented way to invoke it from outside. It is a thing for a human at a keyboard.
+Checked against the Claude Code documentation, "Side questions with `/btw`", rather than assumed.
 
-But the *behaviour* Sasha wants from `/btw` — ask against everything this session currently knows,
-without disturbing what it is doing — has a plain command-line equivalent:
+`/btw` asks a question against the live conversation. The question and the answer are ephemeral: they
+appear in a dismissible overlay and never enter the conversation history. It can be used while the
+session is working, and it does not interrupt the main turn. It is not a fork — forking is a separate
+thing a person can then choose, by pressing `f`, which starts a **new session** inheriting the parent
+conversation plus that one question and answer as real transcript turns.
+
+**The part that rules it out: a side question has no tools.** The documentation is explicit — a side
+question answers only from what is already in context, and cannot read files, run commands or search.
+
+So a question about a line the session has never read cannot be answered by `/btw`, and `/btw` cannot
+go and look. For this feature that is fatal, because the whole point is asking about the code being
+read right now, which is usually code the session has not seen.
+
+The documentation names the shape in one line: `/btw` is the inverse of a subagent — it sees the full
+conversation but has no tools, while a subagent has full tools but starts empty.
+
+**What this feature needs is neither of those two. It needs both halves.** The session's context, so
+the answer knows what has already been discussed, and tool access, so it can read the file the
+question is about. That combination has a plain command-line form:
 
 ```sh
 claude -p -r "$session_id" --fork-session "$question"
@@ -1235,8 +1250,20 @@ appended to, not locked, and not disturbed. `-p` prints the answer to stdout and
 That is the whole transport, in one line, and it needs no agterm, no tmux, no send-keys and no screen
 scraping. Verified present in the installed CLI: `-p/--print`, `-r/--resume`, `--fork-session`.
 
+**This is not an imitation of `/btw`, and it should not be described as one.** It differs in three
+ways, and two of them are in its favour:
+
+- **It has tools.** `/btw` does not. This is the whole reason to prefer it: a question about the line
+  being read needs the file read, and only this form can do that.
+- **It reads the transcript from disk, so it does not see the turn in flight.** `/btw` sees the live
+  context. This is the one way `/btw` is better, and it is a real limit, not a timing detail — see the
+  third open problem below.
+- **It is a separate process, so the prompt cache is a hope rather than a mechanism.** The
+  documentation says `/btw` reuses the parent conversation's cache directly, which is why it is called
+  low cost. A fork replays an identical prefix and should hit the cache, but nothing promises it.
+
 **So the framing should be dropped.** Do not build this as "drive the `/btw` panel from the IDE."
-Build it as "ask a forked copy of the session a question and read stdout."
+Build it as "ask a session-aware question with tools, and read stdout."
 
 ### The one real choice: fork the session, or type into it
 
