@@ -6,6 +6,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.PopupHandler
 import dev.sasha.clauderemarks.editor.RemarkGutter
@@ -270,6 +271,23 @@ class RemarksPanelTest : BasePlatformTestCase() {
         settleInvocationQueue()
 
         assertEquals(1, panel.remarks().size)
+    }
+
+    /**
+     * A general remark is written from the tool window with no selection and, unlike every other
+     * action in this panel, no editor open at all — that is the whole point of a remark about no
+     * file. The button must offer itself and stay enabled with the panel completely empty, not
+     * gated on a selection or `remarks()` the way Publish Selected and Clear All are.
+     */
+    fun testTheAddGeneralRemarkButtonIsOfferedAndEnabledWithNoSelectionAndNoEditorOpen() {
+        val panel = panel()
+
+        val action = panel.toolbarActions().getChildren(null)
+            .single { it.templatePresentation.text == "Add General Remark" }
+        val event = TestActionEvent.createTestEvent(action)
+        action.update(event)
+
+        assertTrue(event.presentation.isEnabled)
     }
 
     fun testTheBannerIsHiddenWhenNoReviewIsWaiting() {

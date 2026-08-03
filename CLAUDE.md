@@ -132,18 +132,21 @@ for the whole design.
    grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt   # must find nothing
    ```
 
-3. **`store/RemarkEdits.kt` holds the only nine functions that change a remark.**
+3. **`store/RemarkEdits.kt` holds the only eleven functions that touch a remark.**
    `RemarkStore`'s own mutators stay public, and `RemarkEdits.kt` sits in the same package, so
-   nothing but this check keeps the claim true. A caller that reaches past the nine functions
-   mutates the store without telling the gutter or the tool window to redraw. The grep allows
-   through the one read-only method by name, `all()`, rather than listing the mutator names by
-   hand: a hand-picked list has to be edited every time a mutator is added, and forgetting is
+   nothing but this check keeps the claim true. A caller that reaches past the ten that change a
+   remark mutates the store without telling the gutter or the tool window to redraw. The grep
+   allows through the one read-only method by name, `all()`, rather than listing the mutator names
+   by hand: a hand-picked list has to be edited every time a mutator is added, and forgetting is
    silent — the guard keeps passing while it stops covering the new function. That is exactly
    what happened here: phase 5 added `setSeverity`/`setBucket`, and the old six-name list never
-   saw them. The count moved from eight to nine in phase 9, when `markRemarksSent` split into
-   `markRemarksPublished` and `markRemarksRead`, and `clearSentRemarks` was renamed to
+   saw them. The count moved from eight to nine in phase 9's group one, when `markRemarksSent`
+   split into `markRemarksPublished` and `markRemarksRead`, and `clearSentRemarks` was renamed to
    `clearHandedOverRemarks` — a rename, not a new function, so it did not change the count on its
-   own.
+   own. Group three's `addGeneralRemark` moved it from nine to ten mutators. The eleventh function
+   in the file, `notifyRemarksChanged`, changes nothing itself — it is what every one of the ten
+   calls to announce the change — and is counted here too, because it is public, it lives in this
+   file, and this line has to match what a reader finds by opening the file and counting.
 
    ```bash
    grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include='*.kt' \
@@ -242,7 +245,8 @@ src/main/kotlin/dev/sasha/clauderemarks/
   model/RemarkState.kt             the persisted record, RemarkTag (+ its label extension), RemarkStatus,
                                    phrase (the sub-line text between startColumn and endColumn, phase 9)
   store/RemarkStore.kt             @Service project component, state in workspace.xml
-  store/RemarkEdits.kt             the nine mutation functions, the REMARKS_CHANGED topic
+  store/RemarkEdits.kt             the ten mutation functions plus notifyRemarksChanged (eleven in
+                                   all), the REMARKS_CHANGED topic
   store/RemarkResolver.kt          projectRoot, resolveAll, and anchorOf
   store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, the diff fallback, and the
                                    refusal for a remark on the revision side of a diff
@@ -377,7 +381,7 @@ need a light IDE fixture
 resolved against real files, including a path that tries to climb out of the project, and, since
 phase 9, that a resolved row carries the phrase's refreshed columns),
 `SelectedLinesTest` (the selection line math against a real `Document`), `RemarkEditsTest` (the
-nine mutation functions publish `REMARKS_CHANGED`), the key-binding half of
+ten mutation functions publish `REMARKS_CHANGED`), the key-binding half of
 `RemarkInputPanelTest`, `AddRemarkActionTest`, `ActionIdsTest` (pins the two action ids and the
 tool window's derived activation id, so a rename is caught rather than silently breaking every
 `.ideavimrc`), `RemarkActionsTest` (the severity and bucket menu acts on the ids it is given at

@@ -8,7 +8,7 @@ import java.io.File
 import java.nio.file.Files
 
 /**
- * The eight functions that are the only way production code changes a remark. Each one must both
+ * The ten functions that are the only way production code changes a remark. Each one must both
  * mutate and publish, so a caller cannot mutate without the tool window and the gutter hearing
  * about it.
  */
@@ -99,6 +99,32 @@ class RemarkEditsTest : BasePlatformTestCase() {
     /** `0 to 0` is the "no sub-line range" sentinel, so a whole-line remark stores no phrase. */
     fun testAddingARemarkWithNoColumnsStoresNoPhrase() {
         assertNull(addOne().phrase)
+    }
+
+    /** The wiring half of "a remark can be written about the whole change": no path, no line range
+     *  beyond the whole-line sentinel, no textHash, no context — and it still publishes. */
+    fun testAddingAGeneralRemarkStoresItWithNoPathAndPublishes() {
+        val stored = addGeneralRemark(project, "the whole change needs a second look", RemarkTag.QUESTION)
+
+        assertEquals(1, heard)
+        assertNull(stored.path)
+        assertEquals(0, stored.startLine)
+        assertEquals(0, stored.endLine)
+        assertNull(stored.textHash)
+        assertNull(stored.contextBefore)
+        assertNull(stored.contextAfter)
+        assertEquals("the whole change needs a second look", stored.text)
+        assertEquals(RemarkTag.QUESTION, stored.tag)
+        assertEquals(RemarkStatus.PENDING, stored.status)
+        assertEquals(listOf(stored.id), RemarkStore.getInstance(project).all().map { it.id })
+    }
+
+    /** Same wiring `addRemark` already has for the head commit, reached through the other entry
+     *  point: a remark about the whole change is still measured against a real revision. */
+    fun testAddingAGeneralRemarkInsideAGitRepositoryStampsTheHeadCommit() {
+        writeGitHead(SHA)
+
+        assertEquals(SHA, addGeneralRemark(project, "note", null).commit)
     }
 
     fun testEditingARemarkPublishes() {

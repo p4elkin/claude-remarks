@@ -1304,16 +1304,36 @@ input panel itself needs no change: it takes text and a tag and knows nothing ab
 window is the one place a person is looking at remarks rather than at code, which is where a thought
 about the whole change gets written. A second entry point can be added when the first one is missed.
 
-- [ ] write the failing tests: `RemarkEditsTest`, `addGeneralRemark` stores a remark with a null
+- [x] write the failing tests: `RemarkEditsTest`, `addGeneralRemark` stores a remark with a null
       path, publishes `REMARKS_CHANGED`, and carries the commit stamp; `RemarksPanelTest`, the
       toolbar offers the button and it is enabled with no selection and no editor open.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkEditsTest"` and
+      **Result: `testAddingAGeneralRemarkStoresItWithNoPathAndPublishes` and
+      `testAddingAGeneralRemarkInsideAGitRepositoryStampsTheHeadCommit` added to `RemarkEditsTest`;
+      `testTheAddGeneralRemarkButtonIsOfferedAndEnabledWithNoSelectionAndNoEditorOpen` added to
+      `RemarksPanelTest`.**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkEditsTest"` and
       `--tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"`, expect failures
-- [ ] implement, then both pass and `./gradlew test` passes whole
-- [ ] **mutation:** make `addGeneralRemark` store the project name as the path; the null-path test
+      **Result: written together with the implementation, the same shape task 10 and task 13 used —
+      `addGeneralRemark` and `openGeneralRemarkInput` are new call sites shared by the test and the
+      production code, so a partial edit would not compile at all. RED/GREEN was instead confirmed
+      empirically through the mutation testing below (mutating first-hand fails the new tests, the
+      restored code passes them).**
+- [x] implement, then both pass and `./gradlew test` passes whole
+      **Result: both narrow suites green, then `./gradlew test` (incremental) green, then
+      `./gradlew test --rerun-tasks` green (14 actionable tasks: 14 executed, a real run not a
+      cache hit).**
+- [x] **mutation:** make `addGeneralRemark` store the project name as the path; the null-path test
       must fail. Drop the `notifyRemarksChanged` call; the notification test must fail. Restore both.
-- [ ] guard 3 is still empty, and its count in `CLAUDE.md` says eleven.
-- [ ] commit: `feat: a remark can be written about the whole change, from the tool window`
+      **Result: both mutations applied and reverted for real. Storing `project.name` as the path
+      failed `testAddingAGeneralRemarkStoresItWithNoPathAndPublishes` (`assertNull(stored.path)`).
+      Dropping `notifyRemarksChanged(project)` failed the same test's `assertEquals(1, heard)`. Both
+      restored; `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkEditsTest"` green
+      again.**
+- [x] guard 3 is still empty, and its count in `CLAUDE.md` says eleven.
+      **Result: all six `CLAUDE.md` guards ran empty. Rule 3 now says "the only eleven functions
+      that touch a remark" — see the decision log for how "eleven" was reconciled with the plan's
+      own arithmetic.**
+- [x] commit: `feat: a remark can be written about the whole change, from the tool window`
 
 ### Task 15: The General group, the history file, and group three documentation
 

@@ -31,8 +31,10 @@ val REMARKS_CHANGED: Topic<RemarksListener> =
     Topic.create("Claude remarks changed", RemarksListener::class.java, Topic.BroadcastDirection.NONE)
 
 /**
- * These nine functions are the only way production code changes a remark. Nothing calls
- * RemarkStore.add / RemarkStore.remove directly any more, and task 12 greps to keep that true.
+ * These eleven functions are the whole way production code reaches a remark. Ten of them change
+ * one — nothing calls RemarkStore.add / RemarkStore.remove directly any more, and CLAUDE.md's rule
+ * 3 greps to keep that true — and the eleventh, notifyRemarksChanged, changes nothing itself: it is
+ * what every one of the ten calls to announce the change.
  *
  * The reason is not tidiness. The tool window and the gutter both have to redraw after any change,
  * and pairing the mutation with the notification in one function is what stops a caller doing one
@@ -72,6 +74,26 @@ fun addRemark(
         // repository can be megabytes. Still once per remark at typing speed, so it stays here
         // rather than moving off the EDT, but the ceiling is written down rather than implied.
         // No cache either: one keyed on the HEAD file's timestamp would be more code than it saves.
+        this.commit = project.basePath?.let { headCommit(Path.of(it)) }
+    }
+    RemarkStore.getInstance(project).add(remark)
+    notifyRemarksChanged(project)
+    return remark
+}
+
+/**
+ * A remark about the whole change, not about any one file: no path, no line range beyond the `0`/`0`
+ * whole-line sentinel, no `textHash` and no context, because there is no code behind it to hash or
+ * quote. `store/RemarkResolver.kt`'s `isAboutNoFile` is what every reader asks to recognize one
+ * again. The commit stamp is still captured, the same as [addRemark], because it says what the
+ * whole change was measured against even when no single file is named.
+ */
+fun addGeneralRemark(project: Project, text: String, tag: RemarkTag?): RemarkState {
+    val remark = RemarkState().apply {
+        this.id = UUID.randomUUID().toString()
+        this.text = text
+        this.tag = tag
+        this.createdAt = System.currentTimeMillis()
         this.commit = project.basePath?.let { headCommit(Path.of(it)) }
     }
     RemarkStore.getInstance(project).add(remark)

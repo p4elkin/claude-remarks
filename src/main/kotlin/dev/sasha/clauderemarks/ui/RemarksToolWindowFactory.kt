@@ -29,6 +29,7 @@ import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.EditSourceOnDoubleClickHandler
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.action.notifyRemarks
+import dev.sasha.clauderemarks.action.openGeneralRemarkInput
 import dev.sasha.clauderemarks.action.plural
 import dev.sasha.clauderemarks.action.publishRemarks
 import dev.sasha.clauderemarks.model.RemarkState
@@ -405,7 +406,7 @@ class RemarksPanel(
      * second.
      *
      * Cleared by the REMARKS_CHANGED subscription above, which is the only thing that can change the
-     * store as far as this panel is concerned: all eight mutation functions publish it, and rule 3 in
+     * store as far as this panel is concerned: all ten mutation functions publish it, and rule 3 in
      * CLAUDE.md is what keeps anything else from mutating without publishing. EDT only.
      */
     private var remarksCache: List<RemarkState>? = null
@@ -417,49 +418,62 @@ class RemarksPanel(
     private fun handedOverCount() = remarks().count { it.status != RemarkStatus.PENDING }
 
     /**
+     * Internal, not private, so RemarksPanelTest can check what each toolbar button offers and
+     * whether it is enabled, the same way treeMenu() lets it check the right-click menu.
+     *
      * Built in code, not registered as a <group> in plugin.xml: these actions are private to this
      * tool window, so a global registration would only add a name nobody can use elsewhere.
      *
+     * "Add General Remark" is deliberately the only entry point for a remark about no file: no
+     * plugin.xml action, no Tools menu entry, no keystroke. The tool window is the one place a
+     * person is looking at remarks rather than at code, which is where a thought about the whole
+     * change gets written. It stays enabled with nothing selected and no editor open — that is the
+     * whole point of a remark about no file.
+     */
+    internal fun toolbarActions(): ActionGroup = DefaultActionGroup(
+        ToolbarAction("Add General Remark", AllIcons.General.Add, { true }) {
+            openGeneralRemarkInput(project, tree)
+        },
+        ToolbarAction(
+            "Publish All Pending",
+            AllIcons.Actions.Copy,
+            { remarks().any { it.status == RemarkStatus.PENDING } },
+        ) { publishRemarks(project, null) },
+        ToolbarAction(
+            "Publish Selected",
+            AllIcons.Actions.InSelection,
+            { selectedIds().isNotEmpty() },
+        ) { publishRemarks(project, selectedIds()) },
+        ToolbarAction("Clear Handed Over", AllIcons.Actions.GC, { handedOverCount() > 0 }) {
+            confirmClearHandedOver()
+        },
+        ToolbarAction("Clear All", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
+            confirmClearAll()
+        },
+        // The condition itself lives in review/SendReview.kt as canSend, so this button and the
+        // Tools-menu action read one function rather than two copies of the same pair of checks.
+        ToolbarAction("Send to Claude Code", AllIcons.Actions.Upload, { canSend(project) }) {
+            sendToWaitingReview(project)
+        },
+        // notifyRemarksChanged, not refresh(): this panel's own subscription rebuilds the tree
+        // either way, and publishing resyncs the gutter icons too. A file reload (a branch
+        // switch, a VCS revert, an external edit) already publishes this on its own now — both
+        // the gutter and this tree re-resolve without any button — so Refresh is left as the
+        // manual catch-all for anything else that could leave either view stale.
+        ToolbarAction("Refresh", AllIcons.Actions.Refresh, { true }) {
+            notifyRemarksChanged(project)
+        },
+    )
+
+    /**
      * targetComponent is effectively required. Without it the platform logs "toolbar by default
      * uses any focused component to update its actions... Please call toolbar.setTargetComponent()
      * explicitly", and the actions read whichever component happens to have focus.
      */
-    private fun buildToolbar(): ActionToolbar {
-        val group = DefaultActionGroup(
-            ToolbarAction(
-                "Publish All Pending",
-                AllIcons.Actions.Copy,
-                { remarks().any { it.status == RemarkStatus.PENDING } },
-            ) { publishRemarks(project, null) },
-            ToolbarAction(
-                "Publish Selected",
-                AllIcons.Actions.InSelection,
-                { selectedIds().isNotEmpty() },
-            ) { publishRemarks(project, selectedIds()) },
-            ToolbarAction("Clear Handed Over", AllIcons.Actions.GC, { handedOverCount() > 0 }) {
-                confirmClearHandedOver()
-            },
-            ToolbarAction("Clear All", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
-                confirmClearAll()
-            },
-            // The condition itself lives in review/SendReview.kt as canSend, so this button and the
-            // Tools-menu action read one function rather than two copies of the same pair of checks.
-            ToolbarAction("Send to Claude Code", AllIcons.Actions.Upload, { canSend(project) }) {
-                sendToWaitingReview(project)
-            },
-            // notifyRemarksChanged, not refresh(): this panel's own subscription rebuilds the tree
-            // either way, and publishing resyncs the gutter icons too. A file reload (a branch
-            // switch, a VCS revert, an external edit) already publishes this on its own now — both
-            // the gutter and this tree re-resolve without any button — so Refresh is left as the
-            // manual catch-all for anything else that could leave either view stale.
-            ToolbarAction("Refresh", AllIcons.Actions.Refresh, { true }) {
-                notifyRemarksChanged(project)
-            },
-        )
-        return ActionManager.getInstance()
-            .createActionToolbar("ClaudeRemarks", group, true)
+    private fun buildToolbar(): ActionToolbar =
+        ActionManager.getInstance()
+            .createActionToolbar("ClaudeRemarks", toolbarActions(), true)
             .also { it.targetComponent = tree }
-    }
 
     /**
      * Asks first, and says how many went. "Already handed over" is not a reason to skip the

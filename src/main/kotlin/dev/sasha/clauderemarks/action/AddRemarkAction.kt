@@ -10,14 +10,17 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import dev.sasha.clauderemarks.model.RemarkTag
+import dev.sasha.clauderemarks.store.addGeneralRemark
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.editRemark
 import dev.sasha.clauderemarks.store.relativePathOf
 import dev.sasha.clauderemarks.store.remarkTargetProblem
 import dev.sasha.clauderemarks.ui.RemarkInput
 import dev.sasha.clauderemarks.ui.RemarkInputPanel
+import java.awt.Component
 
 private const val ADD_HINT = "Attach a remark to the selected lines"
 
@@ -106,8 +109,22 @@ fun openRemarkEdit(project: Project, editor: Editor, id: String, text: String, t
 }
 
 /**
- * setCancelKeyEnabled(true) is what gives Esc for free. showInBestPositionFor(editor) puts the
- * popup at the caret in one call, without guessBestPopupLocation.
+ * Opens the input for a remark about the whole change, not about any one file. There is no editor
+ * to position the popup against here, so `showInBestPositionFor(editor)` — what every other opener
+ * of this popup uses — is not available; this shows it centred over [component] instead, which is
+ * the tool window's tree. RemarkInputPanel itself needs no change for this: it already only knows
+ * about text and a tag, never a file.
+ */
+fun openGeneralRemarkInput(project: Project, component: Component) {
+    buildInputPopup(project, "Add General Claude Remark", "", null) { input ->
+        addGeneralRemark(project, input.text, input.tag)
+    }.showInCenterOf(component)
+}
+
+/**
+ * setCancelKeyEnabled(true) is what gives Esc for free. Positioning is the caller's job:
+ * showRemarkInput puts it at the caret with showInBestPositionFor(editor), the only placement an
+ * editor allows; openGeneralRemarkInput, which has no editor, centres it over a component instead.
  *
  * setCancelOnWindowDeactivation(false) is there because the class-name chooser is a second JBPopup
  * opened from inside this one. Deactivating this popup's window must not throw away a half-typed
@@ -115,14 +132,13 @@ fun openRemarkEdit(project: Project, editor: Editor, id: String, text: String, t
  * default true, and it is safe to leave there, because StackingPopupDispatcherImpl only ever cancels
  * the TOP of the popup stack — which while the chooser is up is the chooser, not this popup.
  */
-private fun showRemarkInput(
+private fun buildInputPopup(
     project: Project,
-    editor: Editor,
     title: String,
     text: String,
     tag: RemarkTag?,
     onSubmit: (RemarkInput) -> Unit,
-) {
+): JBPopup {
     val panel = RemarkInputPanel(project, text, tag)
     val popup = JBPopupFactory.getInstance()
         .createComponentPopupBuilder(panel, panel.textArea)
@@ -138,7 +154,18 @@ private fun showRemarkInput(
         popup.cancel()
         onSubmit(input)
     }
-    popup.showInBestPositionFor(editor)
+    return popup
+}
+
+private fun showRemarkInput(
+    project: Project,
+    editor: Editor,
+    title: String,
+    text: String,
+    tag: RemarkTag?,
+    onSubmit: (RemarkInput) -> Unit,
+) {
+    buildInputPopup(project, title, text, tag, onSubmit).showInBestPositionFor(editor)
 }
 
 /**
