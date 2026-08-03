@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "dev.sasha"
-version = "0.3.0-dev"
+version = "0.3.0"
 
 repositories {
     mavenCentral()
