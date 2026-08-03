@@ -962,3 +962,52 @@ path degrades to today's plain editors. Building `Change` objects out of two com
 real work and needs the Git plugin rather than the platform's VCS API alone. Local changes are the
 case worth building first — they are the case where a person is reviewing something not yet
 finished, which is when a remark is worth writing.
+
+## A remark that belongs to no file
+
+Let a remark be written without pointing at any code: "the whole approach to caching here is wrong",
+"this needs a CHANGELOG entry", "answer these before you touch anything". Today every remark starts
+from a selection in an editor, so a thought about the change as a whole has nowhere to live and ends
+up stapled to whichever line happened to be under the caret.
+
+Why: the general remark is usually the most important one in a review. Forcing it onto an arbitrary
+line makes it look local, and the model then treats it as a note about that line.
+
+### What is already in place
+
+Less work than it looks. `RemarkState.path` is `by string()`, so it is already nullable — no change
+to what is written into `workspace.xml`, and remarks stored before this existed keep loading.
+`RemarksTree.kt:56` already does `path = row.remark.path.orEmpty()`, so a pathless remark does not
+crash the tree today; it lands in a group with an empty name.
+
+### Where the work actually is
+
+The entry point, and then every place that assumes a remark has a path.
+
+- **A new entry point.** `AddRemarkAction` starts from `selectedLines()` on an editor. A global remark
+  has no editor, so it needs its own way in — a toolbar button in the tool window is the obvious one,
+  since that is the one place you are looking at remarks rather than at code.
+- **The renderer needs its own section, and it should come first.**
+  `PromptRenderer.kt:50-53` sorts and groups by `path` and prints `## <path>` per group. Its own
+  input type declares `path` as a non-null `String`, so a global remark either needs a nullable field
+  there or a separate list. A general remark placed after forty file sections has already been read
+  as an afterthought — it sets the frame for everything else, so it belongs at the top.
+- **The orphan path is the sharp trap.** A global remark has no `startLine`, no `textHash`, and no
+  context lines. That is exactly the shape the renderer currently describes as an orphan: "stale line
+  numbers, the code moved, search the file for the surrounding lines". A general note rendered through
+  that path reads as a broken remark rather than as a deliberate one. These two cases must be told
+  apart explicitly, and the test that proves it is the one worth writing first.
+- **Resolve and the gutter must skip it.** `resolveAll` and `RemarkGutter` both exist to map a remark
+  onto lines in a file. A pathless remark has nothing to map, so both need to pass over it rather than
+  treat it as a remark whose file has disappeared.
+- **The tree needs a real group, not the empty-string one.** A "General" node, and a decision about
+  where it sits: above the files reads as more important, which matches what these remarks usually
+  are. Buckets already sit above files, so the layered ordering question is one this tree has answered
+  once already.
+- **The history file** renders remarks too, and has the same grouping-by-file assumption.
+
+### Not part of phase 7
+
+Phase 7 already carries two subjects — the acknowledgement signals and opening the diff. This is a
+third, it touches the renderer and the tree rather than the review handoff, and it has a real design
+question in it (the orphan case above). It should be its own phase.
