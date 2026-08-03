@@ -57,8 +57,17 @@ internal fun <T> projectForPath(wanted: String, open: List<Pair<Path, T>>): T? {
     return open.firstOrNull { it.first == target }?.second
 }
 
-/** Gson fills these by reflection; every field is nullable because the body is caller-supplied. */
-private class StartRequest(val session: String? = null, val label: String? = null, val project: String? = null)
+/**
+ * Gson fills these by reflection; every field is nullable because the body is caller-supplied.
+ * [files] is the cheap-diff-opening addition: paths relative to the repository root, opened in
+ * editors once the review is accepted. Absent or empty means open nothing.
+ */
+private class StartRequest(
+    val session: String? = null,
+    val label: String? = null,
+    val project: String? = null,
+    val files: List<String>? = null,
+)
 
 class ReviewRestService : RestService() {
 
@@ -138,6 +147,9 @@ class ReviewRestService : RestService() {
                     writer.name("status").value("waiting")
                     writer.name("output").value(handoffFile(result.state.outputPath).toString())
                     writer.name("project").value(project.name)
+                    // The one call into the file that owns the VFS and the editor. See
+                    // review/OpenReviewFiles.kt for why it lives there and not here.
+                    openReviewFiles(project, parsed?.files)
                 }
                 is StartResult.Conflict -> {
                     writer.name("status").value("conflict")

@@ -49,10 +49,27 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
 
 3. **POST to the start endpoint.**
 
+   If there is a commit range or a set of changed files this review is about, send their paths so
+   the IDE opens them for the person before they start writing remarks. This is the cheap version
+   of "open the diff": no real diff view, just the files opened in editors so the person can press
+   the IDE's own diff shortcut on any of them.
+
+   ```sh
+   files_json="[]"
+   if [ -n "$range" ]; then
+     files_json=$(git diff --name-only "$range" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+   fi
+   ```
+
+   `$range` is whatever commit range this review is about — for example `main..HEAD` or a single
+   commit — left unset when there is nothing to diff. `git diff --name-only` already prints paths
+   relative to the repository root, which is what the endpoint expects.
+
    ```sh
    session=$(uuidgen)
    body=$(jq -n --arg session "$session" --arg label "$label" --arg project "$root" \
-     '{session:$session, label:$label, project:$project}')
+     --argjson files "$files_json" \
+     '{session:$session, label:$label, project:$project, files:$files}')
    status=$(curl -s -o /tmp/claude-remarks-start.json -w '%{http_code}' \
      -X POST "http://127.0.0.1:$port/api/claude-remarks/start" \
      -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" \
@@ -61,7 +78,7 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
 
    `$label` is a short description of what is being reviewed — shown to the person in the IDE
    banner. `$session` is invented once per run of this skill, so a retry of the same run reuses
-   it rather than starting a second review.
+   it rather than starting a second review. `files` is optional: an empty array opens nothing.
 
    Never use `curl -f`: it throws the body away on a non-2xx response, and the body is exactly
    what carries the application-level outcomes in step 5. Never add `-H Origin:` or
