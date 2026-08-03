@@ -197,14 +197,13 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * first means re-scheduling the same deadline on a same-session retry is harmless, with no
      * branch to get wrong.
      *
-     * In this task the scheduled body calls only [expireIfStale]; review/SendReview.kt's
-     * expireStaleReview(project) — the same transition plus the balloon — replaces this call once
-     * that function exists.
+     * The scheduled body calls `expireStaleReview(project)` (review/SendReview.kt), which is
+     * [expireIfStale] plus the balloon a person left to read.
      */
     private fun scheduleExpiry(accepted: WaitingReviewState) {
         expiry?.cancel(false)
         expiry = AppExecutorUtil.getAppScheduledExecutorService().schedule(
-            { if (!project.isDisposed) expireIfStale() },
+            { if (!project.isDisposed) expireStaleReview(project) },
             (accepted.deadlineAt - System.currentTimeMillis()).coerceAtLeast(0),
             TimeUnit.MILLISECONDS,
         )

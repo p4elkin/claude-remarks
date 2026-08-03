@@ -64,4 +64,24 @@ class ReviewRequestTest {
 
         assertNull(projectForPath("/Users/sasha/dev/not-open", open))
     }
+
+    @Test
+    fun `an absent deadline falls back to thirty minutes`() {
+        assertEquals(1800L, clampDeadlineSeconds(null))
+    }
+
+    @Test
+    fun `a deadline below the floor is raised`() {
+        assertEquals(60L, clampDeadlineSeconds(5L))
+    }
+
+    @Test
+    fun `a deadline above the ceiling is capped`() {
+        assertEquals(86_400L, clampDeadlineSeconds(999_999_999L))
+    }
+
+    @Test
+    fun `a sensible deadline is passed through`() {
+        assertEquals(300L, clampDeadlineSeconds(300L))
+    }
 }

@@ -1112,7 +1112,7 @@ consequences live elsewhere, and name `review/SendReview.kt` as the place — bu
 the five symbols the guard greps for**, not even inside a comment. See
 [section 8](#8-rules-that-must-hold-at-every-step).
 
-- [ ] write the failing tests:
+- [x] write the failing tests:
   - in `ReviewRequestTest.kt` (plain JUnit): `an absent deadline falls back to thirty minutes`
     (`clampDeadlineSeconds(null) == 1800`); `a deadline below the floor is raised`
     (`clampDeadlineSeconds(5) == 60`); `a deadline above the ceiling is capped`
@@ -1127,17 +1127,17 @@ the five symbols the guard greps for**, not even inside a comment. See
     `/api/claude-remarks/frobnicate` with a valid start body; assert the body says `bad-request` and
     that `WaitingReviewService.current()` is still null. This is the only guard on the behaviour change
     above.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewRequestTest" --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"`
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewRequestTest" --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"`
       — expect a compile failure
-- [ ] implement
-- [ ] the same command passes
-- [ ] run guard 5 from [section 8](#8-rules-that-must-hold-at-every-step). If it is not empty, the
+- [x] implement
+- [x] the same command passes
+- [x] run guard 5 from [section 8](#8-rules-that-must-hold-at-every-step). If it is not empty, the
       cause is almost certainly a comment, not code — remove the symbol from the comment, do not widen
       the grep.
-- [ ] **mutation:** make the dispatch treat every unrecognized action as `start` — `an unknown action
+- [x] **mutation:** make the dispatch treat every unrecognized action as `start` — `an unknown action
       does not start a review` must fail. Remove `writer.close()` from the ack branch — `an
       acknowledgement of a sent review answers ok` must fail on the empty body. Restore both.
-- [ ] commit: `feat: the endpoint accepts a read or abandoned acknowledgement` — stage exactly the
+- [x] commit: `feat: the endpoint accepts a read or abandoned acknowledgement` — stage exactly the
       four files above
 
 ### Task 6: Send writes, the acknowledgement marks sent

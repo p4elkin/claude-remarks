@@ -4,6 +4,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -109,6 +110,54 @@ fun rejectWaitingReview(project: Project) {
     // Cleared either way. The person asked for this review to end, and a banner they cannot dismiss
     // is worse than a session that waits for its own deadline.
     WaitingReviewService.getInstance(project).clear()
+}
+
+/**
+ * The endpoint's only entry point into what an acknowledgement causes. The endpoint runs on a
+ * netty IO thread, so both the store mutation and the balloon go inside [ApplicationManager]'s
+ * `invokeLater`, the same way [WaitingReviewService]'s own `notifyPanel` does.
+ */
+fun finishReview(project: Project, session: String, end: ReviewEnd): AckOutcome {
+    val (outcome, acted) = WaitingReviewService.getInstance(project).acknowledge(session, end)
+    if (outcome == AckOutcome.OK && acted != null) {
+        ApplicationManager.getApplication().invokeLater { reportReviewEnd(project, acted, end) }
+    }
+    return outcome
+}
+
+/**
+ * The deadline backstop for the scheduled task in [WaitingReviewService]: the same transition as
+ * an abandoned acknowledgement, plus the balloon.
+ */
+fun expireStaleReview(project: Project) {
+    val acted = WaitingReviewService.getInstance(project).expireIfStale() ?: return
+    ApplicationManager.getApplication().invokeLater { reportReviewEnd(project, acted, ReviewEnd.STALE) }
+}
+
+/**
+ * For [ReviewEnd.READ] the remarks that were written are marked sent. For anything else — the
+ * agent gave up, or the deadline passed — nothing in the store changes; what was written, if
+ * anything, is still pending.
+ */
+private fun reportReviewEnd(project: Project, state: WaitingReviewState, end: ReviewEnd) {
+    val phase = state.phase
+    if (end == ReviewEnd.READ && phase is ReviewPhase.Sent) {
+        markRemarksSent(project, phase.ids)
+        val count = phase.ids.size
+        notifyRemarks(project, "Claude Code read $count remark${if (count == 1) "" else "s"}.")
+        return
+    }
+    when (phase) {
+        is ReviewPhase.Sent -> {
+            val count = phase.ids.size
+            notifyRemarks(
+                project,
+                "Claude Code left without reading the $count remark${if (count == 1) "" else "s"} " +
+                    "you sent. They are still pending.",
+            )
+        }
+        ReviewPhase.Waiting -> notifyRemarks(project, "Claude Code stopped waiting for your remarks.")
+    }
 }
 
 /**

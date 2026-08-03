@@ -1,5 +1,7 @@
 package dev.sasha.clauderemarks.review
 
+import com.google.gson.stream.JsonWriter
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream
 import io.netty.channel.ChannelHandlerContext
@@ -11,11 +13,13 @@ import java.nio.file.Path
 import org.jetbrains.ide.RestService
 
 /**
- * `POST /api/claude-remarks/start`. The skill asks this IDE to hold a review open for a repository,
- * and gets back the path it should watch for the handover file.
+ * `POST /api/claude-remarks/start` and `POST /api/claude-remarks/ack`. The skill asks this IDE to
+ * hold a review open for a repository and gets back the path it should watch for the handover
+ * file, then later tells the IDE whether it read that file or gave up waiting.
  *
- * The answer is always HTTP 200 with a `status` field, one of exactly four values: `waiting`,
- * `conflict`, `unknown-project`, `bad-request`. Real status codes stay reserved for what
+ * The answer is always HTTP 200 with a `status` field. `start` answers one of `waiting`,
+ * `conflict`, `unknown-project`, `bad-request`; `ack` answers one of `ok`, `no-review`,
+ * `not-sent`, `unknown-project`, `bad-request`. Real status codes stay reserved for what
  * `RestService.process` produces above this class — 403, 429, and 400 or 500 from its catch — so a
  * plumbing failure never looks like an application answer to the shell script reading it.
  */
@@ -60,14 +64,32 @@ internal fun <T> projectForPath(wanted: String, open: List<Pair<Path, T>>): T? {
 /**
  * Gson fills these by reflection; every field is nullable because the body is caller-supplied.
  * [files] is the cheap-diff-opening addition: paths relative to the repository root, opened in
- * editors once the review is accepted. Absent or empty means open nothing.
+ * editors once the review is accepted. Absent or empty means open nothing. [deadlineSeconds] is
+ * how long the skill's own wait loop will poll; absent or out of range is clamped by
+ * [clampDeadlineSeconds].
  */
 private class StartRequest(
     val session: String? = null,
     val label: String? = null,
     val project: String? = null,
     val files: List<String>? = null,
+    val deadlineSeconds: Long? = null,
 )
+
+/** Gson fills these by reflection too. [event] is `"read"` or `"abandoned"`, anything else is bad-request. */
+private class AckRequest(
+    val session: String? = null,
+    val project: String? = null,
+    val event: String? = null,
+)
+
+/**
+ * The skill declares how long it will wait. The number arrives over HTTP, so it is bounded here,
+ * at the edge, rather than deeper in. Absent means the 1800 seconds the skill's own documentation
+ * has always used.
+ */
+internal fun clampDeadlineSeconds(seconds: Long?): Long =
+    (seconds ?: 1800L).coerceIn(60L, 86_400L)
 
 class ReviewRestService : RestService() {
 
@@ -112,6 +134,33 @@ class ReviewRestService : RestService() {
         val writer = createJsonWriter(out)
         writer.beginObject()
 
+        // Copied from the platform's own UploadLogsService, which dispatches on a sub-path the
+        // same way. Deliberately not substringAfterLast('/'): on the bare path
+        // "/api/claude-remarks" that would return "claude-remarks", which would be read as an
+        // action name instead of the empty one it actually is.
+        val action = urlDecoder.path().split(getServiceName()).last().trimStart('/')
+        when (action) {
+            "start" -> handleStart(request, writer)
+            "ack" -> handleAck(request, writer)
+            else -> {
+                // A behaviour change worth naming: before this, any sub-path started a review
+                // because execute never looked at it at all.
+                writer.name("status").value("bad-request")
+                writer.name("detail").value("unknown action: $action")
+            }
+        }
+
+        writer.endObject()
+        // Before send, always: createJsonWriter wraps a buffering OutputStreamWriter and send reads
+        // the byte array's internal buffer, so without this every response is a 200 with an empty
+        // body. The platform's own InstallPluginService closes it here for the same reason.
+        writer.close()
+        send(out, request, context)
+        // Non-null would make the platform send a 400 with that text instead.
+        return null
+    }
+
+    private fun handleStart(request: FullHttpRequest, writer: JsonWriter) {
         val body = runCatching {
             gson.fromJson<StartRequest?>(createJsonReader(request), StartRequest::class.java)
         }
@@ -125,52 +174,79 @@ class ReviewRestService : RestService() {
             writer.name("detail").value(
                 body.exceptionOrNull()?.message ?: "expected a JSON object with session, label and project"
             )
-        } else {
-            // basePath is the path the project was opened with, which for a symlinked checkout is
-            // the symlink, while the skill sends the physical path from `git rev-parse
-            // --show-toplevel`. Without toRealPath() a plainly open project answers
-            // unknown-project. The runCatching is for a project whose directory has been deleted:
-            // it still appears in openProjects.
-            val open = ProjectManager.getInstance().openProjects.mapNotNull { project ->
-                val base = project.basePath ?: return@mapNotNull null
-                val real = runCatching { Path.of(base).toRealPath() }.getOrNull() ?: return@mapNotNull null
-                real to project
+            return
+        }
+        val project = matchProject(wanted, writer) ?: return
+        val deadline = clampDeadlineSeconds(parsed.deadlineSeconds)
+        when (val result = WaitingReviewService.getInstance(project).start(session, label, deadline)) {
+            is StartResult.Accepted -> {
+                writer.name("status").value("waiting")
+                writer.name("output").value(handoffFile(result.state.outputPath).toString())
+                writer.name("project").value(project.name)
+                // The one call into the file that owns the VFS and the editor. See
+                // review/OpenReviewFiles.kt for why it lives there and not here.
+                openReviewFiles(project, parsed.files)
             }
-            val project = projectForPath(wanted, open)
-            if (project == null) {
-                writer.name("status").value("unknown-project")
-                writer.name("open").beginArray()
-                open.forEach { writer.value(it.first.toString()) }
-                writer.endArray()
-            } else when (
-                // 1800 is the skill's own long-standing literal timeout. Task 5 replaces this with
-                // the request's own declared deadline, clamped at this boundary; this call is
-                // provisional only until that task wires the real value through.
-                val result = WaitingReviewService.getInstance(project).start(session, label, 1800L)
-            ) {
-                is StartResult.Accepted -> {
-                    writer.name("status").value("waiting")
-                    writer.name("output").value(handoffFile(result.state.outputPath).toString())
-                    writer.name("project").value(project.name)
-                    // The one call into the file that owns the VFS and the editor. See
-                    // review/OpenReviewFiles.kt for why it lives there and not here.
-                    openReviewFiles(project, parsed?.files)
-                }
-                is StartResult.Conflict -> {
-                    writer.name("status").value("conflict")
-                    writer.name("label").value(result.waiting.label)
-                    writer.name("startedAt").value(result.waiting.startedAt)
-                }
+            is StartResult.Conflict -> {
+                writer.name("status").value("conflict")
+                writer.name("label").value(result.waiting.label)
+                writer.name("startedAt").value(result.waiting.startedAt)
             }
         }
+    }
 
-        writer.endObject()
-        // Before send, always: createJsonWriter wraps a buffering OutputStreamWriter and send reads
-        // the byte array's internal buffer, so without this every response is a 200 with an empty
-        // body. The platform's own InstallPluginService closes it here for the same reason.
-        writer.close()
-        send(out, request, context)
-        // Non-null would make the platform send a 400 with that text instead.
-        return null
+    private fun handleAck(request: FullHttpRequest, writer: JsonWriter) {
+        val body = runCatching {
+            gson.fromJson<AckRequest?>(createJsonReader(request), AckRequest::class.java)
+        }
+        val parsed = body.getOrNull()
+        val session = parsed?.session
+        val wanted = parsed?.project
+        val end = when (parsed?.event) {
+            "read" -> ReviewEnd.READ
+            "abandoned" -> ReviewEnd.ABANDONED
+            else -> null
+        }
+        if (session.isNullOrBlank() || wanted.isNullOrBlank() || end == null) {
+            writer.name("status").value("bad-request")
+            writer.name("detail").value(
+                body.exceptionOrNull()?.message
+                    ?: "expected a JSON object with session, project and event (\"read\" or \"abandoned\")"
+            )
+            return
+        }
+        val project = matchProject(wanted, writer) ?: return
+        // Everything the acknowledgement causes lives in the file that owns the editor side, see
+        // review/SendReview.kt. This file only turns the outcome into a status field.
+        writer.name("status").value(
+            when (finishReview(project, session, end)) {
+                AckOutcome.OK -> "ok"
+                AckOutcome.NO_REVIEW -> "no-review"
+                AckOutcome.NOT_SENT -> "not-sent"
+            }
+        )
+    }
+
+    /**
+     * Which open project a request is about, or `unknown-project` written into [writer] and null.
+     * basePath is the path the project was opened with, which for a symlinked checkout is the
+     * symlink, while the skill sends the physical path from `git rev-parse --show-toplevel`.
+     * Without toRealPath() a plainly open project answers unknown-project. The runCatching is for
+     * a project whose directory has been deleted: it still appears in openProjects.
+     */
+    private fun matchProject(wanted: String, writer: JsonWriter): Project? {
+        val open = ProjectManager.getInstance().openProjects.mapNotNull { project ->
+            val base = project.basePath ?: return@mapNotNull null
+            val real = runCatching { Path.of(base).toRealPath() }.getOrNull() ?: return@mapNotNull null
+            real to project
+        }
+        val project = projectForPath(wanted, open)
+        if (project == null) {
+            writer.name("status").value("unknown-project")
+            writer.name("open").beginArray()
+            open.forEach { writer.value(it.first.toString()) }
+            writer.endArray()
+        }
+        return project
     }
 }
