@@ -302,4 +302,29 @@ class AnchoringTest {
 
     /** Distinct filler lines for indices [from] until [until], so nothing matches by accident. */
     private fun filler(from: Int, until: Int) = (from until until).map { "filler $it" }
+
+    @Test
+    fun `a phrase inside one line is the substring between its columns`() {
+        // line 3 is "    println(\"a\")": columns 4..11 are "println"
+        assertEquals("println", phraseAt(file, 3, 3, 4, 11))
+    }
+
+    @Test
+    fun `a phrase across three lines is joined with newlines`() {
+        val lines = listOf("first line here", "middle", "last line text")
+
+        // tail of line 0 from column 6, all of line 1, head of line 2 up to column 9
+        assertEquals("line here\nmiddle\nlast line", phraseAt(lines, 0, 2, 6, 9))
+    }
+
+    @Test
+    fun `a whole-line range has no phrase`() {
+        assertEquals(null, phraseAt(file, 2, 4, 0, 0))
+    }
+
+    @Test
+    fun `a column past the end of its line has no phrase`() {
+        // line 3, "    println(\"a\")", is 17 characters long
+        assertEquals(null, phraseAt(file, 3, 3, 2, 999))
+    }
 }

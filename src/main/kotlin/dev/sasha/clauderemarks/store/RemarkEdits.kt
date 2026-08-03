@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.util.messages.Topic
 import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.anchor.captureAnchor
+import dev.sasha.clauderemarks.anchor.phraseAt
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
@@ -64,6 +65,7 @@ fun addRemark(
         this.textHash = anchor.textHash
         this.contextBefore = joinContext(anchor.contextBefore)
         this.contextAfter = joinContext(anchor.contextAfter)
+        this.phrase = phraseAt(lines, anchor.startLine, anchor.endLine, startColumn, endColumn)
         // Two small file reads on the EDT, once per remark, at human pace — for a loose ref, which
         // is the normal case. The ceiling is higher: after `git gc` there is no loose ref file and
         // the third read is all of `packed-refs`, read into a String and split, which on a large

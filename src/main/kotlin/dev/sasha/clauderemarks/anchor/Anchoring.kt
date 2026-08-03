@@ -114,6 +114,46 @@ fun resolveAnchor(
     return orphaned
 }
 
+/**
+ * The exact text a sub-line remark points at, for storing as `RemarkState.phrase`, or null.
+ *
+ * Uses the same validity rule `markersValid` in `render/PromptRenderer.kt` uses for deciding
+ * whether to draw the `⟦`/`⟧` markers, so a stored phrase and the markers drawn over it never
+ * disagree about what was selected: null when [endColumn] is not strictly after [startColumn] —
+ * which is also how a whole-line remark's `0 to 0` sentinel falls out of this, with no separate
+ * check — when [endLine] comes before [startLine], or when either column falls outside its own
+ * line. The last two are reachable only from a hand-edited workspace.xml: [selectedColumns] in
+ * `action/AddRemarkAction.kt` never produces them.
+ *
+ * For a range inside one line: the substring between the two columns. For a range across lines:
+ * the tail of [startLine] from [startColumn], every whole line strictly between, and the head of
+ * [endLine] up to [endColumn], joined with newlines — the same shape `withSelectionMarkers`
+ * already assumes when it draws the two markers on separate quoted lines.
+ */
+fun phraseAt(
+    lines: List<String>,
+    startLine: Int,
+    endLine: Int,
+    startColumn: Int,
+    endColumn: Int,
+): String? {
+    if (endColumn <= startColumn) return null
+    if (endLine < startLine) return null
+    if (startLine !in lines.indices || endLine !in lines.indices) return null
+
+    val startText = lines[startLine]
+    val endText = lines[endLine]
+    if (startColumn < 0 || startColumn > startText.length) return null
+    if (endColumn < 0 || endColumn > endText.length) return null
+
+    if (startLine == endLine) return startText.substring(startColumn, endColumn)
+
+    val head = startText.substring(startColumn)
+    val middle = lines.subList(startLine + 1, endLine)
+    val tail = endText.substring(0, endColumn)
+    return (listOf(head) + middle + listOf(tail)).joinToString("\n")
+}
+
 /** Line numbers to try, nearest to [origin] first, restricted to [range]. */
 private fun candidatesNear(origin: Int, range: IntRange, radius: Int): Sequence<Int> = sequence {
     if (origin in range) yield(origin)

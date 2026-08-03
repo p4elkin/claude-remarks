@@ -956,19 +956,32 @@ not a real sub-line range. For a range inside one line it is one substring. For 
 it is the tail of the first line, the whole lines between, and the head of the last, joined with
 newlines. This is the same shape `withSelectionMarkers` in the renderer already assumes.
 
-- [ ] write the failing tests in `AnchoringTest`: a phrase inside one line; a phrase across three
+- [x] write the failing tests in `AnchoringTest`: a phrase inside one line; a phrase across three
       lines joined with newlines; null for a whole-line range; null for a column past the end of its
       line, which a hand-edited `workspace.xml` can hold.
-- [ ] write the failing tests: `RemarkStoreStateTest`, the phrase survives the round trip, and a
+      **Result: four tests added — `a phrase inside one line is the substring between its columns`,
+      `a phrase across three lines is joined with newlines`, `a whole-line range has no phrase`,
+      `a column past the end of its line has no phrase`.**
+- [x] write the failing tests: `RemarkStoreStateTest`, the phrase survives the round trip, and a
       remark with no phrase round-trips as null; `RemarkEditsTest`, `addRemark` with real columns
       stores the phrase, and with `0 to 0` stores null.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.AnchoringTest"` and
+      **Result: `the phrase survives the round trip` and `a remark with no phrase round-trips as
+      null` added to `RemarkStoreStateTest`; `testAddingARemarkWithRealColumnsStoresThePhrase` and
+      `testAddingARemarkWithNoColumnsStoresNoPhrase` added to `RemarkEditsTest`.**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.AnchoringTest"` and
       `--tests "dev.sasha.clauderemarks.store.*"`, expect failures, then implement and pass both
-- [ ] **mutation:** make `phraseAt` return the whole line instead of the substring; the first
+      **Result: both commands ran green after implementing `phrase` on `RemarkState`, `phraseAt` in
+      `Anchoring.kt`, and the `addRemark` wiring in `RemarkEdits.kt`.**
+- [x] **mutation:** make `phraseAt` return the whole line instead of the substring; the first
       `AnchoringTest` test must fail. Make it ignore the bounds check; the fourth must fail. Make
       `addRemark` store the phrase even when the columns are `0 to 0`; the `RemarkEditsTest` test must
       fail. Restore all three.
-- [ ] commit: `feat: a sub-line remark stores the words it points at`
+      **Result: all three mutations run and reverted. Whole-line-instead-of-substring failed
+      `a phrase inside one line is the substring between its columns`. Removing the bounds check
+      failed `a column past the end of its line has no phrase` (as a `StringIndexOutOfBoundsException`,
+      still a failure). Falling back to `lines.getOrNull(anchor.startLine)` when `phraseAt` returns
+      null failed `testAddingARemarkWithNoColumnsStoresNoPhrase`. All three restored.**
+- [x] commit: `feat: a sub-line remark stores the words it points at`
 
 ### Task 9: Find the phrase again
 

@@ -79,6 +79,28 @@ class RemarkEditsTest : BasePlatformTestCase() {
         assertEquals(listOf("e", "f", "g"), splitContext(stored.contextAfter))
     }
 
+    /** The wiring half of "a sub-line remark stores the words it points at": the pure `phraseAt`
+     *  reached through `addRemark` with real columns. */
+    fun testAddingARemarkWithRealColumnsStoresThePhrase() {
+        val stored = addRemark(
+            project,
+            path = "src/Foo.kt",
+            lines = listOf("alpha", "beta", "gamma", "delta"),
+            range = 1..1,
+            text = "why beta?",
+            tag = null,
+            startColumn = 1,
+            endColumn = 3,
+        )
+
+        assertEquals("et", stored.phrase)
+    }
+
+    /** `0 to 0` is the "no sub-line range" sentinel, so a whole-line remark stores no phrase. */
+    fun testAddingARemarkWithNoColumnsStoresNoPhrase() {
+        assertNull(addOne().phrase)
+    }
+
     fun testEditingARemarkPublishes() {
         val stored = addOne()
 

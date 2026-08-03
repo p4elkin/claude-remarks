@@ -88,4 +88,15 @@ class RemarkState : BaseState() {
      * is the one.
      */
     var commit by string()
+
+    /**
+     * The exact text between [startColumn] and [endColumn], for a sub-line remark only, or null.
+     *
+     * Null for a whole-line remark, which is every remark stored before this field existed: BaseState
+     * omits a property still at its default, so nothing migrates and the anchor for those remarks is
+     * unchanged. Stored as text rather than as a hash because a hash can only confirm a guess, and
+     * finding a phrase that moved needs something to search for. The context lines beside it already
+     * store six lines of real source, so this is not a new kind of data in workspace.xml.
+     */
+    var phrase by string()
 }

@@ -49,6 +49,7 @@ class RemarkStoreStateTest {
             severity = RemarkSeverity.MUST,
             bucket = "auth refactor",
             commit = "0123456789abcdef0123456789abcdef01234567",
+            phrase = "is this synchronized",
         )
         val state = RemarkStore.RemarksState()
         state.addRemark(original)
@@ -329,6 +330,28 @@ class RemarkStoreStateTest {
         assertEquals(0, restored.remarks.single().endColumn)
     }
 
+    /** The storage half of "a sub-line remark stores the words it points at". */
+    @Test
+    fun `the phrase survives the round trip`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", phrase = "why is this synchronized"))
+
+        assertEquals("why is this synchronized", roundTrip(state).remarks.single().phrase)
+    }
+
+    /**
+     * Every remark stored before this field existed, and every whole-line remark since, has no
+     * phrase attribute in its XML element at all: BaseState omits a property still at its default.
+     * Null must come back, not an empty string, so the anchor for those remarks stays unchanged.
+     */
+    @Test
+    fun `a remark with no phrase round-trips as null`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", phrase = null))
+
+        assertNull(roundTrip(state).remarks.single().phrase)
+    }
+
     /**
      * The accepted reset, pinned so it is a decision and not a surprise: a remark an older build
      * wrote as "SENT" does not parse against the new enum — which has no SENT constant — and comes
@@ -514,6 +537,7 @@ class RemarkStoreStateTest {
             severity = RemarkSeverity.MUST,
             bucket = "auth refactor",
             commit = "0123456789abcdef0123456789abcdef01234567",
+            phrase = "is this synchronized",
         )
         state.addRemark(original)
 

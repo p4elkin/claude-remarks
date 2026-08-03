@@ -39,6 +39,7 @@ internal fun remark(
     severity: RemarkSeverity = RemarkSeverity.SHOULD,
     bucket: String? = null,
     commit: String? = null,
+    phrase: String? = null,
 ) = RemarkState().also {
     it.id = id
     it.path = path
@@ -56,6 +57,7 @@ internal fun remark(
     it.severity = severity
     it.bucket = bucket
     it.commit = commit
+    it.phrase = phrase
 }
 
 /**
