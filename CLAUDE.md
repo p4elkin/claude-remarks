@@ -3,10 +3,11 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-8 are implemented and covered by unit tests. Phase 9's group one (tasks 1-7: three remark
-states in place of one, the Publish action, the published file, and the skill's second mode that
-reads it) is implemented and covered by unit tests too; groups two through five of phase 9 are not
-built yet. What has and has not been in front of a real IDE, per phase: **phase 6's seven security
+Phases 1-8 are implemented and covered by unit tests. Phase 9's groups one to three (tasks 1-15:
+three remark states in place of one and the published file, a sub-line remark that finds the words
+it points at again after they move, and a remark about the whole change instead of one file) are
+implemented and covered by unit tests too; groups four and five of phase 9 are not built yet. What
+has and has not been in front of a real IDE, per phase: **phase 6's seven security
 hand checks were run in a real IDE before 0.3.0 was released**, and phase 5's commit stamp was
 checked in a real IDE too. The `runIde` checks in the phase 1-2, phase 3-4, phase 5, **phase 7**,
 **phase 8** and **phase 9** plans were skipped in the autonomous sessions that did that work, so for
@@ -26,10 +27,13 @@ gutter icon are visible, are all still owed in a sandbox IDE. Select lines, pres
 severity level, and press Enter. A gutter icon appears on the marked lines and follows the code as
 you keep editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a
 class name from the project. The tool window lists every remark as a tree grouped by file, with a
-bucket level above the files once any remark is put in one; right-click a row for the severity and
-bucket menu. Press Publish All Pending in the tool window to turn every pending remark into one
-markdown prompt on the clipboard, and also to write the same prompt, with a small header on top, to a
-file under `~/.claude-remarks/` that a Claude Code skill can read on its own, with no review ever
+General group at the top for a remark about the whole change and a bucket level above the files once
+any remark is put in one; right-click a row for the severity and bucket menu. Press Add General
+Remark in the toolbar to write a remark that is not about any one file; it always shows up in the
+General group, whatever bucket it also carries. Press Publish All Pending in the tool window to turn
+every pending remark into one markdown prompt on the clipboard, and also to write the same prompt,
+with a small header on top, to a file under `~/.claude-remarks/` that a Claude Code skill can read
+on its own, with no review ever
 started; a balloon says how many remarks and files. Published remarks turn gray rather than
 disappearing, so Publish Selected can send them again if the paste went to the wrong place, and
 publishing a remark that was already read by a review hands it over again the same way. Clearing
@@ -40,8 +44,8 @@ way Publish All Pending hands them to the clipboard — see "The Shared Review S
 the IDE finds the skill and hands the remarks back.
 
 For the design — how anchoring, the gutter, the change notification, severity and buckets, the
-commit stamp, the history file, the publish pipeline, the published file, and the shared review
-session work — see `docs/claude/design.md`.
+commit stamp, the history file, the publish pipeline, the published file, the phrase a remark points
+at, a remark about no file, and the shared review session work — see `docs/claude/design.md`.
 
 **Phase 5 is built.** It added a severity level and named buckets to a remark, tag chips with Alt
 keys in place of the old tag drop-down, a commit stamp read straight out of `.git`, a history file
@@ -114,6 +118,31 @@ correctly, and both are only checkable by hand — see `docs/claude/design.md`'s
 failed published-file write leaves the previous file in place". See `docs/claude/design.md`, sections
 "The Publish Pipeline", "The three states, and why published is not read" and "The published file",
 for the whole design.
+
+**Phase 9's group two is built too.** A sub-line remark now stores the exact words between its two
+columns, not only the columns themselves: `RemarkState.phrase`, filled by `anchor/Anchoring.kt`'s
+`phraseAt` when the remark is written. Resolving a remark looks for that phrase before falling back
+to the stored columns: `resolveWithPhrase` finds it again inside the line it resolved to, or, when
+the line resolve orphaned, on a nearby line the text reflowed onto. That last case is the one thing
+this group buys that a plain line resolve could not do at all. The tree row and the gutter tooltip
+both show the sub-line range this way, one line as `9:12-38`, across lines as `9:12-11:5`, and the
+tooltip also shows the phrase itself. The history file records both, the phrase written indented
+under the heading the same way the remark text already is. See `docs/claude/design.md`, section
+"The phrase a remark points at", under "The Anchoring Design", for the whole design.
+
+**Phase 9's group three is built too.** A remark can now be about the whole change instead of one
+file. Press Add General Remark in the tool window toolbar, the only entry point for it, on purpose:
+the tool window is where a person is looking at remarks rather than at code, which is where a
+thought about the whole change gets written. Such a remark carries no path, no line range and no
+code snippet. The prompt renderer gives it its own `## General` section at the very top, with no
+code block at all, the same shape the renderer used to reserve for an orphan, the remark whose code
+could not be found; splitting it out before that branch runs is what keeps a deliberate remark from
+reading as a broken one. The tree groups it under its own General group at the very top too, above
+the buckets, and it stays there even when it also carries a bucket: a general remark is about the
+whole change, so the top of the tree is where it should be read, worth the cost of ignoring its
+bucket for grouping. The resolver's `isAboutNoFile` is the one thing that changed there: such a
+remark used to be refused as an orphan with no code, and now resolves as itself instead. See
+`docs/claude/design.md`, section "A Remark About No File", for the whole design.
 
 ## Rules that must not break
 
@@ -247,12 +276,16 @@ src/main/kotlin/dev/sasha/clauderemarks/
   store/RemarkStore.kt             @Service project component, state in workspace.xml
   store/RemarkEdits.kt             the ten mutation functions plus notifyRemarksChanged (eleven in
                                    all), the REMARKS_CHANGED topic
-  store/RemarkResolver.kt          projectRoot, resolveAll, and anchorOf
+  store/RemarkResolver.kt          projectRoot, resolveAll, anchorOf, and isAboutNoFile, which
+                                   resolveOne checks before treating a remark with no path as
+                                   itself rather than as an orphan
   store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, the diff fallback, and the
                                    refusal for a remark on the revision side of a diff
   store/ContextFormat.kt           joinContext/splitContext, how context lines are stored
   store/GitHead.kt                 headCommit, reads .git directly, no platform import, no Git4Idea
-  store/RemarkHistory.kt           historyFile, appendToHistory, renderHistory: the archive
+  store/RemarkHistory.kt           historyFile, appendToHistory, renderHistory: the archive, with
+                                   a phrase line under a sub-line heading and a plain "(general)"
+                                   heading for a remark about no file
   ui/RemarkInputPanel.kt           the popup's panel, the Enter/Shift+Enter keys, the tag chips and
                                    their Alt keys, CLASS_NAME_STROKE to insert a class name
   ui/RemarkActions.kt              remarkChangeActions: the severity and bucket menu, shared by the
@@ -260,10 +293,14 @@ src/main/kotlin/dev/sasha/clauderemarks/
   ui/ClassNameInsert.kt            projectClassNames, chooseClassName: the class-name chooser the
                                    input popup opens on Cmd+Ctrl+Shift+Space (Ctrl+Alt+Shift+Space
                                    off macOS — NOT Ctrl+Space, see CLASS_NAME_STROKE for why)
-  ui/RemarksTree.kt                node building (files, and buckets above them) and the tree cell
+  ui/RemarksTree.kt                node building: a General group at the very top for a remark
+                                   about no file, then buckets, then files, and the tree cell
                                    renderer
-  ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar, self-refresh on REMARKS_CHANGED
-  action/AddRemarkAction.kt        the shortcut / popup-menu entry point, plus selectedLines()
+  ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar (including Add General
+                                   Remark), self-refresh on REMARKS_CHANGED
+  action/AddRemarkAction.kt        the shortcut / popup-menu entry point, selectedLines(), and
+                                   openGeneralRemarkInput, the tool window's entry point for a
+                                   remark about no file
   action/AddRemarkIntention.kt     the Alt+Enter entry point
   action/PublishRemarks.kt         publishRemarks(project, ids), the whole publish pipeline, plus the
                                    Tools-menu action (PublishAllRemarksAction) that calls it without
@@ -274,7 +311,8 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    ReviewHandshakeService
   settings/RemarkSettings.kt       the app-level service and the default prompt header
   settings/RemarkSettingsConfigurable.kt
-  render/PromptRenderer.kt         pure Kotlin, zero platform imports. Remarks to markdown.
+  render/PromptRenderer.kt         pure Kotlin, zero platform imports. Remarks to markdown, general
+                                   remarks first under their own heading and with no code block.
   render/PromptPayload.kt          collectForPrompt and clipboardPayload
   review/ReviewHandshake.kt        handshakeName, renderHandshake, writeHandshake/deleteHandshake,
                                    the per-run ReviewToken, and ReviewHandshakeService (@Service
@@ -362,11 +400,13 @@ never exits on its own.
 ## Testing
 
 Anchoring (`AnchoringTest`, including phase 9's `phraseAt`, `findPhrase` and `resolveWithPhrase`),
-storage round-trips, the resolver helpers, the tree's node-building, the markdown
-renderer, the settings round trip, `GitHeadTest` (reads real `.git` directories built on disk for
+storage round-trips, the resolver helpers (including `isAboutNoFile`), the tree's node-building
+(including the General group), the markdown renderer (including the General section, rendered
+first with no code block), the settings round trip, `GitHeadTest` (reads real `.git` directories built on disk for
 the test, including a worktree, a detached HEAD and packed refs), `RemarkHistoryTest` (the
 archive's markdown rendering, and the write itself against a temp file; since phase 9 also the
-sub-line position shape in the heading and the phrase written indented under it), `AtomicWriteTest` (the
+sub-line position shape in the heading and the phrase written indented under it, and a general
+remark's `(general)` heading with no line numbers), `AtomicWriteTest` (the
 temp file lands beside the target, not in the system temp directory, and no temp file is left
 behind), `ReviewHandshakeTest` (the name, the rendering, the escaping, and the owner-only
 permissions), `WaitingReviewTest` (the pure `startOrConflict`: accept, honest-retry reuse, a
@@ -389,8 +429,10 @@ press time, not at build time), `ClassNameInsertTest` (inserting a class name at
 over a selection), `DiffRemarkTargetTest` (adding a remark from a diff pane: a real
 `DiffContentFactory` content standing in for a VCS revision, since a light fixture cannot build a
 diff viewer), the renderer-equality half of `RemarkGutterIconTest`, `RemarkGutterTest` (the gutter
-service), `RemarksPanelTest` (the tool window panel: every file and bucket group ends up expanded,
-and the selection survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
+service, including that a general remark produces no placement anywhere), `RemarksPanelTest` (the
+tool window panel: every file and bucket group ends up expanded, the selection survives a rebuild,
+and the Add General Remark button is offered and enabled with no selection and no editor open),
+`NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
 0-based line argument), the collector half of `PromptPayloadTest`, `PublishRemarksTest` (renamed
 from `CopyRemarksTest` in phase 9), `PublishedRemarksTest` (the published file's name, header and
 write, added in phase 9),

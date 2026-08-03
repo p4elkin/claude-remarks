@@ -108,6 +108,18 @@ class RemarkHistoryTest {
         )
     }
 
+    /**
+     * A general remark has no file and no line range, so positionLabel has nothing to describe:
+     * unlike the sub-line and whole-line cases above, no "lines" segment is printed at all.
+     */
+    @Test
+    fun `a general remark's heading says general and prints no line numbers`() {
+        val out = renderHistory(listOf(remark(id = "r-1", path = null)), now = 0L)
+
+        assertTrue(out, out.contains("- **(general)**"))
+        assertFalse(out, out.contains("lines"))
+    }
+
     @Test
     fun `a remark with no tag no bucket and no commit renders without empty separators`() {
         val out = renderHistory(listOf(remark(id = "r-1", tag = null, bucket = null, commit = null)), now = 0L)

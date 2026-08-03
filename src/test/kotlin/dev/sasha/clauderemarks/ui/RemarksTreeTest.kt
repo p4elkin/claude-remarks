@@ -298,6 +298,55 @@ class RemarksTreeTest {
     }
 
     @Test
+    fun `a general remark is in a group keyed general, placed first`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(path = "src/Foo.kt", id = "r-1"),
+                row(path = "", id = "r-2"),
+            )
+        )
+
+        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        assertEquals(GENERAL_KEY, group.key)
+        assertEquals("General", group.label)
+        assertEquals(listOf("r-2"), idsUnder(root, 0))
+    }
+
+    /**
+     * A general remark's bucket is ignored for grouping. Put one in a bucket and the bucket does
+     * not gather it: the top of the tree is where a remark about the whole change should be read,
+     * even at the cost of ignoring a field it carries.
+     */
+    @Test
+    fun `a general remark stays in the General group even when it carries a bucket`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(path = "", id = "r-1", bucket = "auth refactor"),
+                row(path = "src/Foo.kt", id = "r-2", bucket = "other"),
+            )
+        )
+
+        val firstGroup = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        assertEquals(GENERAL_KEY, firstGroup.key)
+        assertEquals(listOf("r-1"), idsUnder(root, 0))
+    }
+
+    @Test
+    fun `a tree of general remarks only has no bucket level`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(path = "", id = "r-1", bucket = "x"),
+                row(path = "", id = "r-2", bucket = "y"),
+            )
+        )
+
+        assertEquals(1, root.childCount)
+        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        assertEquals(GENERAL_KEY, group.key)
+        assertEquals(setOf("r-1", "r-2"), idsUnder(root, 0).toSet())
+    }
+
+    @Test
     fun `a leaf carries its bucket and its severity`() {
         val node = remarkNode(row(bucket = "b", severity = RemarkSeverity.MUST))
 

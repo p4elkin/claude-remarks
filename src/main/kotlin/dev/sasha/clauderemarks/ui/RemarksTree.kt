@@ -13,6 +13,13 @@ import javax.swing.tree.DefaultMutableTreeNode
 const val NO_BUCKET_LABEL = "(no bucket)"
 
 /**
+ * The key of the group that holds every remark about no file. A file key always starts with
+ * "file:" and a bucket key always starts with "bucket:", so this bare word cannot collide with
+ * either, and `RemarksPanel`'s selection restore, which matches groups by key, keeps working.
+ */
+const val GENERAL_KEY = "general"
+
+/**
  * A group row: a bucket or a file.
  *
  * The key and the label are separate on purpose. A bucket can be called "src" and so can a
@@ -132,9 +139,16 @@ private fun leavesOf(node: DefaultMutableTreeNode): List<RemarkNode> =
  * order, and buckets in name order with the unbucketed ones first — those are the remarks just
  * written, and the ones about to be moved.
  *
- * The bucket level appears only once some remark is actually in a bucket. Without that check,
- * anyone who never uses buckets would get a "(no bucket)" node wrapped around their whole tree for
- * a feature they never asked for.
+ * A remark about no file (`path.isEmpty()`, from [remarkNode]) goes into its own group first,
+ * keyed [GENERAL_KEY] and labelled "General", above the bucket and file groups. Its own bucket is
+ * ignored for this: a general remark is about the whole change, so the top of the tree is where it
+ * belongs, whatever bucket it also carries. That is a real cost, not an oversight — put a general
+ * remark in a bucket and the bucket does not gather it — accepted because a remark reachable from
+ * two places in the tree would be worse than one field being ignored.
+ *
+ * The bucket level below it appears only once some remark that is about a real file is actually in
+ * a bucket. Without that check, anyone who never uses buckets would get a "(no bucket)" node
+ * wrapped around their whole tree for a feature they never asked for.
  *
  * A remark with no id is left out. Its node would draw normally and then do nothing: Delete and
  * Copy Selected both match on the id, and an empty id matches no stored remark. RemarkGutter drops
@@ -146,12 +160,19 @@ fun buildTreeRoot(rows: List<ResolvedRemark>): DefaultMutableTreeNode {
         .map(::remarkNode)
         .sortedWith(compareBy({ it.bucket ?: "" }, { it.path }, { it.startLine }))
 
-    if (nodes.none { it.bucket != null }) {
-        addFileGroups(root, "", nodes)
+    val (general, aboutAFile) = nodes.partition { it.path.isEmpty() }
+    if (general.isNotEmpty()) {
+        val generalNode = DefaultMutableTreeNode(GroupNode(GENERAL_KEY, "General"))
+        general.forEach { generalNode.add(DefaultMutableTreeNode(it)) }
+        root.add(generalNode)
+    }
+
+    if (aboutAFile.none { it.bucket != null }) {
+        addFileGroups(root, "", aboutAFile)
         return root
     }
 
-    nodes.groupBy { it.bucket }.forEach { (bucket, inBucket) ->
+    aboutAFile.groupBy { it.bucket }.forEach { (bucket, inBucket) ->
         val label = bucket ?: NO_BUCKET_LABEL
         // Keyed on the raw bucket, not on the label: a bucket literally named "(no bucket)" would
         // otherwise share a key with the null-bucket group, and the panel would restore the selection

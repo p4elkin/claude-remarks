@@ -80,8 +80,15 @@ internal fun renderHistory(
 ): String = buildString {
     append("\n## cleared ").append(WHEN.format(Instant.ofEpochMilli(now))).append("\n")
     remarks.forEach { remark ->
-        append("\n- **").append(remark.path.orEmpty()).append("** lines ")
-            .append(positionLabel(remark))
+        append("\n- ")
+        if (remark.path.isNullOrEmpty()) {
+            // A general remark has no file and no line range, so there is nothing for
+            // positionLabel to describe. "(general)" is the same word render/PromptRenderer.kt's
+            // "## General" heading and ui/RemarksTree.kt's GENERAL_KEY group use for it.
+            append("**(general)**")
+        } else {
+            append("**").append(remark.path).append("** lines ").append(positionLabel(remark))
+        }
         remark.tag?.let { append(" — ").append(it.label) }
         append(" — ").append(remark.severity.label)
         // Flattened, because the heading is one line and the bucket is the only free-form field on

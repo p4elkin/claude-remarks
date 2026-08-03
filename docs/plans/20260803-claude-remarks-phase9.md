@@ -1361,18 +1361,67 @@ already calls this the layered-ordering question the tree has answered once, for
 
 The history file prints `**(general)**` and no `lines` part.
 
-- [ ] write the failing tests: `RemarksTreeTest`, a general remark is in a group keyed `general`
+- [x] write the failing tests: `RemarksTreeTest`, a general remark is in a group keyed `general`
       placed first; it is there even when it carries a bucket; a tree of general remarks only has no
       bucket level; `RemarkHistoryTest`, a general remark's heading says general and prints no line
       numbers.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` and
+      **Result: three tests added to `RemarksTreeTest` (`a general remark is in a group keyed
+      general, placed first`, `a general remark stays in the General group even when it carries a
+      bucket`, `a tree of general remarks only has no bucket level`) and one to `RemarkHistoryTest`
+      (`a general remark's heading says general and prints no line numbers`).**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` and
       `--tests "dev.sasha.clauderemarks.store.RemarkHistoryTest"`, expect failures
-- [ ] implement, then both pass and `./gradlew test` passes whole
-- [ ] **mutation:** let a general remark with a bucket fall into that bucket's group; the second test
+      **Result: implemented alongside the tests, the same shape tasks 9, 13 and 14 used — the
+      `GENERAL_KEY` constant and the `buildTreeRoot` partition are shared call sites the new tests
+      and the existing ones both compile against, so a partial edit would not compile at all.
+      RED/GREEN was instead proven empirically through the mutation testing below: mutating the
+      restored, working code first-hand fails the new tests; the restored code passes them.**
+- [x] implement, then both pass and `./gradlew test` passes whole
+      **Result: `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest" --tests
+      "dev.sasha.clauderemarks.store.RemarkHistoryTest"` passed. `./gradlew test --rerun-tasks`
+      passed whole (14 actionable tasks: 14 executed, a real run, not a cache hit).**
+- [x] **mutation:** let a general remark with a bucket fall into that bucket's group; the second test
       must fail. Put the General group after the file groups; the first must fail. Restore both.
-- [ ] update `docs/claude/design.md` with a subsection on the remark that belongs to no file, and
+      **Result: both mutations applied and reverted for real. Making `buildTreeRoot` partition on
+      `{ false }` instead of `{ it.path.isEmpty() }` (so nothing is treated as general and every
+      remark falls through to the ordinary bucket/file grouping) failed all three general tests,
+      including `a general remark stays in the General group even when it carries a bucket`. Moving
+      the General group's `root.add(generalNode)` to run after the bucket/file loop instead of
+      before it failed `a general remark is in a group keyed general, placed first` (and left the
+      "stays in the General group" test passing, since that one does not check position — matching
+      the plan's own prediction that only "the second test" and "the first" fail, not both from
+      both mutations). Both restored; `./gradlew test --tests
+      "dev.sasha.clauderemarks.ui.RemarksTreeTest"` green again, and the restored file diffed clean
+      against the pre-mutation copy.**
+- [x] update `docs/claude/design.md` with a subsection on the remark that belongs to no file, and
       update `CLAUDE.md` and `README.md`
-- [ ] commit: `feat: general remarks have their own group at the top of the tree`
+      **Result: `docs/claude/design.md` gained a new top-level section "A Remark About No File"
+      (Contents entry 13), covering `addGeneralRemark`, `openGeneralRemarkInput`, the renderer's
+      General section, the resolver's `isAboutNoFile`, the tree's General group, and the history
+      file's `(general)` heading — the whole group three surface, not only this task's tree/history
+      slice, matching the precedent tasks 7 and 11 set. Also fixed the Contents entry that was still
+      pointing at "The Copy Pipeline" (task 7 renamed the heading itself but never updated its own
+      Contents link), and the three remaining stale "nine functions"/"nine mutators" mentions in
+      "The Change Notification" section (now "ten", with `addGeneralRemark` named in the list and
+      the eleventh function, `notifyRemarksChanged`, explained the same way `CLAUDE.md` rule 3
+      explains it). `CLAUDE.md` gained two new paragraphs, "Phase 9's group two is built too." and
+      "Phase 9's group three is built too." (group two had no such paragraph from task 11, since
+      task 11's own Files list did not include this part of `CLAUDE.md`), plus fixes to the opening
+      summary sentence (which was still claiming "groups two through five ... are not built yet",
+      now false), the main walkthrough paragraph (General group, Add General Remark button), the
+      "For the design" cross-reference list, six Project structure lines (`RemarkResolver.kt`,
+      `RemarkHistory.kt`, `RemarksTree.kt`, `RemarksToolWindowFactory.kt`, `AddRemarkAction.kt`,
+      `PromptRenderer.kt`), and the Testing paragraph (the resolver helpers, the tree's
+      node-building, the markdown renderer, `RemarkHistoryTest`, `RemarkGutterTest`,
+      `RemarksPanelTest`). `README.md` gained the equivalent updates: the main walkthrough
+      paragraph, the toolbar-buttons sentence (five buttons to six, Add General Remark first), the
+      Phase 9 bullet under Phases (rewritten from "group one" to "groups one to three", since group
+      two never got its own bullet either), the Testing section (resolver helpers, tree
+      node-building, markdown renderer, `RemarkHistoryTest`, `RemarkGutterTest`, `RemarksPanelTest`,
+      and a new `ResolveAllTest` mention matching `CLAUDE.md`'s existing one), the Architecture
+      section (`store/`, `ui/`, `action/`, `render/` bullets, and the nine-to-ten function count),
+      and the closing "See docs/claude/design.md" sentence's stale "copy pipeline" wording.**
+- [x] commit: `feat: general remarks have their own group at the top of the tree`
 
 ### Group four: one pass over the tree
 

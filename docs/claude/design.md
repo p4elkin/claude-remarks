@@ -13,11 +13,12 @@
 9. [Adding a Remark While Reading a Diff](#adding-a-remark-while-reading-a-diff)
 10. [The Editor Side](#the-editor-side)
 11. [The Change Notification](#the-change-notification)
-12. [The Copy Pipeline](#the-copy-pipeline)
-13. [The Shared Review Session](#the-shared-review-session)
-14. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
-15. [Build Choices Worth Remembering](#build-choices-worth-remembering)
-16. [Performance Tuning Knobs](#performance-tuning-knobs)
+12. [The Publish Pipeline](#the-publish-pipeline)
+13. [A Remark About No File](#a-remark-about-no-file)
+14. [The Shared Review Session](#the-shared-review-session)
+15. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
+16. [Build Choices Worth Remembering](#build-choices-worth-remembering)
+17. [Performance Tuning Knobs](#performance-tuning-knobs)
 
 ## Overview
 
@@ -935,21 +936,26 @@ the manual escape for the gutter as well as for the tree.
 ## The Change Notification
 
 `REMARKS_CHANGED` (a `Topic<RemarksListener>`, project-level, `BroadcastDirection.NONE`) lives in
-`store/RemarkEdits.kt`, beside the nine functions that publish it, not inside `RemarkStore`. Two
+`store/RemarkEdits.kt`, beside the ten functions that publish it, not inside `RemarkStore`. Two
 things need to hear about a change: the gutter service and the tool window tree. Keeping the topic
 out of the store is about cost, not purity: adding a `Project` constructor parameter to
 `RemarkStore` would touch fourteen call sites that build it directly, and keeping the store free
 of the message bus is what lets `RemarkStoreStateTest` stay a plain JUnit test with no IDE fixture.
 
-`store/RemarkEdits.kt` holds the only nine functions production code uses to change a remark:
+`store/RemarkEdits.kt` holds the only ten functions production code uses to change a remark:
 `addRemark`, `editRemark`, `deleteRemark`, `markRemarksPublished`, `markRemarksRead`,
-`setRemarkSeverity`, `setRemarkBucket`, `clearHandedOverRemarks`, `clearAllRemarks`. Phase 9 grew
-this list from eight by splitting `markRemarksSent` into `markRemarksPublished` and the new
-`markRemarksRead`, and by renaming `clearSentRemarks` to `clearHandedOverRemarks` — see "The three
-states, and why published is not read" below. Each one mutates through `RemarkStore` and then
+`setRemarkSeverity`, `setRemarkBucket`, `clearHandedOverRemarks`, `clearAllRemarks`, and
+`addGeneralRemark`. Phase 9 grew this list from eight in two steps: group one split
+`markRemarksSent` into `markRemarksPublished` and the new `markRemarksRead`, and renamed
+`clearSentRemarks` to `clearHandedOverRemarks` — see "The three states, and why published is not
+read" below; group three added `addGeneralRemark`, the one entry point for a remark about no file —
+see "A Remark About No File" below. The file's eleventh public function, `notifyRemarksChanged`, is
+what every one of the ten calls to publish the topic; it counts too, because `CLAUDE.md` rule 3
+checks the file by counting every public function it finds there, not by naming the mutators by
+hand. Each one mutates through `RemarkStore` and then
 publishes — that pairing is the whole mechanism, there is no separate listener list or observer
 class. `RemarkStore`'s own `add`/`remove`/`edit`/`setSeverity`/`setBucket`/... stay public, and
-nothing in the language stops a caller from reaching past the nine functions and calling them
+nothing in the language stops a caller from reaching past the ten functions and calling them
 directly, so the rule is checked rather than assumed. The check used to list the mutator names by
 hand, which is exactly what let phase 5 add `setSeverity`/`setBucket` to `RemarkStore` without the
 old grep noticing: a hand-picked list has to be edited every time a mutator is added, and forgetting
@@ -1181,6 +1187,64 @@ current HEAD and says plainly when they differ, prints the file, then acts on it
 the file — nothing on this path confirms a read, which is the whole reason `PUBLISHED` is a separate
 state from `READ` — and it never posts anything to the review endpoint, because there is no review
 to answer.
+
+## A Remark About No File
+
+Phase 9's group three lets a remark be about the whole change instead of one file: a thought worth
+writing down before it is forgotten, that does not belong on any single line. The one way to write
+one is the toolbar button in the tool window, called Add General Remark. There is no `plugin.xml`
+action, no Tools menu entry, and no keystroke for it, on purpose. The tool window is the one place a
+person is looking at remarks rather than at code, which is where a thought about the whole change
+gets written. A second entry point can be added later if the first one turns out to be missed.
+
+**`RemarkEdits.kt`'s `addGeneralRemark(project, text, tag)`.** It stores a remark with a null path,
+both lines and both columns at zero, no `textHash`, no context, and the commit stamp, then publishes
+`REMARKS_CHANGED` like every other mutator in the file. It is the tenth mutation function, and the
+count in the file's own KDoc and in `CLAUDE.md` rule 3 moved with it. `action/AddRemarkAction.kt`'s
+`openGeneralRemarkInput` opens the popup for it, reusing `RemarkInputPanel` the same way the ordinary
+entry points do, through a small shared `buildInputPopup` helper the two now call. It cannot use
+`showInBestPositionFor(editor)`, since there is no editor to be near, so it shows the popup centred
+over the tool window's tree instead.
+
+**`render/PromptRenderer.kt`'s General section.** `RenderedRemark.path` stays a plain, non-null
+`String`; `""` is what "about no file" means, the same expressiveness a nullable `path` would give
+without touching every construction site and every existing test that builds one. `renderPrompt`
+splits the general remarks out by `path.isEmpty()` and renders them first, under one `## General`
+heading, before any file section. Each keeps its number, its tag, its level, its commit and its
+text, and none of them gets a code block. That last point matters more than it looks: a general
+remark has no `startLine`, no `textHash` and no context, which is exactly the shape the renderer
+already used for an orphan, the remark whose code could not be found. Routed through the ordinary
+path a general remark would read as broken instead of deliberate, so it is split out before that
+branch is ever reached.
+
+**`store/RemarkResolver.kt`'s `isAboutNoFile`.** `resolveOne` used to refuse any remark with no path
+and mark it orphaned, which was the one wrong answer in the whole resolver: a general remark is not
+a remark whose file disappeared. `isAboutNoFile(remark)` is `remark.path.isNullOrEmpty()`, checked
+before that refusal, and a remark it is true for resolves as `Exact(0, 0)`, the same "no sub-line
+range" pair a whole-line remark already carries. No new case was added to the `AnchorResult` sealed
+interface for this. A fourth case would have touched every `when` that reads one, in the tree, the
+payload collector and the gutter, to express something those readers already have to ask about on
+their own. `isAboutNoFile` is the one question they ask instead, and it is public for exactly that
+reason. The gutter needed no change at all: `RemarkGutter.placementsFor` already filters
+`it.path == path` against a real document's relative path, which is never empty, so a general remark
+was already skipped there before this task, and a test now pins that it stays skipped.
+
+**`ui/RemarksTree.kt`'s General group.** `buildTreeRoot` partitions the sorted rows on
+`path.isEmpty()` before the existing bucket logic ever runs, and puts every general remark under one
+group first, keyed `GENERAL_KEY` ("general") and labelled "General". The key is a bare word: a file
+key always starts with `file:` and a bucket key always starts with `bucket:`, so `"general"` cannot
+collide with either, and `RemarksPanel`'s selection restore, which matches groups by key, keeps
+working. A general remark's own bucket is ignored for this grouping, and that is a real cost, not an
+oversight. Put a general remark in a bucket and the bucket does not gather it. The reason it is still
+the right shape: a general remark is about the whole change, so the top of the tree is where it
+should be read, and a tree with the same remark reachable from two places is worse than one that
+ignores a field on it. `docs/ideas.md` already names this the layered-ordering question the tree
+answered once before, for buckets above files.
+
+**`store/RemarkHistory.kt`'s heading.** A general remark's archived heading reads `**(general)**`
+and prints no `lines` part at all, since `positionLabel` has nothing to describe for a remark with no
+line range. This reuses the same word the renderer's `## General` heading and the tree's
+`GENERAL_KEY` group use for the same kind of remark.
 
 ## The Shared Review Session
 
