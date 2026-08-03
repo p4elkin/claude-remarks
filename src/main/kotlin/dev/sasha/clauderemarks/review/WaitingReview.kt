@@ -8,13 +8,28 @@ import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import java.nio.file.Files
 import java.nio.file.Path
 
+/**
+ * How far a review has got. A review in [Sent] has had its handoff file written and carries the ids
+ * that were written, so the read acknowledgement knows what to mark sent. A sealed pair rather than
+ * a nullable id list, so "ids exist only after a send" is not a rule a caller can forget.
+ */
+sealed interface ReviewPhase {
+    object Waiting : ReviewPhase
+    data class Sent(val ids: List<String>, val at: Long) : ReviewPhase
+}
+
 /** One waiting review: the skill's session id, the label it sent, and where the handoff file will land. */
 data class WaitingReviewState(
     val sessionId: String,
     val label: String,
     val outputPath: Path,
     val startedAt: Long,
-)
+    val deadlineAt: Long,
+    val phase: ReviewPhase = ReviewPhase.Waiting,
+) {
+    /** Past its deadline, so the agent that asked for it is presumed gone. */
+    fun isStale(now: Long = System.currentTimeMillis()): Boolean = now >= deadlineAt
+}
 
 /**
  * What a start request produces. Accepted also covers an honest retry of the same session id,
@@ -37,11 +52,20 @@ internal fun startOrConflict(
     current: WaitingReviewState?,
     session: String,
     label: String,
+    // Defaulted here, not required, so WaitingReviewService.start (unchanged until task 4) keeps
+    // compiling with its own three-argument call. 1800 matches the skill's own literal timeout and
+    // section 3's "absent means 1800 seconds" clamp default.
+    deadlineSeconds: Long = 1800,
+    now: Long = System.currentTimeMillis(),
     outputPath: () -> Path,
 ): StartResult = when {
     current == null ->
-        StartResult.Accepted(WaitingReviewState(session, label, outputPath(), System.currentTimeMillis()))
+        StartResult.Accepted(WaitingReviewState(session, label, outputPath(), now, now + deadlineSeconds * 1000))
     current.sessionId == session -> StartResult.Accepted(current)
+    // Same-session retry is checked first: a retry always gets its own state back, even a late one.
+    // A different session gets in only when the current review is really dead.
+    current.isStale(now) ->
+        StartResult.Accepted(WaitingReviewState(session, label, outputPath(), now, now + deadlineSeconds * 1000))
     else -> StartResult.Conflict(current)
 }
 

@@ -899,7 +899,7 @@ output path back, even after the deadline, so a slow skill never starts polling 
 plugin has just replaced. Staleness second means a *different* session gets in only when the current
 review is really dead.
 
-- [ ] add the failing tests to `WaitingReviewTest.kt`. Plain JUnit, no fixture:
+- [x] add the failing tests to `WaitingReviewTest.kt`. Plain JUnit, no fixture:
   - `a review is stale once its deadline has passed` — build a state with `deadlineAt = 1000`, assert
     `isStale(999)` is false, `isStale(1000)` is true, `isStale(1001)` is true. The boundary matters:
     the scheduled task in task 4 fires exactly at the deadline, and with a `>` comparison it would
@@ -915,16 +915,16 @@ review is really dead.
     `deadlineSeconds = 60`, assert `startedAt == 5000` and `deadlineAt == 65000`. Two separate
     `System.currentTimeMillis()` calls would make these disagree by a millisecond or two, which is
     harmless in production and exactly the kind of drift a reader later has to rule out.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewTest"` — expect a
       compile failure
-- [ ] implement. Every existing caller of `startOrConflict` and of the `WaitingReviewState`
+- [x] implement. Every existing caller of `startOrConflict` and of the `WaitingReviewState`
       constructor has to pass the new arguments; the compiler finds them all.
-- [ ] the same command passes
-- [ ] **mutation:** change `isStale` to `now > deadlineAt` — `a review is stale once its deadline has
+- [x] the same command passes
+- [x] **mutation:** change `isStale` to `now > deadlineAt` — `a review is stale once its deadline has
       passed` must fail on the boundary case. Then move the staleness branch above the same-session
       branch — `a retry of the same session gets the same state back even after the deadline` must
       fail. Restore both.
-- [ ] commit: `feat: a review carries a phase and a deadline` — stage exactly
+- [x] commit: `feat: a review carries a phase and a deadline` — stage exactly
       `src/main/kotlin/dev/sasha/clauderemarks/review/WaitingReview.kt` and
       `src/test/kotlin/dev/sasha/clauderemarks/review/WaitingReviewTest.kt`
 
