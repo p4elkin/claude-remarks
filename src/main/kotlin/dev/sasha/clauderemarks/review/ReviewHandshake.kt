@@ -46,13 +46,26 @@ object ReviewToken {
     val value: String = UUID.randomUUID().toString()
 }
 
-private fun escapeJson(value: String): String =
-    value.replace("\\", "\\\\").replace("\"", "\\\"")
+/**
+ * Everything JSON forbids inside a string literal, in one pass: the two structural characters and
+ * every control character below U+0020. A newline is a legal character in a POSIX path and an
+ * illegal one inside a JSON string, so a project directory called `we"ird\` or one holding a
+ * newline both have to come out as escapes. `\uXXXX` covers all of the control characters with one
+ * branch instead of a short-escape table for `\n`, `\t` and the rest.
+ */
+private fun escapeJson(value: String): String = buildString(value.length) {
+    for (c in value) when {
+        c == '\\' -> append("\\\\")
+        c == '"' -> append("\\\"")
+        c < ' ' -> append("\\u%04x".format(c.code))
+        else -> append(c)
+    }
+}
 
 /**
  * Hand-built rather than run through a JSON library, because the reader on the other side is `jq`
- * in a shell script, not a Kotlin parser. Escaping is still required: a path holding a `"` or `\`
- * would otherwise unbalance the quotes and `jq` could not read the file at all.
+ * in a shell script, not a Kotlin parser. Escaping is still required: a path holding a `"`, a `\`
+ * or a control character would otherwise produce a file `jq` cannot read at all.
  */
 fun renderHandshake(path: String, port: Int, token: String): String =
     """{"path": "${escapeJson(path)}", "port": $port, "token": "${escapeJson(token)}"}"""

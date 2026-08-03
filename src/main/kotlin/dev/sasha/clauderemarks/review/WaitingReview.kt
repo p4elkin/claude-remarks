@@ -183,13 +183,21 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * [session] is what stops it stamping the wrong review. The send renders off the EDT, so the
      * review it snapshotted can end and a different one start while it works; marking that new
      * review Sent would claim ids whose file was written into the old review's directory.
+     *
+     * **Returns false when there was nothing left to stamp**, and the caller has to say so rather
+     * than claim a handoff. The write itself cannot be done under this lock — it is a filesystem
+     * call and [current] must never block the EDT behind one — so the deadline task can end the
+     * review in the gap between the send's liveness check and this call. Then the file exists but
+     * no `Sent` phase does, the later `ack read` is answered `no-review`, and the remarks stay
+     * pending. That is the safe direction; a balloon saying the remarks were handed over is not.
      */
     @Synchronized
-    internal fun markSent(session: String, ids: List<String>) {
-        val acting = state ?: return
-        if (acting.sessionId != session) return
+    internal fun markSent(session: String, ids: List<String>): Boolean {
+        val acting = state ?: return false
+        if (acting.sessionId != session) return false
         state = acting.copy(phase = ReviewPhase.Sent(ids))
         notifyPanel()
+        return true
     }
 
     /**

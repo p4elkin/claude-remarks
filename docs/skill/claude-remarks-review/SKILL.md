@@ -50,8 +50,9 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
 3. **POST to the start endpoint.** **Run steps 3 to 6 as one Bash call, in one shell.** The Bash
    tool starts a new shell for every call, and nothing crosses that boundary: no variables and no
    shell functions. Steps 4 and 5 are decisions about the answer this step writes to a file, so they
-   cost nothing extra inside the same shell, and step 6 needs `$session`, `$port`, `$token`, `$root`,
-   `$output` and `deadline_seconds`, all set here or in step 2. Split across calls, step 6 posts to
+   cost nothing extra inside the same shell, and step 6 needs `$session`, `$port`, `$token`, `$root`
+   and `deadline_seconds` — all set here or in step 2 — plus `$output`, which step 6 reads out of the
+   response body this step saved. Split across calls, step 6 posts to
    `http://127.0.0.1:/api/claude-remarks/ack` with an empty token and waits for a file called `""`.
 
    **Work out the file list before you POST, and check it is not empty.** The IDE opens the paths
@@ -115,6 +116,7 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    ```sh
    session=$(uuidgen)
    deadline_seconds=1800
+   label="what is being reviewed, in a few words"   # replace this with the real thing
    body=$(jq -n --arg session "$session" --arg label "$label" --arg project "$root" \
      --argjson files "$files_json" --argjson deadline "$deadline_seconds" \
      '{session:$session, label:$label, project:$project, files:$files, deadlineSeconds:$deadline}')
@@ -179,10 +181,16 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
      because it could not create its temp directory. The body carries `detail`. Report it and stop;
      no review is waiting and nothing will be written.
 
-6. **Wait for the handoff file, tell a rejection from remarks, then acknowledge.** Take `output`
-   from the `waiting` response.
+6. **Wait for the handoff file, tell a rejection from remarks, then acknowledge.** The first line
+   below is what puts `output` in hand: it is the path from the `waiting` response of step 3, read
+   back out of the file `curl` saved it to. Everything after it waits on that path, so an empty
+   `$output` makes the loop test `[ ! -e "" ]` and poll silently until the deadline.
 
    ```sh
+   output=$(jq -r .output /tmp/claude-remarks-start.json)
+   [ -n "$output" ] && [ "$output" != null ] \
+     || { echo "the waiting response carried no output path"; exit 1; }
+
    ack() {
      jq -n --arg session "$session" --arg project "$root" --arg event "$1" \
        '{session:$session, project:$project, event:$event}' \

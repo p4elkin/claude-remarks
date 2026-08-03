@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermissions
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -41,6 +42,17 @@ class ReviewHandshakeTest {
         // quotes, which jq (the reader on the skill side) cannot parse.
         val withoutEscapes = out.replace("\\\\", "").replace("\\\"", "")
         assertEquals(0, withoutEscapes.count { it == '"' } % 2)
+    }
+
+    @Test
+    fun `a project path holding a control character is escaped`() {
+        val out = renderHandshake("/a/we\nird\tpath", 63342, "token")
+
+        // A raw newline inside a JSON string literal is invalid JSON, so jq would refuse the whole
+        // file — the same class of failure as the unescaped quote above, with nothing visible to
+        // hint at the cause.
+        assertFalse(out, out.any { it < ' ' })
+        assertTrue(out, out.contains("we\\u000aird\\u0009path"))
     }
 
     @Test

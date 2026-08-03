@@ -74,8 +74,23 @@ fun sendToWaitingReview(project: Project) {
                 )
                 return@finishOnUiThread
             }
-            WaitingReviewService.getInstance(project).markSent(live.sessionId, prepared.ids)
             val count = prepared.ids.size
+            // The write cannot happen inside the service's lock — it is a filesystem call, and
+            // current() must never block the EDT behind one — so the deadline task can still end
+            // the review between the check above and this call. markSent says whether it found the
+            // review to stamp, and a "Wrote N remarks" balloon for a review with no Sent phase
+            // would be a lie: the ack that follows is answered no-review and nothing is marked
+            // sent. So the two outcomes get two messages.
+            if (!WaitingReviewService.getInstance(project).markSent(live.sessionId, prepared.ids)) {
+                notifyRemarks(
+                    project,
+                    "Wrote $count remark${plural(count)}, but the review ended first — its " +
+                        "deadline passed. They are still pending, so send them again if Claude " +
+                        "Code is still waiting.",
+                    NotificationType.WARNING,
+                )
+                return@finishOnUiThread
+            }
             notifyRemarks(
                 project,
                 "Wrote $count remark${plural(count)} for Claude Code. " +

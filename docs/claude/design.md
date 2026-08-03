@@ -1191,6 +1191,16 @@ current; the remarks stay `PENDING`. Only a `read` acknowledgement — `finishRe
 ids)`. This is also why no ninth mutation function marks a remark pending again: nothing is ever
 marked sent early, so there is nothing to undo when a review is abandoned or rejected after a send.
 
+**One gap in that handover stays open, and the balloon is what makes it honest.** The send checks the
+review is still live on the EDT, then writes, then stamps the phase. The write cannot sit inside the
+service's lock — it is a filesystem call, and `current()` must never block the EDT behind one — so the
+deadline task can end the review in the gap between the check and the stamp. `markSent` returns
+`false` when it finds no review to stamp, and the send then says the remarks were written but the
+review ended first and they are still pending, instead of the usual "Waiting for it to read them."
+The file does exist, so the skill still reads the remarks; its `ack read` is answered `no-review` and
+nothing is marked sent, which is the direction where nothing is lost. Closing the gap for real would
+mean holding the lock across the write, and that trade is worse than the message.
+
 **The deadline is declared by the skill, not configured in the plugin, and it is clamped at the
 endpoint.** The skill already had the number as a literal in its own wait loop; a plugin setting
 would be a second source of truth for the same value, and the two drifting apart is bad in both
