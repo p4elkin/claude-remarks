@@ -1,12 +1,22 @@
 package dev.sasha.clauderemarks.review
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
+
+/** What an acknowledgement did, so the endpoint can answer honestly. */
+enum class AckOutcome { OK, NO_REVIEW, NOT_SENT }
+
+/** What ended a review. STALE is the deadline; the other two come from the skill. */
+enum class ReviewEnd { READ, ABANDONED, STALE }
 
 /**
  * How far a review has got. A review in [Sent] has had its handoff file written and carries the ids
@@ -52,10 +62,10 @@ internal fun startOrConflict(
     current: WaitingReviewState?,
     session: String,
     label: String,
-    // Defaulted here, not required, so WaitingReviewService.start (unchanged until task 4) keeps
-    // compiling with its own three-argument call. 1800 matches the skill's own literal timeout and
-    // section 3's "absent means 1800 seconds" clamp default.
-    deadlineSeconds: Long = 1800,
+    // No default: WaitingReviewService.start (task 4) now always forwards its own required
+    // deadlineSeconds, so a default here would only let a direct test call silently inherit a
+    // value nobody chose — the exact thing a required parameter exists to prevent.
+    deadlineSeconds: Long,
     now: Long = System.currentTimeMillis(),
     outputPath: () -> Path,
 ): StartResult = when {
@@ -85,12 +95,22 @@ internal fun startOrConflict(
  * so this is a written-down, accepted bend of "guard every mutable field", not an oversight.
  */
 @Service(Service.Level.PROJECT)
-class WaitingReviewService(private val project: Project) {
+class WaitingReviewService(private val project: Project) : Disposable {
 
     @Volatile
     private var state: WaitingReviewState? = null
 
-    fun current(): WaitingReviewState? = state
+    // The task scheduled for the current state's deadline. Re-scheduled on every accepted start
+    // (scheduleExpiry cancels the previous one first) and cancelled on clear() and dispose().
+    @Volatile
+    private var expiry: ScheduledFuture<*>? = null
+
+    /**
+     * Masks a stale review everywhere at once: the Send button, the banner, and a second start
+     * request all read this. One comparison of two longs — no lock, no IO, so the EDT never
+     * blocks on it.
+     */
+    fun current(): WaitingReviewState? = state?.takeIf { !it.isStale() }
 
     /**
      * [outputPath] is null in production: the directory is created only after the decision below
@@ -100,21 +120,106 @@ class WaitingReviewService(private val project: Project) {
      * it controls, once to read the written file back and once at a path whose parent is a regular
      * file so the write throws. Without this parameter that failure-path test — the only guard on
      * "nothing is marked sent unless the handover succeeded" — would be impossible to write.
+     *
+     * [deadlineSeconds] has no default: every existing caller has to say how long it is willing to
+     * wait, rather than silently inheriting a number nobody chose for that call site.
      */
     @Synchronized
-    internal fun start(session: String, label: String, outputPath: Path? = null): StartResult {
-        val result = startOrConflict(state, session, label) {
+    internal fun start(
+        session: String,
+        label: String,
+        deadlineSeconds: Long,
+        outputPath: Path? = null,
+    ): StartResult {
+        val result = startOrConflict(state, session, label, deadlineSeconds) {
             outputPath ?: Files.createTempDirectory("claude-remarks-review-")
         }
-        if (result is StartResult.Accepted) state = result.state
+        if (result is StartResult.Accepted) {
+            state = result.state
+            scheduleExpiry(result.state)
+        }
         notifyPanel()
         return result
+    }
+
+    /**
+     * Records that the handoff file was written and what it carries, without deciding anything
+     * about the store. Uses [state] rather than [current]: the send already checked the review was
+     * live before it wrote, and a review that turned stale in the millisecond since still has to
+     * record what was written, so an abandoned acknowledgement afterwards can name the count.
+     */
+    @Synchronized
+    fun markSent(ids: List<String>) {
+        state = state?.copy(phase = ReviewPhase.Sent(ids, System.currentTimeMillis()))
+        notifyPanel()
+    }
+
+    /**
+     * Ends the review the skill is asking about, if there is one. Returns the state it acted on,
+     * because the caller (review/SendReview.kt) needs the ids and the count for the store mutation
+     * and the balloon.
+     */
+    @Synchronized
+    fun acknowledge(session: String, end: ReviewEnd): Pair<AckOutcome, WaitingReviewState?> {
+        val acting = state
+        if (acting == null || acting.sessionId != session) return AckOutcome.NO_REVIEW to null
+        // A read acknowledgement for a file that was never written is a bug on one of the two
+        // sides, not a transient failure, so it must not silently clear a live review.
+        if (end == ReviewEnd.READ && acting.phase == ReviewPhase.Waiting) return AckOutcome.NOT_SENT to null
+        state = null
+        expiry?.cancel(false)
+        expiry = null
+        notifyPanel()
+        return AckOutcome.OK to acting
+    }
+
+    /**
+     * The deadline backstop for a screen nothing else repaints: [current] already hides a stale
+     * review from every reader, but the banner only repaints when something publishes. Returns the
+     * state it removed, or null if there was nothing to remove — no session argument, because a
+     * newer review that replaced the one this task was scheduled for is not stale, and this is then
+     * correctly a no-op.
+     */
+    @Synchronized
+    fun expireIfStale(): WaitingReviewState? {
+        val acting = state ?: return null
+        if (!acting.isStale()) return null
+        state = null
+        expiry?.cancel(false)
+        expiry = null
+        notifyPanel()
+        return acting
+    }
+
+    /**
+     * One `schedule` per accepted review, not a repeating poll — a repeating tick would run for the
+     * whole IDE session for a feature idle almost all of the time. Cancelling the previous future
+     * first means re-scheduling the same deadline on a same-session retry is harmless, with no
+     * branch to get wrong.
+     *
+     * In this task the scheduled body calls only [expireIfStale]; review/SendReview.kt's
+     * expireStaleReview(project) — the same transition plus the balloon — replaces this call once
+     * that function exists.
+     */
+    private fun scheduleExpiry(accepted: WaitingReviewState) {
+        expiry?.cancel(false)
+        expiry = AppExecutorUtil.getAppScheduledExecutorService().schedule(
+            { if (!project.isDisposed) expireIfStale() },
+            (accepted.deadlineAt - System.currentTimeMillis()).coerceAtLeast(0),
+            TimeUnit.MILLISECONDS,
+        )
     }
 
     @Synchronized
     fun clear() {
         state = null
         notifyPanel()
+    }
+
+    // cancel(false), never cancel(true): the scheduled body is a field swap, so interrupting a
+    // running one buys nothing and can only surprise the shared app-wide pool.
+    override fun dispose() {
+        expiry?.cancel(false)
     }
 
     // notifyRemarksChanged uses syncPublisher, so its listener runs on whichever thread called

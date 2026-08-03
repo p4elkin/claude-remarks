@@ -142,7 +142,12 @@ class ReviewRestService : RestService() {
                 writer.name("open").beginArray()
                 open.forEach { writer.value(it.first.toString()) }
                 writer.endArray()
-            } else when (val result = WaitingReviewService.getInstance(project).start(session, label)) {
+            } else when (
+                // 1800 is the skill's own long-standing literal timeout. Task 5 replaces this with
+                // the request's own declared deadline, clamped at this boundary; this call is
+                // provisional only until that task wires the real value through.
+                val result = WaitingReviewService.getInstance(project).start(session, label, 1800L)
+            ) {
                 is StartResult.Accepted -> {
                     writer.name("status").value("waiting")
                     writer.name("output").value(handoffFile(result.state.outputPath).toString())

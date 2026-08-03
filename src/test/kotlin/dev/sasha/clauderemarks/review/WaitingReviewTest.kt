@@ -15,7 +15,7 @@ class WaitingReviewTest {
 
     @Test
     fun `a start with nothing waiting is accepted`() {
-        val result = startOrConflict(current = null, session = "s1", label = "review one", now = 1000L) { somePath }
+        val result = startOrConflict(current = null, session = "s1", label = "review one", deadlineSeconds = 1800, now = 1000L) { somePath }
 
         assertEquals(
             StartResult.Accepted(WaitingReviewState("s1", "review one", somePath, startedAt = 1000L, deadlineAt = 1_801_000L)),
@@ -27,7 +27,7 @@ class WaitingReviewTest {
     fun `the same session starting again gets the same output path back`() {
         val waiting = WaitingReviewState("s1", "review one", somePath, startedAt = 1000L, deadlineAt = Long.MAX_VALUE)
 
-        val result = startOrConflict(current = waiting, session = "s1", label = "a different label") {
+        val result = startOrConflict(current = waiting, session = "s1", label = "a different label", deadlineSeconds = 1800) {
             error("must not create a new output path when the same session retries")
         }
 
@@ -38,7 +38,7 @@ class WaitingReviewTest {
     fun `a live review still conflicts with a different session`() {
         val waiting = WaitingReviewState("s1", "review one", somePath, startedAt = 1000L, deadlineAt = Long.MAX_VALUE)
 
-        val result = startOrConflict(current = waiting, session = "s2", label = "review two") {
+        val result = startOrConflict(current = waiting, session = "s2", label = "review two", deadlineSeconds = 1800) {
             error("must not create an output path on a conflict")
         }
 
@@ -50,7 +50,7 @@ class WaitingReviewTest {
     fun `after clearing, a different session is accepted`() {
         val afterClear: WaitingReviewState? = null
 
-        val result = startOrConflict(current = afterClear, session = "s2", label = "review two", now = 2000L) { otherPath }
+        val result = startOrConflict(current = afterClear, session = "s2", label = "review two", deadlineSeconds = 1800, now = 2000L) { otherPath }
 
         assertEquals(
             StartResult.Accepted(WaitingReviewState("s2", "review two", otherPath, startedAt = 2000L, deadlineAt = 1_802_000L)),
@@ -84,7 +84,7 @@ class WaitingReviewTest {
     fun `a retry of the same session gets the same state back even after the deadline`() {
         val stale = WaitingReviewState("s1", "review one", somePath, startedAt = 0L, deadlineAt = 1000L)
 
-        val result = startOrConflict(current = stale, session = "s1", label = "a different label", now = 2000L) {
+        val result = startOrConflict(current = stale, session = "s1", label = "a different label", deadlineSeconds = 1800, now = 2000L) {
             error("must not create a new output path when the same session retries, even a late one")
         }
 

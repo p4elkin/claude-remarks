@@ -28,7 +28,7 @@ class SendReviewTest : BasePlatformTestCase() {
 
     fun testSendingWritesTheWholePromptToTheWaitingReviewsOutputPath() {
         val outputPath = Files.createTempDirectory("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         addRemark(project, "A.kt", LINES, 0..0, "a note about A", null)
 
         sendToWaitingReview(project)
@@ -39,7 +39,7 @@ class SendReviewTest : BasePlatformTestCase() {
 
     fun testSendingMarksTheRemarksSent() {
         val outputPath = Files.createTempDirectory("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         sendToWaitingReview(project)
@@ -50,7 +50,7 @@ class SendReviewTest : BasePlatformTestCase() {
 
     fun testSendingClearsTheWaitingReview() {
         val outputPath = Files.createTempDirectory("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         sendToWaitingReview(project)
@@ -63,7 +63,7 @@ class SendReviewTest : BasePlatformTestCase() {
         // The parent of outputPath is a regular file, so Files.createDirectories throws when the
         // write tries to create outputPath itself.
         val outputPath = Files.createTempFile("send-review-blocked", ".txt").resolve("subdir")
-        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         sendToWaitingReview(project)
@@ -75,7 +75,7 @@ class SendReviewTest : BasePlatformTestCase() {
 
     fun testSendingWithNothingPendingLeavesTheReviewWaitingAndWritesNoFile() {
         val outputPath = Files.createTempDirectory("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
 
         sendToWaitingReview(project)
         settle()
@@ -86,7 +86,7 @@ class SendReviewTest : BasePlatformTestCase() {
 
     fun testRejectingWritesTheMarkerAndClearsTheReview() {
         val outputPath = Files.createTempDirectory("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
 
         rejectWaitingReview(project)
 
@@ -97,7 +97,7 @@ class SendReviewTest : BasePlatformTestCase() {
 
     fun testRejectingLeavesEveryRemarkPending() {
         val outputPath = Files.createTempDirectory("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         rejectWaitingReview(project)
@@ -109,7 +109,7 @@ class SendReviewTest : BasePlatformTestCase() {
         // The parent of outputPath is a regular file, so Files.createDirectories throws when the
         // write tries to create outputPath itself.
         val outputPath = Files.createTempFile("reject-review-blocked", ".txt").resolve("subdir")
-        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         rejectWaitingReview(project)

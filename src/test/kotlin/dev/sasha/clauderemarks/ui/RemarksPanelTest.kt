@@ -278,7 +278,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
     fun testTheBannerShowsTheWaitingLabel() {
         val panel = panel()
         val outputPath = Files.createTempDirectory("remarks-panel-test")
-        WaitingReviewService.getInstance(project).start("s1", "a review label", outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a review label", 1800, outputPath)
 
         panel.refresh()
         settle()

@@ -1010,7 +1010,7 @@ whole body is a field swap buys nothing and can only surprise the shared pool. T
 first line is `if (project.isDisposed) return`, because cancellation cannot catch a task already
 handed to a thread. See [section 6](#6-still-to-verify).
 
-- [ ] write the failing tests in `WaitingReviewServiceTest.kt`. `BasePlatformTestCase`, and it must
+- [x] write the failing tests in `WaitingReviewServiceTest.kt`. `BasePlatformTestCase`, and it must
       clear `WaitingReviewService` in **both** `setUp` and `tearDown` — the light fixture project is
       shared across test classes, and `CLAUDE.md` records what that costs when a class forgets.
   - `a review past its deadline is not current` — `start(session, label, deadlineSeconds = 0, outputPath = tempDir)`,
@@ -1029,18 +1029,18 @@ handed to a thread. See [section 6](#6-still-to-verify).
   - `expireIfStale removes a review past its deadline and nothing else` — with `deadlineSeconds = 0`
     it returns the state; started again with a long deadline it returns null and leaves the review
     alone
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewServiceTest"` — expect
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewServiceTest"` — expect
       a compile failure
-- [ ] implement
-- [ ] the same command passes, and `./gradlew test --tests "dev.sasha.clauderemarks.review.*"` still
+- [x] implement
+- [x] the same command passes, and `./gradlew test --tests "dev.sasha.clauderemarks.review.*"` still
       passes — `SendReviewTest` and `ReviewEndpointSmokeTest` call `start`, so its new parameter
       reaches them
-- [ ] **mutation:** drop the `takeIf { !it.isStale() }` from `current()` — `a review past its deadline
+- [x] **mutation:** drop the `takeIf { !it.isStale() }` from `current()` — `a review past its deadline
       is not current` must fail. Drop the session comparison in `acknowledge` — `an acknowledgement
       for another session changes nothing` must fail. Let a `READ` acknowledgement clear a `Waiting`
       review — `a read acknowledgement on a waiting review changes nothing` must fail. Restore all
       three.
-- [ ] commit: `feat: the waiting review can be marked sent, acknowledged and expired` — stage exactly
+- [x] commit: `feat: the waiting review can be marked sent, acknowledged and expired` — stage exactly
       the two files above
 
 ### Task 5: The endpoint's second action
