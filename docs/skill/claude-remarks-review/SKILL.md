@@ -67,6 +67,7 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    **One commit** — the shape that is easy to get wrong. Use `git show`, never `git diff`:
 
    ```sh
+   commit=PUT_THE_COMMIT_ID_HERE          # this line is not optional
    files_json=$(git show --name-only --format= "$commit" \
      | jq -R -s -c 'split("\n") | map(select(length > 0))')
    ```
@@ -79,6 +80,8 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    diverged", the same distinction `git log` uses:
 
    ```sh
+   base=PUT_THE_BASE_HERE                 # neither is optional
+   tip=PUT_THE_TIP_HERE
    files_json=$(git diff --name-only "$base"..."$tip" \
      | jq -R -s -c 'split("\n") | map(select(length > 0))')
    ```
@@ -101,13 +104,27 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    expects. Now check the list before sending it:
 
    ```sh
+   # about_a_diff=no only for the "nothing in particular" shape above.
+   about_a_diff=yes
    files_count=$(printf %s "$files_json" | jq 'length')
+   if [ "$about_a_diff" = yes ] && [ "$files_count" -eq 0 ]; then
+     echo "the file-list command found nothing, so there is nothing to review — not starting a review"
+     exit 1
+   fi
+   # The IDE keeps at most 20 paths and says nothing about the rest, so cap here and be honest.
+   if [ "$files_count" -gt 20 ]; then
+     echo "note: $files_count files, the IDE opens only the first 20"
+     files_json=$(printf %s "$files_json" | jq -c '.[0:20]')
+     files_count=20
+   fi
    ```
 
-   **If `files_count` is 0 and the review was about a commit, a range, or the current changes, stop
-   here and say so.** Do not POST. An empty list means the command found nothing — a wrong commit id,
-   a range the wrong way round, or a clean tree — and starting a review at that point produces the
-   silent-nothing case above. Report which shape you used and the command you ran.
+   **Both guards are code on purpose.** They were prose once — "if the count is 0, stop here" — and
+   prose cannot stop a script. Step 3 mandates one Bash call, so there is no moment between building
+   the list and posting at which the agent gets to decide; whatever the shell does not check, nothing
+   checks. An empty list would then reach the endpoint, the banner would appear over an IDE where
+   nothing opened, and this skill would poll for the whole deadline. Found twice, the second time
+   after the first fix.
 
    **What the person will actually see.** For uncommitted work the IDE opens one real diff window
    holding just these files, with next-file navigation inside it. For a commit or a range it opens a
@@ -120,14 +137,37 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    session=$(uuidgen)
    deadline_seconds=1800
    label="what is being reviewed, in a few words"   # replace this with the real thing
+   start_resp=$(mktemp) ; ack_resp=$(mktemp)
    body=$(jq -n --arg session "$session" --arg label "$label" --arg project "$root" \
      --argjson files "$files_json" --argjson deadline "$deadline_seconds" \
      '{session:$session, label:$label, project:$project, files:$files, deadlineSeconds:$deadline}')
-   http_code=$(curl -s -o /tmp/claude-remarks-start.json -w '%{http_code}' \
+   http_code=$(curl -s -o "$start_resp" -w '%{http_code}' \
      -X POST "http://127.0.0.1:$port/api/claude-remarks/start" \
      -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" \
      -d "$body")
+
+   # Print both before deciding anything: steps 4 and 5 are about these two values, and if the
+   # script does not print them the agent never sees them.
+   echo "start: http $http_code"
+   cat "$start_resp" ; echo
+   start_status=$(jq -r '.status // empty' "$start_resp" 2>/dev/null)
+   if [ "$http_code" != 200 ] || [ "$start_status" != waiting ]; then
+     echo "the review did not start — see the status above and step 4 or 5 for what it means"
+     exit 1
+   fi
    ```
+
+   **`mktemp`, not a fixed path in `/tmp`.** Two review sessions running at once would otherwise
+   overwrite each other's response file, and one could read the other's `output` path and wait on the
+   wrong review. A predictable name in a shared temp directory can also be pre-created as a symlink by
+   another local user. The plugin refuses predictable paths for the handoff file for exactly these two
+   reasons; the skill side has to hold the same line.
+
+   **The `http_code` and `status` check is code, not prose, for the same reason the file-list guard
+   is.** Steps 4 and 5 below say what each outcome means and what to tell the person — they are for
+   *reporting*, and they cannot gate anything, because the whole flow is one shell. Without this
+   check a `conflict` or a 403 would fall straight through to the wait loop and the only thing you
+   would see is "the waiting response carried no output path".
 
    `$label` is a short description of what is being reviewed — shown to the person in the IDE
    banner. `$session` is invented once per run of this skill, so a retry of the same run reuses
@@ -190,14 +230,14 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    `$output` makes the loop test `[ ! -e "" ]` and poll silently until the deadline.
 
    ```sh
-   output=$(jq -r .output /tmp/claude-remarks-start.json)
+   output=$(jq -r .output "$start_resp")
    [ -n "$output" ] && [ "$output" != null ] \
      || { echo "the waiting response carried no output path"; exit 1; }
 
    ack() {
      jq -n --arg session "$session" --arg project "$root" --arg event "$1" \
        '{session:$session, project:$project, event:$event}' \
-     | curl -s -o /tmp/claude-remarks-ack.json -w '%{http_code}' \
+     | curl -s -o "$ack_resp" -w '%{http_code}' \
          -X POST "http://127.0.0.1:$port/api/claude-remarks/ack" \
          -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-
    }
@@ -212,12 +252,12 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    cat "$output" || { echo "the handoff file could not be read"; exit 1; }
    trap - EXIT INT TERM
 
-   if grep -q '^<!-- claude-remarks: rejected -->' "$output"; then
+   if [ "$(head -1 "$output")" = '<!-- claude-remarks: rejected -->' ]; then
      echo "the person rejected this review; no remarks were sent"
      exit 0
    fi
    ack_code=$(ack read)
-   ack_answer=$(jq -r .status /tmp/claude-remarks-ack.json 2>/dev/null)
+   ack_answer=$(jq -r .status "$ack_resp" 2>/dev/null)
    echo "ack read: http $ack_code, status $ack_answer"
    ```
 
@@ -261,12 +301,16 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
      case instead. `${deadline_seconds:-1800}` is a seatbelt for exactly that mistake: split across
      calls, the bare arithmetic would leave `deadline` empty, `[ "$(date +%s)" -ge "" ]` would never
      fire, and the loop would poll silently until the Bash tool's own timeout.
-   - **The rejection check comes before the acknowledgement, and it is anchored to the start of
-     the line.** `grep -q '^<!-- claude-remarks: rejected -->'` — without the `^` a remark quoting
-     that string in its own text would be read as a rejection. There is nothing to acknowledge on
-     a rejection: the IDE cleared the review as it wrote the file, so an `ack read` would only be
-     answered `no-review`. The trap is cleared before this branch, so a rejection does not also
-     report the agent as having left.
+   - **The rejection check comes before the acknowledgement, and it compares the file's FIRST line,
+     not any line.** `[ "$(head -1 "$output")" = '<!-- claude-remarks: rejected -->' ]`. This was
+     `grep -q '^<!-- … -->'` and that was wrong: `^` anchors to the start of *a* line, and a remark's
+     own text starts lines too. The prompt renderer escapes fences and heading characters but not
+     `<!--`, so a remark that quotes the marker — writing about this protocol is enough — was read as
+     a rejection, and a real review was thrown away with "the person rejected this review". The
+     plugin's contract has always been first-line-only, so match that. There is nothing to
+     acknowledge on a rejection: the IDE cleared the review as it wrote the file, so an `ack read`
+     would only be answered `no-review`. The trap is cleared before this branch, so a rejection does
+     not also report the agent as having left.
 
    **A rejection is a finished review, not a failure.** `exit 0`, and report it plainly to the
    person the way any other answer is reported. Do not retry, do not start a second review, and do
