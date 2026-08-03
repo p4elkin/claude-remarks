@@ -1133,3 +1133,63 @@ I would take the first. Three reasons, all of them about work already done:
 If the first version is built and deep paths still feel wrong, the middle option is to grey a
 *shortened* directory — last two segments with a leading ellipsis — which is one string function and
 no change to the tree's shape.
+
+## A remark should point at the selection, not at the whole line
+
+Noticed by Sasha on 2026-08-03. A remark stores `startLine` and `endLine` and nothing finer, so
+selecting three words gets you the whole line they sit on. In code that is usually tolerable — a line
+is a small enough unit to be a useful pointer. In markdown it is not: a paragraph is one long line,
+so "this phrase is wrong" becomes a remark about six sentences, and the reader has to guess which
+part was meant.
+
+This matters more now than it did, for two reasons. Plan review is moving into IntelliJ, and a plan
+is markdown. And [[Annotate a selection inside a rendered markdown preview]] hands back character
+offsets from `md-src-pos`, not line numbers — so that idea cannot be built honestly on a line-only
+model. Treat this as its prerequisite rather than a separate wish.
+
+### The offsets are already there and get thrown away
+
+`action/AddRemarkAction.kt:150`:
+
+```kotlin
+fun selectedLines(document: Document, selectionStart: Int, selectionEnd: Int): IntRange {
+    val startLine = document.getLineNumber(selectionStart)
+    val endLine = document.getLineNumber(selectionEnd)
+    ...
+}
+```
+
+`selectionStart` and `selectionEnd` are character offsets into the document. The function converts
+them to line numbers and discards the rest. Nothing upstream loses the information — it is dropped
+right here, on purpose, because line numbers were all the model could hold.
+
+### What has to change
+
+- **The model.** `model/RemarkState.kt` gains a start and an end column, defaulting to 0 and the
+  line's length. `BaseState` omits default values when serializing, so every remark stored before
+  this keeps loading and reads as "the whole line", which is exactly what it meant.
+- **The anchor, and this is the part that gets *better*.** `anchor/Anchoring.kt` hashes whole lines
+  (`hashLines`). Hashing the selected text instead makes the anchor a fingerprint of the phrase, which
+  survives the line being reflowed — and reflowing is precisely what happens to a markdown paragraph.
+  A line-level hash breaks on any edit anywhere in the paragraph; a phrase-level one does not.
+- **The prompt.** `render/PromptRenderer.kt` marks whole lines with `>`. For a sub-line remark the
+  useful output is the quoted phrase itself, not the paragraph containing it. This is the change that
+  decides whether the feature is worth anything: the whole point is that Claude reads the exact words.
+- **The tree's position label.** `ui/RemarksTree.kt` prints `9-9`. A sub-line remark wants something
+  like `9:12-9:38`, or just the quoted phrase, which is more readable than either.
+- **The history file** renders remarks too and has the same assumption.
+
+### What deliberately does not change
+
+**The gutter icon stays per line.** IntelliJ's gutter is a line-level surface — there is no such thing
+as an icon at a column. A sub-line remark shows its icon on the line it starts on, the same as today.
+If the range should be visible in the text, that is a `RangeHighlighter` with an underline attribute,
+which is a separate, optional piece of work — do not confuse it with this one.
+
+### The honest cost
+
+A character range is more fragile than a line range under editing, and the two-pass resolve in
+`anchor/` was designed around lines. The phrase hash offsets some of that, but not all: a remark on
+three words is orphaned by an edit to those three words, where the line version survived. That is
+arguably correct — if the words changed, the remark about them is stale — but it will orphan more
+remarks than today, and the orphan path has to stay good enough to be useful when it does.
