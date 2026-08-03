@@ -1011,3 +1011,51 @@ The entry point, and then every place that assumes a remark has a path.
 Phase 7 already carries two subjects — the acknowledgement signals and opening the diff. This is a
 third, it touches the renderer and the tree rather than the review handoff, and it has a real design
 question in it (the orphan case above). It should be its own phase.
+
+## The file rows in the tree show the whole path, so the file name is what gets cropped
+
+Reported by hand on 2026-08-03. A file group row is labelled with the whole project-relative path,
+so on any real path the row runs out of width and Swing crops the right-hand end — which is exactly
+where the file name is. The one part you need to read is the one part you lose.
+
+`RemarksTree.kt:139` is the whole cause:
+
+```kotlin
+val fileNode = DefaultMutableTreeNode(GroupNode("${keyPrefix}file:$path", path))
+```
+
+The second argument is the label, and it is the full path. `RemarksTree.kt:173` then draws it with a
+single `append(user.label, REGULAR_BOLD_ATTRIBUTES)`.
+
+### The choice
+
+Either put the file name first and let the directory crop, or split the path into real tree levels.
+
+**Put the file name first** — the row reads `Foo.kt` in bold, then the directory after it in grey.
+The row still crops on the right, but now the directory is what is lost, and a half-visible
+directory is readable while a half-visible file name is not. This is what the IDE itself does in
+Find Usages and in Recent Files, so it also looks familiar.
+
+**Split the path into tree levels** — a node per directory, so the file name gets a row to itself and
+never competes with anything. Reads better on deep paths, and the tree already has a layered shape
+because buckets sit above files.
+
+I would take the first. Three reasons, all of them about work already done:
+
+- **The label change cannot break selection.** `GroupNode` already separates `key` from `label`, and
+  the KDoc at `RemarksTree.kt:18-21` says why: the panel restores the selection after every rebuild
+  by matching keys. So what is drawn is free to change, and `RemarksPanelTest`'s "the selection
+  survives a rebuild" assertion keeps holding.
+- **The two-colour row already exists in this file.** Remark rows at `RemarksTree.kt:166-170` already
+  do several `append` calls with `GRAYED_ATTRIBUTES` for the dim parts. The file row needs the same
+  two-append shape, not a new mechanism. `GroupNode` gains the directory as a second field, or the
+  renderer splits the label at the last `/`.
+- **Directory levels bring a problem the path version does not have.** One node per path segment
+  turns `src/main/kotlin/dev/sasha/clauderemarks/ui/Foo.kt` into six nested nodes that each hold
+  exactly one child, which is worse to read than the cropping being fixed. The standard answer is to
+  compress single-child chains into one node, and that is real logic to write and to test. Worth it
+  only if the file-name-first version is tried and still reads badly.
+
+If the first version is built and deep paths still feel wrong, the middle option is to grey a
+*shortened* directory — last two segments with a leading ellipsis — which is one string function and
+no change to the tree's shape.
