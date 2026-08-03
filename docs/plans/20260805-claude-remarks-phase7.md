@@ -1269,7 +1269,7 @@ one sentence rather than rewriting it.
 and at least one pending remark. `current()` already masks a stale review, so this is one added
 comparison in each place, not a new mechanism.
 
-- [ ] write the failing tests in `RemarksPanelTest.kt`, using the private `settle()` helper after
+- [x] write the failing tests in `RemarksPanelTest.kt`, using the private `settle()` helper after
       anything that hops off the EDT and back, and clearing `WaitingReviewService` in both `setUp` and
       `tearDown` as that class already does:
   - `the banner names the label while the review is waiting` — the existing test, unchanged
@@ -1280,14 +1280,14 @@ comparison in each place, not a new mechanism.
     reaches the screen.
   - `the send button is disabled once the remarks are sent` — with a pending remark and a review in
     the Sent phase, assert the toolbar's Send action is disabled
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"` — expect failures
-- [ ] implement
-- [ ] the same command passes
-- [ ] **mutation:** make `updateBanner` use the Waiting text for both phases — `the banner says the
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"` — expect failures
+- [x] implement
+- [x] the same command passes
+- [x] **mutation:** make `updateBanner` use the Waiting text for both phases — `the banner says the
       remarks are waiting to be read after a send` must fail. Drop the phase comparison from the
       toolbar's `enabled` lambda — `the send button is disabled once the remarks are sent` must fail.
       Restore both.
-- [ ] commit: `feat: the banner says which of the three states the review is in` — stage exactly the
+- [x] commit: `feat: the banner says which of the three states the review is in` — stage exactly the
       three files above
 
 ### Task 8: The skill declares a deadline, acknowledges the read, and reports leaving

@@ -187,7 +187,7 @@ class SendReviewAction : AnAction() {
     override fun update(e: AnActionEvent) {
         val project = e.project
         e.presentation.isEnabled = project != null &&
-            WaitingReviewService.getInstance(project).current() != null &&
+            WaitingReviewService.getInstance(project).current()?.phase is ReviewPhase.Waiting &&
             RemarkStore.getInstance(project).all().any { it.status == RemarkStatus.PENDING }
     }
 

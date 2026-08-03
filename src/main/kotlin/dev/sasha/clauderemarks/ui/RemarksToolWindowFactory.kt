@@ -32,6 +32,7 @@ import dev.sasha.clauderemarks.action.copyRemarks
 import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
+import dev.sasha.clauderemarks.review.ReviewPhase
 import dev.sasha.clauderemarks.review.WaitingReviewService
 import dev.sasha.clauderemarks.review.rejectWaitingReview
 import dev.sasha.clauderemarks.review.sendToWaitingReview
@@ -183,7 +184,8 @@ class RemarksPanel(
      * "<html>" as markup, so an unescaped label could inject arbitrary Swing markup into the tool
      * window. escapeXmlEntities turns a leading "<html>" into inert text. Cut to 120 characters
      * first, so a very long label costs one truncated escape rather than an escape of the whole
-     * thing.
+     * thing. The Sent text below carries no caller-supplied content, only a count, so escaping it
+     * would be cargo cult.
      */
     private fun updateBanner() {
         val waiting = WaitingReviewService.getInstance(project).current()
@@ -191,9 +193,25 @@ class RemarksPanel(
             banner.isVisible = false
             return
         }
-        banner.text = "Claude Code is waiting: " + StringUtil.escapeXmlEntities(waiting.label.take(120))
+        banner.text = when (val phase = waiting.phase) {
+            ReviewPhase.Waiting ->
+                "Claude Code is waiting: " + StringUtil.escapeXmlEntities(waiting.label.take(120))
+            is ReviewPhase.Sent ->
+                "Sent ${phase.ids.size} remark${if (phase.ids.size == 1) "" else "s"}. " +
+                    "Waiting for Claude Code to read them."
+        }
         banner.isVisible = true
     }
+
+    /**
+     * Whether "Send to Claude Code" would do anything right now: a review waiting for its first
+     * send, and something pending to put in it. Internal, not private, so RemarksPanelTest can
+     * check it without simulating a toolbar tick through an AnActionEvent. Shared with the
+     * toolbar's own enabled lambda below, so the two can never drift apart.
+     */
+    internal fun sendEnabled(): Boolean =
+        WaitingReviewService.getInstance(project).current()?.phase is ReviewPhase.Waiting &&
+            remarks().any { it.status == RemarkStatus.PENDING }
 
     /** The ids currently selected, in the order the tree shows them. */
     fun selectedIds(): List<String> = selectedNodes().map { it.id }
@@ -431,14 +449,9 @@ class RemarksPanel(
             ToolbarAction("Clear All", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
                 confirmClearAll()
             },
-            ToolbarAction(
-                "Send to Claude Code",
-                AllIcons.Actions.Upload,
-                {
-                    WaitingReviewService.getInstance(project).current() != null &&
-                        remarks().any { it.status == RemarkStatus.PENDING }
-                },
-            ) { sendToWaitingReview(project) },
+            ToolbarAction("Send to Claude Code", AllIcons.Actions.Upload, ::sendEnabled) {
+                sendToWaitingReview(project)
+            },
             // notifyRemarksChanged, not refresh(): this panel's own subscription rebuilds the tree
             // either way, and publishing resyncs the gutter icons too. A file reload (a branch
             // switch, a VCS revert, an external edit) already publishes this on its own now — both

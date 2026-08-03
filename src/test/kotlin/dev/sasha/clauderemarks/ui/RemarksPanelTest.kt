@@ -287,6 +287,44 @@ class RemarksPanelTest : BasePlatformTestCase() {
         assertTrue(panel.banner.text.orEmpty().contains("a review label"))
     }
 
+    fun testTheBannerSaysTheRemarksAreWaitingToBeReadAfterASend() {
+        val panel = panel()
+        val outputPath = Files.createTempDirectory("remarks-panel-test")
+        WaitingReviewService.getInstance(project).start("s1", "a review label", 1800, outputPath)
+        WaitingReviewService.getInstance(project).markSent(listOf("a"))
+
+        panel.refresh()
+        settle()
+
+        assertTrue(panel.banner.isVisible)
+        assertTrue(
+            panel.banner.text.orEmpty(),
+            panel.banner.text.orEmpty().contains("Waiting for Claude Code to read"),
+        )
+    }
+
+    /** Proves the staleness backstop in WaitingReviewService actually reaches the screen. */
+    fun testTheBannerIsHiddenForAReviewPastItsDeadline() {
+        val panel = panel()
+        val outputPath = Files.createTempDirectory("remarks-panel-test")
+        WaitingReviewService.getInstance(project).start("s1", "a review label", 0, outputPath)
+
+        panel.refresh()
+        settle()
+
+        assertFalse(panel.banner.isVisible)
+    }
+
+    fun testTheSendButtonIsDisabledOnceTheRemarksAreSent() {
+        addRemark(project, "A.kt", LINES, 0..0, "one", null)
+        val panel = panel()
+        val outputPath = Files.createTempDirectory("remarks-panel-test")
+        WaitingReviewService.getInstance(project).start("s1", "a review label", 1800, outputPath)
+        WaitingReviewService.getInstance(project).markSent(listOf("a"))
+
+        assertFalse(panel.sendEnabled())
+    }
+
     private fun panel(): RemarksPanel {
         val disposable = Disposer.newDisposable()
         Disposer.register(testRootDisposable, disposable)
