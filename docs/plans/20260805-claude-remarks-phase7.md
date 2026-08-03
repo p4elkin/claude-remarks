@@ -1389,17 +1389,20 @@ once: the IDE's own deadline already covers a lost acknowledgement.
 - The "Same machine only" paragraph says the remote case is "planned for a later phase". It is
   **phase 8** now. Same for the pointer to `docs/ideas.md`.
 
-- [ ] edit `SKILL.md` as above
-- [ ] read it back once as a person following it line by line, with no memory of this plan. Every
+- [x] edit `SKILL.md` as above
+- [x] read it back once as a person following it line by line, with no memory of this plan. Every
       variable must be set before it is used, and step 3's `deadline_seconds` must be in scope in
       step 6.
-- [ ] `grep -n "status=" docs/skill/claude-remarks-review/SKILL.md` — must find nothing that assigns
-      to a bare `status`
-- [ ] `grep -n "Cancel" docs/skill/claude-remarks-review/SKILL.md` — must find nothing. The link is
-      called Reject now.
-- [ ] the marker in the skill and `REJECTED_MARKER` in `review/SendReview.kt` must be the same string,
-      character for character. Diff them by eye and say in the task report that you did.
-- [ ] commit: `docs: the skill declares its deadline and acknowledges the read` — stage exactly
+- [x] `grep -n "status=" docs/skill/claude-remarks-review/SKILL.md` — must find nothing that assigns
+      to a bare `status`. The only hit is the pre-existing prose sentence explaining the pitfall
+      (`` `status=$(curl ...)` fails with "read-only variable: status" ``, inside backticks as
+      illustration, not a shell code block) — not an actual assignment this skill performs.
+- [x] `grep -n "Cancel" docs/skill/claude-remarks-review/SKILL.md` — must find nothing. The link is
+      called Reject now. Confirmed empty.
+- [x] the marker in the skill and `REJECTED_MARKER` in `review/SendReview.kt` must be the same string,
+      character for character. Diff them by eye and say in the task report that you did. Both are
+      `<!-- claude-remarks: rejected -->`, confirmed identical.
+- [x] commit: `docs: the skill declares its deadline and acknowledges the read` — stage exactly
       `docs/skill/claude-remarks-review/SKILL.md`
 
 ### Task 9: Refuse a remark on the revision side of a diff

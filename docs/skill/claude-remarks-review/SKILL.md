@@ -18,7 +18,7 @@ for them to press "Send to Claude Code", then reads what they wrote.
 This only works when the IDE and this Claude Code session run on the same machine. Both the
 handshake file and the handoff file are local paths — `~/.claude-remarks/*.json` and a temp
 directory under `$TMPDIR` — so there is nothing to read if the IDE is on a different machine, for
-example a laptop reached over SSH. Sending to a remote agent session is planned for a later phase
+example a laptop reached over SSH. Sending to a remote agent session is planned for phase 8
 (see `docs/ideas.md`, "Sending remarks to a remote agent session," in the `claude-remarks` repo);
 it is not built. If asked to do this over SSH, say so and stop rather than trying step 3 below.
 
@@ -67,9 +67,10 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
 
    ```sh
    session=$(uuidgen)
+   deadline_seconds=1800
    body=$(jq -n --arg session "$session" --arg label "$label" --arg project "$root" \
-     --argjson files "$files_json" \
-     '{session:$session, label:$label, project:$project, files:$files}')
+     --argjson files "$files_json" --argjson deadline "$deadline_seconds" \
+     '{session:$session, label:$label, project:$project, files:$files, deadlineSeconds:$deadline}')
    http_code=$(curl -s -o /tmp/claude-remarks-start.json -w '%{http_code}' \
      -X POST "http://127.0.0.1:$port/api/claude-remarks/start" \
      -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" \
@@ -79,6 +80,11 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    `$label` is a short description of what is being reviewed — shown to the person in the IDE
    banner. `$session` is invented once per run of this skill, so a retry of the same run reuses
    it rather than starting a second review. `files` is optional: an empty array opens nothing.
+   `deadline_seconds` is how long step 6 below will wait, declared here rather than left as a
+   private literal: the IDE stops showing "Claude Code is waiting" once this many seconds have
+   passed, and the only way to guarantee the IDE's clock and this script's clock agree is to send
+   the same number to both. The IDE clamps whatever arrives to between 60 seconds and 24 hours, so
+   a nonsense value here is corrected rather than obeyed.
 
    **Do not name that variable `status`.** In zsh `status` is a read-only special variable, an
    alias for `$?`, so `status=$(curl ...)` fails with "read-only variable: status". Worse than
@@ -86,6 +92,9 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    assignment, so the POST is sent, a review really does start in the IDE, and the script dies
    believing nothing happened. The next attempt then gets `conflict` and the cause looks like a
    stuck review rather than a shell error. Found on 2026-08-03, on the first real end-to-end run.
+   The same rule holds for every variable added below: `deadline_seconds`, `deadline` and `ack_code`
+   if a response code is captured — none of them collides today, but do not rename any of them to
+   `status`.
 
    Never use `curl -f`: it throws the body away on a non-2xx response, and the body is exactly
    what carries the application-level outcomes in step 5. Never add `-H Origin:` or
@@ -119,15 +128,31 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
      about the shape of the request, which is a bug in one of them, not a transient failure.
      Report the detail and stop; do not retry.
 
-6. **Wait for the handoff file.** Take `output` from the `waiting` response.
+6. **Wait for the handoff file, tell a rejection from remarks, then acknowledge.** Take `output`
+   from the `waiting` response.
 
    ```sh
-   deadline=$(( $(date +%s) + 1800 ))
+   ack() {
+     jq -n --arg session "$session" --arg project "$root" --arg event "$1" \
+       '{session:$session, project:$project, event:$event}' \
+     | curl -s -o /dev/null -X POST "http://127.0.0.1:$port/api/claude-remarks/ack" \
+         -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-
+   }
+   trap 'ack abandoned' EXIT INT TERM
+
+   deadline=$(( $(date +%s) + deadline_seconds ))
    while [ ! -e "$output" ]; do
      [ "$(date +%s)" -ge "$deadline" ] && { echo "timed out waiting for the IDE"; exit 1; }
      sleep 1
    done
    cat "$output"
+   trap - EXIT INT TERM
+
+   if grep -q '^<!-- claude-remarks: rejected -->' "$output"; then
+     echo "the person rejected this review; no remarks were sent"
+     exit 0
+   fi
+   ack read
    ```
 
    Checking existence is enough: the plugin writes the file's full content to a temp file beside
@@ -136,10 +161,44 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    half-written. Do not "improve" this into a size check or a lock file; the atomic rename is
    what makes the plain existence check correct.
 
-   If it times out: nothing is lost. The remarks are still sitting in the IDE's tool window,
-   marked pending, and the person can send them again or copy them by hand. A timeout does not
-   clear the waiting review inside the IDE — the person clears it themselves from the banner's
-   Cancel link.
+   Five things about this block are load-bearing, and each one is a decision somebody will
+   otherwise undo:
+
+   - **The trap is set only after a `waiting` response.** Before that there is no review to
+     abandon, and an acknowledgement for a review that does not exist just gets `no-review`.
+   - **The trap is cleared after `cat` succeeds and before `ack read`.** Once the content is read,
+     the read is a fact — even if the acknowledgement request then fails. Clearing the trap first
+     means a failing `ack read` leaves the IDE to its own deadline, which keeps the remarks
+     pending. The other order would tell the IDE the agent left after it had already read them.
+   - **`trap - EXIT INT TERM` restores the default; it does not run the handler.** Writing
+     `trap "" EXIT` instead would also work but reads as "run nothing", which is easy to misread
+     as "run the old thing".
+   - **The trap covers this command's shell, not the whole session.** Each step here runs as its
+     own shell, so the trap catches a timeout inside this loop and an interrupt of this command.
+     An agent process killed between steps sends nothing at all, and the IDE's own deadline is
+     what covers that case instead.
+   - **The rejection check comes before the acknowledgement, and it is anchored to the start of
+     the line.** `grep -q '^<!-- claude-remarks: rejected -->'` — without the `^` a remark quoting
+     that string in its own text would be read as a rejection. There is nothing to acknowledge on
+     a rejection: the IDE cleared the review as it wrote the file, so an `ack read` would only be
+     answered `no-review`. The trap is cleared before this branch, so a rejection does not also
+     report the agent as having left.
+
+   **A rejection is a finished review, not a failure.** `exit 0`, and report it plainly to the
+   person the way any other answer is reported. Do not retry, do not start a second review, and do
+   not treat the body as remarks.
+
+   If waiting times out: nothing is lost. The remarks are still sitting in the IDE's tool window,
+   marked pending — they were never marked sent, because sending only writes the file, and marking
+   sent waits for this step's `ack read` — and the person can send them again or copy them by
+   hand. The `trap` above already sent `ack abandoned` on the way out, so the IDE's banner clears
+   itself; there is nothing left to do by hand from the banner's Reject link for this run.
+
+   **What the acknowledgement answers:** `ok`, `no-review` (nothing is waiting under that session
+   — the review was cancelled, expired, or already finished), `not-sent` (a read acknowledgement
+   for a review whose file was never written, which is a bug in one of the two sides),
+   `unknown-project`, `bad-request`. Report and stop in every case except `ok`. Do not retry more
+   than once: the IDE's own deadline already covers a lost acknowledgement.
 
 7. **Read the file and act on it.** It is one markdown prompt built the same way "Copy All
    Pending" builds one — remarks grouped by file, each with its severity, its tag and the code it
@@ -153,4 +212,9 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
 - 403: "The IDE at this port answered with a stale token — re-open the project in the IDE, which
   writes a fresh handshake, then try again."
 - Timeout waiting for the handoff file: "No remarks arrived in 30 minutes. Nothing is lost — they
-  are still pending in the IDE. Send to Claude Code again when ready, or paste them here."
+  are still pending in the IDE, never marked sent. Send to Claude Code again when ready, or paste
+  them here."
+- The person rejected the review: "The review was rejected in the IDE. No remarks were sent."
+  Stop; do not retry and do not start a second review for the same request.
+- An acknowledgement answers anything other than `ok`: report the outcome (`no-review`,
+  `not-sent`, `unknown-project`, `bad-request`) and the body verbatim, then stop.
