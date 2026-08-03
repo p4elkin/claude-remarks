@@ -21,6 +21,7 @@
             <category>Claude Remarks</category>
         </intentionAction>
         <postStartupActivity implementation="dev.sasha.clauderemarks.editor.RemarkGutterStartup"/>
+        <httpRequestHandler implementation="dev.sasha.clauderemarks.review.ReviewRestService"/>
         <applicationConfigurable instance="dev.sasha.clauderemarks.settings.RemarkSettingsConfigurable"
                                  id="dev.sasha.clauderemarks.settings"
                                  displayName="Claude Remarks"

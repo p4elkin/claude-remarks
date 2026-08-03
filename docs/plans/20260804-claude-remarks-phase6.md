@@ -928,7 +928,7 @@ in the HTTP status code.
   "detail": "what could not be parsed" }
 ```
 
-- [ ] write the failing tests in `ReviewRequestTest.kt`. Plain JUnit over plain values — the
+- [x] write the failing tests in `ReviewRequestTest.kt`. Plain JUnit over plain values — the
       authorisation rule takes four nullable strings, not an `HttpRequest`:
   - `a request with the right token and no browser headers is allowed` —
     `requestIsAllowed(token = secret, expected = secret, origin = null, referer = null)` is true
@@ -939,7 +939,7 @@ in the HTTP status code.
   - `the project is matched by its real path` — `projectForPath` over a list of (path, name) pairs, where
     the wanted path is given with a trailing slash, and assert it still matches
   - `an unknown project path matches nothing`
-- [ ] write the failing smoke test in `ReviewEndpointSmokeTest.kt`. One test, and it is the only thing in
+- [x] write the failing smoke test in `ReviewEndpointSmokeTest.kt`. One test, and it is the only thing in
       the whole plan that runs `execute`:
 
   ```kotlin
@@ -964,9 +964,9 @@ in the HTTP status code.
   which is tempting, but `process` catches `Throwable` and calls `LOG.error`, which throws in tests, and
   it also touches a per-instance abuse counter. The trust rule is already covered by `requestIsAllowed`'s
   five tests. Keep the smoke test to the one thing nothing else can reach.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewRequestTest" --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"`
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewRequestTest" --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"`
       — expect a compile failure
-- [ ] create `review/ReviewRestService.kt`:
+- [x] create `review/ReviewRestService.kt`:
   - `override fun getServiceName() = "claude-remarks"`, so the URL is `/api/claude-remarks/start`
   - `override fun isMethodSupported(method: HttpMethod) = method === HttpMethod.POST`. The base defaults
     to GET only, so this override both adds POST and removes GET.
@@ -1010,15 +1010,15 @@ in the HTTP status code.
   - it must not throw on a malformed body: catch the gson failure and answer `{"status": "bad-request"}`
     with a `detail`, so a typo in the skill produces a readable answer instead of a stack trace in the
     IDE log
-- [ ] register the handler in `plugin.xml`:
+- [x] register the handler in `plugin.xml`:
       `<httpRequestHandler implementation="dev.sasha.clauderemarks.review.ReviewRestService"/>`
-- [ ] run the two test classes again — both must pass
-- [ ] run `./gradlew verifyPluginProjectConfiguration` — `plugin.xml` changed
-- [ ] **mutation check**: make `requestIsAllowed` ignore its `origin` argument. `a request carrying an
+- [x] run the two test classes again — both must pass
+- [x] run `./gradlew verifyPluginProjectConfiguration` — `plugin.xml` changed
+- [x] **mutation check**: make `requestIsAllowed` ignore its `origin` argument. `a request carrying an
       Origin header is refused even with the right token` must fail. Restore it.
-- [ ] **second mutation check**: delete `writer.close()`. `execute answers with a non-empty JSON body`
+- [x] **second mutation check**: delete `writer.close()`. `execute answers with a non-empty JSON body`
       must fail. Restore it. This is the one that proves the smoke test earns its place.
-- [ ] commit, staging exactly:
+- [x] commit, staging exactly:
 
   ```bash
   git add src/main/kotlin/dev/sasha/clauderemarks/review/ReviewRestService.kt \
