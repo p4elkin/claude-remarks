@@ -3,6 +3,9 @@ package dev.sasha.clauderemarks.review
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vcs.changes.Change
+import com.intellij.openapi.vcs.changes.ChangeListManager
+import com.intellij.openapi.vcs.changes.actions.diff.ShowDiffAction
 import dev.sasha.clauderemarks.store.fileForStoredPath
 import dev.sasha.clauderemarks.store.projectRoot
 import java.nio.file.Path
@@ -39,9 +42,17 @@ fun openReviewFiles(project: Project, paths: List<String>?) {
     if (filtered.isEmpty()) return
     ApplicationManager.getApplication().invokeLater {
         val root = projectRoot(project) ?: return@invokeLater
+        val changes = mutableListOf<Change>()
         filtered.forEach { path ->
             val file = fileForStoredPath(root, path) ?: return@forEach
-            FileEditorManager.getInstance(project).openFile(file, false)
+            // No local change: today's behaviour, and the right answer for a file the person
+            // should read but has not touched.
+            val change = ChangeListManager.getInstance(project).getChange(file)
+            if (change == null) FileEditorManager.getInstance(project).openFile(file, false)
+            else changes += change
         }
+        // One window for every changed file, so the person gets next-file and previous-file
+        // navigation inside it instead of a window per file.
+        if (changes.isNotEmpty()) ShowDiffAction.showDiffForChange(project, changes)
     }
 }

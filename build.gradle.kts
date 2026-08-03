@@ -20,6 +20,9 @@ dependencies {
     intellijPlatform {
         intellijIdeaCommunity("2025.2")
         testFramework(TestFrameworkType.Platform)
+        // ShowDiffAction lives in lib/modules/intellij.platform.vcs.impl.jar, not lib/app.jar.
+        // Settled by compiling: the import does not resolve without this line.
+        bundledModule("intellij.platform.vcs.impl")
     }
     testImplementation("junit:junit:4.13.2")
 }

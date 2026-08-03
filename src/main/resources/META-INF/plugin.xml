@@ -8,6 +8,9 @@
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+    <!-- Needed for ShowDiffAction, which opens the real diff for the files a review names.
+         A hard dependency, not optional: every JetBrains IDE ships VCS. -->
+    <depends>com.intellij.modules.vcs</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <!-- The id is part of the plugin's public interface: the platform derives the action id

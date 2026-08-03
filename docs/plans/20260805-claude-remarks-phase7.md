@@ -1512,30 +1512,35 @@ the HTTP response still does not wait for either.
 would only move six lines somewhere a test still could not reach them. `filterReviewPaths` keeps its
 own tests, which cover the filtering that actually has logic in it.
 
-- [ ] settle the classpath question from [section 6](#6-still-to-verify) **first**, because it decides
+- [x] settle the classpath question from [section 6](#6-still-to-verify) **first**, because it decides
       whether `build.gradle.kts` is touched at all: add the `ShowDiffAction` import, run
       `./gradlew compileKotlin`, and add `bundledModule("intellij.platform.vcs.impl")` only if the
-      symbol does not resolve. Say in the task report which way it went.
-- [ ] add `<depends>com.intellij.modules.vcs</depends>` to `plugin.xml`, next to the existing
+      symbol does not resolve. Say in the task report which way it went. **Settled: the symbol does not
+      resolve without it.** `./gradlew compileKotlin` failed with `Unresolved reference 'actions'` /
+      `Unresolved reference 'ShowDiffAction'` on the bare import; adding
+      `bundledModule("intellij.platform.vcs.impl")` to the `intellijPlatform` dependencies block in
+      `build.gradle.kts` made it compile clean.
+- [x] add `<depends>com.intellij.modules.vcs</depends>` to `plugin.xml`, next to the existing
       `com.intellij.modules.platform`. A hard dependency, not optional — see
       [section 5](#5-decisions-and-the-alternatives-rejected).
-- [ ] write the failing test in `OpenReviewFilesTest.kt`: `a file with no local change still opens as an
+- [x] write the failing test in `OpenReviewFilesTest.kt`: `a file with no local change still opens as an
       editor` — a light fixture has no VCS, so `getChange` answers null for everything and every file
       takes the editor branch. Assert the file is open in `FileEditorManager.getInstance(project).openFiles`.
       This is a real guard on two things: that the null answer is handled, and that
       `ChangeListManager.getInstance(project)` can be reached at all in a project with no VCS root
-      rather than throwing.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.OpenReviewFilesTest"`
-- [ ] implement
-- [ ] the same command passes
-- [ ] `./gradlew verifyPluginProjectConfiguration` — `plugin.xml` changed, so this is required, not
+      rather than throwing. **Confirmed: `ChangeListManager.getInstance(project)` did not throw** — it
+      answered null for the fixture file, exactly as the plan expected.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.OpenReviewFilesTest"`
+- [x] implement
+- [x] the same command passes
+- [x] `./gradlew verifyPluginProjectConfiguration` — `plugin.xml` changed, so this is required, not
       optional
-- [ ] **mutation:** make the `change == null` branch do nothing instead of opening an editor — `a file
+- [x] **mutation:** make the `change == null` branch do nothing instead of opening an editor — `a file
       with no local change still opens as an editor` must fail. Restore. **The diff window itself has no
       automated guard** — a light fixture has no VCS, so no test can produce a `Change`. Its check is
       the hand check in [section 12](#12-hand-checks-in-a-sandbox-ide), and that is stated here rather
       than papered over with a test that would prove nothing.
-- [ ] commit: `feat: a review opens a real diff over just the files the skill named` — stage exactly the
+- [x] commit: `feat: a review opens a real diff over just the files the skill named` — stage exactly the
       four files above
 
 ### Task 11: Verify the constraints and the whole suite
