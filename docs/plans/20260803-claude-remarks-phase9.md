@@ -1599,10 +1599,21 @@ third of them handed over, and the person scrolling past grey rows to find the w
 in place keeps the code position visible, which is what makes "this file is already handled" readable
 while reading the file.
 
-- [ ] decide, and record the decision in `docs/ideas.md` either way
-- [ ] if building: the tests are the two orderings and the doubled bucket, and the mutation is
+- [x] decide, and record the decision in `docs/ideas.md` either way
+      **Result: dropped. The condition for building — more than about twenty remarks in the tree
+      with a third of them handed over, and the person scrolling past grey rows to find the work —
+      is not met; the project is two days old and the tree holds a handful of remarks. Sasha was
+      also asked directly, before planning, where published remarks should sit in the tree, and he
+      chose to decide after living with the three states rather than up front, so building it now
+      would answer a question he deliberately left open. Recorded in `docs/ideas.md`, under "Where
+      published remarks live in the tree", new subsection "Decided in phase 9: planned, not built".**
+- [x] if building: the tests are the two orderings and the doubled bucket, and the mutation is
       putting the Published group below the buckets
-- [ ] if dropping: no commit, and say so in the report
+      **Result: not applicable — not built, so no tests and no mutation.**
+- [x] if dropping: no commit, and say so in the report
+      **Result: dropping, so `ui/RemarksTree.kt` and its tests get no commit and no edit. The
+      `docs/ideas.md` record and this plan file's own checkboxes are committed, which is a
+      documentation-only commit, not a tree change.**
 
 ### Group five: annotating a rendered markdown preview
 

@@ -1454,6 +1454,34 @@ The first is the most likely right answer, and it is worth checking against the 
 than designed on its own: a remark can be in a bucket and published at the same time, so two grouping
 axes have to agree on which one wins at the top.
 
+### Decided in phase 9: planned, not built
+
+The phase 9 plan wrote this idea up as an optional task, a Published group at the top of the tree.
+The task was built to be dropped: nothing else in the plan depends on it. It was dropped.
+
+The reason is simple. The project is two days old and the tree holds a handful of remarks. The
+condition the task itself named for building it is more than about twenty remarks in the tree, with
+a third of them handed over, and the person scrolling past grey rows to try to find the work still
+left to do. That condition is not met.
+
+There is a second reason, and it matters more than the first. Before planning, Sasha was asked
+directly where published remarks should sit in the tree. He chose to decide that after living with
+the three states for a while, not before. Building the group now, during planning, would answer a
+question he chose to leave open on purpose.
+
+**The real cost, if it is ever built.** The group goes at the very top, above the bucket groups, and
+bucket grouping still applies inside it. So one bucket can then show up twice: once inside Published,
+once outside it, for the remarks in that bucket that are still pending. That is a real cost, not a
+detail to smooth over later.
+
+**Why that order is still the right one, cost and all.** The first question the tree should answer
+is what work is left to do. Everything under a Published group is, by definition, not that. So
+Published has to sit above the buckets, even though it means a bucket name can appear twice.
+
+**What grey-in-place buys today, while this stays undecided.** A published remark keeps its place in
+its file group. The code position stays visible. That is what makes "this file is already handled"
+readable while reading the file itself, without a second structure to check.
+
 ### One thing this does not revive
 
 Phase 5 dropped a pluggable `Dispatcher` interface, a tmux pane and a file inside `.idea/`. See
