@@ -604,18 +604,22 @@ known-good by unit tests only. This task is where that is fixed, or at least nam
 
 The mechanical half, which an agent can do:
 
-- [ ] `git status --porcelain` must be empty. Another agent may be mid-task in this worktree. If it is
-      not empty, **stop and report** what is there rather than working around it.
-- [ ] `execute`'s `when` still has exactly the three branches `"start"`, `"ack"` and `else`. If it
-      already has a fetch, this plan was written against an older tree — stop and report.
-- [ ] `endReview()` is still the one private function every ending goes through, and it still sets
+- [x] `git status --porcelain` must be empty. Another agent may be mid-task in this worktree. If it is
+      not empty, **stop and report** what is there rather than working around it. Confirmed empty.
+- [x] `execute`'s `when` still has exactly the three branches `"start"`, `"ack"` and `else`. If it
+      already has a fetch, this plan was written against an older tree — stop and report. Confirmed:
+      exactly `"start"`, `"ack"`, `else -> badRequest(...)`.
+- [x] `endReview()` is still the one private function every ending goes through, and it still sets
       `state = null` with no record of what it removed. Task 2 depends on that being the starting point.
-- [ ] `rejectWaitingReview` still calls `atomicWriteString` and then `clear(waiting.sessionId)`, in
-      that order. The whole argument for task 2 rests on it.
-- [ ] run all five grep guards from [section 9](#9-rules-that-must-hold-at-every-step) now, before any
+      Confirmed in `WaitingReview.kt`.
+- [x] `rejectWaitingReview` still calls `atomicWriteString` and then `clear(waiting.sessionId)`, in
+      that order. The whole argument for task 2 rests on it. Confirmed in `SendReview.kt`.
+- [x] run all five grep guards from [section 9](#9-rules-that-must-hold-at-every-step) now, before any
       change. All five must be empty. A guard that was already failing must not be blamed on this phase.
-- [ ] `./gradlew test` passes on the untouched tree. Report the test count, so task 7 can compare.
-- [ ] extract the skill's shell blocks and check them, so the baseline is a script that parses:
+      All five ran empty.
+- [x] `./gradlew test` passes on the untouched tree. Report the test count, so task 7 can compare.
+      Passed: **330 tests**, BUILD SUCCESSFUL.
+- [x] extract the skill's shell blocks and check them, so the baseline is a script that parses:
 
       ```bash
       awk '/^ *```sh$/{f=1;next} /^ *```$/{f=0;next} f' \
@@ -624,24 +628,26 @@ The mechanical half, which an agent can do:
       ```
 
       This passes today: 79 lines, `SYNTAX OK`. Report the line count so tasks 5 and 6 can compare.
-- [ ] no commit — this task writes nothing
+      Confirmed: 79 lines, `SYNTAX OK`.
+- [x] no commit — this task writes nothing (except this plan file's own checkboxes, per the run's
+      instructions for this task)
 
 **The hand half, which only a person at a real IDE can do.** These three are owed before anything
 after task 1 is trusted. Run `./gradlew runIde` **by hand**, never from an agent session.
 
-- [ ] **the plugin loads at all.** The Claude Remarks tool window is present. This is the single most
-      important check in the task: phase 7 added `<depends>com.intellij.modules.vcs</depends>` to
-      `plugin.xml` and that has never been in front of a running IDE. If the dependency id is wrong the
-      plugin refuses to load, and **the only symptom is the tool window simply not being there** — no
-      dialog, no obvious error. If it is missing, read `idea.log` for the plugin loading error and stop
-      the phase there.
-- [ ] **one local review, end to end.** Install the current skill, start a review from a Claude Code
-      session on the same machine, write two remarks, press Send to Claude Code, and confirm the skill
-      reads them, the remarks turn gray only after the acknowledgement, and the balloon says
-      "Claude Code read 2 remarks."
-- [ ] **one local rejection.** Start a review, press Reject in the banner, and confirm the skill stops
-      within a second or two, reports the rejection, does not treat the body as remarks, and every
-      remark stays black.
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** the plugin loads at all. The Claude Remarks tool
+      window is present. This is the single most important check in the task: phase 7 added
+      `<depends>com.intellij.modules.vcs</depends>` to `plugin.xml` and that has never been in front of
+      a running IDE. If the dependency id is wrong the plugin refuses to load, and **the only symptom is
+      the tool window simply not being there** — no dialog, no obvious error. If it is missing, read
+      `idea.log` for the plugin loading error and stop the phase there.
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** one local review, end to end. Install the current
+      skill, start a review from a Claude Code session on the same machine, write two remarks, press
+      Send to Claude Code, and confirm the skill reads them, the remarks turn gray only after the
+      acknowledgement, and the balloon says "Claude Code read 2 remarks."
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** one local rejection. Start a review, press Reject
+      in the banner, and confirm the skill stops within a second or two, reports the rejection, does not
+      treat the body as remarks, and every remark stays black.
 
 ### Task 2: The plugin remembers the ended review's output path
 
