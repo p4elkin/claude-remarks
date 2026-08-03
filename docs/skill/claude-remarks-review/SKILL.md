@@ -70,7 +70,7 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    body=$(jq -n --arg session "$session" --arg label "$label" --arg project "$root" \
      --argjson files "$files_json" \
      '{session:$session, label:$label, project:$project, files:$files}')
-   status=$(curl -s -o /tmp/claude-remarks-start.json -w '%{http_code}' \
+   http_code=$(curl -s -o /tmp/claude-remarks-start.json -w '%{http_code}' \
      -X POST "http://127.0.0.1:$port/api/claude-remarks/start" \
      -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" \
      -d "$body")
@@ -79,6 +79,13 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    `$label` is a short description of what is being reviewed — shown to the person in the IDE
    banner. `$session` is invented once per run of this skill, so a retry of the same run reuses
    it rather than starting a second review. `files` is optional: an empty array opens nothing.
+
+   **Do not name that variable `status`.** In zsh `status` is a read-only special variable, an
+   alias for `$?`, so `status=$(curl ...)` fails with "read-only variable: status". Worse than
+   failing outright: zsh runs the command substitution first and only then refuses the
+   assignment, so the POST is sent, a review really does start in the IDE, and the script dies
+   believing nothing happened. The next attempt then gets `conflict` and the cause looks like a
+   stuck review rather than a shell error. Found on 2026-08-03, on the first real end-to-end run.
 
    Never use `curl -f`: it throws the body away on a non-2xx response, and the body is exactly
    what carries the application-level outcomes in step 5. Never add `-H Origin:` or
