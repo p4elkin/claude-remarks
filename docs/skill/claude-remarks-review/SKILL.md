@@ -54,21 +54,63 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    `$output` and `deadline_seconds`, all set here or in step 2. Split across calls, step 6 posts to
    `http://127.0.0.1:/api/claude-remarks/ack` with an empty token and waits for a file called `""`.
 
-   If there is a commit range or a set of changed files this review is about, send their paths so
-   the IDE opens them for the person before they start writing remarks. This is the cheap version
-   of "open the diff": no real diff view, just the files opened in editors so the person can press
-   the IDE's own diff shortcut on any of them.
+   **Work out the file list before you POST, and check it is not empty.** The IDE opens the paths
+   this request names. An empty list opens nothing at all, silently: the endpoint still answers
+   `waiting`, the banner still appears, and the person sits in front of an IDE where nothing
+   happened while this skill waits for remarks about files it never asked for. That has happened for
+   real. So decide which of the three shapes below applies, run its command, and count the result.
+
+   **One commit** — the shape that is easy to get wrong. Use `git show`, never `git diff`:
+
+   ```sh
+   files_json=$(git show --name-only --format= "$commit" \
+     | jq -R -s -c 'split("\n") | map(select(length > 0))')
+   ```
+
+   `git diff --name-only <commit>` does NOT list that commit's files. It diffs that commit against
+   the working tree, so it prints everything changed *since* it — and prints nothing at all when the
+   tree already sits at that commit. Both answers are wrong and neither looks like an error.
+
+   **A range of commits** — two dots for "what changed on this side", three for "since they
+   diverged", the same distinction `git log` uses:
+
+   ```sh
+   files_json=$(git diff --name-only "$base"..."$tip" \
+     | jq -R -s -c 'split("\n") | map(select(length > 0))')
+   ```
+
+   **Uncommitted work** — what the person has edited but not committed. This is the only shape the
+   IDE can open as a real diff (see below):
+
+   ```sh
+   files_json=$(git diff --name-only HEAD \
+     | jq -R -s -c 'split("\n") | map(select(length > 0))')
+   ```
+
+   **Nothing in particular** — a review that is not about a diff at all. Then, and only then:
 
    ```sh
    files_json="[]"
-   if [ -n "$range" ]; then
-     files_json=$(git diff --name-only "$range" | jq -R -s -c 'split("\n") | map(select(length > 0))')
-   fi
    ```
 
-   `$range` is whatever commit range this review is about — for example `main..HEAD` or a single
-   commit — left unset when there is nothing to diff. `git diff --name-only` already prints paths
-   relative to the repository root, which is what the endpoint expects.
+   Every command above prints paths relative to the repository root, which is what the endpoint
+   expects. Now check the list before sending it:
+
+   ```sh
+   files_count=$(printf %s "$files_json" | jq 'length')
+   ```
+
+   **If `files_count` is 0 and the review was about a commit, a range, or the current changes, stop
+   here and say so.** Do not POST. An empty list means the command found nothing — a wrong commit id,
+   a range the wrong way round, or a clean tree — and starting a review at that point produces the
+   silent-nothing case above. Report which shape you used and the command you ran.
+
+   **What the person will actually see.** For uncommitted work the IDE opens one real diff window
+   holding just these files, with next-file navigation inside it. For a commit or a range it opens a
+   plain editor per file instead — `ChangeListManager` only knows about uncommitted changes, so a
+   committed one has no diff for the IDE to show. That is a known limit, not a failure: say plainly
+   which of the two the person is getting, so an editor where they expected a diff is not read as a
+   bug.
 
    ```sh
    session=$(uuidgen)
@@ -84,7 +126,8 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
 
    `$label` is a short description of what is being reviewed — shown to the person in the IDE
    banner. `$session` is invented once per run of this skill, so a retry of the same run reuses
-   it rather than starting a second review. `files` is optional: an empty array opens nothing.
+   it rather than starting a second review. `files` carries the list built above; an empty array is
+   only correct for a review that is not about a diff, which the check above has already settled.
    `deadline_seconds` is how long step 6 below will wait, declared here rather than left as a
    private literal: the IDE stops showing "Claude Code is waiting" once this many seconds have
    passed, and the only way to guarantee the IDE's clock and this script's clock agree is to send
