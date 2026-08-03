@@ -16,15 +16,19 @@ import java.nio.file.Path
 import org.jetbrains.ide.RestService
 
 /**
- * `POST /api/claude-remarks/start` and `POST /api/claude-remarks/ack`. The skill asks this IDE to
- * hold a review open for a repository and gets back the path it should watch for the handover
- * file, then later tells the IDE whether it read that file or gave up waiting.
+ * `POST /api/claude-remarks/start`, `POST /api/claude-remarks/ack` and `POST /api/claude-remarks/fetch`.
+ * The skill asks this IDE to hold a review open for a repository and gets back the path it should
+ * watch for the handover file, then later tells the IDE whether it read that file or gave up
+ * waiting. `fetch` is a third moment: it hands the handoff file's content back in the response
+ * body itself, for an agent with no filesystem access to that path.
  *
  * The answer is always HTTP 200 with a `status` field. `start` answers one of `waiting`,
  * `conflict`, `unknown-project`, `bad-request`, `failed`; `ack` answers one of `ok`, `no-review`,
- * `not-sent`, `unknown-project`, `bad-request`. Real status codes stay reserved for what
- * `RestService.process` produces above this class — 403, 429, and 400 or 500 from its catch — so a
- * plumbing failure never looks like an application answer to the shell script reading it.
+ * `not-sent`, `unknown-project`, `bad-request`; `fetch` answers one of `ready`, `waiting`,
+ * `no-review`, `too-large`, `unknown-project`, `bad-request`, `failed`. Real status codes stay
+ * reserved for what `RestService.process` produces above this class — 403, 429, and 400 or 500
+ * from its catch — so a plumbing failure never looks like an application answer to the shell
+ * script reading it.
  */
 
 /** The header the skill puts this IDE run's token in. */
@@ -114,6 +118,12 @@ private class AckRequest(
     val event: String? = null,
 )
 
+/** Gson fills these by reflection too. No `event` and no `label`: a fetch changes nothing. */
+private class FetchRequest(
+    val session: String? = null,
+    val project: String? = null,
+)
+
 /**
  * The default the skill's own `deadline_seconds` carries in
  * `docs/skill/claude-remarks-review/SKILL.md` step 3, and the bounds it is corrected to. Named
@@ -191,6 +201,7 @@ class ReviewRestService : RestService() {
         when (action) {
             "start" -> handleStart(request, writer)
             "ack" -> handleAck(request, writer)
+            "fetch" -> handleFetch(request, writer)
             // A behaviour change worth naming: before this, any sub-path started a review because
             // execute never looked at it at all.
             else -> badRequest(writer, cause = null, fallbackDetail = "unknown action: $action")
@@ -284,6 +295,76 @@ class ReviewRestService : RestService() {
                 AckOutcome.NOT_SENT -> "not-sent"
             }
         )
+    }
+
+    /**
+     * Hands the waiting review's handoff file back in the response body, so an agent on another machine
+     * can read remarks it has no filesystem access to. Answers `ready`, `waiting`, `no-review`,
+     * `too-large`, `unknown-project`, `bad-request` or `failed`.
+     *
+     * **Changes nothing.** Not the store, not the review's phase, not the deadline. Fetching is not
+     * reading: the `read` acknowledgement stays the only thing that marks a remark sent, so a fetch whose
+     * response is lost to a dead tunnel costs one retry rather than a delivery the IDE believes in and the
+     * agent never got. It is therefore safe to call as often as the skill likes, which is what a poll
+     * needs.
+     *
+     * The live review is checked before the one that just ended, so a session id reused by a new review
+     * reads the new review. A review that has ended is still readable because the person's rejection is
+     * written into that same file and then the review is cleared — see review/SendReview.kt.
+     */
+    private fun handleFetch(request: FullHttpRequest, writer: JsonWriter) {
+        val body = runCatching {
+            gson.fromJson<FetchRequest?>(createJsonReader(request), FetchRequest::class.java)
+        }
+        val parsed = body.getOrNull()
+        val session = parsed?.session
+        val wanted = parsed?.project
+        if (session.isNullOrBlank() || wanted.isNullOrBlank()) {
+            badRequest(writer, body.exceptionOrNull(), "expected a JSON object with session and project")
+            return
+        }
+        val project = matchProject(wanted, writer) ?: return
+        val service = WaitingReviewService.getInstance(project)
+        val live = service.current()?.takeIf { it.sessionId == session }
+        if (live != null && live.phase == ReviewPhase.Waiting) {
+            // Nothing has been written yet. The skill's poll is supposed to come back.
+            writer.name("status").value("waiting")
+            return
+        }
+        val dir = live?.outputPath ?: service.endedOutputPath(session)
+        if (dir == null) {
+            writer.name("status").value("no-review")
+            return
+        }
+        val read = try {
+            readHandoff(dir, MAX_HANDOFF_BYTES)
+        } catch (e: IOException) {
+            writer.name("status").value("failed")
+            writer.name("detail").value(e.message ?: e.toString())
+            return
+        }
+        when (read) {
+            is HandoffRead.Absent ->
+                if (live == null) {
+                    // The review ended before anything was written.
+                    writer.name("status").value("no-review")
+                } else {
+                    // The phase says the file was written and it is not there. A lie is not a
+                    // better answer than an error.
+                    writer.name("status").value("failed")
+                    writer.name("detail").value("the handoff file is missing even though the review says it was sent")
+                }
+            is HandoffRead.TooLarge -> {
+                writer.name("status").value("too-large")
+                writer.name("bytes").value(read.bytes)
+                writer.name("limit").value(MAX_HANDOFF_BYTES)
+            }
+            is HandoffRead.Content -> {
+                writer.name("status").value("ready")
+                writer.name("content").value(read.text)
+                writer.name("bytes").value(read.bytes)
+            }
+        }
     }
 
     /**

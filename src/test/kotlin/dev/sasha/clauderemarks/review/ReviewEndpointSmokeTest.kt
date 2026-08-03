@@ -140,6 +140,104 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
+     * A fetch before the send has written anything answers `waiting`, with no `content` field — the
+     * skill's poll is supposed to come back.
+     */
+    fun testAFetchBeforeTheSendAnswersWaiting() {
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("fetch-waiting"))
+
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"waiting\""))
+        assertFalse(sent, sent.contains("\"content\""))
+    }
+
+    /**
+     * The transport fact as a test: after the send has written the file and marked it sent, a
+     * fetch's response body carries the remark text itself, not a path.
+     */
+    fun testAFetchAfterTheSendCarriesTheWholePromptInTheBody() {
+        val dir = temp.dir("fetch-ready")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, dir)
+        atomicWriteString(handoffFile(dir), "a note about A")
+        WaitingReviewService.getInstance(project).markSent("s1", listOf("r1"))
+
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"ready\""))
+        assertTrue(sent, sent.contains("a note about A"))
+    }
+
+    /**
+     * Fetching is not reading: it must not mark anything sent or touch the review's phase at all.
+     */
+    fun testAFetchMarksNothingSentAndLeavesTheReviewAlone() {
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
+        val dir = temp.dir("fetch-no-mutate")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, dir)
+        atomicWriteString(handoffFile(dir), "a note about A")
+        WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
+
+        post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+
+        assertEquals(RemarkStatus.PENDING, RemarkStore.getInstance(project).all().single { it.id == remark.id }.status)
+        val current = WaitingReviewService.getInstance(project).current()
+        assertNotNull(current)
+        assertTrue(current!!.phase is ReviewPhase.Sent)
+    }
+
+    /**
+     * The rejection body is written into the handoff file and then the review is cleared, in that
+     * order (review/SendReview.kt). A fetch after that still has to hand the rejection back — the
+     * whole reason WaitingReviewService remembers the ended review's path.
+     */
+    fun testAFetchOfARejectedReviewStillCarriesTheRejectionBody() {
+        val dir = temp.dir("fetch-rejected")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, dir)
+        atomicWriteString(handoffFile(dir), REJECTION_BODY)
+        WaitingReviewService.getInstance(project).clear("s1")
+
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"ready\""))
+        assertTrue(sent, sent.contains("<!-- claude-remarks: rejected -->"))
+    }
+
+    /**
+     * A session id nothing knows about, while a different review is waiting, must not answer with
+     * that other review's content — the session comparison in handleFetch, as a test.
+     */
+    fun testAFetchForASessionNothingKnowsAboutAnswersNoReview() {
+        val dir = temp.dir("fetch-other-session")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, dir)
+        atomicWriteString(handoffFile(dir), "a note about A")
+        WaitingReviewService.getInstance(project).markSent("s1", listOf("r1"))
+
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s2","project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"no-review\""))
+        assertFalse(sent, sent.contains("a note about A"))
+    }
+
+    /**
+     * The one test that exercises the real MAX_HANDOFF_BYTES; the boundary itself is task 3's job.
+     */
+    fun testAFetchOverTheSizeLimitAnswersTooLargeAndNoContent() {
+        val dir = temp.dir("fetch-too-large")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, dir)
+        val marker = "MARKER-END-OF-FILE"
+        val body = "x".repeat(1_100_000) + "\n" + marker
+        atomicWriteString(handoffFile(dir), body)
+        WaitingReviewService.getInstance(project).markSent("s1", listOf("r1"))
+
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"too-large\""))
+        assertTrue(sent, sent.contains("\"limit\""))
+        assertFalse(sent, sent.contains(marker))
+    }
+
+    /**
      * projectForPath compares the path as given, and the endpoint resolves every open project's
      * basePath with toRealPath() before comparing, so a symlinked checkout still matches.
      *
