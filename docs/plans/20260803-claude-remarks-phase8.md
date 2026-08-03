@@ -1168,30 +1168,98 @@ already run, so the request is sent and the script dies believing nothing happen
 `trap -`, the first-line rejection check, `ack read`, `ack_code`, `ack_answer`. In the same-machine case
 `$handoff` *is* `$output`, so those lines read the same file they read today.
 
-- [ ] add the three new "What to say if something goes wrong" entries: no tunnel (connection refused —
+- [x] add the three new "What to say if something goes wrong" entries: no tunnel (connection refused —
       name the `ssh -R` command and `ExitOnForwardFailure`), `too-large` (the two numbers, the remarks
       are still pending, the path on the IDE machine), and `unknown-project` in the remote case (the two
-      machines disagree about the repository path; the `open` list says which one to pass).
-- [ ] rewrite step 6 as above
-- [ ] the same extract-and-parse check as task 5: `sh -n` and `bash -n` both clean
-- [ ] the same undefined-variable check as task 5: prints nothing
-- [ ] **run the loop against a stub, in remote mode.** In the scratchpad, put a fake `curl` early on
-      `PATH` that reads a canned response file and prints a canned HTTP code, and drive the extracted
-      script through three sequences: two `waiting` answers then a `ready` one, a `ready` whose content
-      is the rejection body, and a `too-large`. Confirm the first prints the remarks and sends
-      `ack read`, the second reports the rejection and sends no `ack read`, and the third exits non-zero
-      with both numbers in the message. **Do not commit the stub** — this project has no home for a
-      shell test, and a fixture nobody runs again is worse than a one-time check honestly labelled.
-      Paste the output in the task record.
-- [ ] **mutation:** change the loop to `while ! handoff_ready` and re-run the stub with the `too-large`
-      sequence — it must now poll to the deadline instead of exiting, which is the defect the loop shape
-      exists to avoid. Then remove `-j` from the `jq` that writes `$handoff` and confirm the copy is one
-      byte longer than the content. Restore both.
-- [ ] confirm the local path is untouched in behaviour: run the stub-free local sequence by hand —
-      create a file at a path, set `remote=` empty, and confirm the loop finds it, `cat`s it, and does
-      the rejection check on the same file rather than a copy
-- [ ] commit: `feat(skill): fetch the remarks over the tunnel, with one wait loop for both transports`
-      — stage exactly the one file
+      machines disagree about the repository path; the `open` list says which one to pass). Done.
+- [x] rewrite step 6 as above. Done — the `ack` function gained the two time limits and now posts to
+      `"$base_url/ack"` with `--arg project "$ide_project"` (matching task 5's decision), a
+      `handoff_ready` function was added with the three-way 0/1/2 return, the `handoff`/`poll_seconds`
+      variables were added, the `while :; do handoff_ready && break; ready_status=$?; ...` loop replaced
+      the old `while [ ! -e "$output" ]`, and the `cat`/rejection-check/`ack read` lines now read
+      `$handoff` in place of `$output`. Surrounding prose updated to match: the paragraph before the
+      code block, the "Checking existence is enough" paragraph (now covers both the local atomic-rename
+      guarantee and the remote self-delimiting-JSON guarantee), and the rejection-check bullet's inline
+      `$output` reference, all now say `$handoff`.
+- [x] the same extract-and-parse check as task 5: `sh -n` and `bash -n` both clean. Confirmed: 149 lines
+      (up from task 5's 98 — this run's extraction also sweeps up the four alternative file-list shape
+      snippets in step 3, which were already present and already counted the same way in every earlier
+      task's check), `SYNTAX OK` from both `sh -n` and `bash -n`.
+- [x] the same undefined-variable check as task 5: prints nothing. Confirmed empty.
+- [x] **run the loop against a stub, in remote mode.** Built in the scratchpad: a fake `curl` on `PATH`
+      that inspects the URL suffix (`/start`, `/fetch`, `/ack`), tracks a per-run fetch call count in a
+      state directory, and writes a canned JSON body plus a canned HTTP code, driven by a
+      `FAKECURL_SEQ` env var. The driven script was assembled by extracting steps 1, 2, the "nothing in
+      particular" file-list shape, the file-list guard, the `start` POST, and the whole of step 6
+      verbatim (via `sed` line ranges) out of `SKILL.md` itself, with `ide_port`/`ide_token`/
+      `ide_project` filled in the way a person would before running it, and `about_a_diff` set to `no`
+      to match the chosen file-list shape. Three sequences, each a fresh run:
+
+      **A — two `waiting` then `ready` with real content:**
+      ```
+      remote: 127.0.0.1:9999, project /fake/ide/repo
+      start: http 200
+      {"status":"waiting","output":"/fake/path/on/ide/machine/remarks.md"}
+      a note about Aack read: http 200, status ok
+      exit code: 0
+      ack calls made: 1
+      ```
+      Prints the remarks (`a note about A`) and sends exactly one `ack read`, which answered `ok`.
+
+      **B — `ready` whose content is the rejection body:**
+      ```
+      remote: 127.0.0.1:9999, project /fake/ide/repo
+      start: http 200
+      {"status":"waiting","output":"/fake/path/on/ide/machine/remarks.md"}
+      <!-- claude-remarks: rejected -->
+      rejectedthe person rejected this review; no remarks were sent
+      exit code: 0
+      ack calls made: 0
+      ```
+      Reports the rejection and sends **no** `ack read` (0 ack calls) — the trap was already cleared
+      by the time the rejection branch runs, matching the plan's design.
+
+      **C — `too-large`:**
+      ```
+      remote: 127.0.0.1:9999, project /fake/ide/repo
+      start: http 200
+      {"status":"waiting","output":"/fake/path/on/ide/machine/remarks.md"}
+      the review is too big to send through the tunnel: 1200000 bytes, limit 1048576
+      the remarks are still pending in the IDE. The file is at /fake/path/on/ide/machine/remarks.md on the IDE machine.
+      Ask the person to read it there, or to send fewer remarks.
+      exit code: 1
+      ```
+      Exits non-zero with both numbers (`1200000`, `1048576`) in the message. (One `ack abandoned` was
+      sent by the `EXIT` trap on the way out, which is correct — the trap was still armed at that exit
+      point — and is separate from the "no `ack read`" property sequence B checks.)
+
+      The stub files (`stub.sh`, `fakecurl/curl`, and the mutation copies below) were left in the
+      scratchpad, not committed.
+- [x] **mutation:** changed the loop to `while ! handoff_ready` and re-ran the stub with the `too-large`
+      sequence. Unmutated: exits immediately (0s elapsed) with the too-large message, exit code 1.
+      Mutated, with a short 8-second test deadline: polls three times over 10 seconds and then prints
+      "timed out waiting for the IDE" instead of the too-large message, exit code 1 — the defect the
+      loop shape exists to avoid, reproduced. Then removed `-j` from the `jq` that writes `$handoff` on
+      sequence A: the unmutated copy is 14 bytes, the mutated one 15 — one byte longer, from the added
+      trailing newline. Both mutations run against scratch copies of the extracted script; `SKILL.md`
+      itself was untouched by either.
+- [x] confirm the local path is untouched in behaviour: ran the extracted step 6 alone with `remote=`
+      empty, `start_resp` holding `{"status":"waiting","output":"<a real temp file already containing
+      text>"}`, and a fake `curl` intercepting only the `ack` call. Output:
+      ```
+      local test content, no rejection markerack read: http 200, status ok
+
+      handoff path : /var/folders/.../tmp.Bn4IqDNoxU
+      output path  : /var/folders/.../tmp.Bn4IqDNoxU
+      same file, not a copy: yes
+      exit: 0
+      ```
+      The loop found the pre-existing file immediately (no fetch call — `remote` empty short-circuits
+      `handoff_ready`), `cat`ed it, ran the rejection check against `$handoff`, which is the same path
+      as `$output` (`handoff=$output` in the non-remote branch, no copy made), sent `ack read`, and
+      exited 0.
+- [x] commit: `feat(skill): fetch the remarks over the tunnel, with one wait loop for both transports`
+      — stage exactly the one file. Done.
 
 ### Task 7: Verify acceptance criteria
 

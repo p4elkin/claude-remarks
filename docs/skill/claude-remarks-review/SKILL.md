@@ -283,33 +283,86 @@ agent:
 
 6. **Wait for the handoff file, tell a rejection from remarks, then acknowledge.** The first line
    below is what puts `output` in hand: it is the path from the `waiting` response of step 3, read
-   back out of the file `curl` saved it to. Everything after it waits on that path, so an empty
-   `$output` makes the loop test `[ ! -e "" ]` and poll silently until the deadline.
+   back out of the file `curl` saved it to. In the same-machine case it is also the path the loop
+   waits on. In the remote case it is a path on the IDE machine, printed for the person but never
+   tested with `-e` on this machine — see the comment above `handoff_ready` for why. Either way an
+   empty `$output` fails right below, before either branch runs.
 
    ```sh
    output=$(jq -r .output "$start_resp")
    [ -n "$output" ] && [ "$output" != null ] \
      || { echo "the waiting response carried no output path"; exit 1; }
 
+   # Where the remarks will be readable on THIS machine, and how often to look.
+   # Same machine: the file the IDE wrote. Remote: a local copy the fetch writes into.
+   # In the remote case $output is a path on the IDE MACHINE, so it is only ever printed, never
+   # tested with -e. Five seconds, not one: the IDE's built-in server allows 30 requests a minute
+   # from one address, shared with everything else talking to it, and a 429 is not something to
+   # hit on purpose.
+   if [ -n "$remote" ]; then handoff=$(mktemp); poll_seconds=5; else handoff=$output; poll_seconds=1; fi
+
    ack() {
-     jq -n --arg session "$session" --arg project "$root" --arg event "$1" \
+     jq -n --arg session "$session" --arg project "$ide_project" --arg event "$1" \
        '{session:$session, project:$project, event:$event}' \
-     | curl -s -o "$ack_resp" -w '%{http_code}' \
-         -X POST "http://127.0.0.1:$port/api/claude-remarks/ack" \
+     | curl -s -o "$ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+         -X POST "$base_url/ack" \
          -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-
    }
    trap 'ack abandoned >/dev/null' EXIT
    trap 'ack abandoned >/dev/null; trap - EXIT; exit 130' INT TERM
 
+   # 0 = the remarks are now in $handoff. 1 = not yet, keep waiting. 2 = stop, the reason is printed.
+   handoff_ready() {
+     if [ -z "$remote" ]; then
+       [ -e "$handoff" ] || return 1
+       return 0
+     fi
+     fetch_code=$(jq -n --arg session "$session" --arg project "$ide_project" \
+         '{session:$session, project:$project}' \
+       | curl -s -o "$fetch_resp" -w '%{http_code}' --connect-timeout 5 --max-time 30 \
+           -X POST "$base_url/fetch" \
+           -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-)
+     if [ "$fetch_code" = 429 ]; then
+       echo "the IDE is rate limiting (30 requests a minute from one address); backing off"
+       sleep 20
+       return 1
+     fi
+     if [ "$fetch_code" != 200 ]; then
+       echo "fetch: http $fetch_code"; cat "$fetch_resp"; echo
+       echo "see step 4 for what this HTTP status means"
+       return 2
+     fi
+     fetch_answer=$(jq -r '.status // empty' "$fetch_resp" 2>/dev/null)
+     case $fetch_answer in
+       ready)
+         # -j so jq adds no trailing newline: the copy is then byte-identical to the file the IDE wrote.
+         jq -j -r .content "$fetch_resp" > "$handoff" \
+           || { echo "the fetched body could not be read as JSON — it was probably cut off"; return 2; }
+         return 0 ;;
+       waiting) return 1 ;;
+       too-large)
+         echo "the review is too big to send through the tunnel: $(jq -r '"\(.bytes) bytes, limit \(.limit)"' "$fetch_resp")"
+         echo "the remarks are still pending in the IDE. The file is at $output on the IDE machine."
+         echo "Ask the person to read it there, or to send fewer remarks."
+         return 2 ;;
+       *)
+         echo "fetch answered '$fetch_answer'"; cat "$fetch_resp"; echo
+         return 2 ;;
+     esac
+   }
+
    deadline=$(( $(date +%s) + ${deadline_seconds:-1800} ))
-   while [ ! -e "$output" ]; do
+   while :; do
+     handoff_ready && break
+     ready_status=$?
+     [ "$ready_status" -eq 2 ] && exit 1
      [ "$(date +%s)" -ge "$deadline" ] && { echo "timed out waiting for the IDE"; exit 1; }
-     sleep 1
+     sleep "$poll_seconds"
    done
-   cat "$output" || { echo "the handoff file could not be read"; exit 1; }
+   cat "$handoff" || { echo "the handoff file could not be read"; exit 1; }
    trap - EXIT INT TERM
 
-   if [ "$(head -1 "$output")" = '<!-- claude-remarks: rejected -->' ]; then
+   if [ "$(head -1 "$handoff")" = '<!-- claude-remarks: rejected -->' ]; then
      echo "the person rejected this review; no remarks were sent"
      exit 0
    fi
@@ -318,11 +371,21 @@ agent:
    echo "ack read: http $ack_code, status $ack_answer"
    ```
 
-   Checking existence is enough: the plugin writes the file's full content to a temp file beside
-   it and renames the temp file onto this path, and a same-filesystem rename is atomic on POSIX.
-   So there is no partial state to observe — the file is either absent or complete, never
-   half-written. Do not "improve" this into a size check or a lock file; the atomic rename is
-   what makes the plain existence check correct.
+   **`while :; do handoff_ready && break; ready_status=$?` and never `while ! handoff_ready`.**
+   `!` collapses every non-zero status to 1, so the three-way answer above would become two-way
+   and a hard stop (`too-large`, a bad HTTP status, a body that will not parse) would be read as
+   "keep waiting" until the deadline instead of stopping now. With `&& break` the compound
+   command's own status is `handoff_ready`'s own status, not a flattened one.
+
+   Checking existence is enough for the same-machine branch: the plugin writes the file's full
+   content to a temp file beside it and renames the temp file onto this path, and a
+   same-filesystem rename is atomic on POSIX. So there is no partial state to observe — the file
+   is either absent or complete, never half-written. Do not "improve" this into a size check or a
+   lock file; the atomic rename is what makes the plain existence check correct. The remote branch
+   has a different guarantee for the same problem: JSON is self-delimiting, so a response cut off
+   by a dead tunnel makes `jq -j -r .content` fail rather than write a half prompt, which is what
+   turns a truncated fetch into "the fetched body could not be read as JSON" instead of a silent
+   partial copy.
 
    Six things about this block are load-bearing, and each one is a decision somebody will
    otherwise undo:
@@ -359,7 +422,7 @@ agent:
      calls, the bare arithmetic would leave `deadline` empty, `[ "$(date +%s)" -ge "" ]` would never
      fire, and the loop would poll silently until the Bash tool's own timeout.
    - **The rejection check comes before the acknowledgement, and it compares the file's FIRST line,
-     not any line.** `[ "$(head -1 "$output")" = '<!-- claude-remarks: rejected -->' ]`. This was
+     not any line.** `[ "$(head -1 "$handoff")" = '<!-- claude-remarks: rejected -->' ]`. This was
      `grep -q '^<!-- … -->'` and that was wrong: `^` anchors to the start of *a* line, and a remark's
      own text starts lines too. The prompt renderer escapes fences and heading characters but not
      `<!--`, so a remark that quotes the marker — writing about this protocol is enough — was read as
@@ -413,3 +476,17 @@ agent:
   read here but stay marked pending in the IDE, so the person can send them again.
 - `start` answers `failed`: "The IDE could not open a review session: <detail>." No review is
   waiting, so there is nothing to wait for and nothing to reject.
+- No tunnel in the remote case (connection refused): "There is no tunnel reaching the IDE machine
+  at this host and port. On the IDE machine, start one with
+  `ssh -o ExitOnForwardFailure=yes -R <port>:127.0.0.1:<the IDE's port> <this machine>`, then try
+  again." `ExitOnForwardFailure=yes` matters here: without it a taken port on this machine makes
+  `ssh` connect anyway with no forwarding, and every request after that answers connection refused
+  for a reason that looks nothing like the real cause.
+- `fetch` answers `too-large`: "The review is too big to send through the tunnel (`<bytes>` bytes,
+  limit `<limit>`). The remarks are still pending in the IDE, at `<output>` on the IDE machine. Ask
+  the person to read them there, or to send fewer remarks." Not a failure to retry — the review
+  cannot be re-sent from the IDE either, so this stops here.
+- `fetch` answers `unknown-project` in the remote case: "The two machines disagree about where the
+  repository lives. The response's `open` list names the paths the IDE has open — pass one of
+  those as `ide_project` and try again." This is the normal first failure of the remote case, not
+  a rare mistake.
