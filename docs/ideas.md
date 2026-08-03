@@ -1343,3 +1343,121 @@ The forked answer is a dead end conversationally — one question, one answer, n
 gets used the way remarks get used, the next thing wanted will be "ask again about the same thing,"
 and that means the plugin holding a real thread of its own. That is a bigger design than this, and it
 should not be guessed at until the one-shot version has been used.
+
+## Copying is not sending, and one state is doing two jobs
+
+Sasha's complaint: pressing Copy All Pending greys the remarks out as though they had been sent, and
+that is not what happened. Something went to the clipboard. Nobody read anything.
+
+**The complaint is right, and phase 7 is the argument for it.** `RemarkStatus` has two values,
+`PENDING` and `SENT`. Its own KDoc in `model/RemarkState.kt` says `SENT` is written "once a copy
+reaches the clipboard". The review path writes the same value, but only after the agent sends `ack
+read`. So one state means two different things:
+
+- the text is on the clipboard, and nothing is known about whether it ever reached an agent
+- an agent said in a separate HTTP request that it read the remarks
+
+Phase 7 built the second meaning deliberately. It made the `read` acknowledgement the only thing that
+marks a remark sent, because a fetch response can be lost and the IDE must not claim a delivery that
+did not happen. Then the clipboard path kept marking remarks sent with no confirmation at all. The
+two paths disagree about what the same grey icon means.
+
+### Three states, not two renamed
+
+Renaming `SENT` to `PUBLISHED` on its own does not fix this. Both paths would still land on one state,
+and the conflation would survive under a new name.
+
+The honest model is three states:
+
+- **Pending.** Written, not handed anywhere.
+- **Published.** Handed to a channel that cannot confirm a read. The clipboard is one. A file on disk
+  is another. This is a terminal state for the manual path, because pasting into a chat window is
+  invisible to the IDE and always will be.
+- **Read.** An agent said it read them, over the endpoint. Only the review path can produce this.
+
+Then the grey icon splits into two weights, and the copy action can honestly be called Publish.
+
+**What this costs.** `RemarkStatus` is persisted in `workspace.xml`. Adding a third value is safe as
+long as `PENDING` stays the default, because `BaseState` omits defaults when it serializes. Renaming
+`SENT` is not free: remarks already stored as `SENT` would no longer parse and would fall back to
+pending. With one user and a project this young that is an acceptable one-time reset, but it should be
+a decision rather than a surprise. Keeping the persisted name `SENT` for the read state and adding
+`PUBLISHED` alongside avoids it entirely, at the cost of a name in the code that no longer matches the
+label in the UI.
+
+### Publishing writes a file as well as the clipboard
+
+Today the clipboard is the only destination for a manual publish. The idea is to write the same
+markdown to a file at the same time, and to let the skill find it.
+
+That gives the feature something it does not have: **the person can publish first and the agent can
+read later.** Every path built so far has the agent asking and then waiting. This inverts it. Mark up
+some code, publish, then tell a session to go read it whenever. No banner, no deadline, no waiting
+loop, no endpoint call at all on the agent side. It is likely to become the common case precisely
+because it does not need the two sides to be present at the same time.
+
+**Where the file goes.** Beside the handshake file, under `~/.claude-remarks/`, never in the
+repository. The rule that nothing remark-related enters VCS still holds. The handshake file already
+proves the naming scheme works: `handshakeName` in `review/ReviewHandshake.kt` hashes the project
+root, so a skill running in the same repository can compute the name without being told it.
+
+**Three cases, and they want different names.**
+
+- **A manual publish with no review waiting.** One file per project, named from the project hash, the
+  same way the handshake file is. The skill reads it when told to read published remarks.
+- **A send while a review is waiting.** This already exists. The handoff file lives in a temp
+  directory the review owns, and the review carries the session id, so two sessions cannot collide.
+  Nothing here needs changing.
+- **A send after the review has already ended.** This is the case Sasha named and the one with no
+  answer today. The review timed out, so the banner is gone and Send is not offered. The remarks are
+  still pending. A publish should write the per-project file, and then he tells the session to read it
+  by hand. That is the same file as the first case, which is why the first case is worth having.
+
+### The risk this adds, and it is a familiar one
+
+A published file that sits on disk is a file an agent can read twice, or read long after it was
+written. That is the same shape as the defect already recorded in `docs/claude/design.md` under Known
+Issues, where a same-session retry hands back the previous review's remarks. A stale published file
+would let an agent act confidently on remarks about code that has since changed.
+
+So the file needs something the handoff file does not: a way to tell how old it is and what it was
+about. The cheapest version is a timestamp and the head commit inside the file, both of which the
+renderer already has. The skill can then say what it is reading and how old it is rather than reading
+silently. Deleting the file after a read is the wrong answer, because nothing confirms the read on the
+manual path, which is the whole reason Published is a separate state.
+
+### Where published remarks live in the tree
+
+Sasha's second point: greying them in place is not the right shape either.
+
+The choice is between keeping published remarks where they are and moving them out of the working
+list. Grey in place keeps the code position visible, so it is obvious what was already handed over
+while reading the same file, and Copy Selected can hand it over again after a paste went to the wrong
+window. A separate section keeps the pending list short, which is what matters once a session has
+produced twenty remarks and eight are done with. The property being traded is context against
+focus.
+
+There is already an archive for this: `store/RemarkHistory.kt` writes cleared remarks to a history
+file in the IDE configuration directory. That is a different thing though. History is for remarks that
+are gone from the tree. This is about remarks still in the tree that are no longer the work.
+
+Three shapes worth thinking about before picking one:
+
+- **A Published group at the top level**, beside the bucket groups that already exist above the file
+  groups in `ui/RemarksTree.kt`. Fits the tree's existing structure and needs no new surface.
+- **A filter toggle**, so published remarks are hidden until asked for. Smallest change, and it leaves
+  no visible record of what was handed over, which is the thing Sasha would then have to remember.
+- **Collapse published file groups by default** and leave everything else alone. Cheapest of the
+  three and it keeps position, but it only helps when whole files are done.
+
+The first is the most likely right answer, and it is worth checking against the bucket level rather
+than designed on its own: a remark can be in a bucket and published at the same time, so two grouping
+axes have to agree on which one wins at the top.
+
+### One thing this does not revive
+
+Phase 5 dropped a pluggable `Dispatcher` interface, a tmux pane and a file inside `.idea/`. See
+`docs/claude/design.md`, section "The Copy Pipeline", for why. Writing one extra file next to the
+handshake file is not that idea coming back. There is no dispatcher, no plugin point, no choice of
+destination, and nothing in the repository. It is one more write on a path that already renders the
+same markdown.
