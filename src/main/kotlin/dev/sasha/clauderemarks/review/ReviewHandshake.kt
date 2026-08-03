@@ -22,14 +22,19 @@ import org.jetbrains.ide.BuiltInServerManager
  */
 
 /**
- * The first 16 hex characters of sha256(realPath), plus ".json". A skill can compute this with one
- * line of shell (`shasum -a 256`), which is why sha256 was chosen over anything cleverer.
+ * The first 16 hex characters of sha256(realPath). A skill can compute this with one line of shell
+ * (`shasum -a 256`), which is why sha256 was chosen over anything cleverer. Shared by handshakeName
+ * and, since phase 9, publishedName in PublishedRemarks.kt: both name a file for the same project,
+ * and a skill on the other side computes the same 16 characters for either one.
  */
-fun handshakeName(realPath: String): String {
+fun projectHash(realPath: String): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(realPath.toByteArray(Charsets.UTF_8))
     val hex = digest.joinToString("") { "%02x".format(it) }
-    return hex.take(16) + ".json"
+    return hex.take(16)
 }
+
+/** The handshake file's name: [projectHash] plus ".json". */
+fun handshakeName(realPath: String): String = projectHash(realPath) + ".json"
 
 /**
  * Not the IDE configuration directory: the skill has to find this without knowing which JetBrains
@@ -70,7 +75,10 @@ private fun escapeJson(value: String): String = buildString(value.length) {
 fun renderHandshake(path: String, port: Int, token: String): String =
     """{"path": "${escapeJson(path)}", "port": $port, "token": "${escapeJson(token)}"}"""
 
-private fun setOwnerOnly(path: Path, mode: String) {
+// internal rather than private: PublishedRemarks.kt (same package, different file — a top-level
+// `private` in Kotlin is file-private, not package-private) reuses this for the same reason
+// writeHandshake needs it: a POSIX permission view that degrades quietly where there is none.
+internal fun setOwnerOnly(path: Path, mode: String) {
     // Guarded: a filesystem with no POSIX view (e.g. plain FAT) degrades instead of throwing.
     // fileAttributesViewOrNull is kotlin.io.path from the Kotlin standard library, @InlineOnly, with
     // no @ExperimentalPathApi and so no @OptIn — this removes internal-API exposure entirely rather

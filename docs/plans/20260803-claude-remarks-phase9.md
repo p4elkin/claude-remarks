@@ -678,7 +678,7 @@ sets it to `rwx------`, writes through `atomicWriteString`, then sets the file t
 order is the one `writeHandshake` argues for: the permission call on the file has to run after the
 rename, because `atomicWriteString` renames a temp file onto the target.
 
-- [ ] write the failing tests in `PublishedRemarksTest`:
+- [x] write the failing tests in `PublishedRemarksTest`:
   - `the published name is the handshake name with a markdown suffix`. Same input, both functions,
     the first 16 characters equal.
   - `the header starts with the marker and carries the time, the commit and the count`. A fixed
@@ -687,16 +687,16 @@ rename, because `atomicWriteString` renames a temp file onto the target.
   - `a header with no commit says so rather than printing an empty field`.
   - `the write lands in the given directory, owner readable only, and leaves no temp file behind`.
     A temp directory, then list it and assert exactly one file.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.PublishedRemarksTest"` and expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.PublishedRemarksTest"` and expect a
       compile failure
-- [ ] implement, then the same command and
+- [x] implement, then the same command and
       `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewHandshakeTest"` both pass. The
       handshake test is the one that notices a bad extraction of `projectHash`.
-- [ ] **mutation:** make `publishedName` hash something other than the real path, for example the
+- [x] **mutation:** make `publishedName` hash something other than the real path, for example the
       project name; the first test must fail. Drop the marker line from `publishedHeader`; the second
       must fail. Move the file permission call to before `atomicWriteString`; the fourth must fail.
       Restore all three.
-- [ ] commit: `feat: the published file has a name a skill can compute and a header it can date`
+- [x] commit: `feat: the published file has a name a skill can compute and a header it can date`
 
 ### Task 5: The publish pipeline writes the file
 
