@@ -15,7 +15,14 @@ import java.util.concurrent.TimeUnit
 /** What an acknowledgement did, so the endpoint can answer honestly. */
 enum class AckOutcome { OK, NO_REVIEW, NOT_SENT }
 
-/** What ended a review. STALE is the deadline; the other two come from the skill. */
+/**
+ * What ended a review. STALE is the deadline; the other two come from the skill.
+ *
+ * STALE carries no behaviour of its own: `reportReviewEnd` in review/SendReview.kt shows it exactly
+ * the same balloon as ABANDONED, because from the person's side both mean the agent is gone. It
+ * exists to name the caller, so the one place that could ever want to tell them apart — a log line,
+ * or a future message — has the distinction available rather than having to reconstruct it.
+ */
 enum class ReviewEnd { READ, ABANDONED, STALE }
 
 /**
@@ -24,7 +31,9 @@ enum class ReviewEnd { READ, ABANDONED, STALE }
  * a nullable id list, so "ids exist only after a send" is not a rule a caller can forget.
  */
 sealed interface ReviewPhase {
-    object Waiting : ReviewPhase
+    // data object, not object: a failing assertEquals in WaitingReviewServiceTest then prints
+    // "Waiting" rather than an identity hash, and it matches the data class next to it.
+    data object Waiting : ReviewPhase
     data class Sent(val ids: List<String>) : ReviewPhase
 }
 
@@ -73,8 +82,9 @@ internal fun startOrConflict(
     now: Long = System.currentTimeMillis(),
     outputPath: () -> Path,
 ): StartResult {
-    fun accept() =
-        StartResult.Accepted(WaitingReviewState(session, label, outputPath(), now, now + deadlineSeconds * 1000))
+    // Hoisted, so the two branches that need it cannot drift apart and the bare 1000 is written once.
+    val deadlineAt = now + deadlineSeconds * 1000
+    fun accept() = StartResult.Accepted(WaitingReviewState(session, label, outputPath(), now, deadlineAt))
     return when {
         current == null -> accept()
         // Same-session retry is checked first: a retry keeps its own output path, even a late one, so
@@ -83,7 +93,7 @@ internal fun startOrConflict(
         // for a review the scheduled expiry kills in the same millisecond, which is the kind of lie
         // this phase exists to remove.
         current.sessionId == session ->
-            StartResult.Accepted(current.copy(deadlineAt = now + deadlineSeconds * 1000), fresh = false)
+            StartResult.Accepted(current.copy(deadlineAt = deadlineAt), fresh = false)
         // A different session gets in only when the current review is really dead.
         current.isStale(now) -> accept()
         else -> StartResult.Conflict(current)
@@ -104,6 +114,16 @@ internal fun startOrConflict(
  * Files.createTempDirectory, and current() must never block the EDT on that filesystem call. A
  * stale read here is harmless — the toolbar redraws again on the next REMARKS_CHANGED regardless —
  * so this is a written-down, accepted bend of "guard every mutable field", not an oversight.
+ *
+ * **Four things here exist for the tests and for nothing else**, listed together so a fifth is not
+ * added without noticing how much of this service's surface they already are: the [start] parameter
+ * that supplies an output path, the `now` parameter on [expireIfStale], `clear()` called with no
+ * session (both production callers name one, in review/SendReview.kt), and [expiryIsLive]. Each
+ * says at its own declaration why it is there. Anything new of this shape belongs in this list — or
+ * better, does not get added.
+ *
+ * Everything but [current] and [getInstance] is `internal`: every caller is in `review/` or `ui/`
+ * in this same module, and a plugin has no outside consumer to keep a wider surface for.
  */
 @Service(Service.Level.PROJECT)
 class WaitingReviewService(private val project: Project) : Disposable {
@@ -165,7 +185,7 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * review Sent would claim ids whose file was written into the old review's directory.
      */
     @Synchronized
-    fun markSent(session: String, ids: List<String>) {
+    internal fun markSent(session: String, ids: List<String>) {
         val acting = state ?: return
         if (acting.sessionId != session) return
         state = acting.copy(phase = ReviewPhase.Sent(ids))
@@ -176,9 +196,15 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * Ends the review the skill is asking about, if there is one. Returns the state it acted on,
      * because the caller (review/SendReview.kt) needs the ids and the count for the store mutation
      * and the balloon.
+     *
+     * **The pair's halves are coupled, and this is the invariant: the state is non-null exactly
+     * when the outcome is [AckOutcome.OK].** A pair rather than a sealed type like [StartResult]
+     * next to it, because [StartResult]'s two branches each carry a different state and need
+     * different names for it, while here one branch carries a state and the other two carry
+     * nothing — a sealed type would be three declarations to say "or null".
      */
     @Synchronized
-    fun acknowledge(session: String, end: ReviewEnd): Pair<AckOutcome, WaitingReviewState?> {
+    internal fun acknowledge(session: String, end: ReviewEnd): Pair<AckOutcome, WaitingReviewState?> {
         val acting = state
         if (acting == null || acting.sessionId != session) return AckOutcome.NO_REVIEW to null
         // A read acknowledgement for a file that was never written is a bug on one of the two
@@ -199,7 +225,7 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * zero deadline, which schedules a task that races the test's own assertion.
      */
     @Synchronized
-    fun expireIfStale(now: Long = System.currentTimeMillis()): WaitingReviewState? {
+    internal fun expireIfStale(now: Long = System.currentTimeMillis()): WaitingReviewState? {
         val acting = state ?: return null
         if (!acting.isStale(now)) return null
         return endReview()
@@ -231,7 +257,7 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * without checking could kill a different review that started in between.
      */
     @Synchronized
-    fun clear(session: String? = null) {
+    internal fun clear(session: String? = null) {
         if (session != null && state?.sessionId != session) return
         endReview()
     }

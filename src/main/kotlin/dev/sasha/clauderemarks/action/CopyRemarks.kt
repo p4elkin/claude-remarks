@@ -81,8 +81,8 @@ fun copyRemarks(project: Project, ids: Collection<String>?) {
             }
             markRemarksSent(project, prepared.ids)
 
-            val what = "${prepared.ids.size} remark${if (prepared.ids.size == 1) "" else "s"} " +
-                "across ${prepared.files} file${if (prepared.files == 1) "" else "s"}"
+            val what = "${prepared.ids.size} remark${plural(prepared.ids.size)} " +
+                "across ${prepared.files} file${plural(prepared.files)}"
             val file = clipboard.file
             notifyRemarks(
                 project,
@@ -130,6 +130,14 @@ internal fun prepare(project: Project, ids: Collection<String>?): Prepared {
         files = collected.map { it.path }.distinct().size,
     )
 }
+
+/**
+ * The plural "s", or nothing for one. Ten balloons and dialogs across the plugin count remarks or
+ * files in a sentence, and each of them had written this `if` out in full. Kept as the suffix rather
+ * than a whole "N remarks" phrase, because the noun is not always "remark" ("N files") and is not
+ * always the last word before it ("N sent remarks").
+ */
+internal fun plural(n: Int): String = if (n == 1) "" else "s"
 
 /**
  * Internal, because the tool window's toolbar reports its Clear Sent count the same way.

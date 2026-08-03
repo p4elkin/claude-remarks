@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import dev.sasha.clauderemarks.action.plural
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.RemarkStore
@@ -53,7 +54,7 @@ private fun chooseBucket(project: Project, ids: List<String>) {
     val existing = stored.mapNotNull { it.bucket }.distinct().sorted()
     val current = stored.firstOrNull { it.id == ids.first() }?.bucket.orEmpty()
     val chosen = Messages.showEditableChooseDialog(
-        "Bucket for ${ids.size} remark${if (ids.size == 1) "" else "s"} (leave empty for none):",
+        "Bucket for ${ids.size} remark${plural(ids.size)} (leave empty for none):",
         "Move to Bucket",
         null,
         existing.toTypedArray(),

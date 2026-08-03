@@ -279,7 +279,8 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
   IntelliJ (or another JetBrains IDE with the Claude Remarks plugin) and try again."
 - 403: "The IDE at this port answered with a stale token — re-open the project in the IDE, which
   writes a fresh handshake, then try again."
-- Timeout waiting for the handoff file: "No remarks arrived in 30 minutes. Nothing is lost — they
+- Timeout waiting for the handoff file: "No remarks arrived within the declared deadline
+  (`deadline_seconds`, 1800 by default). Nothing is lost — they
   are still pending in the IDE, never marked sent. Send to Claude Code again when ready, or paste
   them here."
 - The person rejected the review: "The review was rejected in the IDE. No remarks were sent."

@@ -7,7 +7,6 @@ import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.store.RemarkStore
@@ -16,6 +15,7 @@ import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.store.markRemarksSent
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.setRemarkSeverity
+import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.io.File
 
 /**
@@ -42,10 +42,10 @@ class RemarkGutterTest : BasePlatformTestCase() {
     fun testAddingTheFirstRemarkToAnOpenFilePutsAnIconInTheGutter() {
         openFoo()
         gutter.start()
-        settle()
+        settleInvocationQueue()
 
         addRemark(project, "Foo.kt", LINES, 1..1, "why?", RemarkTag.BUG)
-        settle()
+        settleInvocationQueue()
 
         assertEquals(1, iconCount())
     }
@@ -54,10 +54,10 @@ class RemarkGutterTest : BasePlatformTestCase() {
         openFoo()
         gutter.start()
         val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
-        settle()
+        settleInvocationQueue()
 
         deleteRemark(project, stored.id!!)
-        settle()
+        settleInvocationQueue()
 
         assertEquals(0, iconCount())
     }
@@ -74,11 +74,11 @@ class RemarkGutterTest : BasePlatformTestCase() {
     fun testAnEditorAlreadyOpenWhenTheServiceStartsIsSeeded() {
         openFoo()
         addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
-        settle()
+        settleInvocationQueue()
         val paintedByAnyoneElse = rawIconCount()
 
         gutter.start()
-        settle()
+        settleInvocationQueue()
 
         assertEquals(paintedByAnyoneElse + 1, rawIconCount())
     }
@@ -86,10 +86,10 @@ class RemarkGutterTest : BasePlatformTestCase() {
     fun testOpeningAFileAfterTheServiceStartedAlsoGetsIcons() {
         addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
         gutter.start()
-        settle()
+        settleInvocationQueue()
 
         openFoo()
-        settle()
+        settleInvocationQueue()
 
         assertEquals(1, iconCount())
     }
@@ -99,7 +99,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
         openFoo()
         addRemark(project, "Foo.kt", listOf("nothing", "like", "this", "file"), 1..1, "why?", null)
         gutter.start()
-        settle()
+        settleInvocationQueue()
 
         assertEquals(1, iconCount())
     }
@@ -116,7 +116,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
         val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
         setRemarkSeverity(project, listOf(stored.id!!), RemarkSeverity.MUST)
         gutter.start()
-        settle()
+        settleInvocationQueue()
 
         val tooltip = tooltips().single()
         assertTrue(tooltip, tooltip.contains("must"))
@@ -127,10 +127,10 @@ class RemarkGutterTest : BasePlatformTestCase() {
         openFoo()
         val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
         gutter.start()
-        settle()
+        settleInvocationQueue()
 
         markRemarksSent(project, listOf(stored.id!!))
-        settle()
+        settleInvocationQueue()
 
         assertEquals(1, iconCount())
     }
@@ -149,7 +149,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
         openFoo()
         addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
         gutter.start()
-        settle()
+        settleInvocationQueue()
         val before = remarkHighlighters()
         assertEquals(1, iconCount())
 
@@ -161,7 +161,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
                 FileDocumentManager.getInstance().getFile(myFixture.editor.document)!!,
                 myFixture.editor.document,
             )
-        settle()
+        settleInvocationQueue()
 
         assertEquals(1, iconCount())
         assertTrue("the icons should have been rebuilt", remarkHighlighters().none { it in before })
@@ -180,7 +180,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
         openFoo()
         addRemark(project, "Foo.kt", LINES, 1..2, "why?", null)
         gutter.start()
-        settle()
+        settleInvocationQueue()
         val beforeTyping = iconLines()
 
         myFixture.editor.caretModel.moveToOffset(myFixture.editor.document.getLineStartOffset(2))
@@ -190,7 +190,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
 
         // Any unrelated remark change re-resolves every tracked document.
         notifyRemarksChanged(project)
-        settle()
+        settleInvocationQueue()
 
         assertEquals(afterTyping, iconLines())
     }
@@ -224,18 +224,6 @@ class RemarkGutterTest : BasePlatformTestCase() {
         // file VFS already knows about.
         file.refresh(false, false)
         myFixture.openFileInEditor(file)
-    }
-
-    /**
-     * The sync hops to a pooled thread and back to the EDT, so both queues have to drain. If a
-     * test proves flaky, raise the repeat count — do not drop the assertion.
-     */
-    private fun settle() {
-        repeat(10) {
-            UIUtil.dispatchAllInvocationEvents()
-            Thread.sleep(10)
-        }
-        UIUtil.dispatchAllInvocationEvents()
     }
 
     /**

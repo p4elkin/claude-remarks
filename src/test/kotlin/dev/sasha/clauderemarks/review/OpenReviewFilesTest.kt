@@ -1,11 +1,9 @@
 package dev.sasha.clauderemarks.review
 
 import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.intellij.util.ui.UIUtil
-import java.io.File
+import dev.sasha.clauderemarks.store.fileUnderProjectRoot
+import dev.sasha.clauderemarks.store.settleInvocationQueue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -75,11 +73,12 @@ class OpenReviewFilesFixtureTest : BasePlatformTestCase() {
     }
 
     fun testAFileWithNoLocalChangeStillOpensAsAnEditor() {
-        val file = fileUnderProjectRoot("A.kt", "alpha\nbeta\n")
+        val file = fileUnderProjectRoot(project, "A.kt", "alpha\nbeta\n")
         assertFalse(FileEditorManager.getInstance(project).openFiles.any { it == file })
 
         openReviewFiles(project, listOf("A.kt"))
-        settle()
+        // openReviewFiles hops off to invokeLater, so the queue has to drain before asserting.
+        settleInvocationQueue()
 
         assertTrue(FileEditorManager.getInstance(project).openFiles.any { it == file })
     }
@@ -89,23 +88,4 @@ class OpenReviewFilesFixtureTest : BasePlatformTestCase() {
         manager.openFiles.forEach { manager.closeFile(it) }
     }
 
-    private fun fileUnderProjectRoot(name: String, text: String): VirtualFile {
-        val onDisk = File(project.basePath!!, name)
-        onDisk.parentFile.mkdirs()
-        onDisk.writeText(text)
-        // The light fixture project is shared by every test class in the JVM; the extra refresh
-        // is what makes a freshly written file visible to VFS reads in this test, the same
-        // pattern DiffRemarkTargetTest.fileUnderProjectRoot uses.
-        return LocalFileSystem.getInstance().refreshAndFindFileByIoFile(onDisk)!!
-            .also { it.refresh(false, false) }
-    }
-
-    // openReviewFiles hops off to invokeLater, so the queue has to drain before asserting.
-    private fun settle() {
-        repeat(10) {
-            UIUtil.dispatchAllInvocationEvents()
-            Thread.sleep(10)
-        }
-        UIUtil.dispatchAllInvocationEvents()
-    }
 }

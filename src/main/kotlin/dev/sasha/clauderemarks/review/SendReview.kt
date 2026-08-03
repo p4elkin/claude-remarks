@@ -12,6 +12,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.action.Prepared
 import dev.sasha.clauderemarks.action.notifyRemarks
+import dev.sasha.clauderemarks.action.plural
 import dev.sasha.clauderemarks.action.prepare
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.RemarkStore
@@ -77,7 +78,7 @@ fun sendToWaitingReview(project: Project) {
             val count = prepared.ids.size
             notifyRemarks(
                 project,
-                "Wrote $count remark${if (count == 1) "" else "s"} for Claude Code. " +
+                "Wrote $count remark${plural(count)} for Claude Code. " +
                     "Waiting for it to read them.",
             )
         }
@@ -176,25 +177,29 @@ private fun reportLater(project: Project, acted: WaitingReviewState, end: Review
  * For [ReviewEnd.READ] the remarks that were written are marked sent. For anything else — the
  * agent gave up, or the deadline passed — nothing in the store changes; what was written, if
  * anything, is still pending.
+ *
+ * One `when`, phase first: a review that was never sent has no ids to talk about at all, so testing
+ * that once decides both the message and whether `end` matters, and the smart cast carries into the
+ * two branches that do count something.
  */
 private fun reportReviewEnd(project: Project, state: WaitingReviewState, end: ReviewEnd) {
     val phase = state.phase
-    if (end == ReviewEnd.READ && phase is ReviewPhase.Sent) {
-        markRemarksSent(project, phase.ids)
-        val count = phase.ids.size
-        notifyRemarks(project, "Claude Code read $count remark${if (count == 1) "" else "s"}.")
-        return
-    }
-    when (phase) {
-        is ReviewPhase.Sent -> {
+    when {
+        phase !is ReviewPhase.Sent ->
+            notifyRemarks(project, "Claude Code stopped waiting for your remarks.")
+        end == ReviewEnd.READ -> {
+            markRemarksSent(project, phase.ids)
+            val count = phase.ids.size
+            notifyRemarks(project, "Claude Code read $count remark${plural(count)}.")
+        }
+        else -> {
             val count = phase.ids.size
             notifyRemarks(
                 project,
-                "Claude Code left without reading the $count remark${if (count == 1) "" else "s"} " +
+                "Claude Code left without reading the $count remark${plural(count)} " +
                     "you sent. They are still pending.",
             )
         }
-        ReviewPhase.Waiting -> notifyRemarks(project, "Claude Code stopped waiting for your remarks.")
     }
 }
 
@@ -202,9 +207,12 @@ private fun reportReviewEnd(project: Project, state: WaitingReviewState, end: Re
  * Whether Send would do anything right now: a review waiting for its first send, and something
  * pending to put in it. One function, because the condition has two readers — this action and the
  * tool window's toolbar button — and two copies of it drift apart silently.
+ *
+ * `== ReviewPhase.Waiting`, never `is`: one spelling per shape across the plugin, `==` for the
+ * object and `is` for the `Sent` data class that carries fields.
  */
 fun canSend(project: Project): Boolean =
-    WaitingReviewService.getInstance(project).current()?.phase is ReviewPhase.Waiting &&
+    WaitingReviewService.getInstance(project).current()?.phase == ReviewPhase.Waiting &&
         RemarkStore.getInstance(project).all().any { it.status == RemarkStatus.PENDING }
 
 /**

@@ -10,13 +10,11 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.action.AddRemarkAction
 import dev.sasha.clauderemarks.action.AddRemarkIntention
-import java.io.File
 
 /**
  * Adding a remark while reading a diff.
@@ -51,7 +49,7 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
      * text rather than the file on disk.
      */
     fun testARevisionPaneIsRefusedEvenThoughTheProjectFileItIsAVersionOfIsFound() {
-        val real = fileUnderProjectRoot("Diffed.kt", WORKING_TREE)
+        val real = fileUnderProjectRoot(project, "Diffed.kt", WORKING_TREE)
         val revision = revisionContentOf(real)
         val editor = diffViewerOn(revision)
 
@@ -61,6 +59,10 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
         assertEquals("Diffed.kt", ownFile.name)
         assertNull(relativePathOf(project, editor))
 
+        // Pinning an internal detail, not a behaviour a person can reach: relativePathOf's second
+        // candidate answers here, but no production caller ever asks it, because the refusal below
+        // runs first at every entry point. What this line guards is that the two functions still
+        // read the same candidate list — see relativePathOf's own KDoc.
         assertEquals("Diffed.kt", relativePathOf(project, editor, contextOf(revision)))
         val problem = remarkTargetProblem(project, editor, contextOf(revision))
         assertNotNull(problem)
@@ -79,7 +81,7 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
      * working-copy pane of the same diff is still accepted.
      */
     fun testTheWorkingCopySideOfADiffIsStillAccepted() {
-        val real = fileUnderProjectRoot("Diffed.kt", WORKING_TREE)
+        val real = fileUnderProjectRoot(project, "Diffed.kt", WORKING_TREE)
         // createDocument, not create(project, text, file): this is what the platform actually opens
         // on the working-copy side of a diff, and its document IS the real file's document — the
         // whole reason it needs no dataContext to resolve.
@@ -112,7 +114,7 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
      * file the user can see in the project and "outside the project directory" would read as a lie.
      */
     fun testTheSamePaneWithNoDiffContentIsRefusedAndSaysWhy() {
-        val editor = diffViewerOn(revisionContentOf(fileUnderProjectRoot("Diffed.kt", WORKING_TREE)))
+        val editor = diffViewerOn(revisionContentOf(fileUnderProjectRoot(project, "Diffed.kt", WORKING_TREE)))
 
         assertNull(relativePathOf(project, editor, DataContext.EMPTY_CONTEXT))
         assertEquals(
@@ -127,8 +129,8 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
      * context and naming a different file, the document's own file wins.
      */
     fun testAnOrdinaryEditorKeepsItsOwnFileEvenWithADiffContentAround() {
-        val other = fileUnderProjectRoot("Other.kt", WORKING_TREE)
-        myFixture.openFileInEditor(fileUnderProjectRoot("Diffed.kt", WORKING_TREE))
+        val other = fileUnderProjectRoot(project, "Other.kt", WORKING_TREE)
+        myFixture.openFileInEditor(fileUnderProjectRoot(project, "Diffed.kt", WORKING_TREE))
         val decoy = revisionContentOf(other)
 
         assertEquals("Diffed.kt", relativePathOf(project, myFixture.editor, contextOf(decoy)))
@@ -142,7 +144,7 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
      * description says when that context is missing instead.
      */
     fun testTheActionRefusesADiffPaneThreadedThroughTheEventsDataContext() {
-        val revision = revisionContentOf(fileUnderProjectRoot("Diffed.kt", WORKING_TREE))
+        val revision = revisionContentOf(fileUnderProjectRoot(project, "Diffed.kt", WORKING_TREE))
         val editor = diffViewerOn(revision)
         val action = AddRemarkAction()
 
@@ -165,7 +167,7 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
      * which only the EDT can build. Everywhere else it still decides.
      */
     fun testTheIntentionIsOfferedInADiffPaneAndNotInAFileWithNoProjectPath() {
-        val diff = diffViewerOn(revisionContentOf(fileUnderProjectRoot("Diffed.kt", WORKING_TREE)))
+        val diff = diffViewerOn(revisionContentOf(fileUnderProjectRoot(project, "Diffed.kt", WORKING_TREE)))
         assertTrue(AddRemarkIntention().isAvailable(project, diff, null))
 
         myFixture.configureByText("Loose.kt", WORKING_TREE)
@@ -182,17 +184,6 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
 
     private fun contextOf(content: DocumentContent): DataContext =
         SimpleDataContext.getSimpleContext(DiffDataKeys.CURRENT_CONTENT, content, DataContext.EMPTY_CONTEXT)
-
-    private fun fileUnderProjectRoot(name: String, text: String): VirtualFile {
-        val onDisk = File(project.basePath!!, name)
-        onDisk.parentFile.mkdirs()
-        onDisk.writeText(text)
-        // The light fixture project is shared by every test class in the JVM, and several of them
-        // write to this same directory. refreshAndFindFileByIoFile does NOT re-read a file VFS
-        // already knows about, so the refresh is what makes the content assertions above honest.
-        return LocalFileSystem.getInstance().refreshAndFindFileByIoFile(onDisk)!!
-            .also { it.refresh(false, false) }
-    }
 
     private companion object {
         const val WORKING_TREE = "alpha\nbeta\ngamma\ndelta\n"

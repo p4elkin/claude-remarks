@@ -2,7 +2,7 @@ package dev.sasha.clauderemarks.review
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.ui.UIUtil
-import java.nio.file.Files
+import dev.sasha.clauderemarks.store.TempPaths
 
 /**
  * The service's transitions: current() masking a stale review, markSent, acknowledge, and
@@ -10,6 +10,8 @@ import java.nio.file.Files
  * itself is covered without one, in WaitingReviewTest.
  */
 class WaitingReviewServiceTest : BasePlatformTestCase() {
+
+    private val temp = TempPaths()
 
     override fun setUp() {
         super.setUp()
@@ -19,6 +21,7 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
 
     override fun tearDown() {
         WaitingReviewService.getInstance(project).clear()
+        temp.deleteAll()
         // Every transition queues a notifyPanel, and the stale path queues a balloon. Draining them
         // here keeps them out of whichever test class runs next in this shared fixture.
         UIUtil.dispatchAllInvocationEvents()
@@ -26,18 +29,13 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
     }
 
     fun testAReviewPastItsDeadlineIsNotCurrent() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
-
-        service.start("s1", "a label", 0L, outputPath)
+        val service = startedReview(deadlineSeconds = 0L)
 
         assertNull(service.current())
     }
 
     fun testMarkingSentMovesThePhaseAndKeepsTheReview() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s1", "a label", 1800L, outputPath)
+        val service = startedReview()
 
         service.markSent("s1", listOf("a", "b"))
 
@@ -49,9 +47,7 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
     }
 
     fun testAReadAcknowledgementOnASentReviewClearsItAndReportsOk() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s1", "a label", 1800L, outputPath)
+        val service = startedReview()
         service.markSent("s1", listOf("a", "b"))
 
         val (outcome, state) = service.acknowledge("s1", ReviewEnd.READ)
@@ -62,9 +58,7 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
     }
 
     fun testAReadAcknowledgementOnAWaitingReviewChangesNothing() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s1", "a label", 1800L, outputPath)
+        val service = startedReview()
 
         val (outcome, state) = service.acknowledge("s1", ReviewEnd.READ)
 
@@ -74,9 +68,7 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
     }
 
     fun testAnAcknowledgementForAnotherSessionChangesNothing() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s1", "a label", 1800L, outputPath)
+        val service = startedReview()
 
         val (outcome, state) = service.acknowledge("s2", ReviewEnd.READ)
 
@@ -86,9 +78,7 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
     }
 
     fun testAnAbandonedAcknowledgementClearsAWaitingReview() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s1", "a label", 1800L, outputPath)
+        val service = startedReview()
 
         val (outcome, _) = service.acknowledge("s1", ReviewEnd.ABANDONED)
 
@@ -106,9 +96,7 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
     }
 
     fun testMarkingSentForAnotherSessionChangesNothing() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s1", "a label", 1800L, outputPath)
+        val service = startedReview()
 
         // What a send whose review ended mid-render would otherwise do to the review that replaced it.
         service.markSent("s0", listOf("a", "b"))
@@ -121,19 +109,15 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
      * delay of zero, and that pool thread then races this test's own call.
      */
     fun testExpireIfStaleRemovesAReviewPastItsDeadline() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
         val started = System.currentTimeMillis()
-        service.start("s1", "a label", 1800L, outputPath)
+        val service = startedReview()
 
         assertNotNull(service.expireIfStale(now = started + 1_800_001L))
         assertNull(service.current())
     }
 
     fun testExpireIfStaleLeavesALiveReviewAlone() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s1", "a label", 1800L, outputPath)
+        val service = startedReview()
 
         assertNull(service.expireIfStale())
         assertNotNull(service.current())
@@ -145,9 +129,7 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
      * was cancelled.
      */
     fun testClearingCancelsTheDeadlineTask() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s1", "a label", 1800L, outputPath)
+        val service = startedReview()
         assertTrue(service.expiryIsLive())
 
         service.clear()
@@ -156,12 +138,20 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
     }
 
     fun testClearingNamesTheReviewItMeans() {
-        val service = WaitingReviewService.getInstance(project)
-        val outputPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s1", "a label", 1800L, outputPath)
+        val service = startedReview()
 
         service.clear("s0")
 
         assertNotNull(service.current())
     }
+
+    /**
+     * The three lines almost every test above opened with. Session "s1" and the label are the same
+     * everywhere, because no test here asserts on either; what varies is the deadline, and the two
+     * tests that need a named instant take their own clock reading before calling this.
+     */
+    private fun startedReview(deadlineSeconds: Long = 1800L): WaitingReviewService =
+        WaitingReviewService.getInstance(project).also {
+            it.start("s1", "a label", deadlineSeconds, temp.dir("waiting-review-service-test"))
+        }
 }

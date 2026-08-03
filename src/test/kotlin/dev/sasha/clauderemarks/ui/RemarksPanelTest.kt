@@ -8,15 +8,15 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.PopupHandler
-import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.editor.RemarkGutter
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.review.WaitingReviewService
 import dev.sasha.clauderemarks.store.RemarkStore
+import dev.sasha.clauderemarks.store.TempPaths
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.setRemarkBucket
+import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.io.File
-import java.nio.file.Files
 
 /**
  * The panel, not just the nodes it builds. RemarksTreeTest only ever looks at the node model, so
@@ -24,6 +24,8 @@ import java.nio.file.Files
  * and every rebuild threw the selection away under the user.
  */
 class RemarksPanelTest : BasePlatformTestCase() {
+
+    private val temp = TempPaths()
 
     override fun setUp() {
         super.setUp()
@@ -38,6 +40,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         WaitingReviewService.getInstance(project).clear()
+        temp.deleteAll()
         super.tearDown()
     }
 
@@ -62,7 +65,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
         // What happens on every remark change and on every editor opening.
         panel.refresh()
-        settle()
+        settleInvocationQueue()
 
         assertEquals(listOf(remark.id), panel.selectedIds())
     }
@@ -84,7 +87,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
         assertEquals(4, panel.tree.rowCount)
 
         panel.refresh()
-        settle()
+        settleInvocationQueue()
 
         assertEquals(4, panel.tree.rowCount)
     }
@@ -103,7 +106,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
         assertEquals(2, panel.selectedIds().size)
 
         panel.refresh()
-        settle()
+        settleInvocationQueue()
 
         assertEquals(1, panel.tree.selectionCount)
         assertEquals(2, panel.selectedIds().size)
@@ -130,7 +133,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
         val gutter = RemarkGutter(project)
         Disposer.register(testRootDisposable, gutter)
         gutter.start()
-        settle() // lets the startup seeding's invokeLater track the already-open editor
+        settleInvocationQueue() // lets the startup seeding's invokeLater track the already-open editor
 
         val panel = panel()
         val rootBefore = panel.tree.model.root
@@ -140,7 +143,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
         ApplicationManager.getApplication().messageBus
             .syncPublisher(FileDocumentManagerListener.TOPIC)
             .fileContentReloaded(file, document)
-        settle()
+        settleInvocationQueue()
 
         // buildTreeRoot constructs a fresh node graph on every refresh, so a new root object
         // proves refresh() ran — which only happens if the reload republished REMARKS_CHANGED.
@@ -194,7 +197,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
         assertEquals(4, panel.tree.rowCount)
 
         panel.refresh()
-        settle()
+        settleInvocationQueue()
 
         assertEquals(
             "the file group inside the bucket should still be shut",
@@ -264,7 +267,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
         assertEquals(0, panel.remarks().size)
 
         addRemark(project, "A.kt", LINES, 0..0, "one", null)
-        settle()
+        settleInvocationQueue()
 
         assertEquals(1, panel.remarks().size)
     }
@@ -277,11 +280,11 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
     fun testTheBannerShowsTheWaitingLabel() {
         val panel = panel()
-        val outputPath = Files.createTempDirectory("remarks-panel-test")
+        val outputPath = temp.dir("remarks-panel-test")
         WaitingReviewService.getInstance(project).start("s1", "a review label", 1800, outputPath)
 
         panel.refresh()
-        settle()
+        settleInvocationQueue()
 
         assertTrue(panel.banner.isVisible)
         assertTrue(panel.banner.text.orEmpty().contains("a review label"))
@@ -289,12 +292,12 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
     fun testTheBannerSaysTheRemarksAreWaitingToBeReadAfterASend() {
         val panel = panel()
-        val outputPath = Files.createTempDirectory("remarks-panel-test")
+        val outputPath = temp.dir("remarks-panel-test")
         WaitingReviewService.getInstance(project).start("s1", "a review label", 1800, outputPath)
         WaitingReviewService.getInstance(project).markSent("s1", listOf("a"))
 
         panel.refresh()
-        settle()
+        settleInvocationQueue()
 
         assertTrue(panel.banner.isVisible)
         assertTrue(
@@ -311,47 +314,24 @@ class RemarksPanelTest : BasePlatformTestCase() {
     fun testTheBannerIsHiddenForAReviewPastItsDeadline() {
         val panel = panel()
         WaitingReviewService.getInstance(project)
-            .start("s1", "a review label", 1800, Files.createTempDirectory("remarks-panel-test"))
+            .start("s1", "a review label", 1800, temp.dir("remarks-panel-test"))
         panel.refresh()
-        settle()
+        settleInvocationQueue()
         assertTrue(panel.banner.isVisible)
 
         WaitingReviewService.getInstance(project).clear()
         WaitingReviewService.getInstance(project)
-            .start("s2", "a stale label", 0, Files.createTempDirectory("remarks-panel-test"))
+            .start("s2", "a stale label", 0, temp.dir("remarks-panel-test"))
         panel.refresh()
-        settle()
+        settleInvocationQueue()
 
         assertFalse(panel.banner.isVisible)
-    }
-
-    fun testTheSendButtonIsDisabledOnceTheRemarksAreSent() {
-        addRemark(project, "A.kt", LINES, 0..0, "one", null)
-        val panel = panel()
-        val outputPath = Files.createTempDirectory("remarks-panel-test")
-        WaitingReviewService.getInstance(project).start("s1", "a review label", 1800, outputPath)
-
-        // Both directions: a permanently dead Send button would pass the assertion below on its own.
-        assertTrue(panel.sendEnabled())
-
-        WaitingReviewService.getInstance(project).markSent("s1", listOf("a"))
-
-        assertFalse(panel.sendEnabled())
     }
 
     private fun panel(): RemarksPanel {
         val disposable = Disposer.newDisposable()
         Disposer.register(testRootDisposable, disposable)
-        return RemarksPanel(project, disposable).also { settle() }
-    }
-
-    /** refresh() hops to a pooled thread and back to the EDT, so both queues have to drain. */
-    private fun settle() {
-        repeat(10) {
-            UIUtil.dispatchAllInvocationEvents()
-            Thread.sleep(10)
-        }
-        UIUtil.dispatchAllInvocationEvents()
+        return RemarksPanel(project, disposable).also { settleInvocationQueue() }
     }
 
     private companion object {

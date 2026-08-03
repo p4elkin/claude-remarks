@@ -30,6 +30,7 @@ import com.intellij.util.EditSourceOnDoubleClickHandler
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.action.copyRemarks
 import dev.sasha.clauderemarks.action.notifyRemarks
+import dev.sasha.clauderemarks.action.plural
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.review.ReviewPhase
@@ -198,19 +199,11 @@ class RemarksPanel(
             ReviewPhase.Waiting ->
                 "Claude Code is waiting: " + StringUtil.escapeXmlEntities(waiting.label.take(120))
             is ReviewPhase.Sent ->
-                "Sent ${phase.ids.size} remark${if (phase.ids.size == 1) "" else "s"}. " +
+                "Sent ${phase.ids.size} remark${plural(phase.ids.size)}. " +
                     "Waiting for Claude Code to read them."
         }
         banner.isVisible = true
     }
-
-    /**
-     * Whether "Send to Claude Code" would do anything right now. The condition itself lives in
-     * `review/SendReview.kt` as `canSend`, so the Tools-menu action and this toolbar button read one
-     * function rather than two copies of the same pair of checks. Internal, not private, so
-     * RemarksPanelTest can check it without simulating a toolbar tick through an AnActionEvent.
-     */
-    internal fun sendEnabled(): Boolean = canSend(project)
 
     /** The ids currently selected, in the order the tree shows them. */
     fun selectedIds(): List<String> = selectedNodes().map { it.id }
@@ -373,7 +366,7 @@ class RemarksPanel(
     private fun confirmDelete(count: Int): Boolean =
         Messages.showYesNoDialog(
             project,
-            "Delete $count remark${if (count == 1) "" else "s"} under the selection? " +
+            "Delete $count remark${plural(count)} under the selection? " +
                 "This cannot be undone.",
             "Delete Claude Remarks",
             Messages.getWarningIcon(),
@@ -448,7 +441,9 @@ class RemarksPanel(
             ToolbarAction("Clear All", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
                 confirmClearAll()
             },
-            ToolbarAction("Send to Claude Code", AllIcons.Actions.Upload, ::sendEnabled) {
+            // The condition itself lives in review/SendReview.kt as canSend, so this button and the
+            // Tools-menu action read one function rather than two copies of the same pair of checks.
+            ToolbarAction("Send to Claude Code", AllIcons.Actions.Upload, { canSend(project) }) {
                 sendToWaitingReview(project)
             },
             // notifyRemarksChanged, not refresh(): this panel's own subscription rebuilds the tree
@@ -476,7 +471,7 @@ class RemarksPanel(
         if (sent == 0) return
         val answer = Messages.showYesNoDialog(
             project,
-            "Remove $sent sent remark${if (sent == 1) "" else "s"}? They cannot be copied again.",
+            "Remove $sent sent remark${plural(sent)}? They cannot be copied again.",
             "Clear Sent Claude Remarks",
             Messages.getWarningIcon(),
         )
@@ -486,7 +481,7 @@ class RemarksPanel(
         // above, and clearSentRemarks returns 0 in that case having already shown its own error
         // balloon. Saying "Removed 0 sent remarks." beside that error was the wrong half of the truth.
         if (removed > 0) {
-            notifyRemarks(project, "Removed $removed sent remark${if (removed == 1) "" else "s"}.")
+            notifyRemarks(project, "Removed $removed sent remark${plural(removed)}.")
         }
     }
 

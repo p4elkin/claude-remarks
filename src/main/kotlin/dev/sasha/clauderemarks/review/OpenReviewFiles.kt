@@ -52,14 +52,17 @@ fun openReviewFiles(project: Project, paths: List<String>?) {
         // below throws AlreadyDisposedException on a disposed project.
         if (project.isDisposed) return@invokeLater
         val root = projectRoot(project) ?: return@invokeLater
+        // Both managers are hoisted out of the loop: they are the same instance for every path, and
+        // the loop runs up to twenty times.
+        val changeLists = ChangeListManager.getInstance(project)
+        val editors = FileEditorManager.getInstance(project)
         val changes = mutableListOf<Change>()
         filtered.forEach { path ->
             val file = fileForStoredPath(root, path) ?: return@forEach
             // No local change: today's behaviour, and the right answer for a file the person
             // should read but has not touched.
-            val change = ChangeListManager.getInstance(project).getChange(file)
-            if (change == null) FileEditorManager.getInstance(project).openFile(file, false)
-            else changes += change
+            val change = changeLists.getChange(file)
+            if (change == null) editors.openFile(file, false) else changes += change
         }
         // One window for every changed file, so the person gets next-file and previous-file
         // navigation inside it instead of a window per file.

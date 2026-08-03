@@ -18,11 +18,14 @@ import com.intellij.openapi.vfs.VirtualFile
  * diff viewer or an injected fragment those are different files, and the anchor comes from the
  * document, so the path has to come from the same place.
  *
- * The second entry is the diff fallback. A diff pane showing a VCS revision has a document whose
- * file is a LightVirtualFile: it carries the right file NAME but sits on no path under the project,
- * so it never yields a relative path on its own. The revision knows the project file it is a
- * version of, as DocumentContent.getHighlightFile(), and that is what a remark should be stored
- * against.
+ * The second entry is the diff fallback, and it is not a storage route. A diff pane showing a VCS
+ * revision has a document whose file is a LightVirtualFile: it carries the right file NAME but sits
+ * on no path under the project, so it never yields a relative path on its own. The revision does
+ * know the project file it is a version of, as DocumentContent.getHighlightFile(), and that is what
+ * this second entry finds — but the only reader that acts on it is [remarkTargetProblem], which
+ * uses it to tell a revision pane apart from a file genuinely outside the project so that each gets
+ * its own sentence. No remark is ever stored against it: since the revision pane is refused, the
+ * refusal always runs first.
  *
  * [dataContext] is what makes the second entry reachable. There is no route from an Editor alone:
  * DiffUtil.configureEditor sets the diff editor's own file to
@@ -43,6 +46,13 @@ private fun targetFiles(editor: Editor, dataContext: DataContext?): List<Virtual
  * Every candidate goes through the same VfsUtilCore.getRelativePath(file, root), which returns null
  * unless root really is an ancestor. The diff fallback is not a second route around that check: a
  * highlight file outside the project root is refused exactly like any other file outside it.
+ *
+ * In production only the first candidate can ever answer. The one caller, openNewRemarkInput in
+ * action/AddRemarkAction.kt, returns before it reaches here whenever [remarkTargetProblem] is
+ * non-null, and that function refuses exactly the case where the first candidate fails and a later
+ * one resolves. The second candidate is kept because both functions read the same [targetFiles]
+ * list, and because the refusal itself is the part `docs/ideas.md` records as overrulable. What
+ * DiffRemarkTargetTest pins about it is that shared internal detail, not a route a remark can take.
  */
 fun relativePathOf(project: Project, editor: Editor, dataContext: DataContext? = null): String? {
     val root = projectRoot(project) ?: return null

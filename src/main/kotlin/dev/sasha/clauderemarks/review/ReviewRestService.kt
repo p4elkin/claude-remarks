@@ -85,12 +85,22 @@ private class AckRequest(
 )
 
 /**
+ * The default the skill's own `deadline_seconds` carries in
+ * `docs/skill/claude-remarks-review/SKILL.md` step 3, and the bounds it is corrected to. Named
+ * rather than inlined so that the number is greppable from the skill's side: the two documents have
+ * to agree, and a bare 1800 in the middle of an expression is the kind of thing that drifts.
+ */
+private const val DEFAULT_DEADLINE_SECONDS = 1800L
+private const val MIN_DEADLINE_SECONDS = 60L
+private const val MAX_DEADLINE_SECONDS = 86_400L
+
+/**
  * The skill declares how long it will wait. The number arrives over HTTP, so it is bounded here,
  * at the edge, rather than deeper in. Absent means the 1800 seconds the skill's own documentation
  * has always used.
  */
 internal fun clampDeadlineSeconds(seconds: Long?): Long =
-    (seconds ?: 1800L).coerceIn(60L, 86_400L)
+    (seconds ?: DEFAULT_DEADLINE_SECONDS).coerceIn(MIN_DEADLINE_SECONDS, MAX_DEADLINE_SECONDS)
 
 class ReviewRestService : RestService() {
 
@@ -143,12 +153,9 @@ class ReviewRestService : RestService() {
         when (action) {
             "start" -> handleStart(request, writer)
             "ack" -> handleAck(request, writer)
-            else -> {
-                // A behaviour change worth naming: before this, any sub-path started a review
-                // because execute never looked at it at all.
-                writer.name("status").value("bad-request")
-                writer.name("detail").value("unknown action: $action")
-            }
+            // A behaviour change worth naming: before this, any sub-path started a review because
+            // execute never looked at it at all.
+            else -> badRequest(writer, cause = null, fallbackDetail = "unknown action: $action")
         }
 
         writer.endObject()
@@ -171,9 +178,10 @@ class ReviewRestService : RestService() {
         val wanted = parsed?.project
         if (session.isNullOrBlank() || label.isNullOrBlank() || wanted.isNullOrBlank()) {
             // A typo in the skill must produce a readable answer, not a stack trace in the IDE log.
-            writer.name("status").value("bad-request")
-            writer.name("detail").value(
-                body.exceptionOrNull()?.message ?: "expected a JSON object with session, label and project"
+            badRequest(
+                writer,
+                body.exceptionOrNull(),
+                "expected a JSON object with session, label and project",
             )
             return
         }
@@ -221,10 +229,10 @@ class ReviewRestService : RestService() {
             else -> null
         }
         if (session.isNullOrBlank() || wanted.isNullOrBlank() || end == null) {
-            writer.name("status").value("bad-request")
-            writer.name("detail").value(
-                body.exceptionOrNull()?.message
-                    ?: "expected a JSON object with session, project and event (\"read\" or \"abandoned\")"
+            badRequest(
+                writer,
+                body.exceptionOrNull(),
+                "expected a JSON object with session, project and event (\"read\" or \"abandoned\")",
             )
             return
         }
@@ -238,6 +246,17 @@ class ReviewRestService : RestService() {
                 AckOutcome.NOT_SENT -> "not-sent"
             }
         )
+    }
+
+    /**
+     * The refusal both actions and the unknown-action branch share, written once for the same reason
+     * [matchProject] below factors out the unknown-project answer. [cause] is the JSON parse failure
+     * if there was one: its message names the character that broke, which is more use to whoever is
+     * fixing the caller than [fallbackDetail], which can only describe the shape that was wanted.
+     */
+    private fun badRequest(writer: JsonWriter, cause: Throwable?, fallbackDetail: String) {
+        writer.name("status").value("bad-request")
+        writer.name("detail").value(cause?.message ?: fallbackDetail)
     }
 
     /**

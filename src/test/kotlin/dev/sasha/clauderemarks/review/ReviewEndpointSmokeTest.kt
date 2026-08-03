@@ -4,6 +4,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.RemarkStore
+import dev.sasha.clauderemarks.store.TempPaths
 import dev.sasha.clauderemarks.store.addRemark
 import io.netty.buffer.ByteBufHolder
 import io.netty.buffer.Unpooled
@@ -29,6 +30,8 @@ import java.nio.file.Path
  */
 class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
+    private val temp = TempPaths()
+
     override fun setUp() {
         super.setUp()
         // The light fixture project is shared across test classes.
@@ -39,6 +42,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         WaitingReviewService.getInstance(project).clear()
+        temp.deleteAll()
         super.tearDown()
     }
 
@@ -68,7 +72,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
     fun testAnAcknowledgementOfASentReviewAnswersOk() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, Files.createTempDirectory("ack-smoke"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("ack-smoke"))
         WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
 
         val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"read"}""")
@@ -91,7 +95,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     fun testAReadAcknowledgementForAReviewThatWasNeverSentAnswersNotSent() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, Files.createTempDirectory("ack-smoke"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("ack-smoke"))
 
         val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"read"}""")
 
@@ -106,7 +110,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     fun testAnAcknowledgementWithAnEventNobodyRecognizesAnswersBadRequest() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, Files.createTempDirectory("ack-smoke"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("ack-smoke"))
 
         val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"nonsense"}""")
 
