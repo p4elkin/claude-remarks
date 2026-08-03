@@ -1,19 +1,117 @@
 ---
 name: claude-remarks-review
 description: >
-  Hand a code review over to a person working in the Claude Remarks IntelliJ plugin, then wait
-  for their remarks and act on them. Use when asked to start a review session with the IDE, wait
-  for review comments from an open IntelliJ/JetBrains project, or read back remarks the person
-  just sent from the Claude Remarks tool window. The IDE and this skill running on the same
-  machine is the normal case. When the IDE is on another machine, reached over SSH, this needs a
-  tunnel the person sets up by hand and four connection values from them — see "Over SSH: the IDE
-  on another machine" below.
+  Read remarks a person wrote in the Claude Remarks IntelliJ plugin. Two modes. Read a published
+  file: use when asked to read the remarks someone published, read published remarks, look at the
+  remarks they just published from the IDE, check whether anything was published for this
+  repository, or act on remarks handed over through Publish All Pending or Publish Selected —
+  no review is started and nothing is waited for, because the plugin already wrote them to a file
+  under ~/.claude-remarks that this skill reads directly. Hand a review over and wait: use when
+  asked to start a review session with the IDE, wait for review comments from an open
+  IntelliJ/JetBrains project, or read back remarks the person just sent with "Send to Claude
+  Code" from the Claude Remarks tool window. The IDE and this skill running on the same machine
+  is the normal case for both modes. When the IDE is on another machine, reached over SSH, the
+  review mode needs a tunnel the person sets up by hand and four connection values from them —
+  see "Over SSH: the IDE on another machine" below.
 ---
 
 # Claude Remarks review
 
-Starts a review that a person answers inside the Claude Remarks tool window in their IDE, waits
-for them to press "Send to Claude Code", then reads what they wrote.
+Two ways to get a person's remarks out of the Claude Remarks tool window, and they do not overlap.
+
+- **They already published.** The person pressed Publish All Pending or Publish Selected, which
+  wrote the remarks to a file. Nothing was started and nothing is waiting. Read the file, act on
+  it, done. That is the next section, and it is the whole of that mode.
+- **Hand a review over and wait for it.** This skill starts a review, the IDE shows a banner, the
+  person answers by pressing "Send to Claude Code", and this skill waits for that. That is
+  `## Steps` below, and the section before it covers the case where the IDE sits on another
+  machine.
+
+Pick the first when the person says they published something or asks for remarks that already
+exist. Pick the second when the person is being asked to review something now.
+
+## Read remarks the person already published
+
+The Publish actions in the tool window put the same markdown the clipboard gets into
+`~/.claude-remarks/<16 hex characters>.md`, where the 16 characters are the start of the sha256 of
+the repository's real path — the same name the handshake file uses, with `.md` instead of `.json`.
+So there is nothing to ask the IDE for: the name is computable here, and the file is either there
+or it is not.
+
+Run this as one Bash call. It is self-contained on purpose: it shares no variable with the review
+flow in `## Steps`, and every name in it starts with `pub_` so it cannot collide with one. It reads
+no connection value, needs no token, and does not talk to the IDE at all.
+
+```sh
+# Self-contained. Shares no variable with the review flow below, and defines none it reads.
+pub_root=$(git rev-parse --show-toplevel) || exit 1
+pub_name=$(printf %s "$pub_root" | shasum -a 256 | cut -c1-16)
+pub_file="$HOME/.claude-remarks/$pub_name.md"
+
+if [ ! -f "$pub_file" ]; then
+  echo "nobody has published remarks for $pub_root (there is no file at $pub_file)"
+  exit 1
+fi
+
+# First line only, the same rule the rejection check in step 6 had to learn: a remark's own text
+# starts lines too, so an anchored grep would match a remark that quotes the marker.
+pub_first=$(head -1 "$pub_file")
+if [ "$pub_first" != '<!-- claude-remarks: published -->' ]; then
+  echo "$pub_file is not a published-remarks file — its first line is not the published marker"
+  echo "its first line is: $pub_first"
+  exit 1
+fi
+
+# The header is fixed: line 1 the marker, then published:, commit:, remarks:, then a blank line.
+# Addressed by line number rather than searched for, so a remark quoting "commit:" cannot be read
+# as the header.
+pub_published=$(sed -n '2s/^published: //p' "$pub_file")
+pub_commit=$(sed -n '3s/^commit: //p' "$pub_file")
+pub_count=$(sed -n '4s/^remarks: //p' "$pub_file")
+pub_head=$(git rev-parse --short=8 HEAD 2>/dev/null)
+
+echo "published: ${pub_published:-unknown}, ${pub_count:-unknown} remarks"
+echo "published at commit ${pub_commit:-unknown}; this checkout is at ${pub_head:-unknown}"
+if [ -n "$pub_commit" ] && [ "$pub_commit" != none ] \
+   && [ -n "$pub_head" ] && [ "$pub_commit" != "$pub_head" ]; then
+  echo "STALE: these remarks were published against $pub_commit, not against $pub_head."
+  echo "The code they point at has moved since. Re-read every line a remark names before acting,"
+  echo "and say plainly in the report that the remarks predate the current checkout."
+fi
+
+echo
+cat "$pub_file"
+```
+
+**Say the stale line out loud when it appears.** A published file is overwritten by the next
+publish and by nothing else, so it can be hours old and can describe code that has since changed.
+The commit comparison is the only signal that this happened, and it is worth nothing if it is
+printed and then not reported.
+
+**Three things this mode must not do.**
+
+- **Do not delete the file after reading it.** Nothing on this path confirms a read: no
+  acknowledgement is sent, and the IDE never learns that anything read it. That is exactly why the
+  plugin has a separate `PUBLISHED` state from `READ` — publishing hands remarks to a channel that
+  cannot confirm. Deleting the file would destroy the only copy outside the IDE on the strength of
+  a confirmation that does not exist, and a second agent, or the same one after a restart, would
+  then find nothing.
+- **Do not post anything to the endpoint.** There is no review here. `ack` names a session, and
+  this mode has no session to name, so an acknowledgement would be answered `no-review` at best and
+  would mark somebody else's waiting review at worst. No token is read in this mode for the same
+  reason.
+- **Do not set a trap.** The traps in step 6 exist to tell the IDE that an agent walked away from a
+  review it was waiting on. Nothing is waiting here, so there is nothing to abandon and nothing to
+  tell.
+
+Then act on the remarks the same way step 7 describes: it is one markdown prompt, remarks grouped
+by file, each with its severity, its tag and the code it points at. Act on it, then say plainly
+what was done.
+
+**If the file is missing**, say so and stop: "Nobody has published remarks for this repository. In
+the IDE, press Publish All Pending (or Publish Selected) in the Claude Remarks tool window, then
+ask again." Do not start a review instead — that is a different thing, and it puts a banner in
+front of a person who was not asking to be interrupted.
 
 ## Over SSH: the IDE on another machine
 

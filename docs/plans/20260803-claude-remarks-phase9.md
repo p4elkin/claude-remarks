@@ -785,10 +785,16 @@ on this path confirms a read, which is the whole reason `PUBLISHED` is a separat
 do not post anything to the endpoint, because there is no review and an `ack` would answer
 `no-review`; do not set a trap, because there is no review to abandon.
 
-- [ ] write the new section, and extend the front matter `description` so a request like "read the
+- [x] write the new section, and extend the front matter `description` so a request like "read the
       remarks I published" selects this skill. Without that the section is unreachable: the
       description is what the model matches on.
-- [ ] extract and check the syntax of the whole file the way task 1 did, and separately extract the
+      **Result: `## Read remarks the person already published` added above `## Steps`, and the
+      intro now names the two modes and says which to pick. The `description` leads with the
+      published mode and lists the phrases a person actually uses ("read the remarks someone
+      published", "read published remarks", "check whether anything was published for this
+      repository", "Publish All Pending or Publish Selected"), then keeps the review mode and the
+      SSH pointer.**
+- [x] extract and check the syntax of the whole file the way task 1 did, and separately extract the
       new section's block alone and run `sh -n` and `bash -n` on it:
 
       ```bash
@@ -796,15 +802,53 @@ do not post anything to the endpoint, because there is no review and an `ack` wo
         docs/skill/claude-remarks-review/SKILL.md > /tmp/skill-phase9.sh
       sh -n /tmp/skill-phase9.sh && bash -n /tmp/skill-phase9.sh && echo "SYNTAX OK"
       ```
-- [ ] **prove every variable read in the new block is assigned in the same block.** List every `$name`
+      **Result: whole file `SYNTAX OK` under both `sh -n` and `bash -n`, 191 lines against task 1's
+      153 baseline. The 38 line difference is exactly the new block, which was extracted on its own
+      and also parses under `sh -n`, `bash -n` and `zsh -n`.**
+- [x] **prove every variable read in the new block is assigned in the same block.** List every `$name`
       it reads and name the line that assigns it. This is the mechanical check that found the seven
       phase 7 defects and the two phase 8 ones. Report the list, not a claim that it passes.
-- [ ] **mutation:** delete the marker check and confirm by reading that a handoff file, or any other
+      **Result: nine names are read, and every one but `$HOME` is assigned in the block above its
+      first use. Line numbers are into the extracted block.**
+
+      | read | assigned at |
+      |---|---|
+      | `$HOME` | the environment, not the block — the only outside name it reads |
+      | `$pub_root` | line 2, `pub_root=$(git rev-parse --show-toplevel) \|\| exit 1` |
+      | `$pub_name` | line 3, `pub_name=$(printf %s "$pub_root" \| shasum -a 256 \| cut -c1-16)` |
+      | `$pub_file` | line 4, `pub_file="$HOME/.claude-remarks/$pub_name.md"` |
+      | `$pub_first` | line 13, `pub_first=$(head -1 "$pub_file")` |
+      | `$pub_published` | line 23, `pub_published=$(sed -n '2s/^published: //p' "$pub_file")` |
+      | `$pub_commit` | line 24, `pub_commit=$(sed -n '3s/^commit: //p' "$pub_file")` |
+      | `$pub_count` | line 25, `pub_count=$(sed -n '4s/^remarks: //p' "$pub_file")` |
+      | `$pub_head` | line 26, `pub_head=$(git rev-parse --short=8 HEAD 2>/dev/null)` |
+
+      The list of reads was produced mechanically, not by eye:
+      `grep -oE '\$\{?[A-Za-z_][A-Za-z0-9_]*' | tr -d '${' | sort -u` over the extracted block.
+      The isolation was checked the same way: `comm -12` between the block's assigned names and
+      every name assigned in the rest of the file returns nothing, so the new block shares no
+      variable with the review flow in either direction. The `pub_` prefix is what makes that
+      mechanical rather than a promise. `$pub_published`, `$pub_count`, `$pub_commit` and
+      `$pub_head` can each be the empty string when the header line or the git call is missing;
+      every read of them is either `${x:-unknown}` or inside a `[ -n "$x" ]` test, so an empty one
+      prints "unknown" and never turns into a false staleness claim.
+- [x] **mutation:** delete the marker check and confirm by reading that a handoff file, or any other
       markdown file at that path, would then be handed to a model as remarks. Delete the commit
       comparison and confirm the reader loses the only signal that the remarks are stale. Restore
       both. There is no automated test for a skill file, so the mutation is read and reported rather
       than run.
-- [ ] commit: `feat(skill): a second mode reads the file a publish wrote`
+      **Result, read rather than run, as this checkbox directs. Deleting the marker check: the
+      block would `cat` whatever sits at that computed path and hand it over as remarks. It also
+      loses a second thing, which is worse than the obvious one — `sed -n '2s/^published: //p'` and
+      its two neighbours address the header by line number, so on a foreign file they quietly
+      produce empty strings, `[ -n "$pub_commit" ]` is then false, and the staleness comparison goes
+      silent instead of failing. So one deleted check disables two. Deleting the commit comparison:
+      the `published:` timestamp is the only thing left, and a wall-clock time cannot say whether
+      the code moved — an agent would act on remarks pointing at lines that have since shifted, with
+      nothing on screen saying so. The published file is overwritten only by the next publish, so it
+      can be arbitrarily old and still look current. Both checks are in place in the committed
+      file.**
+- [x] commit: `feat(skill): a second mode reads the file a publish wrote`
 
 ### Task 7: Group one documentation
 
