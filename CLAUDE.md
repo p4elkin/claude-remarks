@@ -81,8 +81,9 @@ it. The skill (`docs/skill/claude-remarks-review/SKILL.md`) now takes four conne
 port, token and the repository path as the IDE machine sees it. It keeps one wait loop for both
 the local case and the remote case, switching only on how it checks whether the remarks are ready.
 Nothing about the security model changed: the built-in server only binds `127.0.0.1`, so a tunnel is
-the only way in, and a tunnelled request still arrives from loopback and still carries no `Origin`
-and no `Referer`. See `docs/claude/design.md`, section "The Shared Review Session", subsection
+the only way in. `isHostTrusted` skips the platform's own Host check entirely, so that check was
+never what protected this endpoint. The only gate is the plugin's own token check, plus the refusal
+of any request carrying `Origin` or `Referer`. See `docs/claude/design.md`, section "The Shared Review Session", subsection
 "Reaching an agent on another machine", for the whole design, and `docs/ideas.md` for the reasoning
 this carries forward.
 

@@ -181,13 +181,14 @@ phase. Phase 6 handed back a filesystem path because both sides shared a filesys
 not share one, so the same handover has to put the bytes in the response instead. Nothing else about
 phase 6 was wrong; its assumption simply does not hold here.
 
-**A tunnel keeps the request looking like it came from localhost, so the localhost-only rule still
-holds and does not need reopening.** The `sshd` on the IDE machine — or the local `ssh` client for a
-`-R` forwarding — opens the connection to `127.0.0.1:63342` itself. The endpoint sees a loopback peer
-address. Three things follow, and all three are good:
+**A tunnel makes the connection look like a loopback connection, but that is not what protects the
+endpoint.** The `sshd` on the IDE machine — or the local `ssh` client for a `-R` forwarding — opens
+the connection to `127.0.0.1:63342` itself. The endpoint sees a loopback peer address. But
+`isHostTrusted` in `ReviewRestService.kt` does not call `super`, so the platform's own Host-header
+check never runs at all, on a tunnelled request or a local one. There is no other Host check above
+it: `RestService.process` calls only this override. So the loopback appearance changes nothing about
+what gets checked. Two things do the actual work:
 
-- The platform's own local-host expectation is satisfied without any change, because the connection
-  really is a loopback connection.
 - `requestIsAllowed` needs no new branch. The request still carries no `Origin` and no `Referer`,
   because `curl` sends neither, so the refusal rule from phase 6 admits it exactly as it admits a
   local `curl`.

@@ -1309,11 +1309,14 @@ so the handover has to put the bytes inside the response instead. This is the wh
 action exists. `POST /api/claude-remarks/fetch` reads the waiting review's handoff file and returns
 its content, in the same JSON body shape the other two actions already use.
 
-**Why the security model needs no change.** The built-in server only binds `127.0.0.1`. So the only
-way into it from another machine is a tunnel, and a tunnelled request still arrives at the endpoint
-from `127.0.0.1`, the same address a local `curl` uses. It still carries no `Origin` and no
-`Referer`, so the refusal rule from phase 6 admits it, with no new branch needed. The token is what
-makes exposing the endpoint through a tunnel safe at all. On the agent machine, the near end of the
+**Why the security model needs no change.** The built-in server only binds `127.0.0.1`
+(`platform/built-in-server/src/org/jetbrains/io/BuiltInServer.kt`, the `bind` call). So the only way
+into it from another machine is a tunnel. `isHostTrusted` in `ReviewRestService.kt` does not call
+`super`. That skips the platform's own Host-header check completely: `RestService.process` calls
+only this override, and nothing above it, not `BuiltInServer`, not `PortUnificationServerHandler`,
+checks the Host header again. So the platform's local-host requirement never runs at all, and it is
+not what protects this endpoint. The only gate is `requestIsAllowed`: the token, plus the absence of
+`Origin` and `Referer`. That is why the token matters here. On the agent machine, the near end of the
 tunnel is a loopback port that every process on that machine can reach. Without the token, any
 process there could drive the IDE: start reviews, read someone else's remarks, end their sessions.
 
@@ -1464,6 +1467,20 @@ The window is as short as two statements running one after the other, with no lo
 filesystem call between them, and the next `notifyPanel()` a few lines down repaints regardless. Not
 fixed here: closing it would mean giving `start()` a way to write both fields together, which today
 only `endReview()` and the state assignment below it do apart.
+
+**A superseded review's balloon never fires.** In `WaitingReview.kt`, `start()`'s stale-replacement
+branch calls `endReview()` but discards the return value. `endReview()` returns the state it removed,
+and that is what `acknowledge()` and `expireIfStale()` pass to `reportReviewEnd` in `SendReview.kt`,
+the function that shows the balloon. Here nothing passes that value on, so `reportReviewEnd` never
+runs for the review that got replaced. If that review was in `Sent` phase, the person never sees
+"Claude Code left without reading the N remarks you sent." This is not a regression from phase 8. The
+code before this phase also overwrote `state` directly and never called `reportLater` either, so the
+missing balloon predates this phase, and this phase leaves it unchanged. It is noticed only in a
+narrow window: a second `start` request for a different session arrives after the current review's
+deadline has passed, but before the scheduled expiry task has run and shown its own balloon. No
+remarks are lost in either case. Nothing was marked sent, so they stay pending in the tool window.
+Not fixed here: the fix would mean threading `endReview()`'s return value out of the stale-replacement
+branch and into `reportLater`, a behaviour change nobody has asked for.
 
 **A short window lets a fetch miss a real, unread review.** `current()` masks a review the moment
 `isStale()` turns true. That happens before the scheduled expiry task actually runs and calls
