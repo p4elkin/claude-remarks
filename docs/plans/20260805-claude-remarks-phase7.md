@@ -1193,7 +1193,7 @@ Without it, pressing Reject after a send replaces the person's own remarks with 
 and the agent reads a rejection instead of the review it was handed. That is silent data loss, which is
 why it is a guard and not a nicety.
 
-- [ ] change the tests first, and run them before touching the production file so they fail for the
+- [x] change the tests first, and run them before touching the production file so they fail for the
       right reason:
   - `testSendingMarksTheRemarksSent` inverts: after a successful send the remarks are **still
     `PENDING`**. Rename it to say what it now claims, for example
@@ -1216,16 +1216,16 @@ why it is a guard and not a nicety.
     send, then `finishReview(project, session, ReviewEnd.READ)`, then assert the remarks are `SENT`
     and `current()` is null. This is the one test that covers the phase's headline claim end to end
     inside the plugin.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"` — expect failures
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"` — expect failures
       in the success-path test and the two new ones
-- [ ] implement
-- [ ] the same command passes
-- [ ] **mutation:** put `markRemarksSent(project, prepared.ids)` back into the send —
+- [x] implement
+- [x] the same command passes
+- [x] **mutation:** put `markRemarksSent(project, prepared.ids)` back into the send —
       `testSendingMarksNothingUntilTheAgentAcknowledges` must fail. Remove the phase guard from the top
       of `sendToWaitingReview` — `a second send while waiting for the acknowledgement is refused` must
       fail. Remove the phase guard from the top of `rejectWaitingReview` — `rejecting after a send does
       not overwrite the handoff file` must fail. Restore all three.
-- [ ] commit: `feat: a remark is marked sent when the agent says it read the file` — stage exactly
+- [x] commit: `feat: a remark is marked sent when the agent says it read the file` — stage exactly
       the two files above
 
 ### Task 7: The banner and the buttons stop lying

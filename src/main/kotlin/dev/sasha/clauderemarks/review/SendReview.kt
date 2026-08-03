@@ -29,6 +29,10 @@ import java.util.concurrent.CancellationException
  */
 fun sendToWaitingReview(project: Project) {
     val waiting = WaitingReviewService.getInstance(project).current() ?: return
+    if (waiting.phase is ReviewPhase.Sent) {
+        notifyRemarks(project, "Already sent. Waiting for Claude Code to read them.")
+        return
+    }
 
     ReadAction.nonBlocking<Prepared> { prepare(project, null) }
         .expireWith(project)
@@ -57,10 +61,13 @@ fun sendToWaitingReview(project: Project) {
                 )
                 return@finishOnUiThread
             }
-            markRemarksSent(project, prepared.ids)
-            WaitingReviewService.getInstance(project).clear()
+            WaitingReviewService.getInstance(project).markSent(prepared.ids)
             val count = prepared.ids.size
-            notifyRemarks(project, "Sent $count remark${if (count == 1) "" else "s"} to Claude Code.")
+            notifyRemarks(
+                project,
+                "Wrote $count remark${if (count == 1) "" else "s"} for Claude Code. " +
+                    "Waiting for it to read them.",
+            )
         }
         .submit(AppExecutorUtil.getAppExecutorService())
         .onError { error ->
@@ -96,6 +103,14 @@ internal val REJECTION_BODY = """
  */
 fun rejectWaitingReview(project: Project) {
     val waiting = WaitingReviewService.getInstance(project).current() ?: return
+    if (waiting.phase is ReviewPhase.Sent) {
+        // The handoff file already holds the remarks and the agent may already have read them.
+        // Overwriting it with the rejection body would destroy remarks that were never delivered,
+        // silently, and the agent would read a rejection instead of the review it was handed.
+        notifyRemarks(project, "The remarks were already written. There is nothing left to reject.")
+        WaitingReviewService.getInstance(project).clear()
+        return
+    }
     try {
         atomicWriteString(handoffFile(waiting.outputPath), REJECTION_BODY)
         notifyRemarks(project, "Rejected the review. Claude Code will stop waiting.")

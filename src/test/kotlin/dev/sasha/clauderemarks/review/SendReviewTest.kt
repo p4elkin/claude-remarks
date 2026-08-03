@@ -37,7 +37,7 @@ class SendReviewTest : BasePlatformTestCase() {
         assertTrue(Files.readString(handoffFile(outputPath)).contains("a note about A"))
     }
 
-    fun testSendingMarksTheRemarksSent() {
+    fun testSendingMarksNothingUntilTheAgentAcknowledges() {
         val outputPath = Files.createTempDirectory("send-review-test")
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
@@ -45,18 +45,22 @@ class SendReviewTest : BasePlatformTestCase() {
         sendToWaitingReview(project)
         settle()
 
-        assertEquals(RemarkStatus.SENT, statusOf(remark.id!!))
+        assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
     }
 
-    fun testSendingClearsTheWaitingReview() {
+    fun testSendingKeepsTheReviewAndRecordsWhatWasWritten() {
         val outputPath = Files.createTempDirectory("send-review-test")
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
-        addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         sendToWaitingReview(project)
         settle()
 
-        assertNull(WaitingReviewService.getInstance(project).current())
+        val waiting = WaitingReviewService.getInstance(project).current()
+        assertNotNull(waiting)
+        val phase = waiting!!.phase
+        assertTrue(phase is ReviewPhase.Sent)
+        assertEquals(listOf(remark.id), (phase as ReviewPhase.Sent).ids)
     }
 
     fun testAFailedWriteMarksNothingSentAndLeavesTheReviewWaiting() {
@@ -103,6 +107,51 @@ class SendReviewTest : BasePlatformTestCase() {
         rejectWaitingReview(project)
 
         assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
+    }
+
+    fun testASecondSendWhileWaitingForTheAcknowledgementIsRefused() {
+        val outputPath = Files.createTempDirectory("send-review-test")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+        addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        sendToWaitingReview(project)
+        settle()
+        val contentAfterFirstSend = Files.readString(handoffFile(outputPath))
+
+        addRemark(project, "A.kt", LINES, 0..0, "a second note", null)
+        sendToWaitingReview(project)
+        settle()
+
+        assertEquals(contentAfterFirstSend, Files.readString(handoffFile(outputPath)))
+    }
+
+    fun testRejectingAfterASendDoesNotOverwriteTheHandoffFile() {
+        val outputPath = Files.createTempDirectory("send-review-test")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+        addRemark(project, "A.kt", LINES, 0..0, "a note about A", null)
+        sendToWaitingReview(project)
+        settle()
+        val sentContent = Files.readString(handoffFile(outputPath))
+
+        rejectWaitingReview(project)
+
+        assertEquals(sentContent, Files.readString(handoffFile(outputPath)))
+        assertNull(WaitingReviewService.getInstance(project).current())
+    }
+
+    fun testAReadAcknowledgementAfterASendMarksTheRemarksSent() {
+        val outputPath = Files.createTempDirectory("send-review-test")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+
+        sendToWaitingReview(project)
+        settle()
+
+        val outcome = finishReview(project, "s1", ReviewEnd.READ)
+        settle()
+
+        assertEquals(AckOutcome.OK, outcome)
+        assertEquals(RemarkStatus.SENT, statusOf(remark.id!!))
+        assertNull(WaitingReviewService.getInstance(project).current())
     }
 
     fun testAFailedRejectionStillClearsTheReview() {
