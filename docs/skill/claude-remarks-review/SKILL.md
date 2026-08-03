@@ -58,7 +58,7 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    this request names. An empty list opens nothing at all, silently: the endpoint still answers
    `waiting`, the banner still appears, and the person sits in front of an IDE where nothing
    happened while this skill waits for remarks about files it never asked for. That has happened for
-   real. So decide which of the three shapes below applies, run its command, and count the result.
+   real. So decide which of the four shapes below applies, run its command, and count the result.
 
    **One commit** — the shape that is easy to get wrong. Use `git show`, never `git diff`:
 
