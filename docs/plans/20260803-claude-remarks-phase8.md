@@ -1268,23 +1268,39 @@ already run, so the request is sent and the script dies believing nothing happen
 **Files:**
 - Read only: everything phase 8 touched
 
-- [ ] all five grep guards from [section 9](#9-rules-that-must-hold-at-every-step), each pasted with its
-      output. All five empty.
-- [ ] `./gradlew build` — compiles, runs the whole suite, assembles.
-- [ ] `./gradlew verifyPluginProjectConfiguration`. Nothing in this phase edits `plugin.xml` or
-      `build.gradle.kts` before task 8's version bump, so this should be unchanged — run it anyway and
-      paste the output, so task 8's change has a clean baseline to compare against.
-- [ ] `./gradlew verifyPlugin` — the report must still name **exactly one** internal-API usage,
-      `SegmentedButton.getComponent()`. A second one is not free; if one appeared, find it and remove it
-      rather than accepting it.
-- [ ] `./gradlew test` once more on its own, with `--rerun-tasks`, and report the test count next to
-      task 1's number, so a test that quietly stopped being registered is visible.
-- [ ] confirm by reading that `handleFetch` calls nothing that mutates the store, and that no file under
+- [x] all five grep guards from [section 9](#9-rules-that-must-hold-at-every-step), each pasted with its
+      output. All five empty. Confirmed: `git status --porcelain` empty, branch `claude-remarks-phase1-2`.
+      Guard 1 (`anchor/` free of `com.intellij`): empty. Guard 2 (`render/PromptRenderer.kt` free of
+      `com.intellij`): empty. Guard 3 (only `RemarkEdits.kt`/`.all()` touch `RemarkStore.getInstance(...)`.):
+      empty (run with `--include='*.kt'`, quoted). Guard 4 (no source-file writes): empty. Guard 5
+      (`ReviewRestService.kt` free of `invokeAndWait`/`projectRoot(`/`FileEditorManager`/`VfsUtil`/
+      `SwingUtilities`): empty.
+- [x] `./gradlew build` — compiles, runs the whole suite, assembles. `BUILD SUCCESSFUL in 19s`, 14
+      actionable tasks (2 executed, 12 up-to-date). The `:test` task ran (not up-to-date).
+- [x] `./gradlew verifyPluginProjectConfiguration`. `BUILD SUCCESSFUL in 518ms`, 3 actionable tasks (2
+      executed, 1 up-to-date). Clean baseline recorded for task 8's version-bump comparison.
+- [x] `./gradlew verifyPlugin` — the report must still name **exactly one** internal-API usage,
+      `SegmentedButton.getComponent()`. Confirmed: `Plugin dev.sasha.clauderemarks:0.4.1 against
+      IC-252.28539.97: Compatible. 1 usage of internal API` —
+      `com.intellij.ui.dsl.builder.SegmentedButton.getComponent()` invoked from
+      `dev.sasha.clauderemarks.ui.RemarkInputPanel.getTagChipsComponent()`. No second usage appeared.
+- [x] `./gradlew test` once more on its own, with `--rerun-tasks`, and report the test count next to
+      task 1's number. `BUILD SUCCESSFUL in 21s`, 14 actionable tasks (14 executed — genuine rerun, not
+      cached). Test-result XML totals **343 tests** (task 1's baseline was 330; +13 matches tasks 2
+      (+3), 3 (+4) and 4 (+6): 330 + 3 + 4 + 6 = 343).
+- [x] confirm by reading that `handleFetch` calls nothing that mutates the store, and that no file under
       `review/` gained a `RemarkStore.getInstance` call beyond `SendReview.kt`'s allowed `.all()` read.
-      The rule 3 grep covers it, but say you looked.
-- [ ] the extract-and-parse and undefined-variable checks from tasks 5 and 6, both clean, with the final
-      line count of the extracted script next to task 1's baseline of 79
-- [ ] no commit — this task writes nothing
+      Read `handleFetch` in full in `ReviewRestService.kt`: it calls `WaitingReviewService.getInstance`,
+      `current()`, `endedOutputPath`, and `readHandoff` — no `RemarkStore` reference anywhere, no store
+      mutation, no phase change, no deadline touch, matching its own KDoc's "Changes nothing." The rule 3
+      grep (guard 3 above) independently confirms no file under `review/` calls
+      `RemarkStore.getInstance(...).` beyond `RemarkEdits.kt` and the allowed `.all()` reads.
+- [x] the extract-and-parse and undefined-variable checks from tasks 5 and 6, both clean, with the final
+      line count of the extracted script next to task 1's baseline of 79. Extracted script: **149 lines**
+      (task 1's baseline was 79; task 5 brought it to 98, task 6 to 149). `sh -n` and `bash -n` both
+      report `SYNTAX OK`. The undefined-variable check prints nothing.
+- [x] no commit — this task writes nothing (except this plan file's own checkboxes, per the run's
+      instructions for this task)
 
 ### Task 8: Documentation and the version
 
