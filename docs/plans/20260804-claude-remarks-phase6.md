@@ -574,18 +574,18 @@ phase from being built on a half-finished base.
 committed into the same branch, so "there are commits after phase 5 task 7" is already true and proves
 nothing.
 
-- [ ] `git status --porcelain` must be empty. Another agent may be mid-task in this same worktree. If it
+- [x] `git status --porcelain` must be empty. Another agent may be mid-task in this same worktree. If it
       is not empty, **stop and report** what is there rather than working around it.
-- [ ] phase 5 task 10 landed: `src/main/kotlin/dev/sasha/clauderemarks/store/RemarkHistory.kt` exists
+- [x] phase 5 task 10 landed: `src/main/kotlin/dev/sasha/clauderemarks/store/RemarkHistory.kt` exists
       and exports `historyFile` and `appendToHistory`
-- [ ] phase 5 task 13 landed — guard 3 in `CLAUDE.md` is the `.all()` allow-list form, not the
+- [x] phase 5 task 13 landed — guard 3 in `CLAUDE.md` is the `.all()` allow-list form, not the
       hand-listed mutator names:
 
       ```bash
       grep -c 'grep -v "\\.all()"' CLAUDE.md   # must be 1
       ```
 
-- [ ] phase 5 task 14 landed:
+- [x] phase 5 task 14 landed:
 
       ```bash
       grep -c "does not exist and was dropped" CLAUDE.md   # must be 0
@@ -593,12 +593,12 @@ nothing.
 
       Match that exact phrase and nothing looser. `CLAUDE.md` now says "What was dropped before it was
       built is a separate, larger idea", so a grep for the bare word "dropped" halts on a finished phase.
-- [ ] confirm `markRemarksSent(project, ids)` is still exported from `store/RemarkEdits.kt`. Task 6 calls
+- [x] confirm `markRemarksSent(project, ids)` is still exported from `store/RemarkEdits.kt`. Task 6 calls
       it.
-- [ ] run the first four grep guards from [section 8](#8-rules-that-must-hold-at-every-step) now, before
+- [x] run the first four grep guards from [section 8](#8-rules-that-must-hold-at-every-step) now, before
       any phase 6 change. All four must be empty. The fifth names a file that does not exist yet. A guard
       that was already failing must not be blamed on this phase.
-- [ ] no commit — this task writes nothing
+- [x] no commit — this task writes nothing
 
 ### Task 2: The handshake file, so a skill can find this IDE and this project
 
