@@ -631,7 +631,7 @@ the existing one already runs at the right time. Do **not** write from the servi
 service can be constructed on any thread, and IO belongs in the explicit `start()`, which is exactly why
 `RemarkGutter` is built that way.
 
-- [ ] write the failing tests in `ReviewHandshakeTest.kt`. Plain JUnit — the name and the rendering are
+- [x] write the failing tests in `ReviewHandshakeTest.kt`. Plain JUnit — the name and the rendering are
       pure, and the write only needs a temporary directory:
   - `the file name is the same for the same path and different for a different path` — call
     `handshakeName` twice with the same string and once with another, assert equal and not equal, and
@@ -654,9 +654,9 @@ service can be constructed on any thread, and IO belongs in the explicit `start(
     `Files.getFileAttributeView(dir, PosixFileAttributeView::class.java)` is null, so a filesystem
     without POSIX does not fail the suite.
   - `deleting a handshake that is not there does not throw`
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewHandshakeTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewHandshakeTest"` — expect a
       compile failure
-- [ ] create `review/ReviewHandshake.kt`. Seven points the implementation must get right, each with a
+- [x] create `review/ReviewHandshake.kt`. Seven points the implementation must get right, each with a
       comment saying why:
 
   **The directory needs an execute bit, the file must not have one.** A directory with only `OWNER_READ`
@@ -713,13 +713,13 @@ service can be constructed on any thread, and IO belongs in the explicit `start(
   The write uses `atomicWriteString` from task 3. Task 3 comes after this one, so write a plain
   `Files.writeString` here and switch it in task 3. Leave a `TODO` naming task 3 so the switch is not
   forgotten.
-- [ ] add `ReviewHandshakeService.getInstance(project).start()` to `RemarkGutterStartup.execute`
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewHandshakeTest"` — must pass
-- [ ] **mutation check**: change the directory permissions to `"rw-------"`. `the handshake directory is
+- [x] add `ReviewHandshakeService.getInstance(project).start()` to `RemarkGutterStartup.execute`
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewHandshakeTest"` — must pass
+- [x] **mutation check**: change the directory permissions to `"rw-------"`. `the handshake directory is
       owner-only and traversable` must fail. Restore it.
-- [ ] **second mutation check**: make `handshakeName` return a constant. `the file name is the same for
+- [x] **second mutation check**: make `handshakeName` return a constant. `the file name is the same for
       the same path and different for a different path` must fail. Restore it.
-- [ ] commit, staging exactly:
+- [x] commit, staging exactly:
 
   ```bash
   git add src/main/kotlin/dev/sasha/clauderemarks/review/ReviewHandshake.kt \
