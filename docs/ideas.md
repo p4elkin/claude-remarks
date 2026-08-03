@@ -846,3 +846,77 @@ Still open:
   already marked sent. Pending is the safe answer: nothing was delivered, so nothing was sent.
 - Whether the deadline is the plugin's own setting or a number the skill declares when it starts the
   review. The skill declaring it keeps the two from drifting apart.
+
+## Open the real diff for just the files the skill named
+
+Today a review request carries a `files` list and the IDE opens each one as a plain editor. The
+skill's own comment calls this "the cheap version of the diff": the person still has to press the
+IDE's diff shortcut on each file themselves. Make the IDE open a real diff instead, holding only
+the files the skill named, so Claude Code decides what is under review and the person lands
+directly in it.
+
+Why: the reason for reading a diff and the reason for writing remarks are the same reason. Sending
+someone into a diff of forty changed files when the review is about three of them wastes the part
+of the work only a person can do.
+
+### What the platform gives us
+
+Verified against the checkout at `~/dev/oss/intellij-community` (tag `idea/2025.2.6.3`), not from
+memory:
+
+- `ShowDiffAction.showDiffForChange(project, Iterable<? extends Change>)` —
+  `platform/vcs-impl/src/com/intellij/openapi/vcs/changes/actions/diff/ShowDiffAction.java:73`.
+  Six overloads; one of them also takes a starting index. It opens one diff window over exactly the
+  changes handed to it, with next-file and previous-file navigation inside it. That window holds no
+  file the caller did not put there, which is the whole point.
+- `ChangeListManager.getChange(VirtualFile)` —
+  `platform/vcs-api/src/com/intellij/openapi/vcs/changes/ChangeListManager.java:152`, with a
+  `getChange(FilePath)` overload on the next line. This turns each path the skill sent into the
+  `Change` object the call above wants, and returns null for a file with no local change.
+
+So the shape is small: map the paths that survive `filterReviewPaths` through `getChange`, drop the
+nulls, and hand what is left to `showDiffForChange`. A path with no local change keeps today's
+behavior and opens as a plain editor, which is also the right answer for a file the person should
+read but has not touched.
+
+### What it costs
+
+- **A new plugin dependency.** `plugin.xml` declares only `com.intellij.modules.platform` right now.
+  `ShowDiffAction` lives in `vcs-impl`, so this needs `com.intellij.modules.vcs` as well. Every
+  JetBrains IDE ships VCS, so a hard `<depends>` is honest; an optional dependency with its own
+  config file is the careful version and costs a second file.
+- **It belongs in `OpenReviewFiles.kt`, not in the endpoint.** CLAUDE.md rule 5 greps
+  `review/ReviewRestService.kt` for `FileEditorManager` and `VfsUtil` and must stay empty, and this
+  work needs both. `OpenReviewFiles.kt` already exists for exactly this reason and already does its
+  own `invokeLater` rather than making the HTTP response wait for editors.
+- **No protocol change.** The `files` field already carries what is needed. No new request field, no
+  new setting, no mode flag. The IDE decides diff-or-editor per file from whether that file has a
+  local change, which is a fact the IDE already knows and the skill would only be guessing at.
+
+### What is already built
+
+Writing a remark from inside a diff pane mostly works today. `store/RemarkTarget.kt` has the diff
+fallback: when the pane's own document belongs to a `LightVirtualFile` holding a VCS revision, the
+target falls back to `DiffDataKeys.CURRENT_CONTENT`'s `highlightFile`, which is the real project
+file the revision is a version of. `DiffRemarkTargetTest` covers it. So this idea is about getting
+the person into the diff, not about making remarks work once they are there.
+
+### The one real hazard
+
+**A remark written on the old side of the diff carries the old side's line numbers.** The fallback
+above finds the right *file*, but the anchor comes from the document being read, and on the "before"
+pane that document is the previous revision. The line numbers in it do not describe the working
+copy. Content hashing and the context lines may recover the anchor on the next resolve, or may
+orphan it — neither is guaranteed. Opening a diff by default makes this case common rather than
+rare, so it has to be answered as part of this work and not after it. See
+[[Annotating inside the diff viewer]], which already lists the options: refuse the old side with a
+sentence saying why, or map the line through the diff's own line mapping onto the new revision.
+
+### Committed ranges are a separate, bigger job
+
+`ChangeListManager` only knows about uncommitted work. A review of `main..HEAD` is a review of
+changes that are already committed, so `getChange` returns null for every one of them and this whole
+path degrades to today's plain editors. Building `Change` objects out of two committed revisions is
+real work and needs the Git plugin rather than the platform's VCS API alone. Local changes are the
+case worth building first — they are the case where a person is reviewing something not yet
+finished, which is when a remark is worth writing.
