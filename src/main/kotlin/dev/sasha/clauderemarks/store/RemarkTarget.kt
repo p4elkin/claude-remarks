@@ -63,11 +63,21 @@ fun relativePathOf(project: Project, editor: Editor, dataContext: DataContext? =
  */
 fun remarkTargetProblem(project: Project, editor: Editor, dataContext: DataContext? = null): String? {
     val candidates = targetFiles(editor, dataContext)
-    val name = candidates.firstOrNull()?.name
+    val own = candidates.firstOrNull()
+    val name = own?.name
         ?: return "This editor has no file on disk, so a remark could not be pointed back at it."
     val root = projectRoot(project)
         ?: return "The project directory could not be resolved, so remarks cannot be stored."
-    if (candidates.any { VfsUtilCore.getRelativePath(it, root) != null }) return null
+    // The ordinary editor, and the working-copy side of a diff: the document being read IS the file
+    // the remark will be stored against, so the line numbers describe it.
+    if (VfsUtilCore.getRelativePath(own, root) != null) return null
+    // Only the second candidate resolved, which means this pane holds a revision and the file was
+    // found through DocumentContent.getHighlightFile. Right file, wrong line numbers.
+    if (candidates.any { VfsUtilCore.getRelativePath(it, root) != null }) {
+        return "$name here is a revision, not the working copy, so a remark's line numbers would " +
+            "not describe the file on disk. Add it on the other side of the diff."
+    }
+    // Nothing resolved at all: the two messages that were already there, unchanged.
     return if (editor.editorKind == EditorKind.DIFF) {
         "$name in this diff is a revision with no matching file under the project directory, " +
             "so a remark on it could not be found again."

@@ -1447,7 +1447,7 @@ resolved keeps each message on its own case.
 opener checks it and returns before it ever calls `relativePathOf`, and `AddRemarkIntention.isAvailable`
 checks it too. Leaving the lookup working is also what lets the message name the file.
 
-- [ ] change `DiffRemarkTargetTest.kt` first:
+- [x] change `DiffRemarkTargetTest.kt` first:
   - the existing test that asserts the revision side is accepted — `assertNull(remarkTargetProblem(project, editor, contextOf(revision)))`
     — inverts. Assert instead that the message is non-null and contains "working copy". Leave the
     `relativePathOf(project, editor, contextOf(revision))` assertion above it alone: the file lookup
@@ -1457,17 +1457,20 @@ checks it too. Leaving the lookup working is also what lets the message name the
     swallow the side people actually write on.
   - new: `a revision with no matching project file keeps its own message` — assert the message still
     contains "no matching file under the project directory". This is the guard on the branch order.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.DiffRemarkTargetTest"` — expect the
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.DiffRemarkTargetTest"` — expect the
       inverted test to fail
-- [ ] implement
-- [ ] the same command passes, and so does
+- [x] implement
+- [x] the same command passes, and so does
       `./gradlew test --tests "dev.sasha.clauderemarks.action.AddRemarkActionTest"` — it asserts on
       `remarkTargetProblem`'s messages too, and if one of its assertions moves, say which and why in
-      the task report rather than editing it quietly
-- [ ] **mutation:** move the revision refusal above the `ownResolves` return — `the working copy side of
+      the task report rather than editing it quietly. Confirmed: no assertion in `AddRemarkActionTest`
+      moved — every case there uses a plain or `DataContext.EMPTY_CONTEXT` context with a single
+      candidate, so the new revision branch is never reached. One assertion did move elsewhere, inside
+      `DiffRemarkTargetTest.kt` itself (see deviation note below).
+- [x] **mutation:** move the revision refusal above the `ownResolves` return — `the working copy side of
       a diff is still accepted` must fail. Replace the refusal's condition with `candidates.size > 1` —
       `a revision with no matching project file keeps its own message` must fail. Restore both.
-- [ ] commit: `fix: refuse a remark on the revision side of a diff instead of mis-anchoring it` — stage
+- [x] commit: `fix: refuse a remark on the revision side of a diff instead of mis-anchoring it` — stage
       exactly the two files above
 
 ### Task 10: Open a real diff for the files the skill named

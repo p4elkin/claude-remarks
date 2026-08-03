@@ -61,14 +61,47 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
         assertNull(relativePathOf(project, editor))
 
         assertEquals("Diffed.kt", relativePathOf(project, editor, contextOf(revision)))
-        assertNull(remarkTargetProblem(project, editor, contextOf(revision)))
+        val problem = remarkTargetProblem(project, editor, contextOf(revision))
+        assertNotNull(problem)
+        assertTrue(problem!!.contains("working copy"))
 
-        // The pair that makes a diff remark honest: the path is the working tree's file, the text
-        // the anchor would be captured from is the revision's. The anchor is a fingerprint, and
-        // resolving it later runs against the working tree, where it is found, relocated, or
-        // orphaned.
+        // The pair that would have made a diff remark honest, if this pane were not refused: the
+        // path is the working tree's file, the text the anchor would be captured from is the
+        // revision's. Kept as a fact about the fixture, not a claim that a remark should be stored
+        // here.
         assertEquals(REVISION, editor.document.text)
         assertEquals(WORKING_TREE, String(real.contentsToByteArray()))
+    }
+
+    /**
+     * The guard that the refusal above did not also swallow the side people actually write on: the
+     * working-copy pane of the same diff is still accepted.
+     */
+    fun testTheWorkingCopySideOfADiffIsStillAccepted() {
+        val real = fileUnderProjectRoot("Diffed.kt", WORKING_TREE)
+        // createDocument, not create(project, text, file): this is what the platform actually opens
+        // on the working-copy side of a diff, and its document IS the real file's document — the
+        // whole reason it needs no dataContext to resolve.
+        val working = DiffContentFactory.getInstance().createDocument(project, real)!!
+        val editor = diffViewerOn(working)
+
+        assertNull(remarkTargetProblem(project, editor, contextOf(working)))
+    }
+
+    /**
+     * The guard on the branch order: a revision whose highlight file is ALSO outside the project
+     * keeps the existing "no matching file under the project directory" message rather than the new
+     * "working copy" one. The two candidates never having resolved is what distinguishes this case
+     * from the one above.
+     */
+    fun testARevisionWithNoMatchingProjectFileKeepsItsOwnMessage() {
+        val outside = myFixture.addFileToProject("elsewhere/Outside.kt", WORKING_TREE).virtualFile
+        val revision = DiffContentFactory.getInstance().create(project, REVISION, outside)
+        val editor = diffViewerOn(revision)
+
+        val problem = remarkTargetProblem(project, editor, contextOf(revision))
+        assertNotNull(problem)
+        assertTrue(problem!!.contains("no matching file under the project directory"))
     }
 
     /**
@@ -115,7 +148,10 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
 
     /**
      * The threading, end to end: the action reads the diff content out of the event's own data
-     * context. Without that the description here is a refusal, which is what the user saw.
+     * context. A revision pane is refused either way now, but which sentence it is refused with
+     * depends on that threading: with the diff content wired through, the real file is found and
+     * the description names it a revision ("working copy"); the sibling test below shows what the
+     * description says when that context is missing instead.
      */
     fun testTheActionAcceptsADiffPaneThroughTheEventsDataContext() {
         val revision = revisionContentOf(fileUnderProjectRoot("Diffed.kt", WORKING_TREE))
@@ -132,7 +168,7 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
         )
         action.update(event)
 
-        assertEquals("Attach a remark to the selected lines", event.presentation.description)
+        assertTrue(event.presentation.description!!.contains("working copy"))
     }
 
     /**
