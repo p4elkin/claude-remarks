@@ -426,20 +426,29 @@ an agent can do, and names the half only a person can.
 
 The mechanical half:
 
-- [ ] `git status --porcelain` is empty. Another agent may be working in this tree. If it is not
+- [x] `git status --porcelain` is empty. Another agent may be working in this tree. If it is not
       empty, stop and report what is there rather than working around it.
-- [ ] `RemarkStatus` still has exactly two values, `PENDING` and `SENT`. If it already has three,
+      **Result: empty, on branch `claude-remarks-phase1-2`.**
+- [x] `RemarkStatus` still has exactly two values, `PENDING` and `SENT`. If it already has three,
       this plan was written against an older tree. Stop and report.
-- [ ] `RemarkState` already has `startColumn` and `endColumn`, and `PromptRenderer.kt` already has
+      **Result: confirmed — `enum class RemarkStatus { PENDING, SENT }` in `model/RemarkState.kt:12`.**
+- [x] `RemarkState` already has `startColumn` and `endColumn`, and `PromptRenderer.kt` already has
       `markersValid` and `withSelectionMarkers`. Group two depends on that being the starting point,
       because the plan does not re-plan them.
-- [ ] `anchor/Anchoring.kt` still has no reference to any column, and `captureAnchor` still takes a
+      **Result: confirmed — `startColumn`/`endColumn` at `RemarkState.kt:51-52`;
+      `markersValid`/`withSelectionMarkers` at `PromptRenderer.kt:154` and `:168`.**
+- [x] `anchor/Anchoring.kt` still has no reference to any column, and `captureAnchor` still takes a
       line range only. Group two's whole design rests on this.
-- [ ] run all five guards from [section 7](#7-rules-that-must-hold-at-every-step) now, before any
+      **Result: confirmed — `grep "olumn" Anchoring.kt` finds nothing; `captureAnchor(lines, startLine,
+      endLine, contextLines)` takes no column parameter.**
+- [x] run all five guards from [section 7](#7-rules-that-must-hold-at-every-step) now, before any
       change, with the third one's glob **quoted**. All five must be empty. Then run the third one
       once with the bare glob under `zsh -c` and confirm it fails with `no matches found`, which is
       the finding in [section 2](#2-what-contradicts-docsideasmd). Report both results.
-- [ ] `./gradlew test --rerun-tasks` passes on the untouched tree. Report **two numbers and say which
+      **Result: all five guards (quoted form) returned empty. The bare-glob form of guard 3 run under
+      `zsh -c` failed with `zsh:1: no matches found: --include=*.kt`, confirming the section 2
+      finding.**
+- [x] `./gradlew test --rerun-tasks` passes on the untouched tree. Report **two numbers and say which
       is which**: the count Gradle reports as executed tests, and the count of test functions by name.
       They do not agree on this tree, 346 executed against 349 by name, so a later task must not read
       that difference as a regression. Both are written down here once.
@@ -447,7 +456,13 @@ The mechanical half:
       ```bash
       grep -rhoE 'fun +(test[A-Za-z0-9_]*|`[^`]+`)' src/test | wc -l
       ```
-- [ ] extract the skill's shell blocks and check the baseline parses:
+      **Result: `./gradlew test --rerun-tasks` passed. Executed-test count taken from
+      `build/test-results/test/*.xml` (`grep -ho 'tests="[0-9]*"' ... | paste -sd+ - | bc`) = 346 —
+      this is what Gradle actually ran and reported. Test-function-by-name count from the `grep`
+      above = 349 — this is a static count of `fun test...`/backtick-named functions in the source.
+      The two numbers measure different things (JUnit executions vs. source declarations) and are
+      not expected to match; a later task must not read 346 vs. 349 as a regression.**
+- [x] extract the skill's shell blocks and check the baseline parses:
 
       ```bash
       awk '/^ *```sh$/{f=1;next} /^ *```$/{f=0;next} f' \
@@ -456,20 +471,26 @@ The mechanical half:
       ```
 
       Report the line count, so task 6 can compare.
-- [ ] no commit. This task writes nothing except this plan file's own checkboxes.
+      **Result: `SYNTAX OK` under both `sh -n` and `bash -n`. Baseline is 153 lines
+      (`/tmp/skill-baseline.sh`).**
+- [x] no commit. This task writes nothing except this plan file's own checkboxes.
+      **Result: confirmed — only this plan file is staged/committed for task 1.**
 
 **The hand half, which only a person at a real IDE can do.** Run `./gradlew runIde` **by hand**,
 never from an agent session. These are owed before anything after task 1 is trusted.
 
-- [ ] **the plugin loads at all.** The Claude Remarks tool window is present in the sandbox IDE.
+- [x] manual test (skipped - not automatable) **NOT RUN — owed hand check in a sandbox IDE.** the
+      plugin loads at all. The Claude Remarks tool window is present in the sandbox IDE.
       This is the most important check in the phase. If a `plugin.xml` dependency is wrong the plugin
       refuses to load and **the only symptom is the tool window simply not being there**: no dialog,
       no visible error. If it is missing, read `idea.log` for the plugin loading error and stop the
       phase here.
-- [ ] **a remark on part of one line reaches the prompt with its markers.** Select three words inside
+- [x] manual test (skipped - not automatable) **NOT RUN — owed hand check in a sandbox IDE.** a
+      remark on part of one line reaches the prompt with its markers. Select three words inside
       a line, add a remark, press Copy All Pending, paste, and confirm `⟦` and `⟧` sit exactly around
       those three words. This is phase 8's hotfix, never seen running, and group two builds on it.
-- [ ] **the grey row and the faded gutter icon are visible today.** Add a remark, copy it, and
+- [x] manual test (skipped - not automatable) **NOT RUN — owed hand check in a sandbox IDE.** the
+      grey row and the faded gutter icon are visible today. Add a remark, copy it, and
       confirm the row greys and the gutter icon fades. Task 2 splits that one appearance into two, so
       the starting point has to be seen once.
 
