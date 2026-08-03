@@ -923,6 +923,12 @@ fragmenting problem — Claude Code's TUI submits on newline, so sending a multi
 `send-keys` fires fragments — and shrank settings to the one editable thing that is left: the
 prompt header.
 
+**Correction.** This section used to end by saying an automated dispatch step beyond the clipboard
+was never built, full stop. That specific idea — the `Dispatcher` interface, the tmux pane, a file
+inside `.idea/` — stays dropped for the reasons above. But phase 6 later built a different
+automated path, over a different transport, that does not go through this pipeline at all: see
+"The Shared Review Session" below. Copy All Pending and Copy Selected still end here, unchanged.
+
 `resolveAll` and `collectForPrompt` never drop a remark. A file that cannot be read, or a remark
 that resolves as `Orphaned`, still gets a row in the prompt rather than silently disappearing from
 the copy. Neither quotes code at the stale line numbers: whatever drifted into that position is
@@ -951,6 +957,169 @@ where its author can see what it did.
 
 The header follows revdiff's model: a remark that asks a question gets answered rather than turned
 into an edit.
+
+## The Shared Review Session
+
+Phase 6 lets a Claude Code skill start a review inside a running IDE, wait while a person answers
+it in the tool window, then read back what they wrote — with no server the plugin manages beyond
+the one the platform already runs, and no state that survives an IDE restart. The pieces live in
+`review/`: `ReviewHandshake.kt`, `AtomicWrite.kt`, `WaitingReview.kt`, `ReviewRestService.kt`,
+`SendReview.kt`, and `OpenReviewFiles.kt`. The skill side is `docs/skill/claude-remarks-review/SKILL.md`,
+outside the plugin proper.
+
+### Why a file, not a socket
+
+The skill polls a file, `handoffFile(outputPath)`, for existence. The IDE writes it once, atomically,
+when the person presses Send to Claude Code, and never deletes it. A socket would deliver the
+remarks the instant the button is pressed, but both sides would then have to handle the other going
+away mid-review — an IDE that quits, a skill process that was interrupted. A file needs none of
+that: failure looks like a file that never appeared, which is legible on its own. The cost is a poll
+interval instead of an instant wake-up, and that is cheap against a task that takes minutes of
+reading.
+
+### Why the atomic rename means the reader never has to ask "is this done yet"
+
+`AtomicWrite.kt`'s `atomicWriteString` writes the whole content to a temp file in the *same
+directory* as the target, then renames the temp file onto the target with `ATOMIC_MOVE`. A rename
+inside one filesystem is atomic on POSIX, so a reader watching the target path sees either nothing
+or the complete content, never a half-written file. That is the entire reason the skill's wait loop
+in `SKILL.md` can be "while the file does not exist, sleep" — there is no partial state it needs to
+rule out separately. `ReviewHandshake.kt`'s own write goes through the same function, for the same
+reason, on the file the skill reads to find the IDE in the first place.
+
+### The waiting review's output path is a directory, and the handoff file sits inside it
+
+`WaitingReviewState.outputPath` is a fresh `Files.createTempDirectory("claude-remarks-review-")`,
+not the handoff file itself. `handoffFile(outputPath)` in `ReviewRestService.kt` names the file
+inside it, `<that directory>/remarks.md`. The endpoint's response and `SendReview.kt`'s write both
+go through that one function, so the two sides can never drift into naming the file differently.
+
+### The security rule: three independent conditions, and why the platform's own check is not enough
+
+`ReviewRestService.isHostTrusted` (`requestIsAllowed` is the pure form, tested on its own) accepts a
+request only if it is a POST, carries no `Origin` and no `Referer` header, and carries the right
+secret in `X-Claude-Remarks-Token`. All three are needed, and each closes a different hole:
+
+- **POST only.** `isMethodSupported` overrides the platform's GET-only default. A page can only
+  issue a cross-origin `<img>` GET with no `Origin` and a suppressed `Referer`; refusing every method
+  but POST removes that whole class of request. A form submit or `fetch` can send a cross-origin
+  POST, but both always attach `Origin`, which the next rule rejects.
+- **Refusing `Origin` and `Referer` outright**, rather than only checking they name a local host.
+  A command-line client never sends either header. A browser almost always sends at least one. This
+  inverts the platform's own default, which is to trust a request that carries neither.
+- **This is not redundant with the platform's own local-origin check, and the reason is specific to
+  an IDE.** The built-in web server serves files out of every open project at `127.0.0.1:63342`.
+  A malicious `.html` file sitting in a repository the person opens is therefore served from a
+  *local* origin, so the platform's own `isLocalOrigin()` check passes it straight through to
+  `process`. Only the "refuse any `Origin`" rule stops that request. Deleting this rule as
+  duplicate of the platform's own check would reopen exactly that hole.
+- **The token**, minted once per IDE run (`ReviewToken.value`) and delivered through the handshake
+  file with owner-only permissions. The two rules above stop a web page; they do nothing against
+  another local process. A process that cannot read the handshake file cannot learn the token, and
+  cannot drive the endpoint.
+
+`isHostTrusted` does not call `super`. The default implementation would show a modal Yes/No dialog
+for the null-host case a command-line client always produces, and it would pop on every request
+because a null host is never cached — worse than no feature at all.
+
+### The handshake: found by repository path, never by scanning ports
+
+`ReviewHandshakeService.start()` writes one JSON file per open project under `~/.claude-remarks/`,
+named `handshakeName(realPath)` — the first 16 hex characters of `sha256(the project root's real
+path)`. A skill computes the same name with one line of shell (`shasum -a 256`) from
+`git rev-parse --show-toplevel`, which returns the physical path exactly like `toRealPath()` does on
+the plugin side, so a symlinked checkout still matches. The alternative — the skill scanning ports
+upward and asking each one whether it has this project open — was rejected because every one of
+those probe requests would need a token the skill does not have yet, so token delivery would still
+need solving on top. One file write answers port discovery, token delivery, and project matching
+together.
+
+**The port is read only after `BuiltInServerManager.getInstance().waitForStart().port`, never
+`.port` alone.** `BuiltInServerManagerImpl.port` falls back to the 63342 default until the real bind
+finishes, and the bind runs asynchronously after the registry loads. A `ProjectActivity` at project
+open can easily win that race and write a port nothing listens on. `waitForStart()` joins the bind
+job first; it is safe to block on because a `ProjectActivity` coroutine is never the EDT.
+
+### One waiting review per project, and two decisions that do not re-derive from reading the code casually
+
+`WaitingReviewService.state` is `@Volatile`, guarded by `@Synchronized` on `start` and `clear`, not
+an `AtomicReference`. **This is the least re-derivable fact in the whole design, so it is written
+down properly here.** The mutation `start` performs is a read, a decision, a directory creation and
+a write — too much for a compare-and-set lambda, because `AtomicReference.updateAndGet` re-runs its
+lambda on contention, and this lambda creates a temp directory. A retried compare-and-set would
+create two directories, one of them orphaned. `@Synchronized` costs nothing at this call rate, and
+it is the same pattern `RemarkStore` already uses.
+
+`WaitingReviewService.current()` is deliberately left **unsynchronized**, even though `state` is the
+same field `start` holds the lock across. The toolbar's `update()` calls `current()` on the EDT, and
+`start()` can hold that lock across a `Files.createTempDirectory` call on a netty IO thread. If
+`current()` took the same lock, the EDT could block on a filesystem syscall a request thread is in
+the middle of. A stale read from `current()` is harmless — the toolbar redraws again on the next
+`REMARKS_CHANGED` regardless — so this is a deliberate, accepted bend of "guard every mutable field
+together," not an oversight.
+
+`startOrConflict(current, session, label, outputPath)` takes `outputPath` as a **supplier**,
+`() -> Path`, not a plain `Path` value. This is stronger than simply calling
+`Files.createTempDirectory` after the decision and being careful about the order: the pure decision
+function itself is what guarantees the directory is only ever created on the branch that accepts.
+The reuse and conflict branches never invoke the supplier at all, so there is no calling code that
+has to remember to check the branch before creating a directory — the function's own shape makes the
+mistake impossible to write, rather than merely instructing a caller not to make it. `start()` passes
+`null` in production, which means "create a fresh temp directory," and a caller-supplied path exists
+only for tests: `SendReviewTest` needs a review pointed at a path it controls, once to read the
+handoff file back and once at a path whose parent is a regular file so the write fails — the only
+guard on "nothing is marked sent unless the handover succeeded."
+
+### The endpoint stays off the VFS and Swing, and the file opening lives in its own file
+
+`ReviewRestService.execute` runs on a netty IO thread, which holds no IntelliJ lock and is not the
+EDT. It sets a field in a service and makes one plain `java.nio` filesystem call
+(`Path.toRealPath()`), and returns. Rule 5 in `CLAUDE.md`'s "Rules that must not break" is the guard
+that keeps this true after every future change; see that file for the exact grep. Opening the files
+a review names — the one thing task 9 needs that does reach the VFS and the editor — lives in its
+own file, `OpenReviewFiles.kt`, and calls `invokeLater`, never `invokeAndWait`: the HTTP response
+must not wait for editors to appear on screen.
+
+`execute`'s own KDoc does not name any of the five forbidden symbols. That is deliberate, not an
+oversight to fix: the grep rule 5 runs is line-based text matching and cannot tell a comment from
+code, so writing "this must never call invokeAndWait" as an explanatory comment would itself trip
+the guard it is explaining. If that comment is ever added back, the grep starts failing on a file
+that has not actually broken the rule, and somebody will "fix" it by weakening the pattern instead of
+removing the comment.
+
+### `projectForPath` is generic on purpose
+
+`projectForPath<T>(wanted, open: List<Pair<Path, T>>)` takes the project's normalized real path
+and returns whichever second element in the list matches. It is generic so the same function serves
+two different tests: the pure `ReviewRequestTest` passes `(Path, String)` pairs to check the matching
+logic with no platform involved, while `execute` passes `(Path, Project)` pairs and gets back the
+actual `Project` it needs to reach `WaitingReviewService`. Two call sites needing two different
+second elements is exactly the case a type parameter is for, rather than writing a name-lookup
+function and a second, nearly identical scan.
+
+### The store stays the durable tier — no second write on handover
+
+Nothing in phase 6 writes to `RemarkHistory.kt`'s archive when a review is sent. `markRemarksSent`
+is the only state change: remarks stay in the active list, drawn gray, exactly as after a clipboard
+copy, and are only archived later when Clear Sent or Clear All runs. `docs/ideas.md`'s notes on
+revdiff recommended a second durable copy of the payload alongside the ephemeral handoff file,
+matching revdiff's own two-tier design. That was declined: revdiff needs the second tier because its
+handoff file is deleted by the calling script's `trap` the moment its own process is about to exit.
+Neither is true here — the plugin never deletes the handoff file, and the store already keeps every
+sent remark until somebody clears it. Writing a second copy would also double-count against the
+history file, which archives on *clear*: a remark handed over and later cleared would then appear in
+the history twice.
+
+### The path is unpredictable, minted per review, not fixed and agreed in advance
+
+`docs/ideas.md` also suggested a fixed, predictable path per review, reasoning that the IDE could
+choose it once and both sides could just know it. That was declined too, for the same reason
+`render/PromptPayload.kt`'s own temp file is unpredictable: the system temp directory is shared and
+world-writable, so a predictable name can be pre-created as a symlink by another local user, pointing
+the plugin's write wherever that user chose. `outputPath` is instead a fresh
+`Files.createTempDirectory` per accepted review, handed back in the response. The cost: a skill that
+loses the response cannot guess the path and has to re-run `start`, which the same-session reuse
+branch in `startOrConflict` turns into a no-op that returns the same path again.
 
 ## Two Positions On Screen, And When They Differ
 

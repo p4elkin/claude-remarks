@@ -1405,11 +1405,11 @@ re-derive by reading code:
   one directory per conflict, and a retrying skill produces conflicts repeatedly. This is also why
   `start` takes an optional `outputPath`, which task 6's failure-path test needs.
 
-- [ ] make the edits
-- [ ] run the new guard 5 grep and confirm it is empty, so `CLAUDE.md` does not ship a rule that is
+- [x] make the edits
+- [x] run the new guard 5 grep and confirm it is empty, so `CLAUDE.md` does not ship a rule that is
       already broken
-- [ ] `./gradlew test` once more, in case a documentation example was copied from stale code
-- [ ] commit, staging exactly:
+- [x] `./gradlew test` once more, in case a documentation example was copied from stale code
+- [x] commit, staging exactly:
 
   ```bash
   git add docs/claude/design.md CLAUDE.md README.md docs/ideas.md

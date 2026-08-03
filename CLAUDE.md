@@ -3,34 +3,44 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-5 are implemented and covered by unit tests. None of it has been loaded into a running
-IDE in this run: every `runIde` check in the phase 1-2, phase 3-4 and phase 5 plans was skipped in
-the autonomous sessions that did the work, so treat "it works" as "the tests pass" until someone
-does the hand checks listed at the end of each plan — phase 5's hand checks are the more important
-ones, since a few of its pieces are proven only by reading the platform source, not by a test. See
-`docs/claude/design.md` for exactly which. Select lines, press `Ctrl+Alt+Shift+R` (or use the "Add
-Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a severity
-level, and press Enter. A gutter icon appears on the marked lines and follows the code as you keep
-editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a class name
-from the project. The tool window lists every remark as a tree grouped by file, with a bucket level
-above the files once any remark is put in one; right-click a row for the severity and bucket menu. Press Copy All Pending in the tool window to turn every
-pending remark into one markdown prompt on the clipboard; a balloon says how many. Copied remarks
-turn gray rather than disappearing, so Copy Selected can send them again if the paste went to the
-wrong place. Clearing (Clear Sent, Clear All) archives to a history file in the IDE configuration
-directory before it removes anything.
+Phases 1-6 are implemented and covered by unit tests. None of it has been loaded into a running
+IDE in this run: every `runIde` check in the phase 1-2, phase 3-4, phase 5 and phase 6 plans was
+skipped in the autonomous sessions that did the work, so treat "it works" as "the tests pass"
+until someone does the hand checks listed at the end of each plan — phase 6's hand checks matter
+most now, since its endpoint's trust chain is proven mostly by reading the platform source, not by
+a test. See `docs/claude/design.md` for exactly which. Select lines, press `Ctrl+Alt+Shift+R` (or
+use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a
+severity level, and press Enter. A gutter icon appears on the marked lines and follows the code as
+you keep editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a
+class name from the project. The tool window lists every remark as a tree grouped by file, with a
+bucket level above the files once any remark is put in one; right-click a row for the severity and
+bucket menu. Press Copy All Pending in the tool window to turn every pending remark into one
+markdown prompt on the clipboard; a balloon says how many. Copied remarks turn gray rather than
+disappearing, so Copy Selected can send them again if the paste went to the wrong place. Clearing
+(Clear Sent, Clear All) archives to a history file in the IDE configuration directory before it
+removes anything. If a Claude Code skill has started a review, a banner reads "Claude Code is
+waiting: <label>" above the tree and Send to Claude Code hands every pending remark to it the same
+way Copy All Pending hands them to the clipboard — see "The Shared Review Session" below for how
+the IDE finds the skill and hands the remarks back.
 
 For the design — how anchoring, the gutter, the change notification, severity and buckets, the
-commit stamp, the history file, and the copy pipeline work — see `docs/claude/design.md`.
+commit stamp, the history file, the copy pipeline, and the shared review session work — see
+`docs/claude/design.md`.
 
 **Phase 5 is built.** It added a severity level and named buckets to a remark, tag chips with Alt
 keys in place of the old tag drop-down, a commit stamp read straight out of `.git`, a history file
 that cleared remarks are archived to instead of deleted, and a keystroke that inserts a class name
-into the remark text. What was dropped before it was built is a separate, larger idea: an
-automated dispatch step beyond the clipboard — a pluggable `Dispatcher` interface, a tmux pane, a
-file inside `.idea/`. Copy Remarks already gets a prompt into a Claude Code session with none of
-that machinery, so it was never built. See `docs/claude/design.md`, section "The Copy Pipeline",
-for the reasoning, and `docs/ideas.md` for the larger version of that idea that is still only a
-note.
+into the remark text. One specific automated-dispatch idea was dropped before it was built: a
+pluggable `Dispatcher` interface, a tmux pane, a file inside `.idea/`. See `docs/claude/design.md`,
+section "The Copy Pipeline", for why. That idea stays dropped — phase 6 below does not revive it.
+
+**Phase 6 is built.** It adds a different, simpler automated path next to the clipboard, never
+instead of it: a Claude Code skill can ask a running IDE to hold a review open through the IDE's
+own built-in HTTP server, the person answers by pressing Send to Claude Code in the tool window,
+and the remarks reach the skill through a file both sides agree on. The plugin works exactly as it
+did before with no skill installed and nothing listening. See `docs/claude/design.md`, section "The
+Shared Review Session", for the whole design, and `docs/ideas.md` for the reasoning this carries
+forward from before it was built.
 
 ## Rules that must not break
 
@@ -98,6 +108,24 @@ note.
    both ways: the pattern stays quiet on a file full of Swing `setText` calls, and it does catch
    `document.setText(...)`, `doc.insertString(...)` and `WriteCommandAction.runWriteCommandAction`.
 
+5. **The review endpoint never touches the VFS, Swing, or `invokeAndWait`.** `execute` in
+   `review/ReviewRestService.kt` runs on a netty IO thread, which is neither the EDT nor a thread
+   holding any IntelliJ lock. That is the most fragile invariant phase 6 adds, and a paragraph in a
+   plan file does not outlive the plan, so it gets a guard here instead.
+
+   ```bash
+   grep -rnE "invokeAndWait|projectRoot\(|FileEditorManager|VfsUtil|SwingUtilities" \
+     src/main/kotlin/dev/sasha/clauderemarks/review/ReviewRestService.kt   # must be empty
+   ```
+
+   `toRealPath()` is deliberately fine inside `execute`: it is a plain `java.nio` filesystem call,
+   never a call into the VFS. `projectRoot(project)` is not fine there, because it hands back a
+   `VirtualFile` — which is why the file opening a review request can trigger lives in its own
+   file, `review/OpenReviewFiles.kt`, and calls `invokeLater` rather than `invokeAndWait`. `execute`'s
+   own KDoc deliberately does not spell out any of the five names above: this grep is line-based and
+   cannot tell a comment from code, so an explanatory comment naming them would trip the guard it is
+   explaining.
+
 Every command above must come back empty.
 
 ## Project structure
@@ -129,11 +157,26 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    Tools-menu action that calls it without the tool window
   editor/RemarkGutterIcon.kt       the placement record, the tooltip, the gutter icon renderer
   editor/RemarkGutter.kt           the project service that keeps gutter icons in step
-  editor/RemarkGutterStartup.kt    the ProjectActivity that starts RemarkGutter
+  editor/RemarkGutterStartup.kt    the ProjectActivity that starts RemarkGutter, and
+                                   ReviewHandshakeService
   settings/RemarkSettings.kt       the app-level service and the default prompt header
   settings/RemarkSettingsConfigurable.kt
   render/PromptRenderer.kt         pure Kotlin, zero platform imports. Remarks to markdown.
   render/PromptPayload.kt          collectForPrompt and clipboardPayload
+  review/ReviewHandshake.kt        handshakeName, renderHandshake, writeHandshake/deleteHandshake,
+                                   the per-run ReviewToken, and ReviewHandshakeService (@Service
+                                   PROJECT, Disposable) — the file a skill reads to find this IDE
+  review/AtomicWrite.kt            atomicWriteString: temp file beside the target, then rename
+  review/WaitingReview.kt          WaitingReviewState, StartResult, the pure startOrConflict, and
+                                   WaitingReviewService (@Service PROJECT) — at most one waiting
+                                   review per project, in memory only
+  review/ReviewRestService.kt      the RestService at POST /api/claude-remarks/start: isHostTrusted,
+                                   execute, and the pure requestIsAllowed/projectForPath helpers.
+                                   Rule 5 above governs this file specifically
+  review/SendReview.kt             sendToWaitingReview and SendReviewAction: the same prepare()
+                                   pipeline Copy All Pending uses, written to the handoff file
+                                   instead of the clipboard
+  review/OpenReviewFiles.kt        the only file in review/ that touches the VFS or the editor
 src/main/resources/META-INF/plugin.xml
 src/main/resources/intentionDescriptions/AddRemarkIntention/description.html
 src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
@@ -189,9 +232,13 @@ never exits on its own.
 
 Anchoring, storage round-trips, the resolver helpers, the tree's node-building, the markdown
 renderer, the settings round trip, `GitHeadTest` (reads real `.git` directories built on disk for
-the test, including a worktree, a detached HEAD and packed refs) and `RemarkHistoryTest` (the
-archive's markdown rendering, and the write itself against a temp file) are plain JUnit tests with
-no fixture, so they run in milliseconds. The rest need a light IDE fixture
+the test, including a worktree, a detached HEAD and packed refs), `RemarkHistoryTest` (the
+archive's markdown rendering, and the write itself against a temp file), `AtomicWriteTest` (the
+temp file lands beside the target, not in the system temp directory, and no temp file is left
+behind), `ReviewHandshakeTest` (the name, the rendering, the escaping, and the owner-only
+permissions), `WaitingReviewTest` (the pure `startOrConflict`: accept, honest-retry reuse, and
+conflict), and `ReviewRequestTest` (the pure `requestIsAllowed` and `projectForPath`) are plain
+JUnit tests with no fixture, so they run in milliseconds. The rest need a light IDE fixture
 (`BasePlatformTestCase`, which needs `testFramework(TestFrameworkType.Platform)` in
 `build.gradle.kts`) and are slower, because each goes through a real project service, a real
 `Document`, or a real markup model: `RemarkStoreServiceTest`, `ResolveAllTest` (stored remarks
@@ -207,11 +254,20 @@ over a selection), `DiffRemarkTargetTest` (adding a remark from a diff pane: a r
 diff viewer), the renderer-equality half of `RemarkGutterIconTest`, `RemarkGutterTest` (the gutter
 service), `RemarksPanelTest` (the tool window panel: every file and bucket group ends up expanded,
 and the selection survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
-0-based line argument), the collector half of `PromptPayloadTest`, and `CopyRemarksTest`.
+0-based line argument), the collector half of `PromptPayloadTest`, `CopyRemarksTest`,
+`ReviewEndpointSmokeTest` (the one test that calls `ReviewRestService.execute` itself, through a
+real `EmbeddedChannel`, so the response actually carries a body), `OpenReviewFilesTest` (the
+string-only half of the path filter: absolute paths and `..` segments are dropped), and
+`SendReviewTest` (the send action's success and failure paths, and that nothing is marked sent on
+a failed write).
 
 Every fixture-backed test class that asserts on the whole store clears it in `setUp`, not only in
 `tearDown`: the light fixture project is shared across test classes, so remarks left behind by an
-earlier class are still there when the next one starts.
+earlier class are still there when the next one starts. `SendReviewTest` and `RemarksPanelTest`
+both clear `WaitingReviewService` in `setUp` and `tearDown` for the same reason: the fixture
+project is shared between test classes too, and task 6's failure-path test in `SendReviewTest`
+deliberately leaves a review waiting when it finishes, so the next test class to touch the tool
+window must not find it still there.
 
 There are no UI-rendering or end-to-end tests. The popup appearing at the caret, the gutter icon
 painting, the tree colours, the balloon, and the settings page layout are checked by hand in a

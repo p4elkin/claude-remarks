@@ -12,11 +12,38 @@ Remarks stay on your machine, stored in `.idea/workspace.xml`. The `.idea/.gitig
 
 - **Phase 1-2**: Storage, persistence, and the two-pass anchoring search that keeps a remark pointed at the right lines as the file changes around it.
 - **Phase 3-4**: The input popup, the gutter icon, the tree tool window, the settings page, and the Copy Remarks action described above.
-- **Phase 5** (this build): Severity and named buckets, tag chips picked from the keyboard, a commit stamp read straight out of `.git`, a history file that cleared remarks are archived to instead of deleted, and the `Cmd+Ctrl+Shift+Space` class-name insert — all described above, and in more depth in `docs/claude/design.md`.
+- **Phase 5**: Severity and named buckets, tag chips picked from the keyboard, a commit stamp read straight out of `.git`, a history file that cleared remarks are archived to instead of deleted, and the `Cmd+Ctrl+Shift+Space` class-name insert — all described above, and in more depth in `docs/claude/design.md`.
+- **Phase 6** (this build): A review session shared between a Claude Code skill and the IDE — described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session".
 
-An earlier brief also planned a pluggable dispatch step beyond the clipboard — a `Dispatcher` interface, a tmux pane, a file inside `.idea/`. That was dropped before it was built: Copy Remarks already gets a prompt into a Claude Code session with none of that machinery. See `docs/claude/design.md`, section "The Copy Pipeline", for the reasoning.
+An earlier brief also planned a pluggable dispatch step beyond the clipboard — a `Dispatcher` interface, a tmux pane, a file inside `.idea/`. That was dropped before it was built: Copy Remarks already gets a prompt into a Claude Code session with none of that machinery. See `docs/claude/design.md`, section "The Copy Pipeline", for the reasoning. Phase 6 below adds a different, later automated path; that earlier idea stays dropped regardless.
 
 This build has been through unit tests only. `./gradlew runIde` has not been run against it in the sessions that built it — see "Running in a Sandbox IDE" below before treating any of it as verified end to end.
+
+## Reviewing with a Waiting Claude Code Session
+
+**The plugin works exactly as described above with no skill installed and nothing listening.** The
+clipboard path is unchanged: Copy All Pending and Copy Selected still put a markdown prompt on the
+clipboard, and nothing about them requires anything on the other end. What follows is an addition
+next to that path, never a replacement for it.
+
+A Claude Code skill (`docs/skill/claude-remarks-review/SKILL.md`) can ask a running IDE to hold a
+review open for a repository. It reads a small handshake file the plugin writes under
+`~/.claude-remarks/` when the project opens, then sends one HTTP request to the IDE's own built-in
+server. If the IDE accepts, a banner appears at the top of the Claude Remarks tool window: "Claude
+Code is waiting: <label>". Read and write remarks as usual, then press **Send to Claude Code** —
+either the toolbar button that appears next to the others while a review is waiting, or **Tools →
+Send Claude Remarks to the Waiting Session**, which works even with the tool window closed. Every
+pending remark is rendered the same way Copy All Pending renders them and written to a file the
+skill has been waiting for; the remarks turn gray, `markRemarksSent` runs exactly as it does after a
+copy, and the banner disappears. Pressing **Cancel** in the banner instead clears the waiting review
+with nothing written and every remark still pending.
+
+**This only works when the IDE and the Claude Code session run on the same machine.** Both the
+handshake file and the handoff file are local paths, so there is nothing to read if the skill runs
+on a different machine from the IDE — the common case being a laptop attached over SSH to a session
+running elsewhere. Sending to a remote agent session is planned for a later phase and is not built;
+see `docs/ideas.md` for the reasoning. Nothing about this limitation is silent: the skill checks for
+it and says so rather than trying and failing confusingly.
 
 ## Building
 

@@ -357,6 +357,14 @@ it after phase 5 lands, not alongside, or the two rewrites collide.
 
 ## A review session shared between Claude Code and the IDE
 
+**Built in phase 6.** See `docs/claude/design.md`, section "The Shared Review Session", for the
+actual shape: the handshake file, the atomic-write transport, `WaitingReviewService`, the
+`ReviewRestService` endpoint and its three-part security rule, and the banner and Send to Claude
+Code button in the tool window. The skill lives at
+`docs/skill/claude-remarks-review/SKILL.md`. Everything decided below was carried in unchanged. Two
+of the "What to borrow from revdiff" instructions further down were deliberately declined rather
+than followed — see the notes marked **Declined in phase 6** in that section.
+
 The largest idea here, and the one that changes what the plugin is.
 
 The shape: a skill in Claude Code starts a review. It opens the IDE on a specific set of commits or
@@ -467,11 +475,27 @@ file is already gone (cleanup already ran) or the process that was going to read
 
 **Copy:** the atomic write (temp file in the same directory, then rename) outright, for the file
 transport chosen for Claude Remarks. It is the one piece of plumbing that removes an entire class of
-race, regardless of file vs. socket, IDE vs. terminal. **Copy:** the two-tier idea — one file for the
-fast path, one durable log for recovery when the fast path fails. **Adapt:** the path naming.
-revdiff mints a fresh `mktemp` path per invocation because a shell script is the one deciding where
-to write; the IDE plugin can choose one fixed, predictable path per review up front, which is
-actually simpler than what revdiff has to do.
+race, regardless of file vs. socket, IDE vs. terminal.
+
+**Declined in phase 6: the two-tier idea** — one file for the fast path, one durable log for
+recovery when the fast path fails. revdiff needs the second tier because its handoff file is deleted
+by the calling script's own `trap` the moment its process is about to exit. Neither half of that is
+true here: the plugin never deletes the handoff file, and remarks stay in the store marked `SENT`
+until somebody clears them, so the store is already the durable tier. A second write would also
+double-count against the phase 5 history file, which archives on *clear*: a remark handed over and
+later cleared would appear in it twice. What is given up: if the handoff file is gone and the person
+has already cleared the remarks, the payload survives only in the history file's format, not in the
+prompt format the agent would have received.
+
+**Declined in phase 6: the "adapt" suggestion to use one fixed, predictable path per review up
+front** instead of revdiff's fresh `mktemp` per invocation. Simpler, yes, and wrong here for the same
+reason `render/PromptPayload.kt`'s own temp file is unpredictable: the system temp directory is
+shared and world-writable, so a predictable name can be pre-created as a symlink by another local
+user, and the plugin's write then lands wherever that symlink points. The path stays unpredictable —
+a fresh `Files.createTempDirectory` per accepted review — and the plugin hands it back in the
+response instead of both sides agreeing on it in advance. What is given up: a skill that loses the
+response cannot guess the path and has to re-run `start`, which the idempotency rule in
+`WaitingReviewService` turns into a no-op that returns the same path again.
 
 **The waiting side blocks on a process first, and polls a marker file only as a fallback — the IDE
 version should flip that priority.**
