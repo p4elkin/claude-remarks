@@ -731,21 +731,30 @@ clipboard and the balloon are checked by hand, and pumping a read action plus an
 light fixture buys a flaky test. What is tested is `publishMessage`, a pure function over the count,
 the file count, the oversized clipboard file and the write failure.
 
-- [ ] write the failing tests in `PublishRemarksTest`:
+- [x] write the failing tests in `PublishRemarksTest`:
   - `the message says how many remarks and how many files were published`.
   - `the message names the temp file when the payload was too large for the clipboard`. The case
     `clipboardPayload` already has.
   - `the message says the published file was not updated when the write failed`. And it still
     reports the published count, because the clipboard handover happened.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.action.PublishRemarksTest"` and expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.action.PublishRemarksTest"` and expect a
       compile failure
-- [ ] implement, then the same command passes and `./gradlew test` passes whole
-- [ ] **mutation:** make the failed-write branch skip `markRemarksPublished`; the third message test
+      **Result: confirmed — compile failure (`publishMessage` unresolved) before implementation.**
+- [x] implement, then the same command passes and `./gradlew test` passes whole
+- [x] **mutation:** make the failed-write branch skip `markRemarksPublished`; the third message test
       must fail once it also asserts the count. Make `prepare` return a null root; the publish then
       writes nothing, which the hand check in [section 12](#12-hand-checks) catches and no unit test
       can, so say that plainly in the report rather than inventing a test that does not exist.
       Restore.
-- [ ] commit: `feat: publishing writes the same markdown to a file the skill can find`
+      **Result: the null-root mutation is confirmed untestable by any unit test, exactly as this
+      checkbox says — no test invented for it. The other mutation ran differently from what this
+      checkbox predicts: `publishMessage`'s `count` parameter is `prepared.ids.size`, read before
+      `markRemarksPublished` runs, so skipping that call (even scoped to the write-failed branch
+      only) changes nothing `publishMessage` receives, and `./gradlew test` stayed green under it —
+      no message test failed. Verified by mutating, running the full suite (BUILD SUCCESSFUL, no
+      failures), and restoring. So this specific mutation, like the null-root one, has no automated
+      test catching it; only the hand check would. Logged as a deviation.**
+- [x] commit: `feat: publishing writes the same markdown to a file the skill can find`
 
 ### Task 6: The skill learns to read a published file
 
