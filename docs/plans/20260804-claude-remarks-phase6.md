@@ -1318,41 +1318,41 @@ wait for editors to appear.
 **Files:**
 - Read only: everything under `src/`
 
-- [ ] `git status --porcelain` — note anything unexpected before starting
-- [ ] `./gradlew test` — the whole suite, and show the output
-- [ ] `./gradlew build`
-- [ ] `./gradlew verifyPluginProjectConfiguration`
-- [ ] `./gradlew verifyPlugin` — and confirm it reports **no new** internal-API usage. One is already
+- [x] `git status --porcelain` — note anything unexpected before starting
+- [x] `./gradlew test` — the whole suite, and show the output
+- [x] `./gradlew build`
+- [x] `./gradlew verifyPluginProjectConfiguration`
+- [x] `./gradlew verifyPlugin` — and confirm it reports **no new** internal-API usage. One is already
       accepted (`a055473`); phase 6 must not add a second.
-- [ ] guard 1, must be empty:
+- [x] guard 1, must be empty:
 
   ```bash
   grep -rnE "WriteCommandAction|WriteAction\.|runWriteAction|insertString|replaceString|deleteString|[Dd]ocument\.setText|setBinaryContent" src/
   ```
 
-- [ ] guard 2, both must be empty:
+- [x] guard 2, both must be empty:
 
   ```bash
   grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/anchor/
   grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt
   ```
 
-- [ ] guard 3, the `.all()` allow-list form, must be empty
-- [ ] guard 4 by hand:
+- [x] guard 3, the `.all()` allow-list form, must be empty
+- [x] guard 4 by hand:
       `grep -rn "basePath\|projectRoot(project)" src/main/kotlin/dev/sasha/clauderemarks/review/`
       and confirm the project root is used only **to name the handshake file and to match the requested
       project — never as a directory to write into**. Hits are expected: task 5 matches on `basePath`,
       and task 9 resolves paths under the root. What must not appear is a write inside a project. The two
       files phase 6 writes are under the user's home directory and in a fresh temp directory.
-- [ ] guard 5, the new one, must be empty:
+- [x] guard 5, the new one, must be empty:
 
   ```bash
   grep -rnE "invokeAndWait|projectRoot\(|FileEditorManager|VfsUtil|SwingUtilities" \
     src/main/kotlin/dev/sasha/clauderemarks/review/ReviewRestService.kt
   ```
 
-- [ ] confirm no new `<depends>` appeared in `plugin.xml`
-- [ ] no commit unless something above needed a fix. If it did, stage only the files you changed.
+- [x] confirm no new `<depends>` appeared in `plugin.xml`
+- [x] no commit unless something above needed a fix. If it did, stage only the files you changed.
 
 ### Task 11: Update the design docs
 
