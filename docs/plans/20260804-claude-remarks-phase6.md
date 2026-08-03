@@ -772,7 +772,7 @@ fun atomicWriteString(target: Path, text: String) {
 mean writing a name generator by hand. The consequence for the test: it must create the parent directory
 itself before calling `tempFileFor` directly.
 
-- [ ] write the failing tests in `AtomicWriteTest.kt`. Plain JUnit, one temporary directory:
+- [x] write the failing tests in `AtomicWriteTest.kt`. Plain JUnit, one temporary directory:
   - `the temp file is created beside the target, not in the system temp directory` — create the parent
     directory, then assert `tempFileFor(target).parent == target.parent`
   - `writing creates the file with exactly the given content`
@@ -783,22 +783,22 @@ itself before calling `tempFileFor` directly.
   - `a missing parent directory is created` — call `atomicWriteString` with a target two levels below an
     empty temporary directory, assert the file is there with the right content. This is what
     `Files.createDirectories` is for; without it `createTempFile` throws.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.AtomicWriteTest"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.AtomicWriteTest"` — expect a compile
       failure
-- [ ] create `review/AtomicWrite.kt` as above. The comment must say why the temp file goes in the
+- [x] create `review/AtomicWrite.kt` as above. The comment must say why the temp file goes in the
       target's directory and not in `java.io.tmpdir`.
-- [ ] switch `writeHandshake` in `ReviewHandshake.kt` over to `atomicWriteString`. The permission call on
+- [x] switch `writeHandshake` in `ReviewHandshake.kt` over to `atomicWriteString`. The permission call on
       the *file* has to run **after** the move, because the temp file is the one that gets renamed. The
       permission call on the *directory* still runs before anything is written into it, as task 2
       requires.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.AtomicWriteTest" --tests "dev.sasha.clauderemarks.review.ReviewHandshakeTest"`
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.AtomicWriteTest" --tests "dev.sasha.clauderemarks.review.ReviewHandshakeTest"`
       — both must pass
-- [ ] **mutation check**: change `Files.createTempFile(target.parent, …)` to `Files.createTempFile(…)`
+- [x] **mutation check**: change `Files.createTempFile(target.parent, …)` to `Files.createTempFile(…)`
       without the directory argument. `the temp file is created beside the target, not in the system temp
       directory` must fail. Restore it.
-- [ ] **second mutation check**: delete the `Files.createDirectories` line. `a missing parent directory
+- [x] **second mutation check**: delete the `Files.createDirectories` line. `a missing parent directory
       is created` must fail. Restore it.
-- [ ] commit, staging exactly:
+- [x] commit, staging exactly:
 
   ```bash
   git add src/main/kotlin/dev/sasha/clauderemarks/review/AtomicWrite.kt \

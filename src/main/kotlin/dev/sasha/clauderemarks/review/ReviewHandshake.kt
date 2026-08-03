@@ -78,10 +78,10 @@ fun writeHandshake(realPath: Path, port: Int, token: String, dir: Path = handsha
     Files.createDirectories(dir)
     setOwnerOnly(dir, "rwx------")
     val target = dir.resolve(handshakeName(realPath.toString()))
-    // TODO(task 3): switch to atomicWriteString once AtomicWrite.kt lands.
-    Files.writeString(target, renderHandshake(realPath.toString(), port, token))
-    // The permission call on the file has to run after the write: task 3 changes this to a
-    // temp-file-then-rename, and the temp file is the one that gets renamed onto the target.
+    atomicWriteString(target, renderHandshake(realPath.toString(), port, token))
+    // The permission call on the file has to run after the move: atomicWriteString renames a
+    // temp file onto the target, so setting permissions before that would set them on a file that
+    // no longer exists at this path.
     setOwnerOnly(target, "rw-------")
 }
 
