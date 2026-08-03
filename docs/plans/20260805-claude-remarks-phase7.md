@@ -824,9 +824,9 @@ hundred bytes and a rename in a temp directory.
 createActionLabel("Reject") { rejectWaitingReview(project) }
 ```
 
-- [ ] `grep -rn '"Cancel"' src/` first, so a test or another caller that names the old label is found
+- [x] `grep -rn '"Cancel"' src/` first, so a test or another caller that names the old label is found
       before it is broken rather than after
-- [ ] write the failing tests in `SendReviewTest.kt`, which already builds a review with an output path
+- [x] write the failing tests in `SendReviewTest.kt`, which already builds a review with an output path
       it controls and already has a failure-path fixture whose parent is a regular file:
   - `testRejectingWritesTheMarkerAndClearsTheReview` — after `rejectWaitingReview`, the handoff file's
     **first line is exactly** `<!-- claude-remarks: rejected -->`, and `current()` is null. Spell the
@@ -837,16 +837,16 @@ createActionLabel("Reject") { rejectWaitingReview(project) }
     the whole of decision four, as a test.
   - `testAFailedRejectionStillClearsTheReview` — point the review at a path whose parent is a regular
     file so the write throws; assert `current()` is null afterwards and the remark is still `PENDING`.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"` — expect a compile
       failure
-- [ ] implement
-- [ ] the same command passes, and `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"`
+- [x] implement
+- [x] the same command passes, and `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"`
       still passes
-- [ ] **mutation:** delete the `atomicWriteString` call from `rejectWaitingReview`, which is exactly
+- [x] **mutation:** delete the `atomicWriteString` call from `rejectWaitingReview`, which is exactly
       the defect being fixed — `testRejectingWritesTheMarkerAndClearsTheReview` must fail. Change one
       character of `REJECTED_MARKER` — the same test must fail on the first-line assertion. Restore
       both.
-- [ ] commit: `fix: rejecting a review tells Claude Code instead of only closing the banner` — stage
+- [x] commit: `fix: rejecting a review tells Claude Code instead of only closing the banner` — stage
       exactly the three files above
 
 ### Task 3: The review's phase and its deadline, as plain data

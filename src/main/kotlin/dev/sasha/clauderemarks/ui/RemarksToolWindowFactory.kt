@@ -33,6 +33,7 @@ import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.review.WaitingReviewService
+import dev.sasha.clauderemarks.review.rejectWaitingReview
 import dev.sasha.clauderemarks.review.sendToWaitingReview
 import dev.sasha.clauderemarks.store.REMARKS_CHANGED
 import dev.sasha.clauderemarks.store.RemarkStore
@@ -100,7 +101,10 @@ class RemarksPanel(
     internal val banner = EditorNotificationPanel().apply {
         text = "Claude Code is waiting"
         createActionLabel("Send remarks") { sendToWaitingReview(project) }
-        createActionLabel("Cancel") { WaitingReviewService.getInstance(project).clear() }
+        // Reject, not Cancel: this writes the decision to the handoff file so the waiting session
+        // stops at once. "Cancel" read as "close this banner", which is exactly the behaviour that
+        // was wrong.
+        createActionLabel("Reject") { rejectWaitingReview(project) }
         isVisible = false
     }
 

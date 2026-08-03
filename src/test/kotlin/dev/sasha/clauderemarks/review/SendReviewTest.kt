@@ -84,6 +84,40 @@ class SendReviewTest : BasePlatformTestCase() {
         assertFalse(Files.exists(handoffFile(outputPath)))
     }
 
+    fun testRejectingWritesTheMarkerAndClearsTheReview() {
+        val outputPath = Files.createTempDirectory("send-review-test")
+        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+
+        rejectWaitingReview(project)
+
+        val firstLine = Files.readString(handoffFile(outputPath)).lineSequence().first()
+        assertEquals("<!-- claude-remarks: rejected -->", firstLine)
+        assertNull(WaitingReviewService.getInstance(project).current())
+    }
+
+    fun testRejectingLeavesEveryRemarkPending() {
+        val outputPath = Files.createTempDirectory("send-review-test")
+        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+
+        rejectWaitingReview(project)
+
+        assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
+    }
+
+    fun testAFailedRejectionStillClearsTheReview() {
+        // The parent of outputPath is a regular file, so Files.createDirectories throws when the
+        // write tries to create outputPath itself.
+        val outputPath = Files.createTempFile("reject-review-blocked", ".txt").resolve("subdir")
+        WaitingReviewService.getInstance(project).start("s1", "a label", outputPath)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+
+        rejectWaitingReview(project)
+
+        assertNull(WaitingReviewService.getInstance(project).current())
+        assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
+    }
+
     private fun statusOf(id: String) = RemarkStore.getInstance(project).all().single { it.id == id }.status
 
     // sendToWaitingReview hops off the EDT (the read action) and back (finishOnUiThread), so an
