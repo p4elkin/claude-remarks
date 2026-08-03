@@ -10,6 +10,8 @@ import io.netty.handler.codec.http.HttpHeaderNames
 import io.netty.handler.codec.http.HttpMethod
 import io.netty.handler.codec.http.QueryStringDecoder
 import java.io.IOException
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.nio.file.Path
 import org.jetbrains.ide.RestService
 
@@ -34,6 +36,34 @@ internal const val TOKEN_HEADER = "X-Claude-Remarks-Token"
  * action has to write that same one.
  */
 internal fun handoffFile(outputDir: Path): Path = outputDir.resolve("remarks.md")
+
+/** What reading the handoff file produced. [bytes] is the file's size, not the string's length. */
+internal sealed interface HandoffRead {
+    /** No file at that path: the review was cleared before anything was written. */
+    data object Absent : HandoffRead
+    data class TooLarge(val bytes: Long) : HandoffRead
+    data class Content(val text: String, val bytes: Long) : HandoffRead
+}
+
+/**
+ * The whole handoff file, or a refusal. [limit] is a parameter rather than the constant below so the
+ * boundary is testable in milliseconds instead of by writing a megabyte for every case.
+ *
+ * Over the limit the file is not read at all — the size is checked first, so an oversized review
+ * never becomes an oversized allocation. Truncating was the alternative and it is worse: a markdown
+ * prompt cut in the middle looks complete to a model.
+ *
+ * The exists-then-size pair is not a race here: the plugin never deletes the handoff file or the
+ * directory holding it. An IOException from either call is left to the caller, which turns it into a
+ * `failed` answer the same way a start request does.
+ */
+internal fun readHandoff(outputDir: Path, limit: Long): HandoffRead {
+    val file = handoffFile(outputDir)
+    if (!Files.exists(file)) return HandoffRead.Absent
+    val bytes = Files.size(file)
+    if (bytes > limit) return HandoffRead.TooLarge(bytes)
+    return HandoffRead.Content(Files.readString(file, StandardCharsets.UTF_8), bytes)
+}
 
 /**
  * The whole authorisation rule, over four nullable strings so it can be tested without building an
@@ -93,6 +123,14 @@ private class AckRequest(
 private const val DEFAULT_DEADLINE_SECONDS = 1800L
 private const val MIN_DEADLINE_SECONDS = 60L
 private const val MAX_DEADLINE_SECONDS = 86_400L
+
+/**
+ * The largest handoff file the fetch action will put in a response. A remark with its code context is
+ * a few hundred bytes, so this is thousands of remarks — unreachable in ordinary use, and still a
+ * bound on what one response allocates. Named rather than inlined because the skill's own message
+ * quotes the number back to the person.
+ */
+private const val MAX_HANDOFF_BYTES = 1_048_576L
 
 /**
  * The skill declares how long it will wait. The number arrives over HTTP, so it is bounded here,

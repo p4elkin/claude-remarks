@@ -1,6 +1,9 @@
 package dev.sasha.clauderemarks.review
 
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.nio.file.Path
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -83,5 +86,62 @@ class ReviewRequestTest {
     @Test
     fun `a sensible deadline is passed through`() {
         assertEquals(300L, clampDeadlineSeconds(300L))
+    }
+
+    private lateinit var handoffDir: Path
+
+    @After
+    fun cleanUpHandoffDir() {
+        if (::handoffDir.isInitialized) {
+            handoffDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a missing handoff file reads as absent`() {
+        handoffDir = Files.createTempDirectory("readHandoff-test")
+        assertEquals(HandoffRead.Absent, readHandoff(handoffDir, limit = 1_000L))
+    }
+
+    @Test
+    fun `a handoff file under the limit reads back whole`() {
+        handoffDir = Files.createTempDirectory("readHandoff-test")
+        // "café — " has a multi-byte accented letter and an em dash, so the UTF-8 byte count is
+        // larger than the character count. That gap is exactly what the second assertion below
+        // catches if bytes were computed from the string's length instead of the file's size.
+        val text = "a remark about café — worth reading twice"
+        Files.writeString(handoffFile(handoffDir), text, StandardCharsets.UTF_8)
+        val expectedBytes = text.toByteArray(StandardCharsets.UTF_8).size.toLong()
+
+        val result = readHandoff(handoffDir, limit = 10_000L)
+
+        assertTrue(result is HandoffRead.Content)
+        val content = result as HandoffRead.Content
+        assertEquals(text, content.text)
+        assertEquals(expectedBytes, content.bytes)
+        assertTrue(expectedBytes > text.length)
+    }
+
+    @Test
+    fun `a file over the limit is refused and its content is not returned`() {
+        handoffDir = Files.createTempDirectory("readHandoff-test")
+        val text = "0123456789"
+        Files.writeString(handoffFile(handoffDir), text, StandardCharsets.UTF_8)
+
+        val result = readHandoff(handoffDir, limit = 4L)
+
+        assertTrue(result is HandoffRead.TooLarge)
+        assertEquals(10L, (result as HandoffRead.TooLarge).bytes)
+    }
+
+    @Test
+    fun `a file exactly at the limit is not refused`() {
+        handoffDir = Files.createTempDirectory("readHandoff-test")
+        val text = "0123456789"
+        Files.writeString(handoffFile(handoffDir), text, StandardCharsets.UTF_8)
+
+        val result = readHandoff(handoffDir, limit = 10L)
+
+        assertTrue(result is HandoffRead.Content)
     }
 }

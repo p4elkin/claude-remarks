@@ -782,7 +782,7 @@ And the constant, next to the deadline bounds and named for the same reason they
 private const val MAX_HANDOFF_BYTES = 1_048_576L
 ```
 
-- [ ] write the failing tests in `ReviewRequestTest.kt`, which is plain JUnit with no fixture. It needs
+- [x] write the failing tests in `ReviewRequestTest.kt`, which is plain JUnit with no fixture. It needs
       a temp directory per test; create one with `Files.createTempDirectory` and delete it in an
       `@After`, rather than reaching for the fixture-only `TempPaths`:
   - `a missing handoff file reads as absent` — an empty directory gives `HandoffRead.Absent`.
@@ -795,18 +795,19 @@ private const val MAX_HANDOFF_BYTES = 1_048_576L
     a `Content` of any kind.
   - `a file exactly at the limit is not refused` — a file whose byte count equals the limit reads back
     as `Content`. This pins `>` rather than `>=`.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewRequestTest"` — expect a
-      compile failure
-- [ ] implement
-- [ ] the same command passes
-- [ ] **mutation:** make `readHandoff` skip the `Files.exists` check and let `Files.size` throw — the
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewRequestTest"` — expect a
+      compile failure. Confirmed: `Unresolved reference 'HandoffRead'`/`'readHandoff'`.
+- [x] implement
+- [x] the same command passes. Confirmed: BUILD SUCCESSFUL, 15 tests.
+- [x] **mutation:** make `readHandoff` skip the `Files.exists` check and let `Files.size` throw — the
       absent test must fail. Change `bytes` to `text.length.toLong()` — the multi-byte test must fail.
       Delete the `if (bytes > limit)` branch — the refusal test must fail. Change `>` to `>=` — the
-      exactly-at-the-limit test must fail. Restore all four.
-- [ ] `grep -rnE "invokeAndWait|projectRoot\(|FileEditorManager|VfsUtil|SwingUtilities" src/main/kotlin/dev/sasha/clauderemarks/review/ReviewRestService.kt`
+      exactly-at-the-limit test must fail. Restore all four. Confirmed: all four mutations each failed
+      exactly the test named for it, then restored.
+- [x] `grep -rnE "invokeAndWait|projectRoot\(|FileEditorManager|VfsUtil|SwingUtilities" src/main/kotlin/dev/sasha/clauderemarks/review/ReviewRestService.kt`
       is empty — rule 5, run now rather than at the end, because this is the task that adds filesystem
-      code to that file
-- [ ] commit: `feat: read the handoff file back, refusing anything over a megabyte` — stage exactly the
+      code to that file. Confirmed empty.
+- [x] commit: `feat: read the handoff file back, refusing anything over a megabyte` — stage exactly the
       two files above
 
 ### Task 4: The fetch action on the endpoint
