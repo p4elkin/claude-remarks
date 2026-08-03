@@ -1333,3 +1333,48 @@ The context lines count is 3. If context matching finds false positives, raise i
 
 Both are in `Anchoring.kt` as `SEARCH_RADIUS` and `CONTEXT_LINES`. There is no knob for how much the
 block's own length may have changed: the answer is zero, for the reason above.
+
+## Known Issues
+
+Real defects found by review, deliberately not fixed. Each was judged remote enough that the fix was
+not worth the churn at the time. They are written down rather than dropped so a later session finds
+them here instead of rediscovering them, and so nobody treats this design as flawless. Every one of
+them is in `review/`, except the last.
+
+**A same-session retry after a send hands back the old remarks.** `WaitingReview.kt`,
+`startOrConflict`'s same-session branch copies the existing state forward with a fresh deadline, and
+that copy keeps its `phase`. If the retry lands after a send, the review is still `Sent`, so the
+endpoint answers `waiting` with an output path whose `remarks.md` already exists — and the skill's
+`while [ ! -e "$output" ]` returns immediately with the *previous* review's remarks treated as the
+answer to the new request. `handleStart` cannot tell the two cases apart. Needs an agent that
+re-posts `start` with the same session id after a send, which nothing in the skill does today.
+
+**A backwards clock step can consume the deadline task.** `scheduleExpiry` computes its delay from
+the wall clock (`deadlineAt - currentTimeMillis`) but `ScheduledExecutorService` counts elapsed
+monotonic time, and `expireIfStale` re-checks against the wall clock again. If the clock steps back —
+an NTP correction, someone changing it — the task fires while `now < deadlineAt`, `expireIfStale`
+finds nothing stale and returns null, and nothing reschedules. The deadline task is spent. `current()`
+still masks the review so the Send button stays correct, but the banner only repaints on a refresh,
+so "Claude Code is waiting" can stay on screen indefinitely. That is the exact lie the scheduled task
+exists to prevent, in the one case it cannot cover.
+
+**The EDT can block behind a netty thread's filesystem call.** `start` is `@Synchronized` and holds
+the service monitor across `Files.createTempDirectory`. `markSent` and `clear` take the same monitor
+and are both called from the EDT — the send's `finishOnUiThread` block and the banner's Reject link.
+Normally sub-millisecond and invisible; on a hung or full `TMPDIR` the UI thread waits. The class
+KDoc argues carefully that `current()` is unsynchronized so the EDT never blocks on that call, which
+is true and was not the only path.
+
+**The disposal guard on the scheduled expiry narrows the race rather than closing it.** The task body
+checks `!project.isDisposed`, then `expireStaleReview` calls `getInstance(project)`, which throws
+`AlreadyDisposedException` if disposal lands between the two. Costs a logged exception in the shared
+scheduler, no data loss. Needs a project closed within microseconds of a deadline firing.
+
+**A file path is written into the prompt as a Markdown heading, unescaped.** `render/PromptRenderer.kt`
+emits `## <path>` per group. The prompt is instructions a model then acts on, so a path containing a
+newline or heading characters can forge structure outside the code fence — a fake heading, or text
+that reads as a new instruction. `escapeMarkdown` exists in that file and is applied to remark text
+and to the selection phrase, but not to the path. Git permits newlines in filenames, so this is
+reachable in principle; it needs a hostile file in a repository you then annotate, which is why it was
+left. It is the cheapest of the five to fix and the only one that is a trust-boundary issue rather
+than a race.
