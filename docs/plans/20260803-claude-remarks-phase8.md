@@ -1013,27 +1013,30 @@ person which value to pass as `ide_project`.
 and the `cat "$start_resp"` after it are what make the answer visible to the model. Keep them exactly
 where they are and in that order.
 
-- [ ] `grep -n 'Same machine only\|127.0.0.1:\$port\|same machine' docs/skill/claude-remarks-review/SKILL.md`
+- [x] `grep -n 'Same machine only\|127.0.0.1:\$port\|same machine' docs/skill/claude-remarks-review/SKILL.md`
       first, so every place that promises the same-machine limit is found before one is missed. There
       are at least three: the front matter's `description`, the section heading, and step 3's URLs.
-- [ ] rewrite the front matter `description` so it no longer says "Requires the IDE and this skill to
+      Confirmed: exactly those three places (lines 8, 16, and the two literal URLs in step 3).
+- [x] rewrite the front matter `description` so it no longer says "Requires the IDE and this skill to
       run on the same machine". Say instead that the same machine is the normal case and that a remote
       IDE needs a tunnel and four values.
-- [ ] replace the "Same machine only" section with "Over SSH: the IDE on another machine", covering the
+- [x] replace the "Same machine only" section with "Over SSH: the IDE on another machine", covering the
       six points above
-- [ ] add the setup block, fold step 2's handshake read into its `else` branch, and change every
+- [x] add the setup block, fold step 2's handshake read into its `else` branch, and change every
       `curl` URL to `"$base_url/..."` with the two time limits
-- [ ] add `fetch_resp=$(mktemp)` to step 3's existing
+- [x] add `fetch_resp=$(mktemp)` to step 3's existing
       `start_resp=$(mktemp) ; ack_resp=$(mktemp)` line, so all three temp files are created in one
       place. Task 6 uses it.
-- [ ] **verify by extracting and parsing the script, not by reading it:**
+- [x] **verify by extracting and parsing the script, not by reading it:**
 
       ```bash
       awk '/^ *```sh$/{f=1;next} /^ *```$/{f=0;next} f' \
         docs/skill/claude-remarks-review/SKILL.md > /tmp/skill.sh
       sh -n /tmp/skill.sh && bash -n /tmp/skill.sh && echo "SYNTAX OK"
       ```
-- [ ] **verify that every variable read is assigned somewhere in the same script.** This is the check
+
+      Confirmed: 98 lines, `SYNTAX OK`.
+- [x] **verify that every variable read is assigned somewhere in the same script.** This is the check
       that catches the defect class this file has a history of — a step split into another shell, or a
       variable renamed in one place. The jq argument names are computed rather than listed by hand, so
       the allowlist maintains itself:
@@ -1048,12 +1051,16 @@ where they are and in that order.
       ```
 
       Must print nothing. It prints nothing against today's `SKILL.md`, so a new name in the output is
-      this task's own doing.
-- [ ] **mutation, for a file that has no unit test:** delete one `fi` from the new `if`, re-run the
+      this task's own doing. Confirmed: prints nothing, after fencing the two "Over SSH" example
+      snippets as ```console instead of ```sh — see the deviation note below for why.
+- [x] **mutation, for a file that has no unit test:** delete one `fi` from the new `if`, re-run the
       syntax check, and confirm it fails. Then rename `base_url` to `baseurl` in one of its uses only,
       re-run the undefined-variable check, and confirm it prints `baseurl`. Restore both. A check that
-      has never been seen to fail is not a check.
-- [ ] commit: `feat(skill): take a host, port, token and the IDE's project path for a remote IDE` —
+      has never been seen to fail is not a check. Confirmed: deleting a `fi` gave "unexpected end of
+      file" from both `sh -n` and `bash -n`; renaming one use of `base_url` to `baseurl` made the
+      undefined-variable check print exactly `baseurl`. Both run against scratch copies, not the real
+      file, so nothing was left mutated.
+- [x] commit: `feat(skill): take a host, port, token and the IDE's project path for a remote IDE` —
       stage exactly the one file
 
 ### Task 6: One wait loop, one transport switch

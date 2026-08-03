@@ -4,8 +4,10 @@ description: >
   Hand a code review over to a person working in the Claude Remarks IntelliJ plugin, then wait
   for their remarks and act on them. Use when asked to start a review session with the IDE, wait
   for review comments from an open IntelliJ/JetBrains project, or read back remarks the person
-  just sent from the Claude Remarks tool window. Requires the IDE and this skill to run on the
-  same machine — see "Same machine only" below before using it over SSH or on a remote box.
+  just sent from the Claude Remarks tool window. The IDE and this skill running on the same
+  machine is the normal case. When the IDE is on another machine, reached over SSH, this needs a
+  tunnel the person sets up by hand and four connection values from them — see "Over SSH: the IDE
+  on another machine" below.
 ---
 
 # Claude Remarks review
@@ -13,50 +15,105 @@ description: >
 Starts a review that a person answers inside the Claude Remarks tool window in their IDE, waits
 for them to press "Send to Claude Code", then reads what they wrote.
 
-## Same machine only
+## Over SSH: the IDE on another machine
 
-This only works when the IDE and this Claude Code session run on the same machine. Both the
-handshake file and the handoff file are local paths — `~/.claude-remarks/*.json` and a temp
-directory under `$TMPDIR` — so there is nothing to read if the IDE is on a different machine, for
-example a laptop reached over SSH. Sending to a remote agent session is planned for phase 8
-(see `docs/ideas.md`, "Sending remarks to a remote agent session," in the `claude-remarks` repo);
-it is not built. If asked to do this over SSH, say so and stop rather than trying step 3 below.
+The IDE and this Claude Code session on the same machine is the normal case, reading the
+handshake file directly. When the IDE is on another machine — a laptop reached over SSH — both
+the handshake file and the handoff file are local paths on that other machine, so there is
+nothing on this machine to read directly. The endpoint's `fetch` action carries the handoff
+file's content back in the HTTP response body instead, and an SSH tunnel is what lets this
+machine reach that endpoint at all. Here is what the person needs to do, and what to tell the
+agent:
+
+- **On the IDE machine**, in the repository: read the port and the token out of the handshake
+  file with two lines of shell. Do not send the token over anything that logs it.
+
+  ```console
+  HS=~/.claude-remarks/$(printf %s "$(git rev-parse --show-toplevel)" | shasum -a 256 | cut -c1-16).json
+  jq . "$HS"     # prints path, port and token
+  ```
+- **Start the tunnel from the IDE machine**, in that same shell, so the port that was just read is
+  the one being forwarded:
+
+  ```console
+  ssh -o ExitOnForwardFailure=yes -R 8765:127.0.0.1:"$PORT" the-agent-machine
+  ```
+
+  `-R` and not `-L`: the SSH connection already goes from the IDE machine to the agent machine,
+  and `-R` forwards a port on the far end back through it. `-L` would need the IDE machine to be
+  reachable by `sshd` from the agent machine, which is the harder direction to arrange on a
+  laptop. `ExitOnForwardFailure=yes` is not decoration: without it, a port already taken on the
+  agent machine makes `ssh` print a warning and connect anyway, and every later request answers
+  connection refused for a reason that looks nothing like the cause. Pick a port nothing on the
+  agent machine uses, and do not reuse 63342 if that machine runs an IDE too.
+- **Then tell the agent four values:** the tunnel's local port on the agent machine (8765 above),
+  the token, the repository path as the **IDE machine** sees it, and the host only if it is not
+  `127.0.0.1`.
+- **A missing tunnel looks like connection refused**, and that is the whole of the error handling.
+  The plugin does not manage the tunnel, does not detect it and does not report on it.
+- **Restarting the IDE is what invalidates the token.** Re-opening a project rewrites the
+  handshake file with the same token, because the token is minted once per IDE run.
 
 ## Steps
 
-1. **Find the repository root.**
+1. **Find the repository root, and set the connection values if the IDE is on another machine.**
 
    ```sh
+   # Remote case only: the IDE is on another machine, reached through an SSH tunnel this shell does
+   # not manage. Leave ide_port EMPTY for the normal same-machine case and the rest is ignored.
+   ide_port=          # the tunnel's local port ON THIS MACHINE, e.g. 8765
+   ide_token=         # the token from the IDE machine's handshake file
+   ide_project=       # the repository path as the IDE MACHINE sees it; empty means use this machine's
+   ide_host=127.0.0.1 # the near end of the tunnel; change only if you tunnelled somewhere else
+
    root=$(git rev-parse --show-toplevel)
+   [ -n "$ide_project" ] || ide_project=$root
    ```
 
-   This returns the physical path even for a symlinked checkout, which matters: the IDE side
-   normalizes the same way, so the two have to agree.
+   `root` returns the physical path even for a symlinked checkout, which matters: the IDE side
+   normalizes the same way, so the two have to agree. `$root` stays this machine's own path,
+   because the file list in step 3 is built from this machine's own git; `$ide_project` is what
+   goes in the request's `project` field and in every `ack` and `fetch` body. The two are the same
+   string in the same-machine case, which is why the default is `$root`.
 
-2. **Compute the handshake file name and read it.**
+2. **Compute the connection values: the tunnel values set above if `ide_port` is non-empty,
+   otherwise the handshake file.**
 
    ```sh
-   name=$(printf %s "$root" | shasum -a 256 | cut -c1-16)
-   handshake="$HOME/.claude-remarks/$name.json"
-   [ -f "$handshake" ] || { echo "no IDE has $root open (no handshake file at $handshake)"; exit 1; }
-   port=$(jq -r .port "$handshake")
-   token=$(jq -r .token "$handshake")
+   if [ -n "$ide_port" ]; then
+     remote=yes
+     host=$ide_host ; port=$ide_port ; token=$ide_token
+     case $ide_port in *[!0-9]*|'') echo "ide_port must be a port number: '$ide_port'"; exit 1;; esac
+     [ -n "$token" ] || { echo "the remote case needs the IDE run's token — read it on the IDE machine, see 'Over SSH' above"; exit 1; }
+     echo "remote: $host:$port, project $ide_project"   # never echo the token
+   else
+     remote=
+     host=127.0.0.1
+     name=$(printf %s "$root" | shasum -a 256 | cut -c1-16)
+     handshake="$HOME/.claude-remarks/$name.json"
+     [ -f "$handshake" ] || { echo "no IDE has $root open (no handshake file at $handshake)"; exit 1; }
+     port=$(jq -r .port "$handshake")
+     token=$(jq -r .token "$handshake")
+   fi
+   base_url="http://$host:$port/api/claude-remarks"
    ```
 
-   A missing file means no running IDE has this repository open right now — not that the plugin
-   is broken. Do not retry and do not scan ports; re-opening the project in the IDE is what
-   creates this file.
+   A missing handshake file means no running IDE has this repository open right now — not that
+   the plugin is broken. Do not retry and do not scan ports; re-opening the project in the IDE is
+   what creates this file. In the remote case there is no handshake file to read on this machine
+   at all — see "Over SSH" above for where the person reads the port and the token.
 
 3. **POST to the start endpoint.** **Run steps 1 to 6 as one Bash call, in one shell** — every step,
-   from `git rev-parse` onwards, not just this one and the ones after it. `root` is set in step 1 and
-   `port` and `token` in step 2, and this step needs all three. Split them off and this step posts to
-   `http://127.0.0.1:/api/claude-remarks/start` with an empty token and an empty project. The Bash
-   tool starts a new shell for every call, and nothing crosses that boundary: no variables and no
-   shell functions. Steps 4 and 5 are decisions about the answer this step writes to a file, so they
-   cost nothing extra inside the same shell, and step 6 needs `$session`, `$port`, `$token`, `$root`
-   and `deadline_seconds` — all set here or in step 2 — plus `$output`, which step 6 reads out of the
-   response body this step saved. Split across calls, step 6 posts to
-   `http://127.0.0.1:/api/claude-remarks/ack` with an empty token and waits for a file called `""`.
+   from `git rev-parse` onwards, not just this one and the ones after it. `root` and `ide_project`
+   are set in step 1, and `base_url`, `port` and `token` in step 2, and this step needs `base_url`,
+   `token` and `ide_project`. Split them off and this step posts to an empty string in place of a
+   URL, with an empty token and an empty project. The Bash tool starts a new shell for every call,
+   and nothing crosses that boundary: no variables and no shell functions. Steps 4 and 5 are
+   decisions about the answer this step writes to a file, so they cost nothing extra inside the
+   same shell, and step 6 needs `$session`, `$base_url`, `$token`, `$ide_project`, `$remote` and
+   `deadline_seconds` — all set here or in step 1 or 2 — plus `$output`, which step 6 reads out of
+   the response body this step saved. Split across calls, step 6 posts to that same empty URL with
+   an empty token and waits for a file called `""`.
 
    **Work out the file list before you POST, and check it is not empty.** The IDE opens the paths
    this request names. An empty list opens nothing at all, silently: the endpoint still answers
@@ -137,12 +194,12 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    session=$(uuidgen)
    deadline_seconds=1800
    label="what is being reviewed, in a few words"   # replace this with the real thing
-   start_resp=$(mktemp) ; ack_resp=$(mktemp)
-   body=$(jq -n --arg session "$session" --arg label "$label" --arg project "$root" \
+   start_resp=$(mktemp) ; ack_resp=$(mktemp) ; fetch_resp=$(mktemp)
+   body=$(jq -n --arg session "$session" --arg label "$label" --arg project "$ide_project" \
      --argjson files "$files_json" --argjson deadline "$deadline_seconds" \
      '{session:$session, label:$label, project:$project, files:$files, deadlineSeconds:$deadline}')
-   http_code=$(curl -s -o "$start_resp" -w '%{http_code}' \
-     -X POST "http://127.0.0.1:$port/api/claude-remarks/start" \
+   http_code=$(curl -s -o "$start_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+     -X POST "$base_url/start" \
      -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" \
      -d "$body")
 
