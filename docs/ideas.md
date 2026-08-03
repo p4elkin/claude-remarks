@@ -665,3 +665,50 @@ through a tunnel at all: without it, anything that could reach the tunnel could 
 What is given up by not doing this in phase 6: the laptop case waits. That is accepted, because the
 local case is the daily one and the remote case adds an argument-passing story the local case does not
 need.
+
+## Drag a remark onto a bucket
+
+**Decided: build the cheap version.** Drag one or more selected rows in the tool window onto a bucket
+row to move them there. Dropping onto a "New bucket…" row asks for a name and creates the bucket with
+those remarks already in it.
+
+Why the cheap version and not stored buckets: see the wrinkle below. The cheap version is most of the
+value for a fraction of the work, and it answers a question first — whether dragging is actually the
+gesture reached for, or whether Move to Bucket was already enough.
+
+Three pieces, and two of them already exist:
+
+- `com.intellij.ide.dnd.aware.DnDAwareTree` extends `com.intellij.ui.treeStructure.Tree`, which is
+  the class `RemarksPanel.tree` already is. So this is a superclass swap, not a rewrite. Checked
+  against the 2025.2 jars, not remembered.
+- `com.intellij.ide.dnd.DnDSupport` carries the whole drag-and-drop lifecycle behind a builder, so
+  none of this needs a raw Swing `TransferHandler`.
+- **The drop action already exists.** `setRemarkBucket(project, ids, bucket)` is one of the eight
+  mutation functions, and it already publishes `REMARKS_CHANGED` so the tree redraws itself. The drop
+  handler's entire job is to work out the target bucket and call it.
+
+**The wrinkle: buckets are derived, not stored.** A bucket exists because some remark carries its name
+in `RemarkState.bucket`, and `buildTreeRoot` groups the remarks it has. So there is no such thing as an
+empty bucket — create one and it vanishes on the next refresh, because nothing renders it. Anything
+shaped like "make a bucket, then fill it later" needs new persisted state: a list of known bucket names
+in the store, separate from the remarks, plus a rule for when an empty one is cleaned up, plus a
+migration for existing workspaces. The cheap version sidesteps all of that by letting the bucket come
+into existence with its first member, which is exactly how it already works today.
+
+**A tip is required, not optional.** Dropping onto a "New bucket…" row is the only way to create one
+by dragging, and nobody will guess that a drop target creates something. Say it where the person is
+already looking: the row's own label, its tooltip, or empty-state text in the tree. A feature that
+needs to be explained in a README is a feature that will not be found.
+
+What stays either way: `Move to Bucket…` in the right-click menu. Dragging does nothing for keyboard
+use, and the keyboard path is the one this plugin is built around — so this is an addition, never a
+replacement.
+
+Still open:
+
+- Whether dropping onto the `(no bucket)` row clears the bucket. It reads as the natural inverse, and
+  `setRemarkBucket` already takes null, so it is nearly free.
+- Whether dragging a whole file group moves every remark under it. `remarkNodesUnder` already walks a
+  subtree for Copy Selected, so the machinery is there.
+- Whether the drag image should say how many remarks are moving. Cheap, and it is the only feedback
+  that a multi-row drag picked up what was intended.
