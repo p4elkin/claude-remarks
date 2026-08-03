@@ -19,6 +19,16 @@ const val NO_BUCKET_LABEL = "(no bucket)"
  */
 const val GENERAL_KEY = "general"
 
+/** What every bucket group's key starts with. See [buildTreeRoot] for why the key is not the label. */
+const val BUCKET_KEY_PREFIX = "bucket:"
+
+/**
+ * The key of the group holding the remarks that are in no bucket. The leading space is what keeps it
+ * apart from a bucket a person literally named "(no bucket)": `setRemarkBucket` trims a bucket name,
+ * so no real bucket key can ever start with a space.
+ */
+const val NO_BUCKET_KEY = BUCKET_KEY_PREFIX + " none"
+
 /**
  * A group row: a bucket or a file.
  *
@@ -184,7 +194,7 @@ fun buildTreeRoot(rows: List<ResolvedRemark>): DefaultMutableTreeNode {
         // otherwise share a key with the null-bucket group, and the panel would restore the selection
         // and the collapsed state of the wrong one of two sibling rows. A leading space cannot occur
         // in a real bucket name, because setRemarkBucket trims it.
-        val key = "bucket:" + (bucket ?: " none")
+        val key = bucket?.let { BUCKET_KEY_PREFIX + it } ?: NO_BUCKET_KEY
         val bucketNode = DefaultMutableTreeNode(GroupNode(key, label))
         addFileGroups(bucketNode, "$key/", inBucket)
         root.add(bucketNode)
@@ -222,6 +232,63 @@ private fun addFileGroups(
         )
         inFile.forEach { fileNode.add(DefaultMutableTreeNode(it)) }
         parent.add(fileNode)
+    }
+}
+
+/**
+ * What a drop on some tree row would do: put the dragged remarks in [bucket], or, when [bucket] is
+ * null, take them out of whatever bucket they are in.
+ *
+ * A wrapper rather than a bare `String?`, because "no target here" and "the target is: no bucket"
+ * are two different answers and a plain null could only say one of them.
+ */
+data class BucketDrop(val bucket: String?)
+
+/**
+ * The bucket a drop on [node] means, or null when [node] is not a drop target at all.
+ *
+ * This is the whole of the drag-and-drop logic, and it is pure, because a real drag cannot be
+ * driven from a unit test: the platform's own DnD machinery needs a window, a pointer and a running
+ * event loop. What is left for the wiring in `RemarksToolWindowFactory` is finding the node under
+ * the pointer and calling `setRemarkBucket`.
+ *
+ * The answers, in the order they matter: a bucket group is a target for its own name; the
+ * "(no bucket)" group is a target that clears the bucket, because `setRemarkBucket` already takes
+ * null and clearing is the natural inverse of setting; a file group or a remark row inside a bucket
+ * gives that bucket, so dropping anywhere inside a bucket's subtree means the same thing as dropping
+ * on its header; and everything else is not a target — the General group, a file group with no
+ * bucket level above it, and the tree root.
+ *
+ * The bucket is read from the top-level group's **key**, not its label. A bucket a person named
+ * "(no bucket)" draws the same label as the group for remarks in no bucket, and only the key tells
+ * the two apart. See [buildTreeRoot] for the same argument on the other side.
+ */
+fun bucketDropTarget(node: DefaultMutableTreeNode?): BucketDrop? {
+    val top = (topLevelAncestor(node)?.userObject as? GroupNode) ?: return null
+    return when {
+        top.key == NO_BUCKET_KEY -> BucketDrop(null)
+        top.key.startsWith(BUCKET_KEY_PREFIX) -> BucketDrop(top.key.removePrefix(BUCKET_KEY_PREFIX))
+        // The General group and a file group at the top level both land here. A general remark is
+        // about the whole change, so there is no bucket to read off it, and a tree with no bucket
+        // level has nothing to drop onto at all.
+        else -> null
+    }
+}
+
+/**
+ * The ancestor of [node] whose own parent is the invisible root, or [node] itself when it already
+ * is one. Null for the root and for any node not attached to a tree.
+ *
+ * Walking to the top rather than reading [node]'s own key is what keeps this independent of the key
+ * format: a bucket named with a slash builds file keys like "bucket:a/b/file:src/Foo.kt", which no
+ * amount of string splitting can take apart safely.
+ */
+private fun topLevelAncestor(node: DefaultMutableTreeNode?): DefaultMutableTreeNode? {
+    var current = node ?: return null
+    while (true) {
+        val parent = current.parent as? DefaultMutableTreeNode ?: return null
+        if (parent.parent == null) return current
+        current = parent
     }
 }
 

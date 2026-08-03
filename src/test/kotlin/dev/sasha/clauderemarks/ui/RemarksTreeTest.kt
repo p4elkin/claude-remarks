@@ -396,6 +396,98 @@ class RemarksTreeTest {
         assertEquals("must", node.severity)
     }
 
+    @Test
+    fun `a bucket group is a drop target for its own name`() {
+        val root = bucketedTree()
+
+        assertEquals(BucketDrop("auth refactor"), bucketDropTarget(child(root, 1)))
+    }
+
+    @Test
+    fun `the no-bucket group is a drop target that clears the bucket`() {
+        val root = bucketedTree()
+
+        assertEquals(BucketDrop(null), bucketDropTarget(child(root, 0)))
+    }
+
+    /**
+     * A bucket somebody actually named "(no bucket)" is a bucket like any other, and dropping on it
+     * must set that name rather than clear. Only the key tells it apart from the group for remarks
+     * in no bucket, which is why `bucketDropTarget` reads the key and not the label.
+     */
+    @Test
+    fun `a bucket named like the no-bucket label is a target for that name`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "r-1", bucket = NO_BUCKET_LABEL),
+                row(id = "r-2", bucket = null),
+            )
+        )
+        val targets = (0 until root.childCount).map { bucketDropTarget(child(root, it)) }
+
+        assertTrue(BucketDrop(NO_BUCKET_LABEL) in targets)
+        assertTrue(BucketDrop(null) in targets)
+    }
+
+    @Test
+    fun `a file group inside a bucket targets that bucket`() {
+        val root = bucketedTree()
+        val file = child(child(root, 1), 0)
+
+        assertEquals(BucketDrop("auth refactor"), bucketDropTarget(file))
+    }
+
+    @Test
+    fun `a file group with no bucket level above it is not a drop target`() {
+        val root = buildTreeRoot(listOf(row(id = "r-1", path = "src/Foo.kt")))
+
+        assertEquals(null, bucketDropTarget(child(root, 0)))
+    }
+
+    @Test
+    fun `the General group is not a drop target`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "r-1", path = ""),
+                row(id = "r-2", path = "src/Foo.kt", bucket = "auth refactor"),
+            )
+        )
+        val general = child(root, 0)
+
+        assertEquals(GENERAL_KEY, (general.userObject as GroupNode).key)
+        assertEquals(null, bucketDropTarget(general))
+        // Its rows are not targets either: a general remark has no bucket to read off it.
+        assertEquals(null, bucketDropTarget(child(general, 0)))
+    }
+
+    @Test
+    fun `a remark row targets the bucket it is in`() {
+        val root = bucketedTree()
+        val inBucket = child(child(child(root, 1), 0), 0)
+        val unbucketed = child(child(child(root, 0), 0), 0)
+
+        assertEquals(BucketDrop("auth refactor"), bucketDropTarget(inBucket))
+        assertEquals(BucketDrop(null), bucketDropTarget(unbucketed))
+    }
+
+    /** The root is invisible, but a drop can still land below the last row, which reports it. */
+    @Test
+    fun `the tree root is not a drop target`() {
+        assertEquals(null, bucketDropTarget(bucketedTree()))
+        assertEquals(null, bucketDropTarget(null))
+    }
+
+    /** Two top-level groups: "(no bucket)" first, then "auth refactor". */
+    private fun bucketedTree() = buildTreeRoot(
+        listOf(
+            row(id = "r-1", path = "src/Foo.kt", bucket = "auth refactor"),
+            row(id = "r-2", path = "src/Bar.kt", bucket = null),
+        )
+    )
+
+    private fun child(node: DefaultMutableTreeNode, index: Int) =
+        node.getChildAt(index) as DefaultMutableTreeNode
+
     private fun fileNames(root: DefaultMutableTreeNode) =
         (0 until root.childCount).map {
             ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).label

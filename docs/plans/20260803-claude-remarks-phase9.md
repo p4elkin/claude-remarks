@@ -1529,22 +1529,51 @@ answers: a bucket group gives that bucket name; the `(no bucket)` group gives "c
 file group or a remark row inside a bucket gives that bucket; anything else, including the General
 group and the tree root, is not a drop target.
 
-- [ ] write the failing tests in `RemarksTreeTest`, all against nodes built by `buildTreeRoot`: a
+- [x] write the failing tests in `RemarksTreeTest`, all against nodes built by `buildTreeRoot`: a
       bucket group is a target for its own name; the `(no bucket)` group is a target that clears; a
       file group inside a bucket targets that bucket; a file group with no bucket level above it is
       not a target; the General group is not a target; a remark row targets the bucket it is in.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"`, expect failures,
+      **Result: seven new tests — the six named above plus two more the design invited: `a bucket
+      named like the no-bucket label is a target for that name` (a bucket a person really calls
+      "(no bucket)" must set that name, not clear), and `the tree root is not a drop target` (a
+      drop below the last row reports the root). The remark-row test also covers a row inside the
+      `(no bucket)` group, which clears.**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"`, expect failures,
       implement `bucketDropTarget`, pass
-- [ ] wire the `DnDSupport` builder with `setDisposableParent(parent)`, so the support is disposed
+      **Result: implemented alongside the tests, the same shape task 16 used — `BucketDrop` is a new
+      type the tests name, so a test-only commit would not compile. RED/GREEN proven empirically by
+      the two mutations below, each of which failed exactly the tests it was predicted to.
+      `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` passes.**
+- [x] wire the `DnDSupport` builder with `setDisposableParent(parent)`, so the support is disposed
       with the tool window, and swap the tree class. `./gradlew test` passes whole, including
       `RemarksPanelTest`, which builds the panel for real.
-- [ ] **mutation:** make `bucketDropTarget` answer the bucket for the General group too; that test
+      **Result: `tree` is now a `DnDAwareTree`, and `installDragToBucket()` runs in `init`. The API
+      was re-checked with `javap` against `ideaIC-2025.2-aarch64/lib`, not taken from the plan:
+      `DnDAwareTree(TreeModel)`, `DnDSupport.createBuilder(JComponent)`, and
+      `setBeanProvider`/`setTargetChecker`/`setDropHandler`/`setDisposableParent`/`install` all
+      exist exactly as written. `./gradlew test --rerun-tasks` passes whole, 417 executed tests,
+      including `RemarksPanelTest` — the install is safe in a light fixture because the platform
+      registers `HeadlessDnDManager` in headless mode, whose `registerSource`/`registerTarget` do
+      nothing.**
+- [x] **mutation:** make `bucketDropTarget` answer the bucket for the General group too; that test
       must fail. Make the `(no bucket)` row answer its label as a bucket name instead of clearing;
       that test must fail, and note that without it a bucket literally called `(no bucket)` would be
       created. Restore both.
-- [ ] the drag itself cannot be tested here, so it is a hand check in
+      **Result: both run for real and reverted. Adding `top.key == GENERAL_KEY -> BucketDrop(...)`
+      failed exactly one test, `the General group is not a drop target`. Reading the label instead
+      of the key for a bucket group failed three: `the no-bucket group is a drop target that clears
+      the bucket`, `a bucket named like the no-bucket label is a target for that name`, and `a
+      remark row targets the bucket it is in`. That second mutation is the one that would create a
+      bucket literally called `(no bucket)`, since the label is what it would hand to
+      `setRemarkBucket` — the reason `bucketDropTarget` reads the key.**
+- [x] the drag itself cannot be tested here, so it is a hand check in
       [section 12](#12-hand-checks). Say so in the report rather than implying the drag is covered.
-- [ ] commit: `feat: dragging remarks onto a bucket moves them there`
+      **Result: said plainly. Nothing automated in this task performs a drag. What is covered is
+      `bucketDropTarget`, the pure decision about what a drop on a given node means, and that the
+      panel still builds with the DnD support installed. Whether a press-and-move actually starts a
+      drag, whether the drop lands on the row under the pointer, and whether the tree redraws after
+      it, are all owed as a hand check in a sandbox IDE.**
+- [x] commit: `feat: dragging remarks onto a bucket moves them there`
 
 ### Task 18 (optional, dropped by default): a Published group
 
