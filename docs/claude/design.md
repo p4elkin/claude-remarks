@@ -1425,10 +1425,28 @@ block's own length may have changed: the answer is zero, for the reason above.
 
 Real defects found by review, deliberately not fixed. Each was judged remote enough that the fix was
 not worth the churn at the time. They are written down rather than dropped so a later session finds
-them here instead of rediscovering them, and so nobody treats this design as flawless. Every one of
-them is in `review/`, except the last.
+them here instead of rediscovering them, and so nobody treats this design as flawless. All of them
+are in `review/`, except the last.
 
-**A same-session retry after a send hands back the old remarks.** `WaitingReview.kt`,
+**Each entry starts with two labels: how likely it is to happen, then how bad it is if it does.**
+Severity on its own describes the worst case, so it makes a defect needing two coincidences in the
+same second read as urgently as one firing every other day. Both labels together are what let you
+decide which of these is worth opening.
+
+Likelihood is one of four words. **Certain** means it happens every time. **Likely** means it happens
+in ordinary use. **Occasional** means it needs a specific sequence that does come up. **Rare** means it
+needs a coincidence, a hostile input, or a machine misbehaving.
+
+Severity is one of three. **Critical** means data loss or a security hole. **Major** means wrong
+behaviour a person would act on. **Minor** means a missing signal, a repaint, or a logged exception,
+with nothing lost.
+
+Nothing here is critical. One thing to know when reading the two `Occasional` entries: both are
+described as a scheduler-latency window, which sounds like milliseconds. Suspending a laptop widens
+it. `isStale` reads the wall clock while the scheduler counts monotonic time, so a machine that sleeps
+for an hour wakes with reviews that are stale and expiry tasks that have not run.
+
+**RARE, MAJOR: a same-session retry after a send hands back the old remarks.** `WaitingReview.kt`,
 `startOrConflict`'s same-session branch copies the existing state forward with a fresh deadline, and
 that copy keeps its `phase`. If the retry lands after a send, the review is still `Sent`, so the
 endpoint answers `waiting` with an output path whose `remarks.md` already exists — and the skill's
@@ -1436,7 +1454,7 @@ endpoint answers `waiting` with an output path whose `remarks.md` already exists
 answer to the new request. `handleStart` cannot tell the two cases apart. Needs an agent that
 re-posts `start` with the same session id after a send, which nothing in the skill does today.
 
-**A backwards clock step can consume the deadline task.** `scheduleExpiry` computes its delay from
+**RARE, MAJOR: a backwards clock step can consume the deadline task.** `scheduleExpiry` computes its delay from
 the wall clock (`deadlineAt - currentTimeMillis`) but `ScheduledExecutorService` counts elapsed
 monotonic time, and `expireIfStale` re-checks against the wall clock again. If the clock steps back —
 an NTP correction, someone changing it — the task fires while `now < deadlineAt`, `expireIfStale`
@@ -1445,19 +1463,19 @@ still masks the review so the Send button stays correct, but the banner only rep
 so "Claude Code is waiting" can stay on screen indefinitely. That is the exact lie the scheduled task
 exists to prevent, in the one case it cannot cover.
 
-**The EDT can block behind a netty thread's filesystem call.** `start` is `@Synchronized` and holds
+**RARE, MAJOR: the EDT can block behind a netty thread's filesystem call.** `start` is `@Synchronized` and holds
 the service monitor across `Files.createTempDirectory`. `markSent` and `clear` take the same monitor
 and are both called from the EDT — the send's `finishOnUiThread` block and the banner's Reject link.
 Normally sub-millisecond and invisible; on a hung or full `TMPDIR` the UI thread waits. The class
 KDoc argues carefully that `current()` is unsynchronized so the EDT never blocks on that call, which
 is true and was not the only path.
 
-**The disposal guard on the scheduled expiry narrows the race rather than closing it.** The task body
+**RARE, MINOR: the disposal guard on the scheduled expiry narrows the race rather than closing it.** The task body
 checks `!project.isDisposed`, then `expireStaleReview` calls `getInstance(project)`, which throws
 `AlreadyDisposedException` if disposal lands between the two. Costs a logged exception in the shared
 scheduler, no data loss. Needs a project closed within microseconds of a deadline firing.
 
-**A concurrent `current()` read can see no review at all during a stale-replacement.** `start()`'s
+**RARE, MINOR: a concurrent `current()` read can see no review at all during a stale-replacement.** `start()`'s
 stale-replacement branch calls `endReview()`, which sets `state` to null, and only assigns
 `state = result.state` a few lines later, inside the same `@Synchronized` block. `current()` reads
 `state` without synchronization on purpose (see the class KDoc), so a read landing in that gap sees
@@ -1468,7 +1486,7 @@ filesystem call between them, and the next `notifyPanel()` a few lines down repa
 fixed here: closing it would mean giving `start()` a way to write both fields together, which today
 only `endReview()` and the state assignment below it do apart.
 
-**A superseded review's balloon never fires.** In `WaitingReview.kt`, `start()`'s stale-replacement
+**OCCASIONAL, MINOR: a superseded review's balloon never fires.** In `WaitingReview.kt`, `start()`'s stale-replacement
 branch calls `endReview()` but discards the return value. `endReview()` returns the state it removed,
 and that is what `acknowledge()` and `expireIfStale()` pass to `reportReviewEnd` in `SendReview.kt`,
 the function that shows the balloon. Here nothing passes that value on, so `reportReviewEnd` never
@@ -1482,7 +1500,7 @@ remarks are lost in either case. Nothing was marked sent, so they stay pending i
 Not fixed here: the fix would mean threading `endReview()`'s return value out of the stale-replacement
 branch and into `reportLater`, a behaviour change nobody has asked for.
 
-**A short window lets a fetch miss a real, unread review.** `current()` masks a review the moment
+**OCCASIONAL, MINOR: a short window lets a fetch miss a real, unread review.** `current()` masks a review the moment
 `isStale()` turns true. That happens before the scheduled expiry task actually runs and calls
 `endReview()`. In that window a review can be `Sent`, with a real handoff file already on disk,
 while `current()` already returns null and `lastEnded` has not been set yet. A fetch that lands in
@@ -1494,19 +1512,19 @@ milliseconds, so it takes a fetch landing in exactly that gap to see it. Not fix
 mean `handleFetch` reading past `current()`'s own staleness masking, which is a real change to the
 phase 7 deadline design, not a small one.
 
-**The fetch action inherits the defect where retrying with the same session id after a send still
-returns the old remarks.** `handleFetch` reads through `current()` and `endedOutputPath`, and both are
+**RARE, MAJOR: the fetch action inherits the defect where retrying with the same session id after a
+send still returns the old remarks.** `handleFetch` reads through `current()` and `endedOutputPath`, and both are
 fed by the same state that `startOrConflict`'s same-session branch copies forward with its old
 `phase`. So a `start` retried with the same session id after a send still answers `waiting` with an
 output path whose file already exists. A fetch right after that first poll then returns the previous
 review's remarks immediately. That is the same defect the local skill's file-existence check already
 has. Not made worse by the fetch action, and not fixed by it.
 
-**A file path is written into the prompt as a Markdown heading, unescaped.** `render/PromptRenderer.kt`
+**RARE, MAJOR: a file path is written into the prompt as a Markdown heading, unescaped.** `render/PromptRenderer.kt`
 emits `## <path>` per group. The prompt is instructions a model then acts on, so a path containing a
 newline or heading characters can forge structure outside the code fence — a fake heading, or text
 that reads as a new instruction. `escapeMarkdown` exists in that file and is applied to remark text
 and to the selection phrase, but not to the path. Git permits newlines in filenames, so this is
 reachable in principle; it needs a hostile file in a repository you then annotate, which is why it was
-left. It is the cheapest of the five to fix and the only one that is a trust-boundary issue rather
-than a race.
+left. It is the cheapest entry here to fix. It is also the only one that is a trust-boundary issue
+rather than a race, which is why it is the one to fix first if any of these are ever fixed.
