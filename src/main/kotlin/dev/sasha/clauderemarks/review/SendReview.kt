@@ -21,7 +21,7 @@ import java.io.IOException
 import java.util.concurrent.CancellationException
 
 /**
- * The same pipeline as Copy All Pending — [prepare] is not re-rendered — with a different
+ * The same pipeline as Publish All Pending — [prepare] is not re-rendered — with a different
  * destination: the file the waiting session is polling for instead of the clipboard.
  *
  * Does nothing if no review is waiting. The toolbar button and the banner's link only appear
@@ -37,9 +37,9 @@ fun sendToWaitingReview(project: Project) {
 
     ReadAction.nonBlocking<Prepared> { prepare(project, null) }
         .expireWith(project)
-        // Named explicitly, not CopyRemarks.kt's ALL_PENDING: a shared key would make Send and
-        // Copy All coalesce against each other, so pressing one while the other is still running
-        // would throw the first away with nothing to show for it.
+        // Named explicitly, not PublishRemarks.kt's ALL_PENDING: a shared key would make Send and
+        // Publish All coalesce against each other, so pressing one while the other is still
+        // running would throw the first away with nothing to show for it.
         .coalesceBy(::sendToWaitingReview, project)
         .finishOnUiThread(ModalityState.defaultModalityState()) { prepared ->
             if (prepared.ids.isEmpty()) {
@@ -233,7 +233,7 @@ fun canSend(project: Project): Boolean =
 /**
  * Reachable without the tool window: from the Tools menu, from Search Everywhere, and from a
  * keymap entry the user assigns. Enabled only while a review is waiting and something is pending
- * to send it, the same pair `CopyAllRemarksAction` checks for its own condition.
+ * to send it, the same pair `PublishAllRemarksAction` checks for its own condition.
  */
 class SendReviewAction : AnAction() {
 

@@ -628,16 +628,16 @@ unknown id fails inside IdeaVim and nothing in this project would notice. What i
 tidier id. That is not worth a broken mapping, so the id keeps a word the button no longer uses and
 `plugin.xml` says so in a comment. `README.md` gets one sentence under the table for the same reason.
 
-- [ ] write the failing test in `ActionIdsTest`: the action registered as `ClaudeRemarks.CopyAll` has
+- [x] write the failing test in `ActionIdsTest`: the action registered as `ClaudeRemarks.CopyAll` has
       a template text starting with `Publish`. This pins the rename that the id cannot show.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.action.*"` and expect a failure
-- [ ] do the renames, including the file and class renames, and update every call site
-- [ ] `./gradlew test` passes whole, and `./gradlew verifyPluginProjectConfiguration` passes after the
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.action.*"` and expect a failure
+- [x] do the renames, including the file and class renames, and update every call site
+- [x] `./gradlew test` passes whole, and `./gradlew verifyPluginProjectConfiguration` passes after the
       `plugin.xml` edit
-- [ ] **mutation:** put the text back to `Copy All Pending Claude Remarks`; the new assertion must
+- [x] **mutation:** put the text back to `Copy All Pending Claude Remarks`; the new assertion must
       fail. Change the id to `ClaudeRemarks.PublishAll`; the existing id assertion must fail.
       Restore both.
-- [ ] commit: `refactor: the copy action is called Publish, and its id stays as documented`
+- [x] commit: `refactor: the copy action is called Publish, and its id stays as documented`
 
 ### Task 4: The published file: its name, its header, its write
 

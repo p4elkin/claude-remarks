@@ -44,12 +44,18 @@
             <add-to-group group-id="Diff.EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="control alt shift R"/>
         </action>
-        <!-- The same copy as the tool window's toolbar button, so copying does not need the tool
-             window to be open. No default keystroke: this is a keymap entry the user assigns. -->
+        <!-- The same publish as the tool window's toolbar button, so publishing does not need the
+             tool window to be open. No default keystroke: this is a keymap entry the user assigns.
+
+             The id keeps the word CopyAll even though the class and the text now say Publish.
+             README.md documents this id as a public interface that will not be renamed, and
+             ActionIdsTest pins it. Renaming ClaudeRemarks.CopyAll would break every .ideavimrc
+             mapping to it silently: IdeaVim's ":action" fails on an unknown id inside IdeaVim,
+             not here, so nothing in this project would ever notice. -->
         <action id="ClaudeRemarks.CopyAll"
-                class="dev.sasha.clauderemarks.action.CopyAllRemarksAction"
-                text="Copy All Pending Claude Remarks"
-                description="Turn every pending remark into one markdown prompt on the clipboard">
+                class="dev.sasha.clauderemarks.action.PublishAllRemarksAction"
+                text="Publish All Pending Claude Remarks"
+                description="Render every pending remark into one markdown prompt and put it on the clipboard">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         <!-- Same reachability as ClaudeRemarks.CopyAll, and the same reason for no default

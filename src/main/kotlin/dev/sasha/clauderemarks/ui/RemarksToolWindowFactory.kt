@@ -28,9 +28,9 @@ import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.EditSourceOnDoubleClickHandler
 import com.intellij.util.concurrency.AppExecutorUtil
-import dev.sasha.clauderemarks.action.copyRemarks
 import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.action.plural
+import dev.sasha.clauderemarks.action.publishRemarks
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.review.ReviewPhase
@@ -166,7 +166,7 @@ class RemarksPanel(
             .finishOnUiThread(ModalityState.defaultModalityState()) { rows ->
                 // setRoot throws away both what was selected and which groups were shut, and the
                 // tree is rebuilt on every remark change and on every editor opening. Without this
-                // a row you selected stops being selected the moment you use it, Copy Selected
+                // a row you selected stops being selected the moment you use it, Publish Selected
                 // greys itself out, and a file group you closed springs open again as soon as you
                 // open any file that holds a remark.
                 val wasSelected = selectionKeys()
@@ -352,7 +352,7 @@ class RemarksPanel(
      * Deleting the rows you picked out asks nothing: you selected them and then pressed Delete,
      * which is not silent. Selecting a group node — a file or a bucket — is the other case. It
      * stands for every row under it, and on a collapsed node that is an unknown number of remarks
-     * nobody has copied yet. That one asks, the same way Clear All does.
+     * nobody has published yet. That one asks, the same way Clear All does.
      */
     private fun deleteSelected() {
         val nodes = selectedNodes()
@@ -378,8 +378,8 @@ class RemarksPanel(
      * DumbAwareAction.create returns an action whose update() cannot be overridden, so a button
      * built that way is always live. Task 3 went to real trouble to make the editor action
      * visible-but-disabled with a reason rather than silently dead; the same rule belongs here.
-     * Copy Selected with nothing selected and Clear Handed Over with nothing handed over were live
-     * buttons that did nothing at all when pressed.
+     * Publish Selected with nothing selected and Clear Handed Over with nothing handed over were
+     * live buttons that did nothing at all when pressed.
      *
      * ActionUpdateThread.EDT, because [enabled] reads the tree selection and the store.
      */
@@ -400,7 +400,7 @@ class RemarksPanel(
      * One snapshot per change, not three per toolbar tick.
      *
      * `all()` is a deep copy — a fresh RemarkState per remark, taken under the store's lock — and
-     * ToolbarAction.update runs on the EDT for every button on every tick, so Copy All Pending,
+     * ToolbarAction.update runs on the EDT for every button on every tick, so Publish All Pending,
      * Clear Handed Over and Clear All each took their own copy of the whole store several times a
      * second.
      *
@@ -427,15 +427,15 @@ class RemarksPanel(
     private fun buildToolbar(): ActionToolbar {
         val group = DefaultActionGroup(
             ToolbarAction(
-                "Copy All Pending",
+                "Publish All Pending",
                 AllIcons.Actions.Copy,
                 { remarks().any { it.status == RemarkStatus.PENDING } },
-            ) { copyRemarks(project, null) },
+            ) { publishRemarks(project, null) },
             ToolbarAction(
-                "Copy Selected",
+                "Publish Selected",
                 AllIcons.Actions.InSelection,
                 { selectedIds().isNotEmpty() },
-            ) { copyRemarks(project, selectedIds()) },
+            ) { publishRemarks(project, selectedIds()) },
             ToolbarAction("Clear Handed Over", AllIcons.Actions.GC, { handedOverCount() > 0 }) {
                 confirmClearHandedOver()
             },
@@ -494,7 +494,7 @@ class RemarksPanel(
         if (total == 0) return
         val answer = Messages.showYesNoDialog(
             project,
-            "Delete all $total remarks, including the ones not yet copied? This cannot be undone.",
+            "Delete all $total remarks, including the ones not yet published? This cannot be undone.",
             "Clear All Claude Remarks",
             Messages.getWarningIcon(),
         )

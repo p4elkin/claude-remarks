@@ -30,7 +30,7 @@ private const val ALL_PENDING = "all-pending"
 /**
  * What the read action produced: the finished markdown, and which remarks went into it.
  *
- * Internal, not private, so CopyRemarksTest can check which remarks a copy takes.
+ * Internal, not private, so PublishRemarksTest can check which remarks a publish takes.
  */
 internal data class Prepared(val markdown: String, val ids: List<String>, val files: Int)
 
@@ -39,17 +39,17 @@ internal data class Prepared(val markdown: String, val ids: List<String>, val fi
  * remarks published and says so in a balloon.
  *
  * [ids] null means every pending remark. A non-null list is used as given, published ones
- * included, so copying again after a paste went to the wrong place works.
+ * included, so publishing again after a paste went to the wrong place works.
  *
  * Published remarks are not deleted. They stay listed in gray until Clear Handed Over.
  */
-fun copyRemarks(project: Project, ids: Collection<String>?) {
+fun publishRemarks(project: Project, ids: Collection<String>?) {
     ReadAction.nonBlocking<Prepared> { prepare(project, ids) }
         .expireWith(project)
-        // The id set is part of the key. Without it Copy All Pending and Copy Selected coalesce
-        // against each other, so pressing the second one while the first is still running throws
-        // the first copy away with nothing to show for it.
-        .coalesceBy(::copyRemarks, project, ids?.toSet() ?: ALL_PENDING)
+        // The id set is part of the key. Without it Publish All Pending and Publish Selected
+        // coalesce against each other, so pressing the second one while the first is still
+        // running throws the first publish away with nothing to show for it.
+        .coalesceBy(::publishRemarks, project, ids?.toSet() ?: ALL_PENDING)
         .finishOnUiThread(ModalityState.defaultModalityState()) { prepared ->
             if (prepared.ids.isEmpty()) {
                 notifyRemarks(project, "No remarks to copy.")
@@ -86,7 +86,7 @@ fun copyRemarks(project: Project, ids: Collection<String>?) {
             val file = clipboard.file
             notifyRemarks(
                 project,
-                if (file == null) "Copied $what."
+                if (file == null) "Published $what."
                 else "$what was too large for the clipboard. Wrote $file and copied the path.",
             )
         }
@@ -113,8 +113,9 @@ fun copyRemarks(project: Project, ids: Collection<String>?) {
  * Runs inside a read action, off the EDT, and does everything expensive: resolve, read the files
  * and render. It does no IO of its own, so a cancelled retry costs only the work, not a file.
  *
- * The [ids] branch here is the whole sent lifecycle. Null means pending only, which is what Copy
- * All does. A list means exactly those ids, sent ones included, which is what Copy Selected does.
+ * The [ids] branch here is the whole publish lifecycle. Null means pending only, which is what
+ * Publish All does. A list means exactly those ids, published ones included, which is what
+ * Publish Selected does.
  */
 internal fun prepare(project: Project, ids: Collection<String>?): Prepared {
     val wanted = ids?.toSet()
@@ -157,10 +158,13 @@ internal fun notifyRemarks(
 }
 
 /**
- * The same copy the tool window's toolbar does, reachable without the tool window: from the Tools
- * menu, from Search Everywhere, and from a keymap entry the user assigns.
+ * The same publish the tool window's toolbar does, reachable without the tool window: from the
+ * Tools menu, from Search Everywhere, and from a keymap entry the user assigns.
+ *
+ * The class is renamed from CopyAllRemarksAction; the id it is registered under in plugin.xml,
+ * ClaudeRemarks.CopyAll, is not — see the comment there for why.
  */
-class CopyAllRemarksAction : AnAction() {
+class PublishAllRemarksAction : AnAction() {
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
@@ -171,6 +175,6 @@ class CopyAllRemarksAction : AnAction() {
     }
 
     override fun actionPerformed(e: AnActionEvent) {
-        copyRemarks(e.project ?: return, null)
+        publishRemarks(e.project ?: return, null)
     }
 }
