@@ -221,6 +221,7 @@ class RemarkGutter(private val project: Project) : Disposable {
                     startLine = result.startLine,
                     endLine = result.endLine,
                     orphaned = result is AnchorResult.Orphaned,
+                    phrase = remark.phrase,
                 )
             }
         return DocumentPlacements(stamp, placements)

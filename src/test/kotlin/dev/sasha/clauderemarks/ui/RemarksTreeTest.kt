@@ -61,6 +61,44 @@ class RemarksTreeTest {
     }
 
     @Test
+    fun `a whole-line remark's position has no columns`() {
+        assertEquals("9-9", remarkNode(row(result = AnchorResult.Exact(8, 8))).position)
+    }
+
+    @Test
+    fun `a sub-line remark inside one line shows the line and both columns`() {
+        val node = remarkNode(
+            row(result = AnchorResult.Exact(8, 8), startColumn = 11, endColumn = 37)
+        )
+
+        assertEquals("9:12-38", node.position)
+    }
+
+    @Test
+    fun `a sub-line remark across lines shows a line-column pair at each end`() {
+        val node = remarkNode(
+            row(result = AnchorResult.Exact(8, 10), startColumn = 11, endColumn = 4)
+        )
+
+        assertEquals("9:12-11:5", node.position)
+    }
+
+    /**
+     * The same guard `markersValid` makes in `render/PromptRenderer.kt`: an orphaned remark's
+     * line numbers no longer point at real code, so there is no current line to check a stale
+     * column pair against, and none is printed. Reachable only from a hand-edited workspace.xml,
+     * since a resolved orphan never carries a phrase-matched column pair.
+     */
+    @Test
+    fun `an orphaned row does not print its stale columns`() {
+        val node = remarkNode(
+            row(result = AnchorResult.Orphaned(4, 6), startColumn = 2, endColumn = 9)
+        )
+
+        assertEquals("5-7 (orphaned)", node.position)
+    }
+
+    @Test
     fun `a moved row says so, the same way the flat list did`() {
         assertEquals("11-13 (moved)", remarkNode(row(result = AnchorResult.Relocated(10, 12))).position)
     }
@@ -289,6 +327,8 @@ class RemarksTreeTest {
         bucket: String? = null,
         severity: RemarkSeverity = RemarkSeverity.SHOULD,
         commit: String? = null,
+        startColumn: Int = 0,
+        endColumn: Int = 0,
     ) = ResolvedRemark(
         RemarkState().also {
             it.id = id
@@ -303,5 +343,7 @@ class RemarksTreeTest {
             it.commit = commit
         },
         result,
+        startColumn,
+        endColumn,
     )
 }

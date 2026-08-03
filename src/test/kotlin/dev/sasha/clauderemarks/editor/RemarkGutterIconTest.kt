@@ -4,6 +4,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -70,6 +71,20 @@ class RemarkTooltipTest {
         assertTrue(tooltipFor(placement()).startsWith("<html>"))
     }
 
+    /** A phrase is arbitrary source text: it can hold "<" or "&" as easily as the remark text can. */
+    @Test
+    fun `the phrase is shown, escaped`() {
+        assertTrue(tooltipFor(placement(phrase = "a < b && c")).contains("a &lt; b &amp;&amp; c"))
+    }
+
+    @Test
+    fun `a whole-line remark's tooltip has nothing extra for the phrase`() {
+        assertEquals(
+            "<html>why?  should</html>",
+            tooltipFor(placement(phrase = null)),
+        )
+    }
+
     private fun placement(
         text: String = "why?",
         tag: RemarkTag? = null,
@@ -77,6 +92,7 @@ class RemarkTooltipTest {
         commit: String? = null,
         status: RemarkStatus = RemarkStatus.PENDING,
         orphaned: Boolean = false,
+        phrase: String? = null,
     ) = RemarkPlacement(
         id = "r-1",
         text = text,
@@ -87,6 +103,7 @@ class RemarkTooltipTest {
         startLine = 4,
         endLine = 6,
         orphaned = orphaned,
+        phrase = phrase,
     )
 }
 

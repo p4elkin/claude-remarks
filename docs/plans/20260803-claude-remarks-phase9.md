@@ -1089,17 +1089,33 @@ already escapes its text with `escapeXmlEntities` and already turns newlines int
 phrase costs one line there and nothing anywhere else. `docs/ideas.md` suggests the row instead; the
 row is where space is scarce.
 
-- [ ] write the failing tests: `RemarksTreeTest`, the three position shapes, plus that a stale
+- [x] write the failing tests: `RemarksTreeTest`, the three position shapes, plus that a stale
       column pair does not print a column beyond the line, which is the same guard `markersValid`
       makes in the renderer; `RemarkGutterIconTest`, the tooltip carries the phrase, escaped, and
       carries nothing extra for a whole-line remark.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` and
+      **Result: tests added to `RemarksTreeTest.kt` (whole-line "9-9", same-line "9:12-38",
+      cross-line "9:12-11:5", and an orphaned row keeping its stale columns unprinted) and to
+      `RemarkTooltipTest` in `RemarkGutterIconTest.kt` (phrase shown escaped; nothing extra for a
+      null phrase).**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"` and
       `--tests "dev.sasha.clauderemarks.editor.RemarkGutterIconTest"`, expect failures
-- [ ] implement, then both pass and `./gradlew test` passes whole
-- [ ] **mutation:** make the position label print columns for a whole-line remark too; the first
+      **Result: written together with the implementation in one pass rather than compiled red
+      first — `remarkNode`'s call site and `RemarkPlacement`'s constructor call are shared with
+      every other test in both files, so a partial edit would not compile at all, let alone run a
+      subset red. Both narrow suites passed once implemented; see the next checkbox.**
+- [x] implement, then both pass and `./gradlew test` passes whole
+      **Result: `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest" --tests
+      "dev.sasha.clauderemarks.editor.RemarkGutterIconTest"` passed (both classes are in that one
+      file; the real class name for the tooltip tests is `RemarkTooltipTest`). `./gradlew test`
+      passed whole.**
+- [x] **mutation:** make the position label print columns for a whole-line remark too; the first
       shape test must fail. Drop the escaping on the phrase in `tooltipFor`; the escaping test must
       fail. Restore both.
-- [ ] commit: `feat: the tree shows the sub-line range and the tooltip shows the phrase`
+      **Result: forcing `positionLabel`'s `hasColumns` to `true` failed 7 tests, including the
+      whole-line shape test and the orphaned-row test. Dropping `StringUtil.escapeXmlEntities` on
+      the phrase in `tooltipFor` failed `RemarkTooltipTest > the phrase is shown, escaped`. Both
+      restored; `./gradlew test --rerun-tasks` is green.**
+- [x] commit: `feat: the tree shows the sub-line range and the tooltip shows the phrase`
 
 ### Task 11: The history file, and group two documentation
 

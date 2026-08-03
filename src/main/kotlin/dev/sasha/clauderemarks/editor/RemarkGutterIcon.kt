@@ -43,6 +43,10 @@ data class RemarkPlacement(
     val startLine: Int,
     val endLine: Int,
     val orphaned: Boolean,
+    /** The exact source text a sub-line remark points at, straight out of `RemarkState.phrase`,
+     *  or null for a whole-line remark. Shown in the tooltip, never in the tree row: the row
+     *  already crops on the right, and the tooltip has room. */
+    val phrase: String? = null,
 )
 
 /**
@@ -55,10 +59,17 @@ data class RemarkPlacement(
  * The commit is here in full, unlike the tree, which shows it only on an orphaned row: a tooltip has
  * room and a tree row does not. It is cut to the same eight characters the tree's `writtenAt` and
  * the prompt heading use, so all three agree on what a short sha is.
+ *
+ * The phrase, when there is one, gets its own line under the remark text, escaped and newline-broken
+ * the same way the text itself is: it is arbitrary source text, so it can hold "<" or "&" as easily
+ * as the remark text can. A whole-line remark has no phrase, and adds nothing here.
  */
 fun tooltipFor(placement: RemarkPlacement): String = buildString {
     append("<html>")
     append(StringUtil.escapeXmlEntities(placement.text).replace("\n", "<br/>"))
+    placement.phrase?.let {
+        append("<br/>").append(StringUtil.escapeXmlEntities(it).replace("\n", "<br/>"))
+    }
     placement.tag?.let { append("  [").append(it.label).append("]") }
     append("  ").append(placement.severity.label)
     placement.commit?.let { append("  commit ").append(it.take(8)) }

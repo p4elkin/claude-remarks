@@ -54,7 +54,7 @@ fun remarkNode(row: ResolvedRemark): RemarkNode {
     return RemarkNode(
         id = row.remark.id.orEmpty(),
         path = row.remark.path.orEmpty(),
-        position = "${result.startLine + 1}-${result.endLine + 1}$label",
+        position = positionLabel(result, row.startColumn, row.endColumn) + label,
         // On one line, whatever was typed. The row is drawn by SimpleColoredComponent, which has no
         // idea what to do with a newline, and Shift+Enter in the input popup makes multi-line remark
         // text ordinary rather than exotic. The stored text keeps its newlines; only the row is
@@ -66,6 +66,41 @@ fun remarkNode(row: ResolvedRemark): RemarkNode {
         status = row.remark.status,
         startLine = result.startLine,
     )
+}
+
+/**
+ * The 1-based position, before any "(moved)"/"(orphaned...)" suffix. A whole-line remark reads
+ * "9-9". A sub-line remark inside one line reads "9:12-38". A sub-line remark across lines reads
+ * "9:12-11:5". Columns are shown 1-based, the same +1 the line numbers already get.
+ *
+ * Whether there is a real sub-line range to show is decided differently on one line than across
+ * several, because `startColumn`/`endColumn` are two independent per-line offsets, not a single
+ * ordered pair — `action/AddRemarkAction.kt`'s `selectedColumns` measures each from its own
+ * line's start, so a long first line and a short last line make `endColumn < startColumn`
+ * perfectly normal for a real multi-line selection. On one line the two columns bound the same
+ * line, so `endColumn > startColumn` is what "a real range" means there — the same comparison
+ * `markersValid` makes in `render/PromptRenderer.kt`. Across lines, `selectedColumns` returns the
+ * sentinel `0 to 0` only when the whole span was selected end to end (including a multi-line
+ * whole-line selection), so `endColumn > 0` is the right "not the sentinel" check there; ordering
+ * the two columns against each other would wrongly reject a real, valid selection.
+ *
+ * Either way, an [AnchorResult.Orphaned] result never gets columns: its line numbers no longer
+ * point at real code, so there is no current line left to check a column against, matching
+ * `markersValid`'s own `remark.orphaned` check. A negative column, reachable only from a
+ * hand-edited workspace.xml, is rejected the same way.
+ */
+private fun positionLabel(result: AnchorResult, startColumn: Int, endColumn: Int): String {
+    val startLine = result.startLine + 1
+    val endLine = result.endLine + 1
+    val sameLine = result.startLine == result.endLine
+    val hasColumns = result !is AnchorResult.Orphaned && startColumn >= 0 && endColumn >= 0 &&
+        (if (sameLine) endColumn > startColumn else endColumn > 0)
+    if (!hasColumns) return "$startLine-$endLine"
+    return if (sameLine) {
+        "$startLine:${startColumn + 1}-${endColumn + 1}"
+    } else {
+        "$startLine:${startColumn + 1}-$endLine:${endColumn + 1}"
+    }
 }
 
 /** Short, because a tree row is already carrying a position, a text, a tag and a level. */
