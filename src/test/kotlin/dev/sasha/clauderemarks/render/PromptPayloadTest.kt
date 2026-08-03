@@ -191,6 +191,45 @@ class CollectForPromptTest : BasePlatformTestCase() {
         assertEquals(SHA, collected.commit)
     }
 
+    /**
+     * The columns come off the resolved row, not off the stored remark. Built by hand so the two
+     * disagree: the store says "no sub-line range" and the resolve says columns 4 to 11.
+     * Mutation: read `row.remark.startColumn` in collectForPrompt and this fails.
+     */
+    fun testTheResolvedColumnsReachTheCollectedRow() {
+        val stored = remark(id = "r-1", path = "Foo.kt", startColumn = 0, endColumn = 0)
+
+        val collected = collectForPrompt(
+            project,
+            listOf(ResolvedRemark(stored, AnchorResult.Exact(0, 0), startColumn = 4, endColumn = 11)),
+        ).single()
+
+        assertEquals(4, collected.startColumn)
+        assertEquals(11, collected.endColumn)
+    }
+
+    /**
+     * The whole point of storing the phrase, end to end: the file was reindented after the remark
+     * was written, and the ⟦/⟧ markers still land on the same seven characters. The assertion cuts
+     * the quoted line at the collected columns and reads what the renderer would wrap.
+     */
+    fun testASubLineRemarksColumnsFollowItsPhraseWhenTheLineMoves() {
+        writeFile("Moved.kt", "        println(\"a\")\n")
+        // The remark was written against the same line indented four, which is what makes the
+        // stored columns 4 to 11 wrong for the file as it is now.
+        addRemark(
+            project, "Moved.kt", listOf("    println(\"a\")"), 0..0, "why?", null,
+            startColumn = 4, endColumn = 11,
+        )
+
+        val collected = collectForPrompt(project, resolveAll(project)).single()
+
+        assertEquals(8, collected.startColumn)
+        assertEquals(15, collected.endColumn)
+        val quoted = collected.code[collected.startLine - collected.codeStartLine]
+        assertEquals("println", quoted.substring(collected.startColumn, collected.endColumn))
+    }
+
     private fun writeFile(name: String, content: String) {
         val onDisk = File(project.basePath!!, name)
         onDisk.parentFile.mkdirs()

@@ -1025,7 +1025,7 @@ substrings, and for a sub-line range the candidates are every substring of every
 stored it is one `indexOf` per candidate line. The property being traded is a slightly larger
 `workspace.xml` against being able to recover at all.
 
-- [ ] write the failing tests in `AnchoringTest`:
+- [x] write the failing tests in `AnchoringTest`:
   - `a null phrase resolves exactly as the line-only resolve does`. Call both and compare, so the
     unchanged path is pinned by a test rather than by care.
   - `a phrase found at a new column inside the same line refreshes the columns`.
@@ -1034,17 +1034,38 @@ stored it is one `indexOf` per candidate line. The property being traded is a sl
     reflow case, built as a paragraph rewrapped into two lines.
   - `a phrase nowhere in the file stays orphaned`.
   - `the search does not look past the radius`.
-- [ ] write the failing tests: `RemarkResolverTest`, a resolved row carries refreshed columns;
+      **Result: all six written, plus a seventh, `a phrase spanning two lines is found again on the
+      lines it moved to` — the multi-line branch of the match is otherwise the only part of the new
+      code no test reaches, and this plan judges tests by mutation.**
+- [x] write the failing tests: `RemarkResolverTest`, a resolved row carries refreshed columns;
       `PromptPayloadTest`, `collectForPrompt` passes the resolved columns into `RenderedRemark`, so
       the `⟦` and `⟧` markers land on the phrase after it moved.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.AnchoringTest"`, expect failures,
+      **Result: the resolver test went into `ResolveAllTest` rather than `RemarkResolverTest`. It
+      needs a real file, a real project root and a real `Document`, which is exactly the split those
+      two classes already document between themselves — `RemarkResolverTest`'s own KDoc says it is
+      the half that needs no project. Two tests there: refreshed columns, and a row with no phrase
+      keeping the pair it was stored with. `PromptPayloadTest` got two as well: the resolved columns
+      reach `RenderedRemark`, and an end-to-end one where a reindented file moves the columns and the
+      quoted line still cuts to the same seven characters.**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.anchor.AnchoringTest"`, expect failures,
       implement, then run the whole suite. **All 349 existing tests must still pass**, because the
       null-phrase path did not change.
-- [ ] **mutation:** make `resolveWithPhrase` run the phrase search even when the phrase is null; the
+      **Result: the whole suite passes — 381 executed, 0 failures, run with `--rerun --no-build-cache`
+      so the number is a real execution and not a cache hit. 381 is 371 before this task plus the ten
+      added here; the 349 in this checkbox is task 1's by-name count from before groups one and two
+      added tests of their own.**
+- [x] **mutation:** make `resolveWithPhrase` run the phrase search even when the phrase is null; the
       first test must fail. Make the orphan branch search the whole file instead of the radius; the
       radius test must fail. Make `collectForPrompt` read `row.remark.startColumn` again; the
       `PromptPayloadTest` test must fail. Restore all three.
-- [ ] commit: `feat: a sub-line remark finds its own words again after they move`
+      **Result: all three caught, all three restored. The null-phrase mutation (written as
+      `phrase.orEmpty()` with the early return deleted, since the parameter is nullable and the
+      literal mutation would not compile) failed `a null phrase resolves exactly as the line-only
+      resolve does` and also `testAnOrphanOnAFileThatStillExistsCarriesNoCode`, because an empty
+      phrase matches at column 0 and turns an orphan into a relocation. The radius mutation failed
+      `the search does not look past the radius`. The stored-columns mutation failed both new
+      `CollectForPromptTest` tests.**
+- [x] commit: `feat: a sub-line remark finds its own words again after they move`
 
 ### Task 10: The tree row and the gutter tooltip show the sub-line range
 

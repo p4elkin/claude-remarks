@@ -107,8 +107,10 @@ fun collectForPrompt(
             path = path,
             startLine = start,
             endLine = end,
-            startColumn = row.remark.startColumn,
-            endColumn = row.remark.endColumn,
+            // The resolved columns, not the stored ones: a phrase that moved inside its line takes
+            // the ⟦/⟧ markers with it, and a remark with no phrase resolves to its stored pair.
+            startColumn = row.startColumn,
+            endColumn = row.endColumn,
             tag = row.remark.tag?.label,
             severity = row.remark.severity.label,
             commit = row.remark.commit,

@@ -154,6 +154,127 @@ fun phraseAt(
     return (listOf(head) + middle + listOf(tail)).joinToString("\n")
 }
 
+/** Where a phrase sits in a file now: the lines it spans, and the column at either end. */
+data class PhraseMatch(
+    val startLine: Int,
+    val endLine: Int,
+    val startColumn: Int,
+    val endColumn: Int,
+)
+
+/**
+ * A line resolve, plus the columns the remark's phrase sits at now.
+ *
+ * The columns are the stored ones whenever nothing better was found, so a caller can always read
+ * them without asking whether the search ran.
+ */
+data class ResolvedAnchor(
+    val result: AnchorResult,
+    val startColumn: Int,
+    val endColumn: Int,
+)
+
+/**
+ * Looks for [phrase] in [lines], trying the line nearest [origin] first and giving up after
+ * [radius] lines either side.
+ *
+ * The reverse of [phraseAt], and it has to read a stored phrase back the same way that function
+ * wrote it. A phrase holding no newline is looked for anywhere inside one line, with `indexOf`, and
+ * the first occurrence in that line wins. A phrase holding newlines was written as the tail of its
+ * first line, whole lines in the middle, and the head of its last line, so it is matched that way:
+ * `endsWith` on the first, equality in the middle, `startsWith` on the last.
+ *
+ * Nearest-first rather than top-down for the same reason [resolveAnchor] searches that way: a file
+ * usually holds the same short phrase several times, and the one the remark meant is the one closest
+ * to where it used to be.
+ *
+ * An empty [phrase] matches at column 0 of the first line tried, because `indexOf("")` is 0 and
+ * nothing here special-cases it. That is not a case production reaches: `RemarkState.phrase` goes
+ * through `BaseState.string()`, whose setter turns "" into null, so the one caller that holds a
+ * stored phrase either has real text or has null.
+ */
+fun findPhrase(
+    lines: List<String>,
+    phrase: String,
+    origin: Int,
+    radius: Int = SEARCH_RADIUS,
+): PhraseMatch? {
+    val parts = phrase.split("\n")
+    // Negative for a file with fewer lines than the phrase, which makes the range empty and the
+    // search find nothing, the same way resolveAnchor's own starts range does.
+    val starts = 0..(lines.size - parts.size)
+
+    for (start in candidatesNear(origin, starts, radius)) {
+        phraseAtLine(lines, parts, start)?.let { return it }
+    }
+    return null
+}
+
+/** The phrase, split on newlines, matched against [lines] beginning on line [start], or null. */
+private fun phraseAtLine(lines: List<String>, parts: List<String>, start: Int): PhraseMatch? {
+    if (parts.size == 1) {
+        val column = lines[start].indexOf(parts[0])
+        return if (column < 0) null
+        else PhraseMatch(start, start, column, column + parts[0].length)
+    }
+
+    val end = start + parts.lastIndex
+    if (!lines[start].endsWith(parts.first())) return null
+    for (i in 1 until parts.lastIndex) {
+        if (lines[start + i] != parts[i]) return null
+    }
+    if (!lines[end].startsWith(parts.last())) return null
+
+    return PhraseMatch(start, end, lines[start].length - parts.first().length, parts.last().length)
+}
+
+/**
+ * The line resolve, and then the phrase inside it. Composes [resolveAnchor] and [findPhrase] and
+ * changes neither.
+ *
+ * Four answers, one per case:
+ *
+ * - **No stored phrase.** Whatever [resolveAnchor] said, with the stored columns. This is every
+ *   remark written before the phrase was stored at all, and every whole-line remark ever, so it has
+ *   to be identical to the line-only resolve rather than merely equivalent to it.
+ * - **A phrase, and the lines were found.** The phrase is looked for on the resolved start line
+ *   only, with a radius of 0. A sub-line remark's phrase spans exactly its stored lines, so a match
+ *   starting anywhere else could not be described by one column pair anyway.
+ * - **A phrase, the lines were found, and the phrase is not in them.** The same result with the
+ *   stored columns. The line is right and the words inside it changed, so a whole-line quote is the
+ *   honest fallback: `markersValid` in `render/PromptRenderer.kt` then decides on its own whether
+ *   the stale columns are still in bounds, and drops the markers when they are not.
+ * - **A phrase, and the lines orphaned.** The phrase is searched for near the stored line, nearest
+ *   first, inside the same [radius] the line search uses. Found, the remark is Relocated onto it.
+ *   This is the reflowed paragraph: the line the phrase used to be on no longer exists, so no hash
+ *   and no context can find it, but the words themselves are still in the file. Not found, the
+ *   remark stays orphaned exactly as before.
+ */
+fun resolveWithPhrase(
+    anchor: Anchor,
+    lines: List<String>,
+    phrase: String?,
+    startColumn: Int,
+    endColumn: Int,
+    radius: Int = SEARCH_RADIUS,
+): ResolvedAnchor {
+    val lineResult = resolveAnchor(anchor, lines, radius)
+    val stored = ResolvedAnchor(lineResult, startColumn, endColumn)
+    if (phrase == null) return stored
+
+    if (lineResult is AnchorResult.Orphaned) {
+        val moved = findPhrase(lines, phrase, anchor.startLine, radius) ?: return stored
+        return ResolvedAnchor(
+            AnchorResult.Relocated(moved.startLine, moved.endLine),
+            moved.startColumn,
+            moved.endColumn,
+        )
+    }
+
+    val here = findPhrase(lines, phrase, lineResult.startLine, radius = 0) ?: return stored
+    return ResolvedAnchor(lineResult, here.startColumn, here.endColumn)
+}
+
 /** Line numbers to try, nearest to [origin] first, restricted to [range]. */
 private fun candidatesNear(origin: Int, range: IntRange, radius: Int): Sequence<Int> = sequence {
     if (origin in range) yield(origin)

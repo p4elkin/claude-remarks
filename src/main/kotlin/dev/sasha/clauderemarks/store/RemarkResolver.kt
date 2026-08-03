@@ -10,12 +10,25 @@ import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import dev.sasha.clauderemarks.anchor.Anchor
 import dev.sasha.clauderemarks.anchor.AnchorResult
-import dev.sasha.clauderemarks.anchor.resolveAnchor
+import dev.sasha.clauderemarks.anchor.resolveWithPhrase
 import dev.sasha.clauderemarks.model.RemarkState
 
 private val LOG = Logger.getInstance("dev.sasha.clauderemarks.store.RemarkResolver")
 
-data class ResolvedRemark(val remark: RemarkState, val result: AnchorResult)
+/**
+ * One remark, resolved against the file it points at.
+ *
+ * [startColumn] and [endColumn] are where the remark's phrase sits *now*, which is not always where
+ * it was stored: a sub-line remark whose line was reindented keeps its phrase and moves its columns.
+ * Both default to 0 so that a caller building a row by hand — every test that does, and any future
+ * one — keeps compiling and gets the same "no sub-line range" the stored fields use.
+ */
+data class ResolvedRemark(
+    val remark: RemarkState,
+    val result: AnchorResult,
+    val startColumn: Int = 0,
+    val endColumn: Int = 0,
+)
 
 /**
  * The project directory, used as the base for every stored remark path.
@@ -48,12 +61,16 @@ fun resolveAll(root: VirtualFile?, remarks: List<RemarkState>): List<ResolvedRem
         // One cancellation point per remark, so a pending write does not wait for the whole
         // sweep: each remark can cost a SHA-256 over every candidate position in the radius.
         ProgressManager.checkCanceled()
-        ResolvedRemark(
-            remark,
-            if (root == null) refuse(remark, "the project root did not resolve")
-            else resolveOne(root, remark),
-        )
+        if (root == null) stale(remark, "the project root did not resolve")
+        else resolveOne(root, remark)
     }
+
+/**
+ * A row that could not be resolved: orphaned at its stored line numbers, and carrying the columns
+ * it was stored with. Nothing was read, so there is nothing better to say about either.
+ */
+private fun stale(remark: RemarkState, why: String) =
+    ResolvedRemark(remark, refuse(remark, why), remark.startColumn, remark.endColumn)
 
 /**
  * Marks a remark stale, keeping its stored line numbers, and says in the log why.
@@ -82,15 +99,25 @@ fun fileForStoredPath(root: VirtualFile, path: String): VirtualFile? =
     VfsUtil.findRelativeFile(root, *path.split('/').toTypedArray())
         ?.takeIf { VfsUtilCore.isAncestor(root, it, false) }
 
-private fun resolveOne(root: VirtualFile, remark: RemarkState): AnchorResult {
-    val path = remark.path ?: return refuse(remark, "no path stored")
+private fun resolveOne(root: VirtualFile, remark: RemarkState): ResolvedRemark {
+    val path = remark.path ?: return stale(remark, "no path stored")
 
     val file = fileForStoredPath(root, path)
-        ?: return refuse(remark, "no file under the project root at that path")
+        ?: return stale(remark, "no file under the project root at that path")
 
     val document = FileDocumentManager.getInstance().getDocument(file)
-        ?: return refuse(remark, "the file has no Document (binary, or too large)")
-    return resolveAnchor(anchorOf(remark), document.text.split("\n"))
+        ?: return stale(remark, "the file has no Document (binary, or too large)")
+
+    // resolveWithPhrase, not resolveAnchor: a remark with no stored phrase — every whole-line
+    // remark, and everything written before the phrase was stored — comes back from it unchanged.
+    val resolved = resolveWithPhrase(
+        anchorOf(remark),
+        document.text.split("\n"),
+        remark.phrase,
+        remark.startColumn,
+        remark.endColumn,
+    )
+    return ResolvedRemark(remark, resolved.result, resolved.startColumn, resolved.endColumn)
 }
 
 /** The stored fields of a remark, read back as the anchor they were captured from. Context is

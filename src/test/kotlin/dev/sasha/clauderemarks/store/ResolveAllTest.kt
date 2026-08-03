@@ -42,6 +42,50 @@ class ResolveAllTest : BasePlatformTestCase() {
         assertEquals(AnchorResult.Exact(0, 0), resolveAll(root, listOf(inside)).single().result)
     }
 
+    /**
+     * A row carries the columns the phrase sits at *now*, not the pair the store holds. The file
+     * on disk is indented four characters further than the remark was written against, so the
+     * line still resolves exactly — the hash trims — and only the columns move.
+     */
+    fun testAResolvedRowCarriesTheColumnsThePhraseSitsAtNow() {
+        val root = reindentedFile()
+        val stored = remark(
+            path = "inside.kt",
+            startColumn = 4,
+            endColumn = 11,
+            phrase = "println",
+            textHash = hashLines(listOf("    println(\"a\")")),
+        )
+
+        val row = resolveAll(root, listOf(stored)).single()
+
+        assertEquals(AnchorResult.Exact(0, 0), row.result)
+        assertEquals(8, row.startColumn)
+        assertEquals(15, row.endColumn)
+    }
+
+    /** Every remark written before the phrase was stored has none, and its columns must come back
+     *  untouched — including the 0 to 0 pair a whole-line remark carries. */
+    fun testARowWithNoPhraseKeepsTheColumnsItWasStoredWith() {
+        val root = reindentedFile()
+        val stored = remark(
+            path = "inside.kt",
+            startColumn = 4,
+            endColumn = 11,
+            phrase = null,
+            textHash = hashLines(listOf("    println(\"a\")")),
+        )
+
+        val row = resolveAll(root, listOf(stored)).single()
+
+        assertEquals(4, row.startColumn)
+        assertEquals(11, row.endColumn)
+    }
+
+    /** A project directory holding one file whose only line is indented eight characters. */
+    private fun reindentedFile() =
+        myFixture.addFileToProject("reindented/inside.kt", "        println(\"a\")\n").virtualFile.parent
+
     /** A project directory holding one file, with an unrelated file sitting next to it. */
     private fun rootWithFiles() =
         myFixture.addFileToProject("root/inside.kt", "inside line\n").virtualFile.parent

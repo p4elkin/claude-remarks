@@ -327,4 +327,136 @@ class AnchoringTest {
         // line 3, "    println(\"a\")", is 17 characters long
         assertEquals(null, phraseAt(file, 3, 3, 2, 999))
     }
+
+    /**
+     * The path every remark stored today takes, pinned by calling both functions rather than by
+     * being careful. Three files, one per answer resolveAnchor can give: unchanged, shifted down,
+     * and rewritten past recognition. The columns must come back exactly as they went in.
+     */
+    @Test
+    fun `a null phrase resolves exactly as the line-only resolve does`() {
+        val anchor = captureAnchor(file, 2, 4)
+        val files = listOf(
+            file,
+            listOf("// new header", "// another") + file,
+            listOf("something", "entirely", "different", "here", "now", "ok"),
+        )
+
+        for (lines in files) {
+            val resolved = resolveWithPhrase(anchor, lines, phrase = null, startColumn = 4, endColumn = 11)
+
+            assertEquals(resolveAnchor(anchor, lines), resolved.result)
+            assertEquals(4, resolved.startColumn)
+            assertEquals(11, resolved.endColumn)
+        }
+    }
+
+    @Test
+    fun `a phrase found at a new column inside the same line refreshes the columns`() {
+        // line 3 is "    println(\"a\")", so "println" was stored at columns 4..11
+        val anchor = captureAnchor(file, 3, 3)
+        val edited = file.toMutableList().apply { this[3] = "        println(\"a\")" }
+
+        val resolved = resolveWithPhrase(anchor, edited, "println", startColumn = 4, endColumn = 11)
+
+        // The hash trims each line, so reindenting still resolves exactly. Only the columns moved.
+        assertEquals(AnchorResult.Exact(3, 3), resolved.result)
+        assertEquals(8, resolved.startColumn)
+        assertEquals(15, resolved.endColumn)
+    }
+
+    @Test
+    fun `a phrase that no longer exists inside its resolved line keeps the stored columns`() {
+        val anchor = captureAnchor(file, 3, 3)
+        // The line was edited but its surroundings were not, so the context pass still finds it.
+        val edited = file.toMutableList().apply { this[3] = "    printf(\"a\")" }
+
+        val resolved = resolveWithPhrase(anchor, edited, "println", startColumn = 4, endColumn = 11)
+
+        assertEquals(AnchorResult.Relocated(3, 3), resolved.result)
+        assertEquals(4, resolved.startColumn)
+        assertEquals(11, resolved.endColumn)
+    }
+
+    /**
+     * The reflowed paragraph, and the one thing the phrase buys that the line resolve cannot do at
+     * all. The remark's line was rewrapped into two, so neither its hash nor its context can be
+     * found again — but the words themselves are still in the file, one line further down.
+     */
+    @Test
+    fun `a phrase found on another line after the block orphaned relocates the remark to it`() {
+        val anchor = captureAnchor(paragraph, 1, 1)
+
+        val resolved = resolveWithPhrase(anchor, reflowed, "brown fox", startColumn = 10, endColumn = 19)
+
+        assertEquals(AnchorResult.Orphaned(1, 1), resolveAnchor(anchor, reflowed))
+        assertEquals(AnchorResult.Relocated(2, 2), resolved.result)
+        assertEquals(0, resolved.startColumn)
+        assertEquals(9, resolved.endColumn)
+    }
+
+    /** A phrase written across two lines is stored joined with a newline, and has to be found the
+     *  same way: the tail of one line, then the head of the next. */
+    @Test
+    fun `a phrase spanning two lines is found again on the lines it moved to`() {
+        val original = listOf("intro", "call one(", "    two)", "outro")
+        val anchor = captureAnchor(original, 1, 2)
+        // The block moved, its second line gained a character, and both context lines are gone, so
+        // neither the hash pass nor the context pass can find it. The phrase still spans two lines.
+        val edited = listOf("a", "b", "c", "call one(", "    two);", "d")
+
+        val resolved = resolveWithPhrase(anchor, edited, "one(\n    two", startColumn = 5, endColumn = 7)
+
+        assertEquals(AnchorResult.Relocated(3, 4), resolved.result)
+        assertEquals(5, resolved.startColumn)
+        assertEquals(7, resolved.endColumn)
+    }
+
+    @Test
+    fun `a phrase nowhere in the file stays orphaned`() {
+        val anchor = captureAnchor(paragraph, 1, 1)
+        val edited = listOf("nothing", "of", "the", "sort", "here")
+
+        val resolved = resolveWithPhrase(anchor, edited, "brown fox", startColumn = 10, endColumn = 19)
+
+        assertEquals(AnchorResult.Orphaned(1, 1), resolved.result)
+        assertEquals(10, resolved.startColumn)
+        assertEquals(19, resolved.endColumn)
+    }
+
+    /** The same radius the line search uses, for the same reason: a phrase found sixty lines away
+     *  is a different occurrence of the same words, not the one the remark was written about. */
+    @Test
+    fun `the search does not look past the radius`() {
+        val anchor = captureAnchor(paragraph, 1, 1)
+        // Nothing here matches the hash or the stored context — the sentence at the end was
+        // rewritten too — so the phrase search is the only thing that can find "brown fox".
+        val far = listOf("head", "gone", "tail") +
+            List(40) { "filler $it" } +
+            listOf("the quick brown fox jumps over the lazy dog")
+
+        assertEquals(
+            AnchorResult.Relocated(43, 43),
+            resolveWithPhrase(anchor, far, "brown fox", 10, 19, radius = 60).result,
+        )
+        assertEquals(
+            AnchorResult.Orphaned(1, 1),
+            resolveWithPhrase(anchor, far, "brown fox", 10, 19, radius = 10).result,
+        )
+    }
+
+    /** A one-line paragraph with a phrase in the middle of it, and the same text rewrapped into
+     *  two lines. Shared by the orphan-then-search tests. */
+    private val paragraph = listOf(
+        "intro",                              // 0
+        "the quick brown fox jumps over it",  // 1  <- the remark, on "brown fox"
+        "outro",                              // 2
+    )
+
+    private val reflowed = listOf(
+        "intro",                    // 0
+        "the quick",                // 1
+        "brown fox jumps over it",  // 2
+        "outro",                    // 3
+    )
 }
