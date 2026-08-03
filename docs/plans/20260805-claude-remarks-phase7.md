@@ -1,13 +1,26 @@
 # Claude Remarks — Phase 7 Implementation Plan
 
-**Tell the IDE the remarks were actually delivered.**
+**Tell the IDE the remarks were actually delivered — and tell Claude Code when they never will be.**
 
 **Status: not started.** Branch `claude-remarks-phase1-2`, HEAD `041d5a3`, tree clean. Phase 6 is
 complete, released as 0.3.0, and checked by hand in a real IDE.
 
 **This plan takes the number 7, so the remote-over-SSH work becomes phase 8.** Four documents still
-promise that phase 7 is the remote work. Task 9 corrects every one of them. Do not leave two
+promise that phase 7 is the remote work. Task 12 corrects every one of them. Do not leave two
 documents disagreeing about what phase 7 is.
+
+**The phase carries three subjects, which is the user's explicit call**, recorded in
+`docs/plans/RESUME-phase7-planner.md` and again at the end of `docs/ideas.md`: the delivery
+acknowledgement signals, the rejection defect, and opening a real diff for just the files the skill
+named. The third one is `docs/ideas.md`, "Open the real diff for just the files the skill named",
+commit `ff0a9b7`. It shares no code with the first two, so it sits at the end, in tasks 9 and 10.
+
+**The phase carries a defect fix, and it comes first.** Pressing Cancel in the banner ends the review
+inside the IDE and writes nothing, so the waiting session polls for a file that will never appear
+until its own timeout. `docs/ideas.md` has the entry, "Rejecting a review has to reach Claude Code,
+and the link should say Reject". Task 2 fixes it and renames the link, before any of the new
+machinery. For the other three signals the IDE does not know what happened on the far side. For this
+one it knows exactly — a person decided — and throws the decision away.
 
 **Citations name symbols, not line numbers.** Same reason as phase 6: a symbol name survives the
 next commit in the same file, a line number does not.
@@ -16,7 +29,7 @@ next commit in the same file, a line number does not.
 
 1. [What is true today](#1-what-is-true-today)
 2. [Platform facts, checked against the real artifacts](#2-platform-facts-checked-against-the-real-artifacts)
-3. [The two open questions, decided](#3-the-two-open-questions-decided)
+3. [The four open questions, decided](#3-the-four-open-questions-decided)
 4. [The shape of the change](#4-the-shape-of-the-change)
 5. [Decisions, and the alternatives rejected](#5-decisions-and-the-alternatives-rejected)
 6. [Still to verify](#6-still-to-verify)
@@ -25,14 +38,17 @@ next commit in the same file, a line number does not.
 9. [Ordering and parallel waves](#9-ordering-and-parallel-waves)
 10. [Implementation steps](#10-implementation-steps)
     - [Task 1: Check the ground before building on it](#task-1-check-the-ground-before-building-on-it)
-    - [Task 2: The review's phase and its deadline, as plain data](#task-2-the-reviews-phase-and-its-deadline-as-plain-data)
-    - [Task 3: The service transitions, and the deadline task](#task-3-the-service-transitions-and-the-deadline-task)
-    - [Task 4: The endpoint's second action](#task-4-the-endpoints-second-action)
-    - [Task 5: Send writes, the acknowledgement marks sent](#task-5-send-writes-the-acknowledgement-marks-sent)
-    - [Task 6: The banner and the buttons stop lying](#task-6-the-banner-and-the-buttons-stop-lying)
-    - [Task 7: The skill declares a deadline, acknowledges the read, and reports leaving](#task-7-the-skill-declares-a-deadline-acknowledges-the-read-and-reports-leaving)
-    - [Task 8: Verify the constraints and the whole suite](#task-8-verify-the-constraints-and-the-whole-suite)
-    - [Task 9: Documentation, the phase renumbering, and the version](#task-9-documentation-the-phase-renumbering-and-the-version)
+    - [Task 2: Reject writes the decision, and the link says Reject](#task-2-reject-writes-the-decision-to-the-handoff-file-and-the-link-says-reject)
+    - [Task 3: The review's phase and its deadline, as plain data](#task-3-the-reviews-phase-and-its-deadline-as-plain-data)
+    - [Task 4: The service transitions, and the deadline task](#task-4-the-service-transitions-and-the-deadline-task)
+    - [Task 5: The endpoint's second action](#task-5-the-endpoints-second-action)
+    - [Task 6: Send writes, the acknowledgement marks sent](#task-6-send-writes-the-acknowledgement-marks-sent)
+    - [Task 7: The banner and the buttons stop lying](#task-7-the-banner-and-the-buttons-stop-lying)
+    - [Task 8: The skill declares a deadline, acknowledges the read, and reports leaving](#task-8-the-skill-declares-a-deadline-acknowledges-the-read-and-reports-leaving)
+    - [Task 9: Refuse a remark on the revision side of a diff](#task-9-refuse-a-remark-on-the-revision-side-of-a-diff)
+    - [Task 10: Open a real diff for the files the skill named](#task-10-open-a-real-diff-for-the-files-the-skill-named)
+    - [Task 11: Verify the constraints and the whole suite](#task-11-verify-the-constraints-and-the-whole-suite)
+    - [Task 12: Documentation, the phase renumbering, and the version](#task-12-documentation-the-phase-renumbering-and-the-version)
 11. [Known limits](#11-known-limits)
 12. [Hand checks in a sandbox IDE](#12-hand-checks-in-a-sandbox-ide)
 
@@ -52,6 +68,17 @@ hangs from.
 `notifyRemarks(project, "Sent $count remark${...} to Claude Code.")` in `sendToWaitingReview`. It
 runs after a successful `atomicWriteString` and nothing else. A write is all it knows about.
 
+**Cancel writes nothing, and that is the defect.** The banner's second link is
+`createActionLabel("Cancel") { WaitingReviewService.getInstance(project).clear() }` in the `banner`
+field initializer of `RemarksPanel`, and `clear()` in `review/WaitingReview.kt` sets the state to null
+and notifies the panel. No file is written. Meanwhile the skill's step 6 is inside
+`while [ ! -e "$output" ]` for its full 1800 seconds. So the person ends the review and the agent
+never hears about it.
+
+**Nothing in the plugin writes the handoff file except the send.** `atomicWriteString(handoffFile(waiting.outputPath), prepared.markdown)`
+in `sendToWaitingReview` is the only call. Task 2 adds the second one, reusing both functions
+unchanged.
+
 **The banner is binary and only the IDE can clear it.** `updateBanner` in
 `ui/RemarksToolWindowFactory.kt` reads `WaitingReviewService.current()`, hides the banner when it is
 null, and otherwise sets one text: `"Claude Code is waiting: " + escapeXmlEntities(label.take(120))`.
@@ -59,7 +86,7 @@ The only two callers of `clear()` are the send and the banner's Cancel link, bot
 
 **The banner's two links are created once, in the field initializer**, not per refresh:
 `createActionLabel("Send remarks")` and `createActionLabel("Cancel")` sit in the `banner` property of
-`RemarksPanel`. Only `banner.text` is changed later. That shapes task 6: the text can vary per phase
+`RemarksPanel`. Only `banner.text` is changed later. That shapes task 7: the text can vary per phase
 for free, the link set cannot.
 
 **The banner repaints only from `refresh()`.** `updateBanner()` is called at the end of the
@@ -102,7 +129,7 @@ action under the same service name is guarded by it with no change at all.
 
 **`execute` ignores the request path completely.** It parses the body and starts a review. Combined
 with the platform's prefix matching in [section 2](#2-platform-facts-checked-against-the-real-artifacts),
-that means `POST /api/claude-remarks/anything` starts a review today. Task 4 makes only `/start` do
+that means `POST /api/claude-remarks/anything` starts a review today. Task 5 makes only `/start` do
 that, and answers `bad-request` for an unknown action.
 
 **Marking a remark sent is idempotent.** `RemarkStore.markSent` filters to remarks whose status is
@@ -111,11 +138,40 @@ publishes only when that count is above zero.
 
 **There is no function that marks a remark pending again.** `store/RemarkEdits.kt` exports eight
 mutation functions and none of them moves a remark back from `SENT`. That is why
-[section 3](#3-the-two-open-questions-decided) resolves the first open question without needing one.
+[section 3](#3-the-four-open-questions-decided) resolves the first open question without needing one.
 
 **`notifyRemarks` is `internal` in `action/CopyRemarks.kt`** and takes a `NotificationType`. The
 notification group `Claude Remarks` is already registered in `plugin.xml`. No new registration is
-needed anywhere in this phase, and `plugin.xml` is not edited at all.
+needed anywhere in this phase. The only `plugin.xml` edit in the whole phase is task 10's one
+`<depends>` line for VCS.
+
+**The review request already carries the files, and they are already opened as plain editors.**
+`openReviewFiles(project, paths)` in `review/OpenReviewFiles.kt` filters the paths with
+`filterReviewPaths` — absolute paths and `..` segments dropped, at most twenty — then, inside one
+`invokeLater`, resolves each through `fileForStoredPath(root, path)` and calls
+`FileEditorManager.openFile(file, false)`. The skill's own step 3 calls this "the cheap version of the
+diff". So task 10 changes what that one `forEach` does, and adds no request field.
+
+**A remark written on the revision side of a diff is stored against the right file with the wrong line
+numbers.** `targetFiles` in `store/RemarkTarget.kt` returns two candidates: the document's own file,
+then `DiffDataKeys.CURRENT_CONTENT`'s `highlightFile`. On the working-copy side the first candidate is
+the real file and everything is correct. On the revision side the first candidate is a
+`LightVirtualFile` with no path under the project, so the second candidate answers — the right file,
+but the anchor was taken from the previous revision's document. Nothing today tells the person.
+
+**`remarkTargetProblem` is the only gate, so one guard covers both entry points.**
+`AddRemarkAction`'s input opener calls `remarkTargetProblem` and returns when it is non-null, and only
+then calls `relativePathOf`. `AddRemarkIntention.isAvailable` calls `remarkTargetProblem` too. So a
+refusal added inside `remarkTargetProblem` reaches the shortcut, the popup menu and the Alt+Enter
+intention at once, and `relativePathOf` does not have to change.
+
+**`DiffRemarkTargetTest` currently asserts the revision side works.** It asserts
+`relativePathOf(project, editor, contextOf(revision))` is `"Diffed.kt"` **and**
+`remarkTargetProblem(...)` is null. The second assertion inverts in task 9.
+
+**`plugin.xml` declares exactly one dependency**, `com.intellij.modules.platform`. Task 10 adds the
+second one in the whole project's history, and [section 2](#2-platform-facts-checked-against-the-real-artifacts)
+says which and why it also needs a line in `build.gradle.kts`.
 
 **The skill declares its own timeout already, as a literal.**
 `docs/skill/claude-remarks-review/SKILL.md` step 6 has `deadline=$(( $(date +%s) + 1800 ))`. The IDE
@@ -126,7 +182,7 @@ clear the waiting review inside the IDE — the person clears it themselves from
 link."
 
 **`SendReviewTest` is the guard that will move.** It asserts that a successful write marks the
-remarks sent, and that a failed write marks nothing. The first assertion inverts in task 5; the
+remarks sent, and that a failed write marks nothing. The first assertion inverts in task 6; the
 second one stays exactly as it is.
 
 ## 2. Platform facts, checked against the real artifacts
@@ -161,7 +217,7 @@ if (path == "status") { ... }
 if (path != "uploads") { sendStatus(HttpResponseStatus.BAD_REQUEST, false, channel); return null }
 ```
 
-Task 4 copies that expression. **Do not use `substringAfterLast('/')`** — on the bare path
+Task 5 copies that expression. **Do not use `substringAfterLast('/')`** — on the bare path
 `/api/claude-remarks` that returns `claude-remarks`, which would be read as an action name.
 
 **`QueryStringDecoder` has both `path()` and `rawPath()`.** Confirmed by `javap`. `path()` is the
@@ -181,19 +237,43 @@ public static java.util.concurrent.ScheduledExecutorService getAppScheduledExecu
 ```
 
 `AppExecutorUtil` is already imported in `review/SendReview.kt` and
-`ui/RemarksToolWindowFactory.kt`, for `getAppExecutorService()`. Task 3 uses the scheduled one from
+`ui/RemarksToolWindowFactory.kt`, for `getAppExecutorService()`. Task 4 uses the scheduled one from
 the same class, so no new dependency and no new import root.
 
-**The existing smoke test already exercises the path dispatch, so task 4 needs no new mechanism.**
+**The existing smoke test already exercises the path dispatch, so task 5 needs no new mechanism.**
 `ReviewEndpointSmokeTest` builds `DefaultFullHttpRequest(HTTP_1_1, POST, "/api/claude-remarks/start",
 body)` and calls `execute` with `QueryStringDecoder(request.uri())`. So `urlDecoder.path()` inside
 `execute` already returns `/api/claude-remarks/start` in that test today, and a second test with a
 different uri exercises a second action for real.
 
+**`ShowDiffAction.showDiffForChange(Project, Iterable<? extends Change>)` exists, and it is in a
+module jar rather than in `app.jar`.** `javap` reports six overloads, including the two-argument form
+and an `(project, changes, int index)` one. The class file is
+`lib/modules/intellij.platform.vcs.impl.jar`, **not** `lib/app.jar`. That distinction is the reason
+task 10 needs a line in `build.gradle.kts` as well as one in `plugin.xml` — see the next fact.
+
+**`ChangeListManager.getChange(VirtualFile)` and `getChange(FilePath)` both exist, and they are in
+`lib/app.jar`.** Read from
+`platform/vcs-api/src/com/intellij/openapi/vcs/changes/ChangeListManager.java`: both are abstract and
+both return `@Nullable Change`. Null means the file has no local change, which is exactly the signal
+task 10 uses to decide between a diff and a plain editor.
+
+**`com.intellij.modules.vcs` is declared by the same module that carries `ShowDiffAction`.**
+`platform/vcs-impl/resources/intellij.platform.vcs.impl.xml` line 3 is
+`<module value="com.intellij.modules.vcs"/>`. So the `<depends>` id in `plugin.xml` and the module name
+in the jar are two views of one thing: `com.intellij.modules.vcs` for the plugin descriptor,
+`intellij.platform.vcs.impl` for the build.
+
+**The Gradle plugin has a `bundledModule` dependency helper.** `bundledModule` and `bundledModules` are
+both present in `IntelliJPlatformDependenciesExtension` in
+`intellij-platform-gradle-plugin-2.18.1.jar`. That a dedicated helper exists for modules under
+`lib/modules/` is the reason [section 6](#6-still-to-verify) treats "is that jar already on the compile
+classpath" as a question to settle by compiling rather than by assuming.
+
 **`process` runs `isHostTrusted`, then the rate limit, then `execute`.** Unchanged from phase 6, and
 it is the reason a second action inherits the whole security rule for free.
 
-## 3. The two open questions, decided
+## 3. The four open questions, decided
 
 **Question one: does an abandoned review leave the remarks pending, or mark them pending again if
 they were already marked sent?**
@@ -230,10 +310,28 @@ the service, because that is where untrusted input arrives — and because it le
 service a deadline of zero and get an instantly stale review, which is the only practical way to test
 staleness without waiting a minute.
 
+**Question three: does the rejection carry a reason the person typed, or only the fact?**
+
+**Decided: only the fact.** A reason means a modal input box on a link press. The person is sitting
+next to the agent and the next message is a better place for a reason than a dialog in the middle of a
+decision meant to take one click. The body is the marker line and two sentences of prose.
+
+This is also the cheap version to change later if it turns out to be wanted: the skill matches the
+first line and hands everything after it to the model, so a reason can be appended to the body without
+the skill changing at all.
+
+**Question four: what happens to the remarks when a review is rejected?**
+
+**Decided: nothing at all. They stay pending.** Rejecting this handoff is not discarding what was
+written — the person may be refusing this particular hand-over and still want to keep their remarks.
+So `rejectWaitingReview` never touches the store, which makes the right answer also the smallest
+implementation.
+
 ## 4. The shape of the change
 
-One new field pair on the review state, three new service transitions, one new endpoint action, and
-a banner that reads the phase instead of just checking for null. Nothing about rendering, the store's
+One link that writes instead of only closing, one new field pair on the review state, three new
+service transitions, one new endpoint action, and a banner that reads the phase instead of just
+checking for null. Nothing about rendering, the store's
 shape, the clipboard path, the handshake or the atomic write moves.
 
 The review's life, and where each of the three signals enters:
@@ -247,8 +345,8 @@ stateDiagram-v2
     Sent --> [*] : "POST ack abandoned<br/>balloon 'left without reading, still pending'"
     Waiting --> [*] : "deadline passed<br/>same as abandoned, no request needed"
     Sent --> [*] : "deadline passed<br/>same as abandoned, no request needed"
-    Waiting --> [*] : "person presses Cancel"
-    Sent --> [*] : "person presses Cancel"
+    Waiting --> [*] : "person presses Reject<br/>rejection body written to the handoff file<br/>the skill stops waiting at once"
+    Sent --> [*] : "person presses Reject<br/>the file already holds the remarks<br/>nothing is written, nothing overwritten"
 ```
 
 The normal run, end to end:
@@ -308,10 +406,13 @@ classDiagram
     }
     class SendReview {
         +sendToWaitingReview: no markRemarksSent  CHANGED
+        +REJECTED_MARKER, REJECTION_BODY  NEW
+        +rejectWaitingReview(project)  NEW
         +finishReview(project, session, end)  NEW
         +expireStaleReview(project)  NEW
     }
     class RemarksPanel {
+        +the second link says Reject and writes  CHANGED
         +updateBanner reads the phase  CHANGED
         +Send enabled only in Waiting  CHANGED
     }
@@ -322,7 +423,48 @@ classDiagram
     RemarksPanel --> WaitingReviewService
 ```
 
+What the review request does with each file it names, which is the whole of tasks 9 and 10:
+
+```mermaid
+flowchart TD
+    A["a path in the request's files list"] --> B{"survives filterReviewPaths?<br/>relative, no '..', within the first twenty"}
+    B -- "no" --> C["dropped, nothing opens"]
+    B -- "yes" --> D{"resolves under the project root?"}
+    D -- "no" --> C
+    D -- "yes" --> E{"ChangeListManager.getChange<br/>returns a Change?"}
+    E -- "yes" --> F["collected for one diff window"]
+    E -- "no, nothing changed locally" --> G["opened as a plain editor,<br/>exactly as today"]
+    F --> H["showDiffForChange once,<br/>with only these files in it"]
+    H --> I{"which pane is the person in?"}
+    I -- "working copy" --> J["a remark is stored,<br/>as it already is today"]
+    I -- "revision" --> K["refused with a sentence:<br/>the line numbers describe<br/>an older revision"]
+```
+
 ## 5. Decisions, and the alternatives rejected
+
+**The rejection travels on the path the skill is already watching.** `atomicWriteString(handoffFile(outputPath), REJECTION_BODY)`,
+the same two functions the send path uses, on the same path the endpoint already promised in its
+`waiting` response. The alternatives were a second acknowledgement direction — the IDE calling out to
+the skill, which has no server — and a second file the skill would have to watch as well. Both are
+more moving parts than writing the file the skill is already blocked on.
+
+**The rejection body's first line is a wire format, and a test pins it.**
+`<!-- claude-remarks: rejected -->`, matched by one `grep -q` in the skill. It is an HTML comment, so
+a body handed to a model whole reads as prose with an invisible first line, and a markdown renderer
+shows nothing. A JSON envelope would have been the other option and would force the skill to parse a
+file that is otherwise plain markdown for a human reader.
+
+**A failed rejection write still clears the review, and says so in red.** The person asked for the
+review to end, and a banner they cannot dismiss is worse than a slow agent. What is lost is only
+promptness: the session falls back to waiting for its own deadline, which is exactly today's
+behaviour, and the balloon says that is what will happen. The send path makes the opposite choice — a
+failed write there keeps the review, because there the remarks are the thing at stake and nothing has
+been decided yet.
+
+**Reject in the Sent phase writes nothing.** The handoff file already holds the remarks and the agent
+may already have read them. Overwriting it with a rejection body would destroy remarks that were
+never delivered, silently. So in that phase Reject only clears the review and says the remarks were
+already written. This guard arrives with the Sent phase itself, in task 6, not in task 2.
 
 **One `ack` action with an `event` field, not two paths.** `/api/claude-remarks/ack` with
 `{"session": ..., "project": ..., "event": "read" | "abandoned"}`. Two paths, `/read` and
@@ -369,7 +511,7 @@ file. Overwriting it would mean the person cannot tell which version was read.
 
 **The deadline is not extended when the remarks are sent.** The skill's own wait loop is not
 extended either, so extending the IDE's copy would recreate exactly the drift
-[section 3](#3-the-two-open-questions-decided) rejects. If the person sends at second 1799 of 1800,
+[section 3](#3-the-four-open-questions-decided) rejects. If the person sends at second 1799 of 1800,
 the acknowledgement has one second to arrive. That is the truth about that agent, not a bug.
 
 **The ack carries the project path, like `start` does.** The alternative — find the project by
@@ -377,20 +519,51 @@ scanning open projects for one holding this session id — would let the skill s
 `projectForPath` would go unused for the new action. Symmetry with `start` is worth more than one
 field, and the skill already has `$root` in a variable.
 
+**The IDE decides diff-or-editor per file, and the skill is not asked.** Whether a file has a local
+change is a fact the IDE holds and the agent would be guessing at. So no mode flag, no new request
+field, and a file with no local change keeps exactly today's behaviour — a plain editor, which is also
+the right answer for a file the person should read but has not touched.
+
+**One diff window over all the changed files, not one per file.**
+`showDiffForChange(project, changes)` takes an `Iterable`, and the window it opens has next-file and
+previous-file navigation inside it. Opening one window per file would put the person back in the
+tab-shuffling this feature exists to remove.
+
+**A hard `<depends>` on `com.intellij.modules.vcs`, not an optional one.** The optional form needs a
+second descriptor file and a second code path for an IDE without VCS. Every JetBrains IDE ships VCS,
+so the second path would never run and could never be tested. The cost of being wrong is honest and
+loud: the plugin refuses to load rather than half-working.
+
+**A remark on the revision side of a diff is refused, not mapped.** The other option is to map the
+line through the diff's own line mapping onto the working copy, which is real work and belongs in a
+later phase. Refusing costs one branch in `remarkTargetProblem` and a sentence the person can act on —
+the other pane is one click away. What is given up: today an old-side remark is stored, and the
+content hashing in `anchor/` sometimes finds the right line anyway, when the region happens to be
+unchanged. That is precisely the case where it is least useful, since an unchanged region is not what
+the review is about, and when the region did change the remark orphans with no warning. So this trades
+"sometimes right, silently wrong the rest of the time" for "always refused, with a reason". Recorded
+because it is a removal, and `docs/plans/RESUME-phase7-planner.md` says the user may overrule it.
+
+**Committed ranges are out of scope, and the plan says so rather than degrading quietly.**
+`ChangeListManager` only knows uncommitted work, so a review of `main..HEAD` gets null from every
+`getChange` and falls back to plain editors. Building `Change` objects from two committed revisions
+needs the Git plugin rather than the platform's VCS API. Local changes are the case worth building
+first: that is when the work is unfinished, which is when a remark is worth writing.
+
 **No read detection on the plugin side.** Carried straight from `docs/ideas.md`: there is no portable
 signal for "this file was read", and anything built on access times or file locks is wrong on some
 filesystem. The agent knows; it says so.
 
 ## 6. Still to verify
 
-Four things. Each has the check written into the task that needs it.
+Six things. Each has the check written into the task that needs it.
 
 **A scheduled task can outlive the project it names.** The delay can be up to 24 hours, so the task
 can fire after the project closed, and `project.service<...>()` on a disposed project throws. I
-believe two cheap guards cover it, and **task 3 must do both**: `WaitingReviewService` implements
+believe two cheap guards cover it, and **task 4 must do both**: `WaitingReviewService` implements
 `Disposable` and cancels the future in `dispose()`, and the task body starts with
 `if (project.isDisposed) return`. The cancel is the normal path; the `isDisposed` check covers the
-task already being handed to a thread when disposal happens. Task 3 also asserts that
+task already being handed to a thread when disposal happens. Task 4 also asserts that
 `ScheduledFuture.cancel(false)` is the right call — do not use `cancel(true)`, which interrupts a
 running task for no benefit here.
 
@@ -401,18 +574,34 @@ phase 7.
 
 **Whether the notification balloon is safe to raise from the thread that ends the review.** The read
 and abandoned acknowledgements arrive on a netty IO thread. The plan does not depend on the answer:
-task 4 puts the store mutation and the balloon inside `invokeLater`, the same way
-`WaitingReviewService.notifyPanel` already does, so both run on the EDT. **Task 4 must not "simplify"
+task 5 puts the store mutation and the balloon inside `invokeLater`, the same way
+`WaitingReviewService.notifyPanel` already does, so both run on the EDT. **Task 5 must not "simplify"
 that away** even if a balloon appears to work from a background thread.
+
+**Whether `lib/modules/intellij.platform.vcs.impl.jar` is already on the compile classpath.**
+`ShowDiffAction` is in that jar, not in `app.jar`, and the Gradle plugin has a dedicated
+`bundledModule` helper for jars in that directory — which reads as "ask for it by name". I believe
+task 10 needs `bundledModule("intellij.platform.vcs.impl")` in the `intellijPlatform` dependencies
+block, next to nothing else, because the project has no such block entry today. **Settle it by
+compiling, not by reading**: write the import, run `./gradlew compileKotlin`, and add the line only if
+the symbol does not resolve. `ChangeListManager` and `Change` are in `app.jar` and will resolve either
+way, so the import that decides this is the `ShowDiffAction` one.
+
+**Whether `ChangeListManager` has finished its first refresh when a review arrives.** Before the
+initial update it can answer null for a file that does have a local change, which would degrade the
+diff to plain editors with nothing said. A review normally arrives long after project open, so I do
+not expect it. `ChangeListManager.invokeAfterUpdate` is the fix if it happens. **Do not build that up
+front** — the hand check in [section 12](#12-hand-checks-in-a-sandbox-ide) sends a review request
+immediately after opening a project, which is the case that would show it.
 
 **Whether `./gradlew verifyPlugin` still reports exactly one accepted internal-API usage.**
 `SegmentedButton.getComponent()`, allowed in `a055473`. Nothing in this plan reaches for an internal
-API — `AppExecutorUtil` is public, `ScheduledFuture` is the JDK. Task 8 confirms the count did not
+API — `AppExecutorUtil` is public, `ScheduledFuture` is the JDK. Task 11 confirms the count did not
 grow.
 
 ## 7. Scope judgement: what I cut
 
-**No plugin setting for the deadline.** [Section 3](#3-the-two-open-questions-decided) settles it: the
+**No plugin setting for the deadline.** [Section 3](#3-the-four-open-questions-decided) settles it: the
 skill declares the number. A setting would be a second source of truth for the same value.
 
 **No "the agent is thinking" progress state.** A signal for "the agent read the remarks and is now
@@ -427,8 +616,23 @@ review changes that argument: the remarks are still in the store, still pending,
 a failure. The deadline backstop already covers "the IDE never heard about it", so retry logic in a
 shell script would add a loop to cover a case that is already covered.
 
-**No change to `plugin.xml`.** The sub-path routes to the existing handler, and the notification group
-is registered.
+**No line mapping from the revision side onto the working copy.** [Section 5](#5-decisions-and-the-alternatives-rejected)
+settles it: refuse with a sentence. The mapping is a later phase.
+
+**No support for a review of committed revisions.** Out of scope, stated in section 5, and the plan
+says what happens instead rather than leaving it to be discovered.
+
+**No optional-dependency descriptor for VCS.** A hard `<depends>` and one line in the build file.
+
+**No reason box on the reject.** [Section 3](#3-the-four-open-questions-decided) settles it: the body
+carries the fact and nothing else.
+
+**No archive entry for a rejected review.** Same argument as the abandoned one: the remarks are still
+in the store and still pending, so nothing needs preserving.
+
+**No `plugin.xml` change for the acknowledgement work.** The sub-path routes to the existing handler
+and the notification group is registered. The one edit that file does get is task 10's `<depends>` line,
+which belongs to the diff work.
 
 ## 8. Rules that must hold at every step
 
@@ -437,7 +641,7 @@ The five grep guards in `CLAUDE.md` must come back empty after every task.
 1. **`anchor/` and `render/PromptRenderer.kt` stay free of `com.intellij`.** Phase 7 touches neither.
 2. **`store/RemarkEdits.kt` holds the only functions that change a remark.** Phase 7 calls
    `markRemarksSent` and nothing else, from `review/SendReview.kt`, which already imports it. It adds
-   no ninth mutation function — see [section 3](#3-the-two-open-questions-decided).
+   no ninth mutation function — see [section 3](#3-the-four-open-questions-decided).
 3. **No code writes to a source file.** Phase 7 writes no file at all that phase 6 did not already
    write.
 4. **Nothing remark-related enters version control.** No new file outside the project and no new
@@ -450,9 +654,13 @@ The five grep guards in `CLAUDE.md` must come back empty after every task.
    ```
 
    **The trap phase 6 hit is live again in this phase.** That grep is line-based and cannot tell a
-   comment from code. Task 4 adds an explanation of why the ack's consequences live in another file,
+   comment from code. Task 5 adds an explanation of why the ack's consequences live in another file,
    and that explanation **must not name any of the five symbols above**. Say "the file that owns the
    editor side" and point at `review/SendReview.kt` by name instead.
+
+   **Task 10 is the other half of this rule.** Opening a diff needs the VFS, the editor and Swing.
+   Every line of it goes in `review/OpenReviewFiles.kt`, which exists for exactly this reason and does
+   its own `invokeLater`. None of it goes anywhere near the file this grep watches.
 
 Five more, carried in or new:
 
@@ -462,27 +670,49 @@ Five more, carried in or new:
    store and UI work triggered by an acknowledgement goes through `invokeLater`.
 8. **Keep the two threading decisions in `WaitingReviewService`.** `@Volatile` plus `@Synchronized`,
    never an `AtomicReference`; `current()` stays unsynchronized. Both are recorded in
-   `docs/claude/design.md`. Task 3 adds a pure comparison inside `current()` and nothing that takes a
+   `docs/claude/design.md`. Task 4 adds a pure comparison inside `current()` and nothing that takes a
    lock or does IO.
 9. **Nothing is marked sent unless the agent said it read the file.** This is the phase's whole point
    and `SendReviewTest` is its guard.
-10. **Never run `git add -A` or `git add .`** Several agents work in this repository. Every commit
+10. **Reject writes before it clears.** The defect this phase opens with. A rejection that only clears
+    the in-memory state is the bug, not a simplification, and the reject test in task 2 is the only
+    guard on it.
+11. **Never run `git add -A` or `git add .`** Several agents work in this repository. Every commit
     step names the exact files to stage. If `git status --porcelain` shows a file you did not touch,
     leave it and say so in the task report.
 
 ## 9. Ordering and parallel waves
 
-**No parallel waves.** Every task consumes the one before it: task 2 defines the phase and the
-deadline that task 3's transitions move between, task 3 defines the transitions task 4's endpoint
-calls, task 4 creates the acknowledgement path that task 5 hands the marking over to, and task 6
-renders the phase the first five produce. Nine small tasks in one subsystem; splitting them into
-waves would cost more coordination than it saves.
+**No parallel waves.** Every task after the second consumes the one before it: task 3 defines the
+phase and the deadline that task 4's transitions move between, task 4 defines the transitions task 5's
+endpoint calls, task 5 creates the acknowledgement path that task 6 hands the marking over to, and
+task 7 renders the phase the tasks before it produce. Twelve small tasks, and no pair of them can be
+worked on without reading the same two files; splitting them into waves would cost more coordination
+than it saves.
 
-The order is: check the ground (1), the phase and deadline as data (2), the service transitions (3),
-the endpoint action (4), the send stops marking sent (5), the banner and the buttons (6), the skill
-(7), verify (8), document (9).
+The order is: check the ground (1), reject writes the decision (2), the phase and deadline as data
+(3), the service transitions (4), the endpoint action (5), the send stops marking sent (6), the banner
+and the buttons (7), the skill (8), refuse a remark on a revision pane (9), open the real diff (10),
+verify (11), document (12).
 
-**Task 4 comes before task 5 on purpose.** Task 5 is what stops `sendToWaitingReview` from calling
+**The diff work sits at the end because it shares no code with the rest.** Tasks 9 and 10 touch
+`store/RemarkTarget.kt`, `review/OpenReviewFiles.kt`, `plugin.xml` and `build.gradle.kts`; the
+acknowledgement work touches none of those. Putting them last means the phase's headline — the IDE and
+the agent agreeing on what happened — is complete before the second subject starts, and it puts the
+only `plugin.xml` and `build.gradle.kts` change immediately before the task that runs
+`verifyPluginProjectConfiguration`.
+
+**Task 9 comes before task 10, not after.** Task 10 makes the diff the normal way a review starts, so
+the pane where a remark gets the wrong line numbers goes from rare to common. Refusing it first means
+the common case is never wrong, not even between two commits.
+
+**Task 2 comes first, and it is the only task that could have gone anywhere.** It depends on nothing
+this phase adds: `atomicWriteString`, `handoffFile`, `current()` and `clear()` all exist today. It is
+first because it is the only signal in this phase that already fires and is already lost, so a phase
+that stopped halfway would still have fixed the defect. Everything after it improves cases the IDE
+currently cannot see at all.
+
+**Task 5 comes before task 6 on purpose.** Task 6 is what stops `sendToWaitingReview` from calling
 `markRemarksSent`. If it ran first, there would be a commit where nothing in the plugin ever marks a
 remark sent through the review path. In this order the acknowledgement can already mark them before
 the send stops doing it, so no step leaves the plugin worse than it started.
@@ -490,7 +720,7 @@ the send stops doing it, so no step leaves the plugin worse than it started.
 ## 10. Implementation steps
 
 TDD throughout: write the failing test, run it, watch it fail for the right reason, then implement.
-Run the narrow per-task command after each change. The full suite runs once, in task 8. Complete each
+Run the narrow per-task command after each change. The full suite runs once, in task 11. Complete each
 task before starting the next.
 
 ### Task 1: Check the ground before building on it
@@ -515,10 +745,111 @@ Five minutes, and it stops the whole phase from being built on a base that moved
 - [ ] run all five grep guards from
       [section 8](#8-rules-that-must-hold-at-every-step) now, before any change. All five must be
       empty. A guard that was already failing must not be blamed on this phase.
-- [ ] `./gradlew test` passes on the untouched tree. Report the test count, so task 8 can compare.
+- [ ] `./gradlew test` passes on the untouched tree. Report the test count, so task 11 can compare.
 - [ ] no commit — this task writes nothing
 
-### Task 2: The review's phase and its deadline, as plain data
+### Task 2: Reject writes the decision to the handoff file, and the link says Reject
+
+**Model:** sonnet
+
+**Files:**
+- Edit: `src/main/kotlin/dev/sasha/clauderemarks/review/SendReview.kt` — `REJECTED_MARKER`,
+  `REJECTION_BODY` and `rejectWaitingReview(project)`, next to `sendToWaitingReview`
+- Edit: `src/main/kotlin/dev/sasha/clauderemarks/ui/RemarksToolWindowFactory.kt` — the second
+  `createActionLabel` in the `banner` field initializer of `RemarksPanel`
+- Edit: `src/test/kotlin/dev/sasha/clauderemarks/review/SendReviewTest.kt` — three new tests
+
+The defect, first, and it needs nothing this phase has not already got: `atomicWriteString`,
+`handoffFile`, `current()` and `clear()` all exist today.
+
+**The body, and why the marker is a constant of its own:**
+
+```kotlin
+/**
+ * The skill matches this as the file's first line to tell a rejection from a set of remarks before it
+ * hands the body to a model. It is a wire format shared with a shell script, so it is not reworded
+ * without changing `docs/skill/claude-remarks-review/SKILL.md` in the same commit.
+ */
+internal const val REJECTED_MARKER = "<!-- claude-remarks: rejected -->"
+
+internal val REJECTION_BODY = """
+    $REJECTED_MARKER
+
+    The person rejected this review in the IDE. No remarks were sent and none are coming.
+    Stop waiting for this file and do not start another review unless you are asked to.
+""".trimIndent()
+```
+
+An HTML comment, so a body handed to a model whole reads as ordinary prose and a markdown renderer
+shows nothing. `REJECTION_BODY` has to be a `val`, not a `const val`, because `trimIndent()` is a
+function call.
+
+**The action:**
+
+```kotlin
+/**
+ * The person answering "not now". `clear()` alone was the bug: it ended the review inside the IDE and
+ * left the waiting session polling a path nothing would ever write, for its whole timeout.
+ */
+fun rejectWaitingReview(project: Project) {
+    val waiting = WaitingReviewService.getInstance(project).current() ?: return
+    try {
+        atomicWriteString(handoffFile(waiting.outputPath), REJECTION_BODY)
+        notifyRemarks(project, "Rejected the review. Claude Code will stop waiting.")
+    } catch (e: IOException) {
+        notifyRemarks(
+            project,
+            "The rejection could not be written: ${e.message}. " +
+                "The Claude Code session will wait for its own timeout instead.",
+            NotificationType.ERROR,
+        )
+    }
+    // Cleared either way. The person asked for this review to end, and a banner they cannot dismiss
+    // is worse than a session that waits for its own deadline.
+    WaitingReviewService.getInstance(project).clear()
+}
+```
+
+**No read action and no thread hop.** The body is a constant, so there is nothing to resolve, nothing
+to render and no `Document` to read — the whole reason `sendToWaitingReview` needs
+`ReadAction.nonBlocking` does not apply. The write runs on the EDT, which is where
+`sendToWaitingReview` already does its own `atomicWriteString`, inside `finishOnUiThread`. A few
+hundred bytes and a rename in a temp directory.
+
+**The link:**
+
+```kotlin
+// Reject, not Cancel: this writes the decision to the handoff file so the waiting session stops at
+// once. "Cancel" read as "close this banner", which is exactly the behaviour that was wrong.
+createActionLabel("Reject") { rejectWaitingReview(project) }
+```
+
+- [ ] `grep -rn '"Cancel"' src/` first, so a test or another caller that names the old label is found
+      before it is broken rather than after
+- [ ] write the failing tests in `SendReviewTest.kt`, which already builds a review with an output path
+      it controls and already has a failure-path fixture whose parent is a regular file:
+  - `testRejectingWritesTheMarkerAndClearsTheReview` — after `rejectWaitingReview`, the handoff file's
+    **first line is exactly** `<!-- claude-remarks: rejected -->`, and `current()` is null. Spell the
+    marker out in the test as a literal rather than referring to `REJECTED_MARKER`: the skill's own
+    `grep -q` spells it out too, and a test that reads the constant would keep passing after a rename
+    that breaks the skill.
+  - `testRejectingLeavesEveryRemarkPending` — a pending remark is still `PENDING` afterwards. This is
+    the whole of decision four, as a test.
+  - `testAFailedRejectionStillClearsTheReview` — point the review at a path whose parent is a regular
+    file so the write throws; assert `current()` is null afterwards and the remark is still `PENDING`.
+- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"` — expect a compile
+      failure
+- [ ] implement
+- [ ] the same command passes, and `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"`
+      still passes
+- [ ] **mutation:** delete the `atomicWriteString` call from `rejectWaitingReview`, which is exactly
+      the defect being fixed — `testRejectingWritesTheMarkerAndClearsTheReview` must fail. Change one
+      character of `REJECTED_MARKER` — the same test must fail on the first-line assertion. Restore
+      both.
+- [ ] commit: `fix: rejecting a review tells Claude Code instead of only closing the banner` — stage
+      exactly the three files above
+
+### Task 3: The review's phase and its deadline, as plain data
 
 **Model:** sonnet
 
@@ -571,7 +902,7 @@ review is really dead.
 - [ ] add the failing tests to `WaitingReviewTest.kt`. Plain JUnit, no fixture:
   - `a review is stale once its deadline has passed` — build a state with `deadlineAt = 1000`, assert
     `isStale(999)` is false, `isStale(1000)` is true, `isStale(1001)` is true. The boundary matters:
-    the scheduled task in task 3 fires exactly at the deadline, and with a `>` comparison it would
+    the scheduled task in task 4 fires exactly at the deadline, and with a `>` comparison it would
     find the review not yet stale and do nothing.
   - `a stale review does not block a different session` — a current state with a passed deadline, a
     new session id, assert `Accepted` and that the accepted state is the new one
@@ -597,7 +928,7 @@ review is really dead.
       `src/main/kotlin/dev/sasha/clauderemarks/review/WaitingReview.kt` and
       `src/test/kotlin/dev/sasha/clauderemarks/review/WaitingReviewTest.kt`
 
-### Task 3: The service transitions, and the deadline task
+### Task 4: The service transitions, and the deadline task
 
 **Model:** sonnet
 
@@ -609,7 +940,7 @@ review is really dead.
   fixture-backed, because a project-level service needs a project
 
 The service owns the state field and the lock. It does **not** touch the store and shows no balloon;
-those are task 4's, in `review/SendReview.kt`. Keeping the store out of this file is what stops the
+those are task 5's, in `review/SendReview.kt`. Keeping the store out of this file is what stops the
 review lifecycle and the remark model from growing into each other.
 
 ```kotlin
@@ -669,10 +1000,10 @@ expiry = AppExecutorUtil.getAppScheduledExecutorService().schedule(
 )
 ```
 
-**In this task the scheduled body calls `expireIfStale()` and nothing else**, so task 3 stands on its
-own and its tests do not depend on a file it has not created yet. Task 4 replaces that one call with
+**In this task the scheduled body calls `expireIfStale()` and nothing else**, so task 4 stands on its
+own and its tests do not depend on a file it has not created yet. Task 5 replaces that one call with
 `expireStaleReview(project)`, which is the same transition plus the balloon. Do not try to write
-task 4's function here.
+task 5's function here.
 
 `dispose()` cancels the future with `cancel(false)`, never `cancel(true)`: interrupting a task whose
 whole body is a field swap buys nothing and can only surprise the shared pool. The task body's own
@@ -712,7 +1043,7 @@ handed to a thread. See [section 6](#6-still-to-verify).
 - [ ] commit: `feat: the waiting review can be marked sent, acknowledged and expired` — stage exactly
       the two files above
 
-### Task 4: The endpoint's second action
+### Task 5: The endpoint's second action
 
 **Model:** sonnet
 
@@ -809,7 +1140,7 @@ the five symbols the guard greps for**, not even inside a comment. See
 - [ ] commit: `feat: the endpoint accepts a read or abandoned acknowledgement` — stage exactly the
       four files above
 
-### Task 5: Send writes, the acknowledgement marks sent
+### Task 6: Send writes, the acknowledgement marks sent
 
 **Model:** sonnet
 
@@ -847,6 +1178,21 @@ notifyRemarks(
 )
 ```
 
+**Four: `rejectWaitingReview` must not overwrite a written handoff.** The Sent phase is created here,
+so the guard belongs here too. Add to the top of `rejectWaitingReview`, after the `current()` call:
+
+```kotlin
+if (waiting.phase is ReviewPhase.Sent) {
+    notifyRemarks(project, "The remarks were already written. There is nothing left to reject.")
+    WaitingReviewService.getInstance(project).clear()
+    return
+}
+```
+
+Without it, pressing Reject after a send replaces the person's own remarks with the rejection body,
+and the agent reads a rejection instead of the review it was handed. That is silent data loss, which is
+why it is a guard and not a nicety.
+
 - [ ] change the tests first, and run them before touching the production file so they fail for the
       right reason:
   - `testSendingMarksTheRemarksSent` inverts: after a successful send the remarks are **still
@@ -863,6 +1209,9 @@ notifyRemarks(
     report that you did.
   - new: `a second send while waiting for the acknowledgement is refused` — `markSent` first, then
     call `sendToWaitingReview` and assert the handoff file's content did not change
+  - new: `rejecting after a send does not overwrite the handoff file` — send, then
+    `rejectWaitingReview`, then assert the file still holds the rendered remarks and not the rejection
+    marker, and that `current()` is null
   - new: `a read acknowledgement after a send marks the remarks sent` — the whole path in one test:
     send, then `finishReview(project, session, ReviewEnd.READ)`, then assert the remarks are `SENT`
     and `current()` is null. This is the one test that covers the phase's headline claim end to end
@@ -871,13 +1220,15 @@ notifyRemarks(
       in the success-path test and the two new ones
 - [ ] implement
 - [ ] the same command passes
-- [ ] **mutation:** put `markRemarksSent(project, prepared.ids)` back into the send — `a successful
-      send records the ids and marks nothing sent` must fail. Remove the phase guard at the top — `a
-      second send while waiting for the acknowledgement is refused` must fail. Restore both.
+- [ ] **mutation:** put `markRemarksSent(project, prepared.ids)` back into the send —
+      `testSendingMarksNothingUntilTheAgentAcknowledges` must fail. Remove the phase guard from the top
+      of `sendToWaitingReview` — `a second send while waiting for the acknowledgement is refused` must
+      fail. Remove the phase guard from the top of `rejectWaitingReview` — `rejecting after a send does
+      not overwrite the handoff file` must fail. Restore all three.
 - [ ] commit: `feat: a remark is marked sent when the agent says it read the file` — stage exactly
       the two files above
 
-### Task 6: The banner and the buttons stop lying
+### Task 7: The banner and the buttons stop lying
 
 **Model:** sonnet
 
@@ -939,7 +1290,7 @@ comparison in each place, not a new mechanism.
 - [ ] commit: `feat: the banner says which of the three states the review is in` — stage exactly the
       three files above
 
-### Task 7: The skill declares a deadline, acknowledges the read, and reports leaving
+### Task 8: The skill declares a deadline, acknowledges the read, and reports leaving
 
 **Model:** sonnet
 
@@ -965,7 +1316,7 @@ passed, so the two sides must use the same number, and the only way to guarantee
 Note that the IDE clamps it to between 60 seconds and 24 hours, so a nonsense value is corrected
 rather than obeyed.
 
-**Step 6 becomes one shell block: wait, read, acknowledge.**
+**Step 6 becomes one shell block: wait, read, tell a rejection from remarks, acknowledge.**
 
 ```sh
 ack() {
@@ -983,6 +1334,11 @@ while [ ! -e "$output" ]; do
 done
 cat "$output"
 trap - EXIT INT TERM
+
+if grep -q '^<!-- claude-remarks: rejected -->' "$output"; then
+  echo "the person rejected this review; no remarks were sent"
+  exit 0
+fi
 ack read
 ```
 
@@ -1001,6 +1357,15 @@ Five points the file has to explain, because each one is a decision somebody wil
   shell, so the trap catches a timeout inside this loop and an interrupt of this command. An agent
   process killed between steps sends nothing at all, and the IDE's own deadline is what covers that.
   Say this plainly; it is the honest limit of the mechanism.
+- **The rejection check comes before the acknowledgement, and it is anchored to the start of the
+  line.** `grep -q '^<!-- claude-remarks: rejected -->'` — without the `^` a remark quoting that
+  string in its own text would be read as a rejection. There is nothing to acknowledge on a rejection:
+  the IDE cleared the review as it wrote the file, so an `ack read` would only be answered
+  `no-review`. The trap is cleared before this branch, so a rejection does not also report the agent
+  as having left.
+- **A rejection is a finished review, not a failure.** `exit 0`, and report it plainly to the person
+  the way any other answer is reported. Do not retry, do not start a second review, and do not treat
+  the body as remarks.
 - **The `status` rule still holds, for every new variable too.** In zsh `status` is read-only, and zsh
   runs the command substitution before refusing the assignment — so the request is sent, a review
   really starts, and the script dies believing nothing happened. Found on 2026-08-03 on the first real
@@ -1013,8 +1378,12 @@ acknowledgement for a review whose file was never written, which is a bug in one
 `unknown-project`, `bad-request`. Report and stop in every case except `ok`. Do not retry more than
 once: the IDE's own deadline already covers a lost acknowledgement.
 
-**Two paragraphs that are now out of date.**
+**Three paragraphs that are now out of date.**
 
+- Step 6 says "A timeout does not clear the waiting review inside the IDE — the person clears it
+  themselves from the banner's Cancel link." Every part of that sentence stops being true here: a
+  timeout is reported by the trap, the link is called Reject, and pressing it writes a file this skill
+  reads. Replace it, do not patch it.
 - The timeout advice at the end of the file said the remarks "are still pending in the IDE". That is
   now literally true instead of nearly true — they were never marked sent. Say so.
 - The "Same machine only" paragraph says the remote case is "planned for a later phase". It is
@@ -1026,10 +1395,144 @@ once: the IDE's own deadline already covers a lost acknowledgement.
       step 6.
 - [ ] `grep -n "status=" docs/skill/claude-remarks-review/SKILL.md` — must find nothing that assigns
       to a bare `status`
+- [ ] `grep -n "Cancel" docs/skill/claude-remarks-review/SKILL.md` — must find nothing. The link is
+      called Reject now.
+- [ ] the marker in the skill and `REJECTED_MARKER` in `review/SendReview.kt` must be the same string,
+      character for character. Diff them by eye and say in the task report that you did.
 - [ ] commit: `docs: the skill declares its deadline and acknowledges the read` — stage exactly
       `docs/skill/claude-remarks-review/SKILL.md`
 
-### Task 8: Verify the constraints and the whole suite
+### Task 9: Refuse a remark on the revision side of a diff
+
+**Model:** sonnet
+
+**Files:**
+- Edit: `src/main/kotlin/dev/sasha/clauderemarks/store/RemarkTarget.kt` — the branches at the end of
+  `remarkTargetProblem`
+- Edit: `src/test/kotlin/dev/sasha/clauderemarks/store/DiffRemarkTargetTest.kt` — one assertion
+  inverts, two tests are added
+
+A remark written on the revision side of a diff is stored against the right file with the previous
+revision's line numbers, and nothing says so. Task 10 makes that pane common, so this comes first.
+
+**The branch order is the whole task, and getting it wrong quietly changes an existing message.**
+`remarkTargetProblem` ends with one `candidates.any { ... }` success check and then a two-way message.
+It becomes three cases, in this order:
+
+```kotlin
+val own = candidates.firstOrNull()
+val ownResolves = own != null && VfsUtilCore.getRelativePath(own, root) != null
+// The ordinary editor, and the working-copy side of a diff: the document being read IS the file the
+// remark will be stored against, so the line numbers describe it.
+if (ownResolves) return null
+// Only the second candidate resolved, which means this pane holds a revision and the file was found
+// through DocumentContent.getHighlightFile. Right file, wrong line numbers.
+if (candidates.any { VfsUtilCore.getRelativePath(it, root) != null }) {
+    return "$name here is a revision, not the working copy, so a remark's line numbers would not " +
+        "describe the file on disk. Add it on the other side of the diff."
+}
+// Nothing resolved at all: the two messages that are already there, unchanged.
+return if (editor.editorKind == EditorKind.DIFF) { ... } else { ... }
+```
+
+**Why not simply `if (candidates.size > 1) refuse`.** Because a revision whose highlight file is also
+outside the project would then get the new message instead of the existing "no matching file under the
+project directory" one, which is the more useful sentence for that case. Splitting on *which* candidate
+resolved keeps each message on its own case.
+
+**`relativePathOf` does not change.** `remarkTargetProblem` is the only gate — `AddRemarkAction`'s input
+opener checks it and returns before it ever calls `relativePathOf`, and `AddRemarkIntention.isAvailable`
+checks it too. Leaving the lookup working is also what lets the message name the file.
+
+- [ ] change `DiffRemarkTargetTest.kt` first:
+  - the existing test that asserts the revision side is accepted — `assertNull(remarkTargetProblem(project, editor, contextOf(revision)))`
+    — inverts. Assert instead that the message is non-null and contains "working copy". Leave the
+    `relativePathOf(project, editor, contextOf(revision))` assertion above it alone: the file lookup
+    still works.
+  - new: `the working copy side of a diff is still accepted` — the fixture's own editor plus a revision
+    data context, asserting `remarkTargetProblem` is null. This is the guard that the refusal did not
+    swallow the side people actually write on.
+  - new: `a revision with no matching project file keeps its own message` — assert the message still
+    contains "no matching file under the project directory". This is the guard on the branch order.
+- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.DiffRemarkTargetTest"` — expect the
+      inverted test to fail
+- [ ] implement
+- [ ] the same command passes, and so does
+      `./gradlew test --tests "dev.sasha.clauderemarks.action.AddRemarkActionTest"` — it asserts on
+      `remarkTargetProblem`'s messages too, and if one of its assertions moves, say which and why in
+      the task report rather than editing it quietly
+- [ ] **mutation:** move the revision refusal above the `ownResolves` return — `the working copy side of
+      a diff is still accepted` must fail. Replace the refusal's condition with `candidates.size > 1` —
+      `a revision with no matching project file keeps its own message` must fail. Restore both.
+- [ ] commit: `fix: refuse a remark on the revision side of a diff instead of mis-anchoring it` — stage
+      exactly the two files above
+
+### Task 10: Open a real diff for the files the skill named
+
+**Model:** sonnet
+
+**Files:**
+- Edit: `src/main/resources/META-INF/plugin.xml` — one `<depends>` line
+- Edit: `build.gradle.kts` — `bundledModule("intellij.platform.vcs.impl")` in the `intellijPlatform`
+  dependencies block, **only if the compile needs it**
+- Edit: `src/main/kotlin/dev/sasha/clauderemarks/review/OpenReviewFiles.kt` — the body of the existing
+  `invokeLater` in `openReviewFiles`
+- Edit: `src/test/kotlin/dev/sasha/clauderemarks/review/OpenReviewFilesTest.kt` — one test
+
+The `files` list already arrives and is already filtered. This changes what happens to each surviving
+file, and nothing else: no request field, no setting, no mode flag.
+
+**The whole change, inside the `invokeLater` that is already there:**
+
+```kotlin
+val changes = mutableListOf<Change>()
+filtered.forEach { path ->
+    val file = fileForStoredPath(root, path) ?: return@forEach
+    val change = ChangeListManager.getInstance(project).getChange(file)
+    // No local change: today's behaviour, and the right answer for a file the person should read
+    // but has not touched.
+    if (change == null) FileEditorManager.getInstance(project).openFile(file, false)
+    else changes += change
+}
+if (changes.isNotEmpty()) ShowDiffAction.showDiffForChange(project, changes)
+```
+
+**One diff window for all of them, opened after the loop**, so the person gets next-file and
+previous-file navigation inside it instead of a window per file. Everything stays on the EDT inside the
+existing `invokeLater`: `getChange` reads the change list and `showDiffForChange` opens a window, and
+the HTTP response still does not wait for either.
+
+**No pure function is extracted for the split.** Every input is a platform service, so a pure helper
+would only move six lines somewhere a test still could not reach them. `filterReviewPaths` keeps its
+own tests, which cover the filtering that actually has logic in it.
+
+- [ ] settle the classpath question from [section 6](#6-still-to-verify) **first**, because it decides
+      whether `build.gradle.kts` is touched at all: add the `ShowDiffAction` import, run
+      `./gradlew compileKotlin`, and add `bundledModule("intellij.platform.vcs.impl")` only if the
+      symbol does not resolve. Say in the task report which way it went.
+- [ ] add `<depends>com.intellij.modules.vcs</depends>` to `plugin.xml`, next to the existing
+      `com.intellij.modules.platform`. A hard dependency, not optional — see
+      [section 5](#5-decisions-and-the-alternatives-rejected).
+- [ ] write the failing test in `OpenReviewFilesTest.kt`: `a file with no local change still opens as an
+      editor` — a light fixture has no VCS, so `getChange` answers null for everything and every file
+      takes the editor branch. Assert the file is open in `FileEditorManager.getInstance(project).openFiles`.
+      This is a real guard on two things: that the null answer is handled, and that
+      `ChangeListManager.getInstance(project)` can be reached at all in a project with no VCS root
+      rather than throwing.
+- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.OpenReviewFilesTest"`
+- [ ] implement
+- [ ] the same command passes
+- [ ] `./gradlew verifyPluginProjectConfiguration` — `plugin.xml` changed, so this is required, not
+      optional
+- [ ] **mutation:** make the `change == null` branch do nothing instead of opening an editor — `a file
+      with no local change still opens as an editor` must fail. Restore. **The diff window itself has no
+      automated guard** — a light fixture has no VCS, so no test can produce a `Change`. Its check is
+      the hand check in [section 12](#12-hand-checks-in-a-sandbox-ide), and that is stated here rather
+      than papered over with a test that would prove nothing.
+- [ ] commit: `feat: a review opens a real diff over just the files the skill named` — stage exactly the
+      four files above
+
+### Task 11: Verify the constraints and the whole suite
 
 **Model:** sonnet
 
@@ -1039,8 +1542,10 @@ once: the IDE's own deadline already covers a lost acknowledgement.
 - [ ] all five grep guards from [section 8](#8-rules-that-must-hold-at-every-step), each pasted with
       its output. All five empty.
 - [ ] `./gradlew build` — compiles, runs the whole suite, assembles. Paste the tail.
-- [ ] `./gradlew verifyPluginProjectConfiguration` — `plugin.xml` was not edited, so this should be
-      clean; run it anyway because `build.gradle.kts` changes in task 9.
+- [ ] `./gradlew verifyPluginProjectConfiguration` — task 10 edited `plugin.xml`, and
+      `build.gradle.kts` changes again in task 12, so run it and paste the output.
+- [ ] `./gradlew verifyPluginProjectConfiguration` again after task 10's `plugin.xml` and possible
+      `build.gradle.kts` change, and paste the output
 - [ ] `./gradlew verifyPlugin` — the report must still name **exactly one** internal-API usage,
       `SegmentedButton.getComponent()`. A second one is not free; if one appeared, find it and remove
       it rather than accepting it.
@@ -1050,18 +1555,19 @@ once: the IDE's own deadline already covers a lost acknowledgement.
       `RemarkStore.getInstance` — guard 2's grep covers it, but say you looked
 - [ ] no commit — this task writes nothing
 
-### Task 9: Documentation, the phase renumbering, and the version
+### Task 12: Documentation, the phase renumbering, and the version
 
 **Model:** sonnet
 
 **Files:**
-- Edit: `docs/claude/design.md` — a new subsection at the end of "The Shared Review Session"
+- Edit: `docs/claude/design.md` — a new subsection at the end of "The Shared Review Session", and a
+  second one for the diff opening
 - Edit: `CLAUDE.md` — the opening paragraphs, the `review/` lines of the project structure, and the
   testing section
 - Edit: `README.md` — the review paragraph, and the "later phase" sentence
 - Edit: `docs/ideas.md` — mark the phase 7 entry built, answer its two open questions, renumber
 - Edit: `docs/plans/20260804-claude-remarks-phase6.md` — renumber only
-- Edit: `docs/skill/claude-remarks-review/SKILL.md` — only if task 7 left a "later phase" behind
+- Edit: `docs/skill/claude-remarks-review/SKILL.md` — only if task 8 left a "later phase" behind
 - Edit: `build.gradle.kts` — `version = "0.4.0"`
 
 **The design doc gets one new subsection**, "Three signals that the remarks arrived", under "The
@@ -1069,6 +1575,10 @@ Shared Review Session". `docs/plans/` records how the work happened; the design 
 now is. Write it so a future session can load the design from `CLAUDE.md` instead of re-deriving it
 from code. It must cover:
 
+- **that rejecting a review writes the handoff file and then clears**, why the link is called Reject
+  rather than Cancel, and that the first line of the rejection body is a wire format shared with a
+  shell script
+- that Reject in the Sent phase writes nothing, because the file already holds the remarks
 - the phase machine, and that the send no longer clears the review
 - **why nothing is marked sent until the read acknowledgement**, and that this is why no function
   marks a remark pending again
@@ -1083,6 +1593,25 @@ from code. It must cover:
 - the sub-path dispatch, and that any unrecognized action now answers `bad-request` where it used to
   start a review
 
+**A second design-doc subsection for the diff opening**, "Opening the diff the skill asked for". It must
+cover:
+
+- that the IDE, not the skill, decides diff-or-editor per file, and that the deciding fact is whether
+  `ChangeListManager.getChange` answers non-null
+- that one window holds every changed file, through `showDiffForChange`
+- that this is why the plugin now depends on `com.intellij.modules.vcs`, and that `ShowDiffAction` lives
+  in a module jar rather than in `app.jar` — with whichever answer task 10 found for the
+  `bundledModule` line, because that is the least re-derivable fact in the whole subject
+- that a review of committed revisions degrades to plain editors, and why `ChangeListManager` cannot do
+  better
+- **why a remark on the revision side is refused**, what an old-side remark used to do, and that mapping
+  the line through the diff's own mapping is a later phase
+
+**`CLAUDE.md` also needs the dependency and the refusal.** The project structure section describes
+`store/RemarkTarget.kt` and `review/OpenReviewFiles.kt`; both change meaning here. And the plugin now
+declares two dependencies rather than one, which is worth one sentence because every earlier phase
+could assume the platform module was the only one.
+
 **`CLAUDE.md`.** The opening says phases 1-6 are implemented and that nothing has been loaded into a
 running IDE — phase 6 *was* checked by hand in this run, so that sentence needs care rather than a
 blind edit: say which phases are hand-checked and which are not. Add a "**Phase 7 is built.**"
@@ -1091,10 +1620,17 @@ structure for the new functions. Add the new test classes to the testing section
 `WaitingReviewServiceTest` needs a fixture, the `clampDeadlineSeconds` tests do not. Rule 5 does not
 change — but say in the rule that phase 7 hit the same comment trap and it is still live.
 
-**`README.md`.** The paragraph describing a review ends "the remarks turn gray, `markRemarksSent` runs
-exactly as it does after a copy, and the banner disappears". That is now wrong in order: the banner
-first says the remarks are waiting to be read, and the gray arrives with the acknowledgement. Rewrite
-those two sentences and describe what the person sees when the agent never comes back.
+**`README.md`.** The paragraph on `store/` says `GitHead.kt` reads HEAD "with no VCS plugin
+dependency". That sentence is still true about `GitHead.kt` and now sits in a plugin that does depend on
+VCS, so it reads as a contradiction — keep the fact, add the reason the dependency exists. The section
+describing a review also has to say the person lands in a diff of the named files rather than in plain
+editors. Two more sentences are now wrong. The paragraph describing a review ends "the remarks turn
+gray, `markRemarksSent` runs exactly as it does after a copy, and the banner disappears" — wrong in
+order now: the banner first says the remarks are waiting to be read, and the gray arrives with the
+acknowledgement. The next sentence, "Pressing **Cancel** in the banner instead clears the waiting
+review with nothing written and every remark still pending", is wrong in the word and in the
+behaviour: the link is **Reject** and it writes. Rewrite both, and describe what the person sees when
+the agent never comes back.
 
 **The renumbering. Phase 7 is this plan; the remote work is phase 8.** Find every occurrence, do not
 trust a list:
@@ -1112,7 +1648,7 @@ Known ones, from a grep run while writing this plan:
   not less"
 - `docs/plans/20260804-claude-remarks-phase6.md`, in "Known limits": four sentences naming phase 7
 - `docs/skill/claude-remarks-review/SKILL.md`, "Same machine only": "planned for a later phase"
-  (task 7 should already have fixed this — check)
+  (task 8 should already have fixed this — check)
 - `README.md`: "Sending to a remote agent session is planned for a later phase and is not built"
 - `docs/plans/completed/20260801-claude-remarks-phase1-2.md` mentions "later phases" generically, with
   no number. **Leave it alone.** Only change text that names a number, or that names *this* phase's
@@ -1130,6 +1666,9 @@ Do not delete the questions: what was open and how it was settled is the useful 
 - [ ] update `CLAUDE.md`, `README.md`, `docs/ideas.md`
 - [ ] run both greps above and fix every remaining occurrence, then paste the greps again showing
       only the ones you deliberately left
+- [ ] delete `docs/plans/RESUME-phase7-planner.md`. Its own first paragraph says to, and it is now
+      wrong twice over: both requirements it lists as missing are in this plan, and it says the plan has
+      nine tasks. A stale note that contradicts the plan beside it is worse than no note.
 - [ ] bump `version = "0.4.0"` in `build.gradle.kts`
 - [ ] `./gradlew verifyPluginProjectConfiguration` after the version change
 - [ ] commit: `docs: record the three delivery signals, and renumber the remote work as phase 8` —
@@ -1161,9 +1700,16 @@ behind. It is an empty directory in the system temp directory. Phase 6 already a
 never deletes the handoff file, so this is the same family of leftover and the operating system's
 cleanup is the answer.
 
-**Cancel in the Sent phase throws away the handover, silently.** The file stays on disk, the remarks
-stay pending, and no balloon appears — the person pressed Cancel, so nothing needs to be reported to
-them. If an agent then reads the file and acknowledges, it gets `no-review` and reports that.
+**Reject in the Sent phase tells the agent nothing.** The file already holds the remarks, so nothing
+is written and nothing is overwritten; the review is cleared and a balloon says the remarks were
+already written. An agent still polling then reads the remarks it was going to read anyway and its
+acknowledgement is answered `no-review`. The alternative — appending a "the person changed their mind"
+note to a file the agent may be reading at that moment — is a race for a case the person can settle in
+one sentence of chat.
+
+**A failed rejection write degrades to today's behaviour.** The review is cleared, a red balloon names
+the error, and the session waits for its own deadline. Nothing is lost and nothing is silent, but the
+agent is idle until its timeout.
 
 **Nothing tells the person a review was refused as a conflict.** Unchanged from phase 6: the skill is
 told, the IDE is not. Out of scope here.
@@ -1177,6 +1723,28 @@ below. That is unchanged by adding a second action, because the second action is
 test that sometimes fails on a loaded machine. `expireIfStale` and `expireStaleReview` are called
 directly by the tests; that the future is actually scheduled and cancelled is covered by the hand
 checks.
+
+**A review of committed work opens plain editors, silently.** `ChangeListManager` only knows
+uncommitted changes, so a review of `main..HEAD` gets null for every file and every one of them opens as
+an editor — today's behaviour. Nothing warns the person, because from the IDE's side a file with no
+local change and a file whose change is already committed look identical. Naming it here so the next
+report of "the diff did not open" is diagnosed in a minute instead of an afternoon.
+
+**The plugin now refuses to load in an IDE without VCS.** The price of a hard `<depends>`. Every
+JetBrains IDE ships VCS, so the case is theoretical, and the failure is loud rather than a feature that
+half-works.
+
+**A remark on the revision side of a diff is now refused where it used to be stored.** Sometimes it
+resolved correctly, through the content hashing in `anchor/`, when the region happened to be unchanged
+between the two revisions — which is the case where the remark mattered least. When the region had
+changed, it orphaned with no warning. The refusal names the other pane, which is one click away.
+`docs/plans/RESUME-phase7-planner.md` records that the user may overrule this and ask for the line
+mapping instead.
+
+**The diff can arrive empty-handed on a cold project.** If a review request lands before
+`ChangeListManager`'s first refresh, `getChange` answers null for everything and the review opens plain
+editors. `invokeAfterUpdate` is the fix and is deliberately not built — see
+[section 6](#6-still-to-verify) for the check that would show it.
 
 **This still only works when the IDE and the agent share a machine.** The remote case is **phase 8**
 — `docs/ideas.md`, "Sending remarks to a remote agent session". Phase 7 helps it rather than blocking
@@ -1210,6 +1778,16 @@ POST() { curl -s -X POST -H "X-Claude-Remarks-Token: $TOKEN" -H 'Content-Type: a
       the balloon says the agent left without reading, and the remarks are **still black**
 - [ ] start a review and abandon it **before** sending — the banner disappears and the balloon says
       Claude Code stopped waiting
+- [ ] **the defect, which is the reason this phase starts where it does:** start a review, press
+      **Reject** in the banner, and confirm the link is called Reject, the banner disappears, and
+      `head -1 "$(jq -r .output /tmp/claude-remarks-start.json)"` is exactly
+      `<!-- claude-remarks: rejected -->`. Then confirm every remark is still black.
+- [ ] with the real skill running and waiting, press Reject and confirm the skill stops **within a
+      second or two**, reports the rejection, and does not treat the body as remarks. Before this
+      phase it waited the full 30 minutes.
+- [ ] write two remarks, press Send, then press Reject — the balloon says the remarks were already
+      written, the banner disappears, and the handoff file **still holds the remarks**, not the
+      rejection marker
 - [ ] **the deadline, which no test covers:** start a review with `"deadlineSeconds":60`, wait past a
       minute without touching anything, and confirm the banner disappears **on its own** and a balloon
       appears. This is the only check that the scheduled task is really scheduled.
@@ -1225,12 +1803,26 @@ POST() { curl -s -X POST -H "X-Claude-Remarks-Token: $TOKEN" -H 'Content-Type: a
 - [ ] `POST ack '{"session":"s1","project":"/nope","event":"read"}'` answers `unknown-project`
 - [ ] `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"nonsense"}'` answers `bad-request`
 - [ ] `POST frobnicate '{"session":"s1","label":"x","project":"'"$ROOT"'"}'` answers `bad-request` and
-      **no review starts** — the behaviour change in task 4
+      **no review starts** — the behaviour change in task 5
 - [ ] the ack with a wrong token returns 403 and **no dialog appears in the IDE** — the second action
       inherits the whole security rule
 - [ ] a `GET` to `/api/claude-remarks/ack` returns 404, not 405
 - [ ] close the project while a review is waiting, and confirm the IDE log holds no exception from the
       scheduled task
+- [ ] **task 10, the diff:** with two files edited but not committed and a third untouched, send
+      `POST start` with all three in `files`. One diff window opens holding **only the two edited
+      files**, with next-file navigation inside it, and the untouched one opens as a plain editor.
+- [ ] in that diff window, put the caret in the **working copy** pane and press `Ctrl+Alt+Shift+R` — the
+      remark is added, and the tool window shows it on the line you picked
+- [ ] put the caret in the **revision** pane and press the same keys — the refusal appears at the caret
+      and names the working copy. No remark is stored.
+- [ ] send a review whose `files` name only committed changes, and confirm plain editors open with no
+      error — the degraded case from [section 11](#11-known-limits)
+- [ ] send a review request within a second or two of opening the project, and confirm the diff still
+      opens rather than plain editors. If it opens plain editors, that is the
+      `ChangeListManager` refresh race from [section 6](#6-still-to-verify).
+- [ ] confirm the plugin still loads at all after the new `<depends>` — it will not if the dependency id
+      is wrong, and the symptom is the tool window simply not being there
 - [ ] with no skill and nothing listening, confirm Copy All Pending still works exactly as before
 - [ ] install the updated skill and run one real review end to end. Then run one where you never press
       Send and let the skill time out, and confirm the IDE says the agent left and the remarks are
