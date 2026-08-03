@@ -1143,9 +1143,9 @@ Why both a banner and a toolbar button: the banner is what makes the state visib
 toolbar button is easy to miss. The button is what makes the action reachable from the keyboard and from
 a keymap entry, which a hyperlink is not.
 
-- [ ] add the `WaitingReviewService` clear to `RemarksPanelTest`'s `setUp` and `tearDown`, beside the
+- [x] add the `WaitingReviewService` clear to `RemarksPanelTest`'s `setUp` and `tearDown`, beside the
       `RemarkStore` clear that is already in both
-- [ ] add the failing tests to `RemarksPanelTest.kt`. **Both must call the existing private `settle()`
+- [x] add the failing tests to `RemarksPanelTest.kt`. **Both must call the existing private `settle()`
       helper** after building or refreshing the panel: `refresh()` hops off the EDT and back, so an
       assertion made immediately sees the panel before the rebuild. Every existing test in that class
       calls it, and the `panel()` helper calls it too.
@@ -1153,17 +1153,17 @@ a keymap entry, which a hyperlink is not.
     component is not visible
   - `the banner shows the waiting label` — start a review, refresh the panel, `settle()`, assert the
     banner is visible and its text contains the label
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"` — expect a compile
       failure
-- [ ] make the banner `internal`, not private, so the test can look at it. `RemarksPanel.tree` already
+- [x] make the banner `internal`, not private, so the test can look at it. `RemarksPanel.tree` already
       does this, with the reason in a comment.
-- [ ] make the edits above
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest" --tests "dev.sasha.clauderemarks.review.SendReviewTest"`
+- [x] make the edits above
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest" --tests "dev.sasha.clauderemarks.review.SendReviewTest"`
       — both classes must pass, in one command, so a leak between them shows up here rather than in task
       10
-- [ ] **mutation check**: make the banner always visible. `the banner is hidden when no review is
+- [x] **mutation check**: make the banner always visible. `the banner is hidden when no review is
       waiting` must fail. Restore it.
-- [ ] commit, staging exactly:
+- [x] commit, staging exactly:
 
   ```bash
   git add src/main/kotlin/dev/sasha/clauderemarks/ui/RemarksToolWindowFactory.kt \

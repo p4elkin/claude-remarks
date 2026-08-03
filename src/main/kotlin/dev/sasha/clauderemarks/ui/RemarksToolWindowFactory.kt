@@ -18,8 +18,10 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.ui.EditorNotificationPanel
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
@@ -30,6 +32,8 @@ import dev.sasha.clauderemarks.action.copyRemarks
 import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
+import dev.sasha.clauderemarks.review.WaitingReviewService
+import dev.sasha.clauderemarks.review.sendToWaitingReview
 import dev.sasha.clauderemarks.store.REMARKS_CHANGED
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.RemarksListener
@@ -41,8 +45,10 @@ import dev.sasha.clauderemarks.store.fileForStoredPath
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.resolveAll
+import java.awt.BorderLayout
 import java.awt.Component
 import javax.swing.Icon
+import javax.swing.JPanel
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
@@ -86,6 +92,18 @@ class RemarksPanel(
     /** Internal, not private, so RemarksPanelTest can look at what the refresh left on screen. */
     internal val tree = Tree(DefaultTreeModel(DefaultMutableTreeNode("remarks")))
 
+    /**
+     * Internal, not private, so RemarksPanelTest can look at what refresh() left on screen.
+     * Hidden by default; refresh() below is what turns it on, once it has actually asked the
+     * service whether a review is waiting.
+     */
+    internal val banner = EditorNotificationPanel().apply {
+        text = "Claude Code is waiting"
+        createActionLabel("Send remarks") { sendToWaitingReview(project) }
+        createActionLabel("Cancel") { WaitingReviewService.getInstance(project).clear() }
+        isVisible = false
+    }
+
     init {
         tree.isRootVisible = false
         tree.showsRootHandles = true
@@ -119,7 +137,15 @@ class RemarksPanel(
         )
 
         setToolbar(buildToolbar().component)
-        setContent(JBScrollPane(tree))
+        // A plain BorderLayout panel, not setContent(tree) directly: SimpleToolWindowPanel's own
+        // layout only has room for one centre component, and this is the wrapper task 7 adds so
+        // the banner has a place to sit above the tree without disturbing the toolbar or the tree.
+        setContent(
+            JPanel(BorderLayout()).apply {
+                add(banner, BorderLayout.NORTH)
+                add(JBScrollPane(tree), BorderLayout.CENTER)
+            }
+        )
 
         refresh()
     }
@@ -142,8 +168,27 @@ class RemarksPanel(
                 expandAll()
                 recollapse(wasCollapsed)
                 restoreSelection(wasSelected)
+                updateBanner()
             }
             .submit(AppExecutorUtil.getAppExecutorService())
+    }
+
+    /**
+     * The label is caller-supplied text that arrived over HTTP, not something this plugin wrote.
+     * EditorNotificationPanel.setText feeds a JLabel, and Swing renders a string starting with
+     * "<html>" as markup, so an unescaped label could inject arbitrary Swing markup into the tool
+     * window. escapeXmlEntities turns a leading "<html>" into inert text. Cut to 120 characters
+     * first, so a very long label costs one truncated escape rather than an escape of the whole
+     * thing.
+     */
+    private fun updateBanner() {
+        val waiting = WaitingReviewService.getInstance(project).current()
+        if (waiting == null) {
+            banner.isVisible = false
+            return
+        }
+        banner.text = "Claude Code is waiting: " + StringUtil.escapeXmlEntities(waiting.label.take(120))
+        banner.isVisible = true
     }
 
     /** The ids currently selected, in the order the tree shows them. */
@@ -382,6 +427,14 @@ class RemarksPanel(
             ToolbarAction("Clear All", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
                 confirmClearAll()
             },
+            ToolbarAction(
+                "Send to Claude Code",
+                AllIcons.Actions.Upload,
+                {
+                    WaitingReviewService.getInstance(project).current() != null &&
+                        remarks().any { it.status == RemarkStatus.PENDING }
+                },
+            ) { sendToWaitingReview(project) },
             // notifyRemarksChanged, not refresh(): this panel's own subscription rebuilds the tree
             // either way, and publishing resyncs the gutter icons too. A file reload (a branch
             // switch, a VCS revert, an external edit) already publishes this on its own now — both

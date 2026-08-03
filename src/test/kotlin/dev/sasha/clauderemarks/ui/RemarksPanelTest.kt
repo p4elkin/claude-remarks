@@ -11,10 +11,12 @@ import com.intellij.ui.PopupHandler
 import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.editor.RemarkGutter
 import dev.sasha.clauderemarks.model.RemarkSeverity
+import dev.sasha.clauderemarks.review.WaitingReviewService
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.setRemarkBucket
 import java.io.File
+import java.nio.file.Files
 
 /**
  * The panel, not just the nodes it builds. RemarksTreeTest only ever looks at the node model, so
@@ -25,12 +27,17 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        // The light fixture project is shared across test classes.
+        // The light fixture project is shared across test classes. WaitingReviewService is a
+        // second piece of shared project state, on top of RemarkStore: task 6's own failure-path
+        // test deliberately leaves a review waiting, so without this clear here too, the banner
+        // test below would pass or fail depending on which test class ran first.
         RemarkStore.getInstance(project).clear()
+        WaitingReviewService.getInstance(project).clear()
     }
 
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
+        WaitingReviewService.getInstance(project).clear()
         super.tearDown()
     }
 
@@ -260,6 +267,24 @@ class RemarksPanelTest : BasePlatformTestCase() {
         settle()
 
         assertEquals(1, panel.remarks().size)
+    }
+
+    fun testTheBannerIsHiddenWhenNoReviewIsWaiting() {
+        val panel = panel()
+
+        assertFalse(panel.banner.isVisible)
+    }
+
+    fun testTheBannerShowsTheWaitingLabel() {
+        val panel = panel()
+        val outputPath = Files.createTempDirectory("remarks-panel-test")
+        WaitingReviewService.getInstance(project).start("s1", "a review label", outputPath)
+
+        panel.refresh()
+        settle()
+
+        assertTrue(panel.banner.isVisible)
+        assertTrue(panel.banner.text.orEmpty().contains("a review label"))
     }
 
     private fun panel(): RemarksPanel {
