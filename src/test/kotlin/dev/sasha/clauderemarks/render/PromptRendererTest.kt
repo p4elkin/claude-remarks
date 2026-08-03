@@ -289,6 +289,30 @@ class PromptRendererTest {
     }
 
     /**
+     * The exact-position checks above ("b⟦eta", "gam⟧ma") already pin which character sits on
+     * which line, but this pins the thing that actually matters: ⟦ comes before ⟧ in the document.
+     * Swap which marker each boundary line gets and the region reads as closing on the first line
+     * and opening on the last — running backwards — which this catches by position, not just by
+     * "both markers occur on their expected lines".
+     */
+    @Test
+    fun `a multi-line selection opens before it closes`() {
+        val out = renderPrompt(
+            "H",
+            listOf(
+                RenderedRemark(
+                    path = "a.kt", startLine = 1, endLine = 2, startColumn = 1, endColumn = 3,
+                    tag = null, severity = "should", text = "why?", orphaned = false,
+                    codeStartLine = 0, code = listOf("alpha", "beta", "gamma", "delta"),
+                )
+            ),
+        )
+        val body = out.substringAfter("---\n")
+
+        assertTrue(body, body.indexOf("⟦") < body.indexOf("⟧"))
+    }
+
+    /**
      * endColumn 0 is the convention for "no sub-line range" (see RemarkState). Byte for byte the
      * same as before this feature existed: no marker anywhere in the document.
      */
