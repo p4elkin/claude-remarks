@@ -867,14 +867,57 @@ is **RARE, MAJOR: a failed published-file write leaves the previous file in plac
 reasoning: the balloon says the write failed, but the file that is still on disk looks exactly like a
 current one to a skill reading it, and only the header's timestamp gives it away.
 
-- [ ] update `docs/claude/design.md`, describing the state machine in words and naming which action
+- [x] update `docs/claude/design.md`, describing the state machine in words and naming which action
       causes which transition
-- [ ] update `CLAUDE.md`, including the counts in rule 3 and the new guard, and write rule 3's glob
+      **Result: "The Copy Pipeline" renamed to "The Publish Pipeline" with a one-sentence note on
+      the old name; new subsection "The three states, and why published is not read" (the
+      PENDING/PUBLISHED/READ transitions, why two words rather than one, the icon opacities, and
+      the SENT-to-PENDING reset for an older build); new subsection "The published file" (name,
+      location, permissions, the overwrite-not-accumulate decision, the header, the failed-write
+      behaviour, the never-write-empty rule, the waiting-review interaction, and the skill's second
+      mode); new Known Issues entry "a failed published-file write leaves the previous file in
+      place", naming the two publish-pipeline mutations that have no automated test. Also fixed
+      every other stale mention this rename broke across the file: the data-model's `status` field
+      description, the phase 3-4 toolbar-button list, `remarkNodesUnder`'s Copy Selected mention,
+      the history-file section's `clearSentRemarks`/`removeSent` names, the change-notification
+      section's function count and list (eight to nine) and its own unquoted `--include=*.kt`
+      example, and the shared-review-session subsections that described `markRemarksSent` and
+      "Clear Sent".**
+- [x] update `CLAUDE.md`, including the counts in rule 3 and the new guard, and write rule 3's glob
       quoted while you are in there if task 24 has not run yet
-- [ ] update `README.md`
-- [ ] `./gradlew test` still passes, and all six guards are empty. Documentation should not change
+      **Result: rule 3 now says "nine functions", explains the eight-to-nine move, and its grep
+      uses `--include='*.kt'` (quoted), with a sentence on why the quoting matters. Rule 6 (the new
+      `markRemarksRead` guard) was already added by task 2 and is unchanged. The opening paragraph,
+      the "For the design" line, the phase 5 paragraph's design.md cross-reference, and the Project
+      structure's `store/RemarkEdits.kt`, `action/PublishRemarks.kt` (renamed from
+      `CopyRemarks.kt`) and `review/SendReview.kt` lines were all updated to current names and
+      counts. A new "Phase 9's group one is built" paragraph was added after the phase 8 paragraph,
+      naming the three states, the Publish rename, the published file, the skill's second mode, and
+      the two untested publish-pipeline mutations, and stating plainly that phase 9's three
+      group-one hand checks (task 1) have not been run. Added a `review/PublishedRemarks.kt` line to
+      the Project structure. Fixed stale "marked sent"/"Copy All Pending" wording left over from the
+      task 2/3 renames in the phase 7 and phase 8 paragraphs and in the Testing section
+      (`CopyRemarksTest` to `PublishRemarksTest`, plus a new `PublishedRemarksTest` mention, and the
+      mutation-function count).**
+- [x] update `README.md`
+      **Result: toolbar-button sentence now says Publish Selected covers already-published or
+      already-read remarks, and explains publishing a read remark again produces published, not
+      read; "Clear Sent" became "Clear Handed Over" everywhere. The Reviewing walkthrough's "marked
+      sent"/"turn gray... after a copy" wording was corrected to "marked read"/"after a publish" in
+      four places (phases 7 and 8 bullets, and two spots in the walkthrough prose). Added a new
+      "Phase 9, group one (this build)" bullet under Phases, moved the "(this build)" marker off
+      phase 8, and fixed the dropped-`Dispatcher`-idea paragraph's stale "The Copy Pipeline"
+      section-name reference. Testing and Architecture sections updated: eight to nine mutation
+      functions (two spots), `PublishedRemarksTest` added to the no-fixture test list, and a note on
+      `PublishedRemarks.kt` living in `review/` without being part of the review session. Added a
+      sentence to "Running in a Sandbox IDE" naming phase 9's group-one hand checks as owed too, the
+      same way phases 5/7/8 already are.**
+- [x] `./gradlew test` still passes, and all six guards are empty. Documentation should not change
       either, and running them here is what proves the group is shippable.
-- [ ] commit: `docs: record the three states, the publish pipeline and the published file`
+      **Result: all six guards (quoted glob) returned empty. `./gradlew test`: BUILD SUCCESSFUL,
+      `:test` reported UP-TO-DATE because this task changed only Markdown files, so the compiled
+      tree and test results are byte-identical to task 6's last green run.**
+- [x] commit: `docs: record the three states, the publish pipeline and the published file`
 
 ### Group two: the remark points at the phrase
 

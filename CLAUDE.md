@@ -3,43 +3,53 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-8 are implemented and covered by unit tests. What has and has not been in front of a real
-IDE, per phase: **phase 6's seven security hand checks were run in a real IDE before 0.3.0 was
-released**, and phase 5's commit stamp was checked in a real IDE too. The `runIde` checks in the
-phase 1-2, phase 3-4, phase 5, **phase 7** and **phase 8** plans were skipped in the autonomous
-sessions that did that work, so for those treat "it works" as "the tests pass" until someone runs
-the hand checks at the end of the plan. **Phase 7's matter most now**, and none of them has been run: a second delivery
+Phases 1-8 are implemented and covered by unit tests. Phase 9's group one (tasks 1-7: three remark
+states in place of one, the Publish action, the published file, and the skill's second mode that
+reads it) is implemented and covered by unit tests too; groups two through five of phase 9 are not
+built yet. What has and has not been in front of a real IDE, per phase: **phase 6's seven security
+hand checks were run in a real IDE before 0.3.0 was released**, and phase 5's commit stamp was
+checked in a real IDE too. The `runIde` checks in the phase 1-2, phase 3-4, phase 5, **phase 7**,
+**phase 8** and **phase 9** plans were skipped in the autonomous sessions that did that work, so for
+those treat "it works" as "the tests pass" until someone runs the hand checks at the end of the
+plan. **Phase 7's matter most now**, and none of them has been run: a second delivery
 signal, a scheduled deadline, and a diff opened over VCS all depend on platform behaviour no
 automated test in this project reaches. See `docs/claude/design.md` for exactly which. **Phase 8
 owes hand checks too, and it needs something no earlier phase did: a second machine.** A tunnel, an
 `sshd`, and an agent session on the far side of it are needed to check the remote path at all. One
 machine is enough for the fetch action's own answers, but not for the tunnel. None of phase 8's
 checks have been run. Section 13 of `docs/plans/20260803-claude-remarks-phase8.md` lists all of
-them, split by which group needs the second machine. Select lines, press `Ctrl+Alt+Shift+R` (or
-use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a
+them, split by which group needs the second machine. **Phase 9's three group-one hand checks have not
+been run either**, and task 1 of its plan says so in its own checkboxes: whether the plugin loads at
+all, whether a sub-line remark's markers land in the right place, and whether the grey row and faded
+gutter icon are visible, are all still owed in a sandbox IDE. Select lines, press `Ctrl+Alt+Shift+R`
+(or use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a
 severity level, and press Enter. A gutter icon appears on the marked lines and follows the code as
 you keep editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a
 class name from the project. The tool window lists every remark as a tree grouped by file, with a
 bucket level above the files once any remark is put in one; right-click a row for the severity and
-bucket menu. Press Copy All Pending in the tool window to turn every pending remark into one
-markdown prompt on the clipboard; a balloon says how many. Copied remarks turn gray rather than
-disappearing, so Copy Selected can send them again if the paste went to the wrong place. Clearing
-(Clear Sent, Clear All) archives to a history file in the IDE configuration directory before it
+bucket menu. Press Publish All Pending in the tool window to turn every pending remark into one
+markdown prompt on the clipboard, and also to write the same prompt, with a small header on top, to a
+file under `~/.claude-remarks/` that a Claude Code skill can read on its own, with no review ever
+started; a balloon says how many remarks and files. Published remarks turn gray rather than
+disappearing, so Publish Selected can send them again if the paste went to the wrong place, and
+publishing a remark that was already read by a review hands it over again the same way. Clearing
+(Clear Handed Over, Clear All) archives to a history file in the IDE configuration directory before it
 removes anything. If a Claude Code skill has started a review, a banner reads "Claude Code is
 waiting: <label>" above the tree and Send to Claude Code hands every pending remark to it the same
-way Copy All Pending hands them to the clipboard — see "The Shared Review Session" below for how
+way Publish All Pending hands them to the clipboard — see "The Shared Review Session" below for how
 the IDE finds the skill and hands the remarks back.
 
 For the design — how anchoring, the gutter, the change notification, severity and buckets, the
-commit stamp, the history file, the copy pipeline, and the shared review session work — see
-`docs/claude/design.md`.
+commit stamp, the history file, the publish pipeline, the published file, and the shared review
+session work — see `docs/claude/design.md`.
 
 **Phase 5 is built.** It added a severity level and named buckets to a remark, tag chips with Alt
 keys in place of the old tag drop-down, a commit stamp read straight out of `.git`, a history file
 that cleared remarks are archived to instead of deleted, and a keystroke that inserts a class name
 into the remark text. One specific automated-dispatch idea was dropped before it was built: a
 pluggable `Dispatcher` interface, a tmux pane, a file inside `.idea/`. See `docs/claude/design.md`,
-section "The Copy Pipeline", for why. That idea stays dropped — phase 6 below does not revive it.
+section "The Publish Pipeline" (called "The Copy Pipeline" until phase 9 renamed it), for why. That
+idea stays dropped — phase 6 below does not revive it.
 
 **Phase 6 is built.** It adds a different, simpler automated path next to the clipboard, never
 instead of it: a Claude Code skill can ask a running IDE to hold a review open through the IDE's
@@ -53,7 +63,7 @@ forward from before it was built.
 it." Rejecting a review in the banner now writes that decision to the handoff file and clears the
 review — the link is called Reject, not Cancel — instead of only closing the banner while the skill
 waits out its full timeout. A review carries a phase, `Waiting` or `Sent`: sending writes the file
-and records which remarks it wrote, but does not mark them sent; only a `read` acknowledgement from
+and records which remarks it wrote, but does not mark them read; only a `read` acknowledgement from
 the skill does that, over a second endpoint action, `POST /api/claude-remarks/ack`. The skill also
 declares how long it will wait, and the IDE clamps and enforces that deadline itself, so a killed
 or abandoned session does not leave a stale banner and a live Send button on screen forever. A
@@ -69,8 +79,8 @@ tunnel the person sets up by hand. The IDE's built-in server gains a third actio
 `POST /api/claude-remarks/fetch`. It reads the waiting review's handoff file and returns the content
 in the response body, instead of a path. A path on the IDE machine means nothing to an agent on a
 different machine. An HTTP response body crosses the tunnel the same way any other response does.
-The fetch changes nothing: no remark is marked sent, no state moves. The `read`
-acknowledgement is still the only thing that marks remarks sent, so the fetch can be repeated as
+The fetch changes nothing: no remark is marked read, no state moves. The `read`
+acknowledgement is still the only thing that marks remarks read, so the fetch can be repeated as
 often as the skill's poll needs, and a lost response only costs one retry. Fetching a review that
 ended by rejection still works. The service now remembers the most recently ended review's output
 path, one review at a time. A rejection is written into the handoff file, and then the review is
@@ -86,6 +96,24 @@ never what protected this endpoint. The only gate is the plugin's own token chec
 of any request carrying `Origin` or `Referer`. See `docs/claude/design.md`, section "The Shared Review Session", subsection
 "Reaching an agent on another machine", for the whole design, and `docs/ideas.md` for the reasoning
 this carries forward.
+
+**Phase 9's group one is built.** A remark now has three states instead of two: `PENDING`,
+`PUBLISHED` and `READ`, not `PENDING` and `SENT`. `PUBLISHED` means handed to a channel that cannot
+confirm a read — the clipboard, or the published file below; `READ` means an agent said, through the
+shared review session, that it actually read the remarks. Only the review's own acknowledgement can
+produce `READ`; publishing, however many times, only ever produces `PUBLISHED`. The action people
+press is now called Publish, not Copy — `ClaudeRemarks.CopyAll` keeps its id, because `README.md`
+promises that id will not be renamed, but the button, the menu entry and the class are all Publish
+now. Publishing also writes the same rendered prompt, with a small dated header on top, to a file
+under `~/.claude-remarks/<hash of the project path>.md`, overwritten on every publish, so a Claude
+Code skill can read published remarks on its own schedule with no review ever started;
+`docs/skill/claude-remarks-review/SKILL.md` gained a second mode that reads it. Two behaviours in the
+publish pipeline have no automated test at all: a failed published-file write after the clipboard
+already succeeded, and a project root that fails to resolve. Both still mark the remarks published,
+correctly, and both are only checkable by hand — see `docs/claude/design.md`'s Known Issues entry "a
+failed published-file write leaves the previous file in place". See `docs/claude/design.md`, sections
+"The Publish Pipeline", "The three states, and why published is not read" and "The published file",
+for the whole design.
 
 ## Rules that must not break
 
@@ -104,20 +132,28 @@ this carries forward.
    grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt   # must find nothing
    ```
 
-3. **`store/RemarkEdits.kt` holds the only eight functions that change a remark.**
+3. **`store/RemarkEdits.kt` holds the only nine functions that change a remark.**
    `RemarkStore`'s own mutators stay public, and `RemarkEdits.kt` sits in the same package, so
-   nothing but this check keeps the claim true. A caller that reaches past the eight functions
+   nothing but this check keeps the claim true. A caller that reaches past the nine functions
    mutates the store without telling the gutter or the tool window to redraw. The grep allows
    through the one read-only method by name, `all()`, rather than listing the mutator names by
    hand: a hand-picked list has to be edited every time a mutator is added, and forgetting is
    silent — the guard keeps passing while it stops covering the new function. That is exactly
    what happened here: phase 5 added `setSeverity`/`setBucket`, and the old six-name list never
-   saw them.
+   saw them. The count moved from eight to nine in phase 9, when `markRemarksSent` split into
+   `markRemarksPublished` and `markRemarksRead`, and `clearSentRemarks` was renamed to
+   `clearHandedOverRemarks` — a rename, not a new function, so it did not change the count on its
+   own.
 
    ```bash
-   grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include=*.kt \
+   grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include='*.kt' \
      | grep -v RemarkEdits.kt | grep -v "\.all()"   # must be empty
    ```
+
+   The glob has to be quoted. Unquoted, zsh expands `*.kt` itself before `grep` ever runs; with no
+   match in the current directory it fails the whole line with "no matches found" before the
+   pipeline starts, and that prints nothing — indistinguishable from an empty, passing result.
+   Checked directly: `zsh -c` with the bare form fails that way, the quoted form runs.
 
    Test code is outside this one on purpose: fixture-backed test classes call
    `RemarkStore.getInstance(project).clear()` in `setUp` to clear the shared light-fixture project
@@ -172,7 +208,7 @@ this carries forward.
    explaining.
 
    **Phase 7 hit the same trap and it is still live.** The `ack` action's consequences — marking a
-   remark sent, showing a balloon — live in `review/SendReview.kt`, not in `ReviewRestService.kt`,
+   remark read, showing a balloon — live in `review/SendReview.kt`, not in `ReviewRestService.kt`,
    for exactly this rule. The comment in `ReviewRestService.kt` that explains why says "the file that
    owns the editor side" and names `review/SendReview.kt` by path, and does not spell out any of the
    five forbidden symbols, even to say they are absent.
@@ -203,7 +239,7 @@ src/main/kotlin/dev/sasha/clauderemarks/
   anchor/Anchoring.kt              hashing, capture, the two-pass resolve. No platform imports.
   model/RemarkState.kt             the persisted record, RemarkTag (+ its label extension), RemarkStatus
   store/RemarkStore.kt             @Service project component, state in workspace.xml
-  store/RemarkEdits.kt             the eight mutation functions, the REMARKS_CHANGED topic
+  store/RemarkEdits.kt             the nine mutation functions, the REMARKS_CHANGED topic
   store/RemarkResolver.kt          projectRoot, resolveAll, and anchorOf
   store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, the diff fallback, and the
                                    refusal for a remark on the revision side of a diff
@@ -222,8 +258,9 @@ src/main/kotlin/dev/sasha/clauderemarks/
   ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar, self-refresh on REMARKS_CHANGED
   action/AddRemarkAction.kt        the shortcut / popup-menu entry point, plus selectedLines()
   action/AddRemarkIntention.kt     the Alt+Enter entry point
-  action/CopyRemarks.kt            copyRemarks(project, ids), the whole copy pipeline, plus the
-                                   Tools-menu action that calls it without the tool window
+  action/PublishRemarks.kt         publishRemarks(project, ids), the whole publish pipeline, plus the
+                                   Tools-menu action (PublishAllRemarksAction) that calls it without
+                                   the tool window; renamed from CopyRemarks.kt/copyRemarks in phase 9
   editor/RemarkGutterIcon.kt       the placement record, the tooltip, the gutter icon renderer
   editor/RemarkGutter.kt           the project service that keeps gutter icons in step
   editor/RemarkGutterStartup.kt    the ProjectActivity that starts RemarkGutter, and
@@ -236,6 +273,9 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    the per-run ReviewToken, and ReviewHandshakeService (@Service
                                    PROJECT, Disposable) — the file a skill reads to find this IDE
   review/AtomicWrite.kt            atomicWriteString: temp file beside the target, then rename
+  review/PublishedRemarks.kt       publishedName, PUBLISHED_MARKER, publishedHeader, writePublished
+                                   — the published file a publish writes under handshakeDir(), added
+                                   in phase 9
   review/WaitingReview.kt          WaitingReviewState (with its ReviewPhase, deadlineAt and
                                    isStale), StartResult, the pure startOrConflict, and
                                    WaitingReviewService (@Service PROJECT, Disposable) — at most one
@@ -250,9 +290,9 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    requestIsAllowed/projectForPath helpers. Rule 5 above governs this
                                    file specifically
   review/SendReview.kt             sendToWaitingReview and SendReviewAction: the same prepare()
-                                   pipeline Copy All Pending uses, written to the handoff file
+                                   pipeline Publish All Pending uses, written to the handoff file
                                    instead of the clipboard; rejectWaitingReview; finishReview and
-                                   expireStaleReview, the ack's consequences (marking sent, the
+                                   expireStaleReview, the ack's consequences (marking read, the
                                    balloon), kept out of ReviewRestService.kt by rule 5
   review/OpenReviewFiles.kt        the only file in review/ that touches the VFS or the editor —
                                    opens a real diff over the files that have a local change,
@@ -331,7 +371,7 @@ need a light IDE fixture
 `Document`, or a real markup model: `RemarkStoreServiceTest`, `ResolveAllTest` (stored remarks
 resolved against real files, including a path that tries to climb out of the project),
 `SelectedLinesTest` (the selection line math against a real `Document`), `RemarkEditsTest` (the
-eight mutation functions publish `REMARKS_CHANGED`), the key-binding half of
+nine mutation functions publish `REMARKS_CHANGED`), the key-binding half of
 `RemarkInputPanelTest`, `AddRemarkActionTest`, `ActionIdsTest` (pins the two action ids and the
 tool window's derived activation id, so a rename is caught rather than silently breaking every
 `.ideavimrc`), `RemarkActionsTest` (the severity and bucket menu acts on the ids it is given at
@@ -341,19 +381,21 @@ over a selection), `DiffRemarkTargetTest` (adding a remark from a diff pane: a r
 diff viewer), the renderer-equality half of `RemarkGutterIconTest`, `RemarkGutterTest` (the gutter
 service), `RemarksPanelTest` (the tool window panel: every file and bucket group ends up expanded,
 and the selection survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
-0-based line argument), the collector half of `PromptPayloadTest`, `CopyRemarksTest`,
+0-based line argument), the collector half of `PromptPayloadTest`, `PublishRemarksTest` (renamed
+from `CopyRemarksTest` in phase 9), `PublishedRemarksTest` (the published file's name, header and
+write, added in phase 9),
 `ReviewEndpointSmokeTest` (the one test that calls `ReviewRestService.execute` itself, through a
 real `EmbeddedChannel`, so the response actually carries a body, plus the ack action's five answers,
 the unknown-action refusal, that the deadline the request declares really reaches the review, and,
 since phase 8, the fetch action's answers: `waiting` before a send, `ready` with the whole prompt
-after one, that a fetch marks nothing sent and leaves the review alone, that a fetch still carries a
+after one, that a fetch marks nothing read and leaves the review alone, that a fetch still carries a
 rejection's body, `no-review` for a session nothing knows about, `too-large` over the size cap,
 `bad-request` for a missing field, and `unknown-project` for a project nothing has open),
 `OpenReviewFilesTest` (the string-only half of the path
 filter: absolute paths and `..` segments are dropped, plus a fixture-backed class for the
 diff-or-editor decision, since a light fixture project has no VCS root and every file takes the
 plain-editor branch), `SendReviewTest` (the send action's success and failure paths, that nothing is
-marked sent until the read acknowledgement, that an abandoned acknowledgement and the deadline both
+marked read until the read acknowledgement, that an abandoned acknowledgement and the deadline both
 leave the remarks pending, the reject action, and the phase guards that refuse a second send or an
 overwrite after a send), and `WaitingReviewServiceTest` (fixture-backed, because a
 project-level service needs a project: `markSent` and the session it names, `acknowledge`,

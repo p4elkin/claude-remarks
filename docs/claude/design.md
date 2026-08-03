@@ -37,9 +37,11 @@ A remark has these fields:
 - `text`: The user's note (what they wrote in the remark).
 - `tag`: An optional category from `RemarkTag.BUG | QUESTION | REFACTOR | NOTE`, picked in the
   input popup (`ui/RemarkInputPanel.kt`) when the remark is written or edited.
-- `status`: One of `RemarkStatus.PENDING` or `RemarkStatus.SENT`. Defaults to `PENDING`. Set to
-  `SENT` by `markRemarksSent` once a copy reaches the clipboard — see "The Copy Pipeline" below.
-  Sent remarks stay in the list, drawn gray, until Clear Sent.
+- `status`: One of `RemarkStatus.PENDING`, `PUBLISHED` or `READ`. Defaults to `PENDING`. Set to
+  `PUBLISHED` by `markRemarksPublished` once a publish reaches the clipboard or the published file,
+  and to `READ` by `markRemarksRead` once a review acknowledgement says an agent read it — see "The
+  three states, and why published is not read" below. Published and read remarks both stay in the
+  list, drawn gray, until Clear Handed Over.
 - `createdAt`: Timestamp when the remark was created.
 - `textHash`: The first 16 hex characters of a SHA-256 hash of the lines at creation time.
 - `contextBefore`, `contextAfter`: A few lines of context from above and below the remark, joined with newlines in a single string. Stored this way instead of as a list because the serializer handles single strings more predictably.
@@ -103,8 +105,9 @@ are one cheap line that makes every mutation mark the state changed without havi
 what the property tracker sees. `RemarkStoreStateTest` asserts the modification count goes
 up after an add and after a real remove, and stays put when `removeRemark` is given an unknown id.
 
-Every method on the state class (`addRemark`, `removeRemark`, `editRemark`, `markSent`,
-`removeSent`, `clear`, `snapshot`, `modCount`) is `@Synchronized` on the state object, so they all
+Every method on the state class (`addRemark`, `removeRemark`, `editRemark`, `markPublished`,
+`markRead`, `removeHandedOver`, `clear`, `snapshot`, `modCount`) is `@Synchronized` on the state
+object, so they all
 lock the same monitor. The tool window resolves remarks from a pooled
 thread while the editor action adds them on the EDT, and the backing collection is
 `ModCountableList`, a plain `ArrayList` subclass with no thread safety. A read action does not
@@ -444,12 +447,14 @@ Phase 4 is the output side: turning pending remarks into one prompt.
   `SimplePersistentStateComponent` with the default `RoamingType`, so the header travels through
   JetBrains Settings Sync — right for a template written once and wanted on every machine, unlike
   the project data, which is `RoamingType.DISABLED` because file paths do not travel.
-- **The markdown renderer** (`render/PromptRenderer.kt`) and **the copy pipeline**
-  (`render/PromptPayload.kt`, `action/CopyRemarks.kt`) are covered in "The Copy Pipeline" below.
-- **The toolbar** has five buttons: Copy All Pending, Copy Selected, Clear Sent, Clear All,
-  Refresh. Both Clear buttons ask first and name their count. Copy Selected and Clear Sent grey
-  out when there is nothing to act on, because a live button that does nothing when pressed is
-  its own kind of silent failure — the same reasoning that keeps `AddRemarkAction` visible above.
+- **The markdown renderer** (`render/PromptRenderer.kt`) and **the publish pipeline**
+  (`render/PromptPayload.kt`, `action/PublishRemarks.kt`, renamed from `CopyRemarks.kt` in phase 9)
+  are covered in "The Publish Pipeline" below.
+- **The toolbar** has five buttons, renamed in phase 9 from Copy All Pending, Copy Selected, Clear
+  Sent to: Publish All Pending, Publish Selected, Clear Handed Over, Clear All, Refresh. Both Clear
+  buttons ask first and name their count. Publish Selected and Clear Handed Over grey out when
+  there is nothing to act on, because a live button that does nothing when pressed is its own kind
+  of silent failure — the same reasoning that keeps `AddRemarkAction` visible above.
 
 ### What is still not built
 
@@ -548,11 +553,11 @@ group — the null one is keyed `"bucket: none"`, and a leading space cannot occ
 because `setRemarkBucket` trims it.
 
 `remarkNodesUnder` (also `RemarksTree.kt`) walks the whole subtree under a selected node, not one
-level down the way it used to. That is what makes Copy Selected on a bucket node mean "copy this
-bucket," and it is the entire reason there is no separate Copy Bucket button: select the bucket row
-and press Copy Selected. The one-level walk this replaced would have found file nodes under a
-bucket — not `RemarkNode`s — and silently answered an empty list, so Copy Selected and Delete on a
-bucket node would have done nothing at all, with no message saying why.
+level down the way it used to. That is what makes Publish Selected on a bucket node mean "publish
+this bucket," and it is the entire reason there is no separate Publish Bucket button: select the
+bucket row and press Publish Selected. The one-level walk this replaced would have found file nodes
+under a bucket — not `RemarkNode`s — and silently answered an empty list, so Publish Selected and
+Delete on a bucket node would have done nothing at all, with no message saying why.
 
 ### Tag chips, and picking one from the keyboard
 
@@ -702,10 +707,12 @@ when a remark has gone missing and someone needs to know which revision to diff 
 
 ### The history file, and archiving before delete
 
-Clearing used to delete outright. Now `clearSentRemarks` and `clearAllRemarks`
+Clearing used to delete outright. Now `clearHandedOverRemarks` and `clearAllRemarks`
 (`store/RemarkEdits.kt`) write the remarks about to go to a history file first, and only call
-`removeSent()` or `clear()` if that write succeeds: the private `archive(...)` helper returns false
-and shows a red balloon on `IOException`, and nothing is removed when it does. A single Delete on
+`removeHandedOver()` or `clear()` if that write succeeds: the private `archive(...)` helper returns
+false and shows a red balloon on `IOException`, and nothing is removed when it does. Phase 9 renamed
+this pair from `clearSentRemarks`/`removeSent()`, once "sent" stopped being the only word for
+"handed over" — see "The three states, and why published is not read" below. A single Delete on
 one row does not archive anything. Picking out one row and deleting it is an explicit "this one was
 a mistake," and archiving every typo along with every real remark would make the history file
 useless to read later.
@@ -723,14 +730,15 @@ way. The markdown file is about fifteen lines of code, and can be opened, greppe
 today. What is given up: there is no button that restores an archived remark.
 
 Two details of the write are less obvious than they look. The history file is a **nullable** parameter
-on `clearSentRemarks` and `clearAllRemarks`, not one defaulted to `historyFile(project)`: Kotlin
-evaluates a default argument in the synthetic bridge, before the body runs, so a default would resolve
-the path OUTSIDE `archive`'s try — and anything it threw would leave the function as an unhandled
-exception out of the toolbar action rather than as the balloon written for that case. Null means "the
-real one", resolved inside the try. And Clear Sent shows its success balloon only when something was
-actually removed: `clearSentRemarks` returns 0 both for "nothing was sent" and "the archive failed",
-the sent count is already known non-zero by then, so 0 can only mean failure — and "Removed 0 sent
-remarks." beside a red error balloon was the wrong half of the truth.
+on `clearHandedOverRemarks` and `clearAllRemarks`, not one defaulted to `historyFile(project)`:
+Kotlin evaluates a default argument in the synthetic bridge, before the body runs, so a default
+would resolve the path OUTSIDE `archive`'s try — and anything it threw would leave the function as
+an unhandled exception out of the toolbar action rather than as the balloon written for that case.
+Null means "the real one", resolved inside the try. And Clear Handed Over shows its success balloon
+only when something was actually removed: `clearHandedOverRemarks` returns 0 both for "nothing was
+handed over" and "the archive failed", the handed-over count is already known non-zero by then, so 0
+can only mean failure — and "Removed 0 handed-over remarks." beside a red error balloon was the
+wrong half of the truth.
 
 `appendToHistory` writes what was STORED about each remark — its stored line numbers, text, tag,
 severity, bucket and commit — not a fresh resolve against the file as it stands now: by the time
@@ -873,18 +881,21 @@ the manual escape for the gutter as well as for the tree.
 ## The Change Notification
 
 `REMARKS_CHANGED` (a `Topic<RemarksListener>`, project-level, `BroadcastDirection.NONE`) lives in
-`store/RemarkEdits.kt`, beside the eight functions that publish it, not inside `RemarkStore`. Two
+`store/RemarkEdits.kt`, beside the nine functions that publish it, not inside `RemarkStore`. Two
 things need to hear about a change: the gutter service and the tool window tree. Keeping the topic
 out of the store is about cost, not purity: adding a `Project` constructor parameter to
 `RemarkStore` would touch fourteen call sites that build it directly, and keeping the store free
 of the message bus is what lets `RemarkStoreStateTest` stay a plain JUnit test with no IDE fixture.
 
-`store/RemarkEdits.kt` holds the only eight functions production code uses to change a remark:
-`addRemark`, `editRemark`, `deleteRemark`, `markRemarksSent`, `setRemarkSeverity`,
-`setRemarkBucket`, `clearSentRemarks`, `clearAllRemarks`. Each one mutates through `RemarkStore` and
-then publishes — that pairing is the whole mechanism, there is no separate listener list or observer
+`store/RemarkEdits.kt` holds the only nine functions production code uses to change a remark:
+`addRemark`, `editRemark`, `deleteRemark`, `markRemarksPublished`, `markRemarksRead`,
+`setRemarkSeverity`, `setRemarkBucket`, `clearHandedOverRemarks`, `clearAllRemarks`. Phase 9 grew
+this list from eight by splitting `markRemarksSent` into `markRemarksPublished` and the new
+`markRemarksRead`, and by renaming `clearSentRemarks` to `clearHandedOverRemarks` — see "The three
+states, and why published is not read" below. Each one mutates through `RemarkStore` and then
+publishes — that pairing is the whole mechanism, there is no separate listener list or observer
 class. `RemarkStore`'s own `add`/`remove`/`edit`/`setSeverity`/`setBucket`/... stay public, and
-nothing in the language stops a caller from reaching past the eight functions and calling them
+nothing in the language stops a caller from reaching past the nine functions and calling them
 directly, so the rule is checked rather than assumed. The check used to list the mutator names by
 hand, which is exactly what let phase 5 add `setSeverity`/`setBucket` to `RemarkStore` without the
 old grep noticing: a hand-picked list has to be edited every time a mutator is added, and forgetting
@@ -892,27 +903,80 @@ is silent — the guard keeps passing while it stops covering the new function. 
 `CLAUDE.md` now allows through the one read-only method by name, `all()`, instead:
 
 ```bash
-grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include=*.kt \
+grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include='*.kt' \
   | grep -v RemarkEdits.kt | grep -v "\.all()"   # must be empty
 ```
+
+The glob has to be quoted. Unquoted, zsh expands `*.kt` itself before `grep` ever runs, and if
+nothing in the current directory matches it, zsh fails the whole line with "no matches found"
+before the pipeline starts — which prints nothing, exactly what an empty, passing result also looks
+like. Checked directly: `zsh -c` with the bare form fails that way; the quoted form runs. See
+`CLAUDE.md`, rule 3, for the same fix.
 
 Test code is outside that check on purpose: fixture-backed test classes call
 `RemarkStore.getInstance(project).clear()` in `setUp` to clear the shared light-fixture project
 between test classes, and that call has nothing to publish to.
 
-## The Copy Pipeline
+## The Publish Pipeline
 
-Copy All Pending and Copy Selected both end up in `copyRemarks(project, ids)`
-(`action/CopyRemarks.kt`). `ids == null` means every `PENDING` remark; a non-null list is used as
-given, sent remarks included, which is what makes copying again after a paste went to the wrong
-place work.
+This section used to be called "The Copy Pipeline". Phase 9 renamed the action from Copy to
+Publish and added a second destination, the published file, described below in "The published
+file".
+
+Publish All Pending and Publish Selected both end up in `publishRemarks(project, ids)`
+(`action/PublishRemarks.kt`). `ids == null` means every `PENDING` remark; a non-null list is used as
+given, published remarks included, which is what makes publishing again after a paste went to the
+wrong place work.
+
+### The three states, and why published is not read
+
+`RemarkStatus` (`model/RemarkState.kt`) has three values: `PENDING`, `PUBLISHED`, `READ`. A remark
+starts `PENDING`. Publishing it, through either the clipboard or the published file described below,
+moves it to `PUBLISHED`. Only one thing moves it to `READ`: an agent, through the shared review
+session, telling the IDE it actually read the handoff file — `reportReviewEnd`'s `ReviewEnd.READ`
+branch in `review/SendReview.kt`, over `POST /api/claude-remarks/ack`. Sending to a waiting review
+in the first place changes no state at all: the handoff file is written, but the remarks stay
+`PENDING` until that acknowledgement arrives, or forever if it never does. `CLAUDE.md` rule 6 keeps
+this true by grep: only `store/RemarkEdits.kt` and `review/SendReview.kt` may call `markRemarksRead`.
+
+The reason for two separate words, `PUBLISHED` and `READ`, rather than one, is that only one of the
+two channels can confirm anything. The clipboard and the published file are both one-way: the plugin
+hands the text over and has no way to learn whether anyone pasted it or opened the file.
+`PUBLISHED` means exactly that, "handed to a channel that cannot confirm a read." The review channel
+is different: it has a session id, a deadline, and an acknowledgement, so it can confirm a read, and
+`READ` is what that confirmation is worth. Treating the two as the same state would let a publish
+claim a confirmation nobody gave.
+
+Publishing a remark that is already `READ` moves it back to `PUBLISHED`, never the other way round.
+Handing a remark over again is a new handover, and nothing has confirmed that second one yet, so
+claiming `READ` for it would be a lie. `markPublished` (`store/RemarkStore.kt`) counts a remark as
+changed whenever its status is not already `PUBLISHED`, which is what makes that move happen.
+`removeHandedOver` removes everything that is not `PENDING`, so Clear Handed Over takes `PUBLISHED`
+and `READ` remarks together, archiving them to the history file first exactly as before.
+
+The tree row and the gutter icon draw three appearances, one per state, all through the same
+`GRAYED_ATTRIBUTES` — the word at the end of the row, "published" or "read", is what actually tells
+the two grey states apart, because a second shade of grey is a distinction a person could not read
+reliably on screen. `PENDING` keeps `AllIcons.General.Note` at full strength and a black row.
+`PUBLISHED` keeps the icon at 45% opacity, exactly what "sent" used before this phase. `READ` is
+fainter still, at 25%, because it is one step further into "already dealt with."
+
+`RemarkStatus` used to be a two-value enum, `PENDING` and `SENT`, and its own KDoc said `SENT` meant
+"a copy reached the clipboard" while the review path wrote the same value for "an agent read it" —
+one stored value doing two different jobs. Nothing outside Kotlin ever reads the persisted string
+(only `workspace.xml` does, through the platform's own `BaseState` serializer), so the rename costs
+exactly one thing: a remark a pre-phase-9 build stored as `SENT` does not parse against the new enum
+and loads as `PENDING`. That is accepted. Those remarks had already been handed over once, under the
+old, single meaning, and nothing about them is lost but a colour — see `RemarkStoreStateTest`'s
+`a remark stored as SENT by an older build loads as pending`, which pins the reset as a decision.
 
 Everything expensive runs inside one `ReadAction.nonBlocking` block, off the EDT: resolving
 (`resolveAll`), reading each file's `Document` once and slicing the anchored lines plus
 `PROMPT_CONTEXT_LINES` (3) either side (`render/PromptPayload.kt`'s `collectForPrompt`), and
 rendering the markdown (`render/PromptRenderer.kt`'s `renderPrompt`, zero platform imports, the
 same shape as `anchor/Anchoring.kt`). The EDT step that follows builds the clipboard payload, copies
-it, runs `markRemarksSent` and shows a balloon.
+it, writes the published file (see "The published file" below), runs `markRemarksPublished` and
+shows one balloon.
 
 **`clipboardPayload` is one function with a size check, not two implementations.** Under
 `INLINE_LIMIT_BYTES` (100 KB, measured in UTF-8 bytes, not characters) the markdown goes on the
@@ -931,14 +995,18 @@ inline limit nothing is written at all, and above it one `Files.writeString` of 
 kilobytes into the system temp directory is a millisecond or two. If a payload ever grows large
 enough for that to be felt, the extra hop is the fix.
 
-The copy has a failure path. `IOException` from the write and `IllegalStateException` from the
-clipboard are both reported through a red balloon, and `markRemarksSent` is skipped — nothing was
-handed over, so nothing is marked as handed over. The read action has one too: `onError` on the
-promise reports anything thrown inside `prepare` the same way. Without it a failure there skipped
-`finishOnUiThread` entirely, so the whole action put nothing on the clipboard, marked nothing sent
-and said nothing at all, with the reason only in the platform log. A run dropped by `coalesceBy` or
-expired with the project lands in `onError` too and stays quiet, which is why the cancellation types
-are checked there.
+The publish has a failure path, and it now has two destinations that can each fail on their own.
+An `IOException` from the temp-file write or an `IllegalStateException` from the clipboard is
+reported through a red balloon, and `markRemarksPublished` is skipped entirely — nothing was handed
+over, so nothing is marked as handed over. A failure in the published-file write is different: it
+runs after the clipboard already succeeded, so the remarks **are** still marked published, and the
+balloon names the file failure in the same sentence rather than staying silent about it. See "The
+published file" below for why that asymmetry is the honest answer. The read action has a failure
+path too: `onError` on the promise reports anything thrown inside `prepare` the same way. Without it
+a failure there skipped `finishOnUiThread` entirely, so the whole action put nothing on the
+clipboard, marked nothing published and said nothing at all, with the reason only in the platform
+log. A run dropped by `coalesceBy` or expired with the project lands in `onError` too and stays
+quiet, which is why the cancellation types are checked there.
 
 **The temp file is why nothing remark-related can enter version control by this route.** A file
 under `java.io.tmpdir` is outside the project directory, so no `.gitignore` question ever arises.
@@ -957,11 +1025,13 @@ prompt header.
 was never built, full stop. That specific idea — the `Dispatcher` interface, the tmux pane, a file
 inside `.idea/` — stays dropped for the reasons above. But phase 6 later built a different
 automated path, over a different transport, that does not go through this pipeline at all: see
-"The Shared Review Session" below. Copy All Pending and Copy Selected still end here, unchanged.
+"The Shared Review Session" below. Publish All Pending and Publish Selected still end here,
+unchanged in shape — renamed from Copy All Pending and Copy Selected in phase 9, which also gave
+them a second destination, the published file, described below in "The published file".
 
 `resolveAll` and `collectForPrompt` never drop a remark. A file that cannot be read, or a remark
 that resolves as `Orphaned`, still gets a row in the prompt rather than silently disappearing from
-the copy. Neither quotes code at the stale line numbers: whatever drifted into that position is
+the publish. Neither quotes code at the stale line numbers: whatever drifted into that position is
 not the remark's code, and the header tells the reader to trust the quoted lines over the numbers,
 so quoting unrelated code under a `>` marker would be an instruction to edit the wrong lines.
 
@@ -987,6 +1057,76 @@ where its author can see what it did.
 
 The header follows revdiff's model: a remark that asks a question gets answered rather than turned
 into an edit.
+
+### The published file
+
+Publishing writes to a second destination besides the clipboard: a file a Claude Code skill can read
+whenever it likes, with no review ever having been started. `review/PublishedRemarks.kt` holds it:
+`publishedName(realPath)` names it, `publishedHeader(now, commit, count)` builds what sits above the
+prompt, and `writePublished(root, body, dir)` writes it.
+
+**The name and the location.** `~/.claude-remarks/<first 16 hex of sha256 of the real project
+path>.md`. That is the same 16 characters `handshakeName` (`review/ReviewHandshake.kt`) computes for
+the handshake file, with `.md` in place of `.json` — `projectHash` was pulled out of `handshakeName`
+so both callers share one function rather than two copies of the same hash. A skill running inside
+the repository computes the same name with the one-line `shasum` it already runs for the handshake.
+Permissions are `rw-------`, in a directory already `rwx------`, because the file holds remark text
+and slices of real source.
+
+**One file, overwritten, not a file per publish.** Publishing again replaces what was there. Publish
+three remarks, write a fourth, publish again, and the file then holds the fourth alone — the first
+three are not lost, they are still in the store, still shown in the tree as published, and Publish
+Selected can hand any of them over again. The alternative, keeping every publish as its own
+timestamped file, would need the skill to list a directory, pick the newest by name or by mtime, and
+something to delete the old ones — and the old ones would stay readable, so an agent could be pointed
+at yesterday's file and act on it with full confidence. One truth wins here because the store in
+`workspace.xml` is already the durable tier: see "The store stays the durable tier" below, which
+makes the same argument for the review's handoff file.
+
+**The header, so a reader can tell how old the file is.** The first line is the marker
+`<!-- claude-remarks: published -->`, the same trick `REJECTION_BODY` uses in the review's handoff
+file, so a reader can tell one kind of file from another before handing anything to a model. Then
+`published:`, `commit:` and `remarks:` lines, then a blank line, then the same markdown the clipboard
+gets. The clipboard never gets this header — a paste is never read later, but a file found on disk
+might be read hours afterward, or twice, and nothing on this path confirms a read, so the reader
+needs to be able to see how stale it might be. The commit is cut to eight characters, the same way
+the prompt heading and the tree already cut it; a missing commit says `none` rather than leaving the
+field blank, so a reader can tell "no git repository" from a header that failed to render.
+
+**A failed file write still marks the remarks published.** The order inside the publish's UI
+callback is clipboard, then file, then mark, then one balloon. If the clipboard write fails, nothing
+is marked and nothing is written — nothing was handed over, so nothing says it was. If the file write
+fails after the clipboard already succeeded, the remarks are still marked `PUBLISHED`, because that
+state means "handed to a channel that cannot confirm a read," and the clipboard handover really did
+happen. Refusing to mark them would be a lie in the other direction. The balloon says the file was
+not updated in the same sentence, through `publishMessage`. This is also the entry in Known Issues
+below, "a failed published-file write leaves the previous file in place": the file still on disk
+after a failed write looks exactly like a current one to a skill reading it, and only the header's
+`published:` timestamp gives it away.
+
+**Never an empty published file.** Publishing with nothing pending keeps the early return that skips
+the whole write. An agent reading an empty published file could not tell "nothing to say" from
+"something went wrong," so the file is left exactly as the last successful publish wrote it, and its
+header still tells the true story.
+
+**A waiting review is left alone.** If a Claude Code skill already has a review open on this project
+when the person presses Publish, the publish still writes both the clipboard and the published file,
+and does nothing to the review. The review is a different contract — a session id, a handoff path
+minted for it, and an acknowledgement that moves remarks to `READ` — and satisfying it from a publish
+would hand the same remarks to two channels and let one confirm a read for a paste that may have gone
+somewhere else. See "What this phase deliberately does not build" in the phase 9 plan for the one
+real consequence: publishing everything leaves nothing pending, so Send to Claude Code greys out and
+a waiting review can then only be answered with Reject.
+
+**How the skill reads it.** `docs/skill/claude-remarks-review/SKILL.md` gained a second mode next to
+the review mode, sharing the repository root, the project hash and the "act on the markdown" step so
+the two modes do not duplicate that shell. It finds the repository root, computes the hash, builds
+the path, stops with a plain sentence if the file is missing or its first line is not the marker,
+reads the `published:` and `commit:` header lines, compares the commit against the repository's
+current HEAD and says plainly when they differ, prints the file, then acts on it. It never deletes
+the file — nothing on this path confirms a read, which is the whole reason `PUBLISHED` is a separate
+state from `READ` — and it never posts anything to the review endpoint, because there is no review
+to answer.
 
 ## The Shared Review Session
 
@@ -1129,9 +1269,11 @@ function and a second, nearly identical scan.
 
 ### The store stays the durable tier — no second write on handover
 
-Nothing in phase 6 writes to `RemarkHistory.kt`'s archive when a review is sent. `markRemarksSent`
-is the only state change: remarks stay in the active list, drawn gray, exactly as after a clipboard
-copy, and are only archived later when Clear Sent or Clear All runs. `docs/ideas.md`'s notes on
+Nothing in phase 6 writes to `RemarkHistory.kt`'s archive when a review is sent. Moving the remarks
+to `READ` (`markRemarksRead`, once the skill acknowledges it read them — see "The three states, and
+why published is not read" below) is the only state change: remarks stay in the active list, drawn
+gray, exactly as after a publish, and are only archived later when Clear Handed Over or Clear All
+runs. `docs/ideas.md`'s notes on
 revdiff recommended a second durable copy of the payload alongside the ephemeral handoff file,
 matching revdiff's own two-tier design. That was declined: revdiff needs the second tier because its
 handoff file is deleted by the calling script's `trap` the moment its own process is about to exit.
@@ -1183,15 +1325,17 @@ rejection body would destroy remarks that were never actually delivered, silentl
 person the remarks were already written: there is nothing left to reject.
 
 **The send no longer clears the review, and nothing is marked sent until the agent says it read the
-file.** This is the phase's whole point. Before phase 7, `sendToWaitingReview` called
-`markRemarksSent` and then `WaitingReviewService.clear()` in the same breath as the write — so by the
-time the skill finished reading the file, there was no state left to record a read acknowledgement
-on, and "sent" meant only "written," never "delivered." Now a successful send calls
-`WaitingReviewService.markSent(session, ids)`, which moves the phase to `Sent(ids)` and keeps the review
-current; the remarks stay `PENDING`. Only a `read` acknowledgement — `finishReview` in
-`review/SendReview.kt`, reached through the `ack` endpoint action — calls `markRemarksSent(project,
-ids)`. This is also why no ninth mutation function marks a remark pending again: nothing is ever
-marked sent early, so there is nothing to undo when a review is abandoned or rejected after a send.
+file.** This is the phase's whole point. Before phase 7, `sendToWaitingReview` called what was then
+`markRemarksSent` and then `WaitingReviewService.clear()` in the same breath as the write — so by
+the time the skill finished reading the file, there was no state left to record a read
+acknowledgement on, and "sent" meant only "written," never "delivered." Now a successful send calls
+`WaitingReviewService.markSent(session, ids)`, which moves the phase to `Sent(ids)` and keeps the
+review current; the remarks stay `PENDING`. Only a `read` acknowledgement — `finishReview` in
+`review/SendReview.kt`, reached through the `ack` endpoint action — calls `markRemarksRead(project,
+ids)`, moving them to `READ` rather than `PUBLISHED`, because this is the one path phase 9 can
+confirm a read on. This is also why no mutation function marks a remark pending again: nothing is
+ever marked handed over early, so there is nothing to undo when a review is abandoned or rejected
+after a send.
 
 **One gap in that handover stays open, and the balloon is what makes it honest.** The send checks the
 review is still live on the EDT, then writes, then stamps the phase. The write cannot sit inside the
@@ -1528,3 +1672,21 @@ and to the selection phrase, but not to the path. Git permits newlines in filena
 reachable in principle; it needs a hostile file in a repository you then annotate, which is why it was
 left. It is the cheapest entry here to fix. It is also the only one that is a trust-boundary issue
 rather than a race, which is why it is the one to fix first if any of these are ever fixed.
+
+**RARE, MAJOR: a failed published-file write leaves the previous file in place.** `publishRemarks`
+(`action/PublishRemarks.kt`) still marks the remarks `PUBLISHED` when the clipboard succeeded but the
+published-file write failed, and the balloon says the file was not updated — see "The published
+file" above for why that is the honest answer rather than a bug. What that leaves unsaid is what is
+still on disk: the file from the last successful publish, untouched, sitting at the same path a skill
+would compute for right now. It looks exactly like a current answer to that skill. The only thing
+that gives it away is the header's `published:` timestamp, which nothing forces a reader to check. It
+needs a real filesystem failure on the second of two writes in the same callback — a full disk, a
+permissions change on `~/.claude-remarks/` mid-session — which is why it is judged rare rather than
+occasional. Two behaviours in this publish pipeline have no automated test at all, and this is one of
+them: `publishMessage`'s `count` comes from `prepared.ids.size`, computed before `markRemarksPublished`
+runs, so a unit test that skips that call and checks the balloon text alone cannot tell the difference
+— confirmed by mutating the code this way and watching the whole suite stay green. The other
+untested behaviour is a null project root reaching the same failed-write branch. Both are catchable
+only by the hand check in section 12 of the phase 9 plan: publish with a filesystem failure forced on
+the published-file write, and confirm the balloon says so while the store still shows the remarks
+handed over.
