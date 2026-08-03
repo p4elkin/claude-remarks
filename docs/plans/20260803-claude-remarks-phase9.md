@@ -171,16 +171,29 @@ runs that guard, so [task 1](#task-1-prove-what-phase-9-depends-on) checks it an
 ## 3. The state machine, which is the core change
 
 ```mermaid
-flowchart LR
-    NEW([a remark is written]) --> PENDING[PENDING<br/>black row, full icon]
-    PENDING -->|Publish All Pending<br/>or Publish Selected| PUBLISHED[PUBLISHED<br/>grey row, faded icon]
-    PENDING -->|Send to Claude Code<br/>then ack read| READ[READ<br/>grey row, faintest icon]
-    PUBLISHED -->|Publish Selected again| PUBLISHED
-    READ -->|Publish Selected again| PUBLISHED
-    PENDING -->|Send writes the handoff file<br/>and changes no state| PENDING
-    PUBLISHED --> CLEARED([Clear Handed Over<br/>archives, then removes])
-    READ --> CLEARED
+stateDiagram-v2
+    PENDING: PENDING
+    PENDING: black row, full icon
+    PUBLISHED: PUBLISHED
+    PUBLISHED: grey row, faded icon
+    READ: READ
+    READ: grey row, faintest icon
+
+    [*] --> PENDING: a remark is written
+    PENDING --> PUBLISHED: Publish All Pending<br/>or Publish Selected
+    PENDING --> READ: Send to Claude Code<br/>then ack read
+    PENDING --> PENDING: Send writes the handoff file<br/>and changes no state
+    PUBLISHED --> PUBLISHED: Publish Selected again
+    READ --> PUBLISHED: Publish Selected again
+    PUBLISHED --> [*]: Clear Handed Over<br/>archives, then removes
+    READ --> [*]: Clear Handed Over
 ```
+
+This is a `stateDiagram-v2` rather than a `flowchart`, because three of its eight edges are
+self-transitions. A flowchart routes a self-transition all the way around the diagram, which produced
+two long sweeping edges across the whole picture. A state diagram draws the same edge as a small loop
+on the node. The subject is states and the transitions between them, so this is also the diagram type
+that says what the picture is.
 
 Two edges are worth reading twice.
 
