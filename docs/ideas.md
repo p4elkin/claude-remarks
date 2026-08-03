@@ -789,3 +789,60 @@ Still open:
   files from a person's home on uninstall is worse than leaving a stale directory.
 - Whether a project-level install (`.claude/skills/` in the repo) should be offered too. It would put
   the skill in VCS, which is fine for a shared team skill and wrong by default for this plugin.
+
+## Tell the IDE the remarks were actually delivered
+
+Right now the IDE knows it **wrote a file**. It has no idea whether anything read it. Raised by Sasha
+on 2026-08-03, straight after the first real end-to-end run.
+
+One change fixes three separate weaknesses, which is why it is worth doing as one piece of work rather
+than three:
+
+1. **The toast overclaims.** `review/SendReview.kt` fires "Sent N remarks to Claude Code." after the
+   write succeeds. If the agent had already died, that message still appears, cheerfully and wrongly.
+   It reports a write, and it is worded like a delivery.
+2. **The banner outlives the agent.** `updateBanner` hides the banner only when the waiting review is
+   cleared, and the only things that clear it are Send and Cancel, both inside the IDE. So when the
+   agent gives up — the skill's 30-minute timeout, a killed session, or a shell error like the zsh
+   `status` collision found on the first run — the IDE is never told and goes on saying "Claude Code is
+   waiting" for something that stopped waiting. The skill's own documentation admits this and tells the
+   person to press Cancel by hand.
+3. **A dead review looks live.** The Send button stays enabled, so the next thing sent goes into a file
+   nobody will ever read, and the remarks are marked sent.
+
+**The shape.** Three signals rather than one, because an acknowledgement alone cannot cover a process
+that was killed:
+
+- **read** — the skill POSTs an acknowledgement after it reads the handoff file. The IDE records it on
+  `WaitingReviewState` and the balloon becomes truthful: "Claude Code read N remarks" rather than
+  "Sent".
+- **abandoned** — the skill sends this from a shell `trap` when it exits without having read anything,
+  which covers a timeout and an ordinary interrupt. The IDE clears the review and says the agent left.
+- **stale after a deadline** — the backstop, because a `SIGKILL`ed session sends nothing at all. The
+  IDE treats a review older than the skill's own deadline as stale on its own. This is exactly
+  revdiff's graceful-versus-killed distinction, which phase 6 already borrowed for the handoff file, so
+  it is the same idea applied one level up.
+
+**Most of the machinery exists.** `requestIsAllowed` in `review/ReviewRestService.kt` already enforces
+the three security conditions and can guard a second action unchanged. The notification group is
+already registered. `WaitingReviewState` gains a field or two — it carries `sessionId`, `label`,
+`outputPath` and `startedAt` today. The service is already `@Synchronized` where it needs to be.
+
+**What not to do:** do not try to detect the read on the plugin side. There is no portable signal for
+"this file was read", and anything built on access times or file locks will be wrong on some
+filesystem. The agent knows it read the file; let it say so.
+
+**The banner should stop being binary.** Once there are three signals it can say which one it is:
+waiting, read at a time, or no longer waiting because the agent left. A banner that only knows
+"waiting" is what makes the current one able to lie.
+
+**This matters more in phase 7, not less.** Over an SSH tunnel the ways a handoff can fail multiply,
+and a local file existing proves even less about what happened on the other machine. See
+[[Sending remarks to a remote agent session]].
+
+Still open:
+
+- Whether an abandoned review should keep the remarks pending, or mark them pending again if they were
+  already marked sent. Pending is the safe answer: nothing was delivered, so nothing was sent.
+- Whether the deadline is the plugin's own setting or a number the skill declares when it starts the
+  review. The skill declaring it keeps the two from drifting apart.
