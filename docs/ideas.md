@@ -847,6 +847,48 @@ Still open:
 - Whether the deadline is the plugin's own setting or a number the skill declares when it starts the
   review. The skill declaring it keeps the two from drifting apart.
 
+### Rejecting a review has to reach Claude Code, and the link should say Reject
+
+Found by hand on 2026-08-03, in a real IDE. This is a defect, not a wish.
+
+`RemarksToolWindowFactory.kt:103` builds the banner's second link as
+`createActionLabel("Cancel") { WaitingReviewService.getInstance(project).clear() }`, and `clear()`
+in `WaitingReview.kt:91` sets the in-memory state to null and redraws the panel. It writes nothing.
+Meanwhile the skill's step 6 sits in `while [ ! -e "$output" ]` for its full 1800 seconds. So
+pressing Cancel ends the review inside the IDE and leaves Claude Code waiting half an hour for a
+file that will now never be written. The person believes they answered. The agent believes it was
+never answered. Both are wrong at once, which is worse than either.
+
+This is the same class of problem as the rest of this section, with one difference that makes it the
+first one to fix: for the other signals the IDE genuinely does not know what happened on the other
+side. Here the IDE knows exactly what happened — a person decided — and throws that decision away.
+
+**The fix reuses what is already there.** Write the handoff file with a rejection body instead of
+leaving it absent, through the same `atomicWriteString` the send path uses. The skill already waits
+on that path and already reads it, so nothing changes about what it waits for. It needs a
+machine-checkable first line so the skill can tell a rejection from a set of remarks before it hands
+the body to the model — a `<!-- claude-remarks: rejected -->` marker line and then the prose saying
+so plainly. One `grep -q` in the skill, no second path, no new request field.
+
+**Rename the link to Reject.** "Cancel" reads as "close this banner", which is exactly the behavior
+it has, and that is how the defect got written in the first place. "Reject" says a decision was made
+and is being sent. The word and the behavior should arrive together, in one change, so neither can
+ship without the other.
+
+Two things to settle while building it:
+
+- Whether the rejection body should carry a reason the person typed, or just the fact. Just the fact
+  is the smaller version and probably enough — the person is sitting next to the agent and can say
+  more in the next message if they want to.
+- What the remarks' own status should be. Rejecting the request is not the same as discarding the
+  remarks: the person may be refusing this particular handoff and still want to keep what they wrote.
+  Pending is almost certainly the right answer, the same as for an abandoned review above.
+
+Also fix the skill's own text. Its step 6 currently tells the reader "A timeout does not clear the
+waiting review inside the IDE — the person clears it themselves from the banner's Cancel link." That
+sentence describes today's broken behavior accurately, so it stops being true the moment this is
+built.
+
 ## Open the real diff for just the files the skill named
 
 Today a review request carries a `files` list and the IDE opens each one as a plain editor. The
