@@ -817,6 +817,13 @@ the highlight file second — go through the same `VfsUtilCore.getRelativePath(f
 returns null unless `root` really is an ancestor. There is no second route around the check, which
 is the whole reason the fallback is a second entry in one list rather than a branch of its own.
 
+**Since the refusal, the second candidate is not a storage route at all.** It is what lets
+`remarkTargetProblem` tell a revision pane apart from a file genuinely outside the project, so each
+gets its own sentence. `relativePathOf` still reads the same list, but in production only its first
+candidate can ever answer: its one caller, `openNewRemarkInput`, returns before it whenever
+`remarkTargetProblem` is non-null. `DiffRemarkTargetTest` asserts the second candidate resolves, and
+that assertion pins the two functions reading one candidate list — not a path a remark can take.
+
 **What is checked and what is not.** `DiffRemarkTargetTest` builds the exact content shape a
 revision produces, from the platform's own `DiffContentFactory`, and drives the real action through
 a `TestActionEvent`. It does not build a `SimpleDiffViewer`, which a light fixture cannot do, so
