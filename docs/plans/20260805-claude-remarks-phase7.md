@@ -734,19 +734,19 @@ task before starting the next.
 
 Five minutes, and it stops the whole phase from being built on a base that moved.
 
-- [ ] `git status --porcelain` must be empty. Another agent may be mid-task in this worktree. If it is
+- [x] `git status --porcelain` must be empty. Another agent may be mid-task in this worktree. If it is
       not empty, **stop and report** what is there rather than working around it.
-- [ ] `WaitingReviewState` still has exactly the four fields `sessionId`, `label`, `outputPath`,
+- [x] `WaitingReviewState` still has exactly the four fields `sessionId`, `label`, `outputPath`,
       `startedAt`. If it already has more, this plan was written against an older tree — stop and
       report.
-- [ ] `sendToWaitingReview` still calls `markRemarksSent` and then
+- [x] `sendToWaitingReview` still calls `markRemarksSent` and then
       `WaitingReviewService.getInstance(project).clear()`. Tasks 5 and 6 both depend on that being the
       starting point.
-- [ ] run all five grep guards from
+- [x] run all five grep guards from
       [section 8](#8-rules-that-must-hold-at-every-step) now, before any change. All five must be
       empty. A guard that was already failing must not be blamed on this phase.
-- [ ] `./gradlew test` passes on the untouched tree. Report the test count, so task 11 can compare.
-- [ ] no commit — this task writes nothing
+- [x] `./gradlew test` passes on the untouched tree. Report the test count, so task 11 can compare.
+- [x] no commit — this task writes nothing
 
 ### Task 2: Reject writes the decision to the handoff file, and the link says Reject
 
