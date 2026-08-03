@@ -1235,11 +1235,11 @@ What the skill must also state in its own text:
   plugin is broken.
 - a timeout does not clear the review in the IDE. The person clears it from the banner.
 
-- [ ] write `docs/skill/claude-remarks-review/SKILL.md`
-- [ ] write `docs/skill/README.md`
-- [ ] no test command — this task adds no Kotlin. It is verified by hand in
+- [x] write `docs/skill/claude-remarks-review/SKILL.md`
+- [x] write `docs/skill/README.md`
+- [x] no test command — this task adds no Kotlin. It is verified by hand in
       [section 12](#12-hand-checks-in-a-sandbox-ide).
-- [ ] commit, staging exactly:
+- [x] commit, staging exactly:
 
   ```bash
   git add docs/skill/claude-remarks-review/SKILL.md docs/skill/README.md
