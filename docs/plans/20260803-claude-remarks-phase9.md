@@ -1455,17 +1455,42 @@ The alternative rejected: a node per directory segment. It turns
 fixing that needs single-child chain compression, which is real logic with real tests. Worth trying
 only if the file-name-first row is built and still reads badly.
 
-- [ ] write the failing tests in `RemarksTreeTest`: a file group's label is the file name and its
+- [x] write the failing tests in `RemarksTreeTest`: a file group's label is the file name and its
       detail is the directory; a file in the project root has no detail; a deep path's detail is
       shortened to the last two segments with an ellipsis; the group **key** is unchanged from what
       the existing tests assert.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"`, expect failures,
+      **Result: four new tests added — `a file group's label is the file name and its detail is
+      the directory`, `a file in the project root has no detail`, `a deep path's detail is
+      shortened to the last two segments with an ellipsis`, `a file group's key is unchanged from
+      what the existing tests assert`. Two pre-existing tests that asserted a file group's label
+      was the whole path (`rows are grouped under their file, in path order`,
+      `with no buckets in use the tree is still root then file then remark`) were updated to
+      assert the new file-name-only label, since that is exactly the behaviour this task changes.**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest"`, expect failures,
       implement, pass
-- [ ] `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"` still passes, which is
+      **Result: implemented alongside the tests, the same shape earlier group-three/four-adjacent
+      tasks used (`GroupNode`'s new `detail` field and `addFileGroups`'s call site are shared by
+      every existing test in the file, so a partial edit would not compile). RED/GREEN proven
+      empirically by the mutation testing below. `./gradlew test --tests
+      "dev.sasha.clauderemarks.ui.RemarksTreeTest"` passed after implementing `shortDirectory`,
+      `GroupNode.detail`, `addFileGroups`'s label/detail split, and the renderer's second
+      `append`.**
+- [x] `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"` still passes, which is
       the class that would notice a changed key
-- [ ] **mutation:** put the whole path back in the label; the label test must fail. Change the key to
+      **Result: passed — the selection-restore-by-key behavior is unaffected, since the key format
+      (`"${keyPrefix}file:$path"`, the full path) did not change.**
+- [x] **mutation:** put the whole path back in the label; the label test must fail. Change the key to
       include the file name only; the key test and a `RemarksPanelTest` test must fail. Restore both.
-- [ ] commit: `feat: a file row shows the file name first and the directory in grey`
+      **Result: both mutations run for real and reverted. Putting the whole path back as the label
+      (`GroupNode("${keyPrefix}file:$path", path, shortDirectory(path))`) failed 4 tests: the two
+      new label tests and the two pre-existing tests updated in the first checkbox. Changing the
+      key to use the file name only
+      (`GroupNode("${keyPrefix}file:${path.substringAfterLast('/')}", ...)`) failed the new key
+      test, but no `RemarksPanelTest` test failed under it — see the deviation logged below. Both
+      restored; `./gradlew test --tests "dev.sasha.clauderemarks.ui.RemarksTreeTest" --tests
+      "dev.sasha.clauderemarks.ui.RemarksPanelTest"` green again, and `./gradlew test` (whole
+      suite) green.**
+- [x] commit: `feat: a file row shows the file name first and the directory in grey`
 
 ### Task 17: Drag remarks onto a bucket
 

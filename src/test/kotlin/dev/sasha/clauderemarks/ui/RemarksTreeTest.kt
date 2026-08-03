@@ -24,7 +24,7 @@ class RemarksTreeTest {
             )
         )
 
-        assertEquals(listOf("src/Alpha.kt", "src/Zed.kt"), fileNames(root))
+        assertEquals(listOf("Alpha.kt", "Zed.kt"), fileNames(root))
         assertEquals(listOf("r-2"), idsUnder(root, 0))
         assertEquals(listOf("r-1", "r-3"), idsUnder(root, 1))
     }
@@ -185,8 +185,50 @@ class RemarksTreeTest {
 
         assertEquals(1, root.childCount)
         val file = root.getChildAt(0) as DefaultMutableTreeNode
-        assertEquals("src/Foo.kt", (file.userObject as GroupNode).label)
+        assertEquals("Foo.kt", (file.userObject as GroupNode).label)
         assertTrue((file.getChildAt(0) as DefaultMutableTreeNode).userObject is RemarkNode)
+    }
+
+    @Test
+    fun `a file group's label is the file name and its detail is the directory`() {
+        val root = buildTreeRoot(listOf(row(path = "src/main/Foo.kt", id = "r-1")))
+
+        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        assertEquals("Foo.kt", group.label)
+        assertEquals("src/main", group.detail)
+    }
+
+    @Test
+    fun `a file in the project root has no detail`() {
+        val root = buildTreeRoot(listOf(row(path = "Foo.kt", id = "r-1")))
+
+        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        assertEquals("Foo.kt", group.label)
+        assertEquals(null, group.detail)
+    }
+
+    @Test
+    fun `a deep path's detail is shortened to the last two segments with an ellipsis`() {
+        val root = buildTreeRoot(
+            listOf(row(path = "src/main/kotlin/dev/sasha/clauderemarks/ui/Foo.kt", id = "r-1"))
+        )
+
+        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        assertEquals("Foo.kt", group.label)
+        assertEquals("…/clauderemarks/ui", group.detail)
+    }
+
+    /**
+     * The label now shows the file name only, but the key is still the whole path — that is what
+     * lets `RemarksPanel`'s selection restore, which matches groups by key, keep working across
+     * this change.
+     */
+    @Test
+    fun `a file group's key is unchanged from what the existing tests assert`() {
+        val root = buildTreeRoot(listOf(row(path = "src/main/Foo.kt", id = "r-1")))
+
+        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        assertEquals("file:src/main/Foo.kt", group.key)
     }
 
     @Test

@@ -26,8 +26,14 @@ const val GENERAL_KEY = "general"
  * directory, and the panel puts a selection back after every rebuild by matching keys. Two groups
  * sharing a key means restoring the wrong one. The key is the whole path from the root; the label
  * is what is drawn.
+ *
+ * [detail] is a second, optional piece of text drawn in grey after the label — a file's directory,
+ * shortened by [shortDirectory]. Null for a bucket group, and for a file with no directory to show.
+ * It is its own field rather than folded into [label] so the label can change (file name first,
+ * directory second) without touching [key]: `RemarksPanel`'s selection restore matches on key
+ * alone, and the key stays the whole path exactly as it always has.
  */
-data class GroupNode(val key: String, val label: String)
+data class GroupNode(val key: String, val label: String, val detail: String? = null)
 
 /** One leaf. Everything a row needs to draw itself and to navigate. */
 data class RemarkNode(
@@ -186,13 +192,34 @@ fun buildTreeRoot(rows: List<ResolvedRemark>): DefaultMutableTreeNode {
     return root
 }
 
+/**
+ * The directory shown next to a file's name, or null when the file sits in the project root and
+ * there is nothing to show. Shortened to the last two segments, with a leading ellipsis when the
+ * directory has more than two, so a deep path costs the row one short grey word instead of
+ * crowding out the file name it is helping to identify.
+ *
+ * A node per directory segment, with single-child chains collapsed back down, was considered and
+ * rejected: that is real logic with its own tests, worth building only if this plain string still
+ * reads badly once it is in front of the tree.
+ */
+fun shortDirectory(path: String): String? {
+    val slash = path.lastIndexOf('/')
+    if (slash < 0) return null
+    val segments = path.substring(0, slash).split('/')
+    val shown = if (segments.size > 2) segments.takeLast(2) else segments
+    val prefix = if (segments.size > 2) "…/" else ""
+    return prefix + shown.joinToString("/")
+}
+
 private fun addFileGroups(
     parent: DefaultMutableTreeNode,
     keyPrefix: String,
     nodes: List<RemarkNode>,
 ) {
     nodes.groupBy { it.path }.forEach { (path, inFile) ->
-        val fileNode = DefaultMutableTreeNode(GroupNode("${keyPrefix}file:$path", path))
+        val fileNode = DefaultMutableTreeNode(
+            GroupNode("${keyPrefix}file:$path", path.substringAfterLast('/'), shortDirectory(path))
+        )
         inFile.forEach { fileNode.add(DefaultMutableTreeNode(it)) }
         parent.add(fileNode)
     }
@@ -230,7 +257,10 @@ class RemarkTreeRenderer : ColoredTreeCellRenderer() {
                 }
             }
 
-            is GroupNode -> append(user.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+            is GroupNode -> {
+                append(user.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+                user.detail?.let { append("  $it", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
+            }
         }
     }
 }
