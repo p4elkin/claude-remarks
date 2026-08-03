@@ -158,6 +158,40 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
         assertNotNull(service.current())
     }
 
+    fun testAnEndedReviewsOutputPathIsStillFindableByItsSession() {
+        val service = WaitingReviewService.getInstance(project)
+        val dir = temp.dir("ended-review-test")
+        service.start("s1", "a label", 1800L, dir)
+
+        service.clear("s1")
+
+        assertEquals(dir, service.endedOutputPath("s1"))
+    }
+
+    fun testADifferentSessionCannotFindTheEndedReviewsPath() {
+        val service = WaitingReviewService.getInstance(project)
+        val dir = temp.dir("ended-review-test")
+        service.start("s1", "a label", 1800L, dir)
+
+        service.clear("s1")
+
+        assertNull(service.endedOutputPath("s2"))
+    }
+
+    fun testOnlyTheMostRecentlyEndedReviewIsRemembered() {
+        val service = WaitingReviewService.getInstance(project)
+        val firstDir = temp.dir("ended-review-test-first")
+        service.start("s1", "a label", 1800L, firstDir)
+        service.clear("s1")
+
+        val secondDir = temp.dir("ended-review-test-second")
+        service.start("s2", "a label", 1800L, secondDir)
+        service.clear("s2")
+
+        assertNull(service.endedOutputPath("s1"))
+        assertEquals(secondDir, service.endedOutputPath("s2"))
+    }
+
     /**
      * The three lines almost every test above opened with. Session "s1" and the label are the same
      * everywhere, because no test here asserts on either; what varies is the deadline, and the two

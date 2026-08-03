@@ -706,7 +706,7 @@ four lines are how `clear()` came to leave a scheduled task queued. Setting `las
 **Do not add this to the class KDoc's "four things that exist for the tests" list.** It is a production
 surface with a production caller, which is exactly what that list is there to keep it separate from.
 
-- [ ] write the failing tests in `WaitingReviewServiceTest.kt`, which is already fixture-backed and
+- [x] write the failing tests in `WaitingReviewServiceTest.kt`, which is already fixture-backed and
       already starts reviews with a caller-supplied output path:
   - `an ended review's output path is still findable by its session` — start `s1` with a known temp
     directory, `clear("s1")`, then `endedOutputPath("s1")` equals that directory.
@@ -715,16 +715,16 @@ surface with a production caller, which is exactly what that list is there to ke
   - `only the most recently ended review is remembered` — end `s1`, then start and end `s2`, then
     `endedOutputPath("s1")` is null and `endedOutputPath("s2")` is the second directory. This pins the
     one-review decision, so a later change to a map has to argue with a failing test.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewServiceTest"` — expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewServiceTest"` — expect a
       compile failure
-- [ ] implement
-- [ ] the same command passes, and `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"`
+- [x] implement
+- [x] the same command passes, and `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"`
       still passes — `SendReviewTest` clears the service in `setUp` and `tearDown`, so it is the class
       most likely to notice a new field that outlives a clear
-- [ ] **mutation:** delete the new line from `endReview()` — the first test must fail. Drop the
+- [x] **mutation:** delete the new line from `endReview()` — the first test must fail. Drop the
       `takeIf { it.sessionId == session }` — the second test must fail. Change `lastEnded = ...` to
       only assign when `lastEnded == null` — the third test must fail. Restore all three.
-- [ ] commit: `feat: the service remembers where the review that just ended wrote its handoff file` —
+- [x] commit: `feat: the service remembers where the review that just ended wrote its handoff file` —
       stage exactly the two files above
 
 ### Task 3: Reading the handoff file, with a size cap

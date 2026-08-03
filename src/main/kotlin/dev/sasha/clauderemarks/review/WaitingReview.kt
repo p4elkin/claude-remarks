@@ -101,6 +101,18 @@ internal fun startOrConflict(
 }
 
 /**
+ * The session id and output path of the review that ended most recently. It exists for one caller:
+ * the endpoint's fetch action, which has to be able to hand a rejection body to a remote agent. The
+ * rejection is written to the handoff file and then the review is cleared, so a fetch that could only
+ * see a live review would answer "nothing is waiting" and the agent could not tell a rejection from a
+ * timeout.
+ *
+ * One review, not a map: at most one review per project is ever waiting, so at most one has just
+ * ended. An older one could only serve an agent that is already past its own deadline.
+ */
+private data class EndedReview(val sessionId: String, val outputPath: Path)
+
+/**
  * At most one waiting review per project, held in memory only: an IDE restart clears it, so there
  * is no persisted field and no migration.
  *
@@ -136,6 +148,20 @@ class WaitingReviewService(private val project: Project) : Disposable {
     // path that ends a review goes through — and by dispose().
     @Volatile
     private var expiry: ScheduledFuture<*>? = null
+
+    @Volatile
+    private var lastEnded: EndedReview? = null
+
+    /**
+     * Where the review [session] wrote its handoff file, if that review has ended and was the most
+     * recent one to end. Null for any other session, which is what keeps one agent from reading
+     * another agent's remarks.
+     *
+     * Unsynchronized for the same reason [current] is: it reads one volatile field, does no IO, and a
+     * stale read cannot produce a wrong answer for a session that does not match.
+     */
+    internal fun endedOutputPath(session: String): Path? =
+        lastEnded?.takeIf { it.sessionId == session }?.outputPath
 
     /**
      * Masks a stale review everywhere at once: the Send button, the banner, and a second start
@@ -278,6 +304,7 @@ class WaitingReviewService(private val project: Project) : Disposable {
      */
     private fun endReview(): WaitingReviewState? {
         val acting = state
+        lastEnded = acting?.let { EndedReview(it.sessionId, it.outputPath) }
         state = null
         expiry?.cancel(false)
         expiry = null
