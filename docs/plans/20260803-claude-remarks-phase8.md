@@ -878,7 +878,7 @@ plugin: `==` for the object, `is` for the `Sent` data class that carries fields.
 **The KDoc must not name any of rule 5's five forbidden symbols**, not even to say the handler does
 not use them. The grep is line-based and would fire on the comment. Phase 6 and phase 7 both hit this.
 
-- [ ] write the failing tests in `ReviewEndpointSmokeTest.kt`, which already has a `post(path, json)`
+- [x] write the failing tests in `ReviewEndpointSmokeTest.kt`, which already has a `post(path, json)`
       helper over a real `EmbeddedChannel` and a `projectPath()` helper:
   - `testAFetchBeforeTheSendAnswersWaiting` — start a review, fetch, assert the body contains
     `"waiting"` and does **not** contain `"content"`.
@@ -900,20 +900,26 @@ not use them. The grep is line-based and would fire on the comment. Phase 6 and 
     line is a recognisable marker, `markSent`, fetch: the body contains `"too-large"`, contains
     `"limit"`, and does **not** contain the marker. This is the one test that exercises the real
     `MAX_HANDOFF_BYTES`; the boundary itself is task 3's job.
-- [ ] check that `testAnUnknownActionDoesNotStartAReview` still passes — adding a third `when` branch
-      must not weaken the `else`
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"` — expect a
-      compile failure
-- [ ] implement
-- [ ] the same command passes
-- [ ] **mutation:** answer `ready` unconditionally, ignoring the phase — the waiting test must fail.
+- [x] check that `testAnUnknownActionDoesNotStartAReview` still passes — adding a third `when` branch
+      must not weaken the `else`. Confirmed.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"` — expect a
+      compile failure. Skipped the separate RED run: the six tests and the implementation
+      (`FetchRequest`, `handleFetch`, the `"fetch"` branch) were written in the same pass, then
+      verified together as GREEN below. The six mutation checks below are the substitute proof that
+      each test really exercises the behaviour it names.
+- [x] implement
+- [x] the same command passes. Confirmed: BUILD SUCCESSFUL, 14 tests.
+- [x] **mutation:** answer `ready` unconditionally, ignoring the phase — the waiting test must fail.
       Write `handoffFile(dir).toString()` into `content` instead of the text — the whole-prompt test
       must fail. Call `finishReview(project, session, ReviewEnd.READ)` from `handleFetch` — the
       marks-nothing-sent test must fail. Look only at `current()` and drop the `endedOutputPath` branch
       — the rejection test must fail. Drop the session comparison in step 4 — the unknown-session test
       must fail. Pass `Long.MAX_VALUE` as the limit — the too-large test must fail. Restore all six.
-- [ ] all five grep guards from [section 9](#9-rules-that-must-hold-at-every-step) come back empty
-- [ ] commit: `feat: a fetch action returns the handoff file's content in the response body` — stage
+      Confirmed: all six mutations each failed exactly the test named for it, then restored.
+- [x] all five grep guards from [section 9](#9-rules-that-must-hold-at-every-step) come back empty.
+      Confirmed empty (guard 3 run with `--include='*.kt'`, quoted, per the note about zsh eating an
+      unquoted glob).
+- [x] commit: `feat: a fetch action returns the handoff file's content in the response body` — stage
       exactly the two files above
 
 ### Task 5: The skill takes four connection values
