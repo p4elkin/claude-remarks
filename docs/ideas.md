@@ -619,3 +619,49 @@ so this has to be designed, not borrowed.
   freshly recomputed diff before trusting it, dropping anything stale with a warning instead of
   silently keeping wrong line numbers. Worth the same discipline if the IDE payload can ever be
   generated, hand-edited, or reloaded after the code under review has moved.
+
+## Sending remarks to a remote agent session
+
+**Decided for phase 7.** Not an open question — the only open part is the plan.
+
+Sasha sometimes works from a laptop and attaches to a Claude Code session running on the main
+machine over SSH. Today the remarks cannot reach that session at all.
+
+**The topology is the harder of the two.** The IDE runs on the laptop. Claude Code runs on the main
+machine. Two filesystems, two home directories, nothing shared. So neither file phase 6 writes is
+readable by the agent: not the handoff file under the laptop's temp directory, and not the handshake
+file under the laptop's home directory.
+
+**Why the file transport does not reach it, and why that is not a design mistake.** Phase 6 chose a
+file because the agent and the IDE were assumed to share a filesystem, and for the local case that is
+still the right choice — a rename is atomic, the reader needs no completeness check, and failure looks
+like a file that never appeared. The remote case simply falls outside that assumption. Nothing about
+phase 6 has to be undone.
+
+**Phase 6 needs no protocol change, and phase 7 must not start from the opposite belief.** The endpoint
+is the IDE's own built-in server, so it always runs on the same machine as the IDE, whatever machine the
+agent is on. The handoff file is therefore always local *to the endpoint*. Reading it is a local read
+that the endpoint can already do.
+
+Three things phase 7 needs:
+
+- **A fetch action on the existing endpoint** that reads the waiting review's local handoff file and
+  returns its content in the HTTP response body, instead of returning a path. Phase 6's two guarantees
+  make this cheap: the plugin never deletes the handoff file, and `WaitingReviewService.current()` keeps
+  the output path retrievable while the review is waiting, so the fetch does not have to guess a
+  temp-directory name.
+- **The skill taking host, port and token as arguments.** It cannot compute the handshake file's name
+  from a repository path it does not have, and it could not read the file even if it could name it. The
+  person passes the three values once.
+- **A tunnel.** `ssh -R` or `ssh -L`, set up by the person. The plugin does not manage it, does not
+  detect it, and does not report on it. A missing tunnel looks like connection refused, which is the
+  same legible failure phase 6 already relies on.
+
+**The security model is unaffected.** A tunnelled request arrives on the loopback interface, so it
+still satisfies the platform's own local-host requirement, and it still carries no `Origin` and no
+`Referer`, so the refusal rule from phase 6 still admits it. The token is what makes this safe to expose
+through a tunnel at all: without it, anything that could reach the tunnel could drive the endpoint.
+
+What is given up by not doing this in phase 6: the laptop case waits. That is accepted, because the
+local case is the daily one and the remote case adds an argument-passing story the local case does not
+need.

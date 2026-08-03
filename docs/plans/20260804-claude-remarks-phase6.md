@@ -1452,11 +1452,33 @@ connection refused; if a restarted IDE took the same port, the skill gets a 403 
 instead, which is why task 8's skill treats 403 as "re-open the project" rather than as an attack.
 Deleting stale files on startup was considered and dropped: it is one more thing to get wrong.
 
-**The handoff file is never deleted by the plugin.** It sits in a temp directory until the operating
-system cleans it. It holds remark text and slices of source, the same as the large-clipboard file
-`render/PromptPayload.kt` already writes, and the same reasoning applies: the directory is owner-only on
-POSIX. Unlike the clipboard file it cannot use `deleteOnExit`, because the skill may still be reading it
-after the IDE quits.
+**The plugin never deletes the handoff file. Treat that as a promise, not as an accident.** It sits in
+a temp directory until the operating system cleans it. Two things depend on it, so nobody may add eager
+cleanup later. The near one: the skill may still be reading the file after the IDE quits, which is why
+it cannot use `deleteOnExit` the way the large-clipboard file in `render/PromptPayload.kt` does. The far
+one is phase 7, below. The file holds remark text and slices of source, the same as that clipboard file,
+and the same reasoning applies: the directory is owner-only on POSIX.
+
+**The handoff reaches only an agent on the same machine as the IDE. The remote case is phase 7.** The
+person sometimes works from a laptop and attaches to a Claude Code session on their main machine over
+SSH. The topology is the harder one: the IDE on the laptop, the agent on the main machine, two
+filesystems, two home directories, nothing shared. So the skill cannot read the handoff file at all, and
+it cannot read the handshake file either. `docs/ideas.md` carries the entry.
+
+**Phase 6 needs no protocol change for that, and phase 7 must not be planned as if it did.** The
+endpoint is the IDE's own built-in server, so it always runs on the same machine as the IDE, whatever
+machine the agent is on. The handoff file is therefore always local *to the endpoint*. Phase 7 adds a
+fetch action that reads that local file and returns its content in the HTTP response body instead of a
+path, and nothing in phase 6's wire format moves. The security rule in
+[section 5](#5-the-security-question-settled) also survives untouched: an SSH tunnel makes the request
+appear to come from localhost, so both the platform's own local-host requirement and the `Origin`
+refusal still hold.
+
+**Two guarantees keep phase 7 cheap, and phase 6 has to preserve both.** First, the promise above: the
+plugin never deletes the handoff file, so a fetch action arriving after the send still finds it. Second,
+**a waiting review's output path stays retrievable while the review is waiting** —
+`WaitingReviewService.current()` carries it, so a fetch action reads the path from the service instead
+of re-deriving it from a temp-directory name it would have to guess.
 
 **One automated test reaches `execute`, and none reaches `process`.** The smoke test in task 5 proves the
 response has a body. Everything above `execute` — the trust check actually firing, the method filter, the
