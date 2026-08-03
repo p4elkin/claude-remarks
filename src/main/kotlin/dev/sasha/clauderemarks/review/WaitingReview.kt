@@ -201,6 +201,13 @@ class WaitingReviewService(private val project: Project) : Disposable {
             // new state and the new scheduleExpiry below take its place. Without this, the old
             // review's own expiry task, cancelled a few lines down, never gets to run and set
             // lastEnded itself, so its output path would be lost for good.
+            //
+            // endReview() sets state to null right here; state = result.state below does not run
+            // until a few lines down, in this same @Synchronized block. current() reads state
+            // without synchronization on purpose (see the class KDoc), so an unsynchronized read
+            // landing in that instant sees no review at all, rather than a review being replaced.
+            // The old code wrote state once, with nothing in between, so this gap is new. See
+            // "Known Issues" in docs/claude/design.md for why it is left as is.
             if (previous != null && previous.sessionId != session) endReview()
             state = result.state
             scheduleExpiry(result.state)
@@ -310,6 +317,13 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * Returns the state that was removed, which `acknowledge` and `expireIfStale` hand to their
      * caller for the balloon. Three hand-rolled copies of these four lines is how `clear()` came to
      * leave the scheduled task queued while a comment said it cancelled it.
+     *
+     * On the stale-replacement branch in [start], this repaint runs, and then [start]'s own
+     * unconditional repaint runs again a few lines later — two `invokeLater(notifyRemarksChanged)`
+     * calls for one state transition, where every other path in this file fires exactly one. Left
+     * as is on purpose: the panel just redraws twice instead of once, and removing the second call
+     * would mean hand-rolling this function's four lines separately for that one branch, the exact
+     * duplication this function exists to remove.
      */
     private fun endReview(): WaitingReviewState? {
         val acting = state

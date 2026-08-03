@@ -651,7 +651,7 @@ so this has to be designed, not borrowed.
 returns the handoff file's content in the response body, the plugin remembering one ended review's
 output path so a rejection still reaches a remote agent, a size cap that refuses rather than
 truncates, and a skill that keeps one wait loop for both transports. (Renumbered from phase 7: phase
-7 turned out to carry the delivery-acknowledgement signals and the diff opening instead — see "Tell
+7 turned out to carry the delivery-acknowledgement signals and the diff opening instead. See "Tell
 the IDE the remarks were actually delivered" and "Open the real diff for just the files the skill
 named" below.)
 

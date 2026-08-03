@@ -12,7 +12,7 @@ the hand checks at the end of the plan. **Phase 7's matter most now**, and none 
 signal, a scheduled deadline, and a diff opened over VCS all depend on platform behaviour no
 automated test in this project reaches. See `docs/claude/design.md` for exactly which. **Phase 8
 owes hand checks too, and it needs something no earlier phase did: a second machine.** A tunnel, an
-`sshd`, and an agent session on the far side of it are needed to check the remote path at all — one
+`sshd`, and an agent session on the far side of it are needed to check the remote path at all. One
 machine is enough for the fetch action's own answers, but not for the tunnel. None of phase 8's
 checks have been run. Section 13 of `docs/plans/20260803-claude-remarks-phase8.md` lists all of
 them, split by which group needs the second machine. Select lines, press `Ctrl+Alt+Shift+R` (or
@@ -77,8 +77,8 @@ path, one review at a time. A rejection is written into the handoff file, and th
 cleared. Without this, a fetch after that point would answer "nothing is waiting", and a remote
 agent could not tell a rejection from a timeout. A response over one megabyte is refused
 rather than truncated, because a markdown prompt cut in the middle looks complete to a model reading
-it. The skill (`docs/skill/claude-remarks-review/SKILL.md`) now takes four connection values — host,
-port, token and the repository path as the IDE machine sees it — and keeps one wait loop for both
+it. The skill (`docs/skill/claude-remarks-review/SKILL.md`) now takes four connection values: host,
+port, token and the repository path as the IDE machine sees it. It keeps one wait loop for both
 the local case and the remote case, switching only on how it checks whether the remarks are ready.
 Nothing about the security model changed: the built-in server only binds `127.0.0.1`, so a tunnel is
 the only way in, and a tunnelled request still arrives from loopback and still carries no `Origin`
@@ -332,7 +332,7 @@ and the selection survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileD
 `ReviewEndpointSmokeTest` (the one test that calls `ReviewRestService.execute` itself, through a
 real `EmbeddedChannel`, so the response actually carries a body, plus the ack action's five answers,
 the unknown-action refusal, that the deadline the request declares really reaches the review, and,
-since phase 8, the fetch action's answers — `waiting` before a send, `ready` with the whole prompt
+since phase 8, the fetch action's answers: `waiting` before a send, `ready` with the whole prompt
 after one, that a fetch marks nothing sent and leaves the review alone, that a fetch still carries a
 rejection's body, `no-review` for a session nothing knows about, `too-large` over the size cap,
 `bad-request` for a missing field, and `unknown-project` for a project nothing has open),
@@ -345,7 +345,7 @@ leave the remarks pending, the reject action, and the phase guards that refuse a
 overwrite after a send), and `WaitingReviewServiceTest` (fixture-backed, because a
 project-level service needs a project: `markSent` and the session it names, `acknowledge`,
 `expireIfStale`, that `clear` cancels the deadline task, that a stale review is not `current()`, and,
-since phase 8, `endedOutputPath` — findable by its own session, not by a different one, and only the
+since phase 8, `endedOutputPath`: findable by its own session, not by a different one, and only the
 most recently ended review is remembered).
 
 Every fixture-backed test class that asserts on the whole store clears it in `setUp`, not only in

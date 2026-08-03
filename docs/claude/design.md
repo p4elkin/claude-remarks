@@ -1449,6 +1449,17 @@ checks `!project.isDisposed`, then `expireStaleReview` calls `getInstance(projec
 `AlreadyDisposedException` if disposal lands between the two. Costs a logged exception in the shared
 scheduler, no data loss. Needs a project closed within microseconds of a deadline firing.
 
+**A concurrent `current()` read can see no review at all during a stale-replacement.** `start()`'s
+stale-replacement branch calls `endReview()`, which sets `state` to null, and only assigns
+`state = result.state` a few lines later, inside the same `@Synchronized` block. `current()` reads
+`state` without synchronization on purpose (see the class KDoc), so a read landing in that gap sees
+`current() == null`, as if no review were waiting, instead of a review being replaced. The old code
+did the replacement as one write, with nothing in between, so this gap did not exist before that fix.
+The window is as short as two statements running one after the other, with no lock wait and no
+filesystem call between them, and the next `notifyPanel()` a few lines down repaints regardless. Not
+fixed here: closing it would mean giving `start()` a way to write both fields together, which today
+only `endReview()` and the state assignment below it do apart.
+
 **A short window lets a fetch miss a real, unread review.** `current()` masks a review the moment
 `isStale()` turns true. That happens before the scheduled expiry task actually runs and calls
 `endReview()`. In that window a review can be `Sent`, with a real handoff file already on disk,
@@ -1461,12 +1472,13 @@ milliseconds, so it takes a fetch landing in exactly that gap to see it. Not fix
 mean `handleFetch` reading past `current()`'s own staleness masking, which is a real change to the
 phase 7 deadline design, not a small one.
 
-**The fetch action inherits the same-session-retry defect above.** `handleFetch` reads through
-`current()` and `endedOutputPath`, and both are fed by the same state that `startOrConflict`'s
-same-session branch copies forward with its old `phase`. So a `start` retried with the same session id
-after a send still answers `waiting` with an output path whose file already exists, and a fetch right
-after that first poll returns the previous review's remarks immediately — the same defect the local
-skill's file-existence check already has. Not made worse by the fetch action, and not fixed by it.
+**The fetch action inherits the defect where retrying with the same session id after a send still
+returns the old remarks.** `handleFetch` reads through `current()` and `endedOutputPath`, and both are
+fed by the same state that `startOrConflict`'s same-session branch copies forward with its old
+`phase`. So a `start` retried with the same session id after a send still answers `waiting` with an
+output path whose file already exists. A fetch right after that first poll then returns the previous
+review's remarks immediately. That is the same defect the local skill's file-existence check already
+has. Not made worse by the fetch action, and not fixed by it.
 
 **A file path is written into the prompt as a Markdown heading, unescaped.** `render/PromptRenderer.kt`
 emits `## <path>` per group. The prompt is instructions a model then acts on, so a path containing a
