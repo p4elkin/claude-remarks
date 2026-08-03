@@ -362,6 +362,53 @@ class PromptRendererTest {
         assertFalse(body, body.contains("⟧"))
     }
 
+    /**
+     * A general remark has no startLine, no textHash and no context — the same shape the renderer
+     * otherwise calls an orphan and describes as "the code this remark points at could not be
+     * found". Rendered through blockWithoutCode a deliberate general remark would read as a broken
+     * one, so this is the test written first for this task.
+     */
+    @Test
+    fun `a general remark has no code block and does not say the code could not be found`() {
+        val out = renderPrompt("H", listOf(remark(path = "", startLine = 0)))
+
+        assertFalse(out, out.contains("```"))
+        assertFalse(out, out.contains("could not be found"))
+        assertFalse(out, out.contains("could not be read"))
+    }
+
+    @Test
+    fun `a general remark is rendered before every file section`() {
+        val out = renderPrompt("H", listOf(remark(path = "a.kt", startLine = 0), remark(path = "", startLine = 0)))
+
+        val generalIndex = out.indexOf("## General")
+        val fileIndex = out.indexOf("## a.kt")
+        assertTrue(out, generalIndex >= 0)
+        assertTrue(out, fileIndex > generalIndex)
+    }
+
+    @Test
+    fun `a general remark still carries its tag, its level and its commit`() {
+        val out = renderPrompt(
+            "H",
+            listOf(remark(path = "", startLine = 0, tag = "question", severity = "must", commit = "abc123def456")),
+        )
+
+        assertTrue(out, out.contains("question"))
+        assertTrue(out, out.contains("must"))
+        assertTrue(out, out.contains("commit abc123de"))
+    }
+
+    @Test
+    fun `a prompt of general remarks only still renders`() {
+        val out = renderPrompt("H", listOf(remark(path = "", startLine = 0), remark(path = "", startLine = 1)))
+
+        assertEquals(
+            listOf("## General", "### 1.", "### 2."),
+            out.lines().filter { it.startsWith("##") }.map { it.take(if (it.startsWith("###")) 6 else it.length) },
+        )
+    }
+
     private fun remark(
         path: String = "a.kt",
         startLine: Int = 0,

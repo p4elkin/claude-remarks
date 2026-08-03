@@ -9,6 +9,12 @@ package dev.sasha.clauderemarks.render
 
 /** One remark, with the code already sliced out of its file. Line numbers are 0-based. */
 data class RenderedRemark(
+    /**
+     * The file this remark is about, or "" for a remark about no file at all — a general remark,
+     * written from the tool window rather than from an editor selection. A nullable path would
+     * touch every construction site and every test that builds one, for the same expressiveness a
+     * non-null empty string already gives: [renderPrompt] partitions on `path.isEmpty()`.
+     */
     val path: String,
     val startLine: Int,
     val endLine: Int,
@@ -53,7 +59,21 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
         .append("\n\n---\n")
     var number = 0
 
-    remarks
+    val (general, aboutAFile) = remarks.partition { it.path.isEmpty() }
+
+    if (general.isNotEmpty()) {
+        out.append("\n## General\n")
+        general.forEach { remark ->
+            number++
+            out.append("\n### ").append(number).append(".")
+            remark.tag?.let { out.append(" — ").append(it) }
+            out.append(" — ").append(remark.severity)
+            remark.commit?.let { out.append(" — commit ").append(it.take(8)) }
+            out.append("\n\n").append(escapeMarkdown(remark.text.trim())).append("\n\n")
+        }
+    }
+
+    aboutAFile
         .sortedWith(compareBy({ it.path }, { it.startLine }))
         .groupBy { it.path }
         .forEach { (path, group) ->

@@ -1194,19 +1194,37 @@ all.
 **General remarks go at the top.** A general remark is usually the most important one in a reading
 pass, and one placed after forty file sections has already been read as an afterthought.
 
-- [ ] write the failing tests in `PromptRendererTest`:
+- [x] write the failing tests in `PromptRendererTest`:
   - `a general remark is rendered before every file section`.
   - `a general remark has no code block and does not say the code could not be found`. The orphan
     trap, and the test worth writing first.
   - `a general remark still carries its tag, its level and its commit`.
   - `a prompt of general remarks only still renders`.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.render.PromptRendererTest"`, expect
+      **Result: four tests added. The orphan-trap test was written first, as directed. Running the
+      narrow suite before implementing failed three of them (`a general remark still carries its
+      tag, its level and its commit` already passed against the unmodified renderer, since a
+      path-="" remark already fell into an (empty-named) file group that already printed tag/
+      severity/commit — only the General heading, the no-code-block guarantee and the ordering are
+      new behaviour).**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.render.PromptRendererTest"`, expect
       failures, implement, pass
-- [ ] **mutation:** let a general remark fall through to `codeBlock`; the orphan-trap test must fail.
+      **Result: confirmed 3 failures before implementation (ordering, orphan-trap, general-only);
+      all 28 tests in the class pass after implementing the `general`/`aboutAFile` partition in
+      `renderPrompt`.**
+- [x] **mutation:** let a general remark fall through to `codeBlock`; the orphan-trap test must fail.
       Sort the general group with the file groups instead of before them; the ordering test must fail.
       Restore both.
-- [ ] guard 2 is still empty. This file must stay free of the platform.
-- [ ] commit: `feat: the prompt has a General section, and it comes first`
+      **Result: both mutations applied and reverted. Appending `codeBlock(remark)` inside the
+      general loop failed `a general remark has no code block and does not say the code could not
+      be found`. Moving the General block to render after the file-groups loop (rather than merging
+      it into the same sort — an empty path already sorts first alphabetically, which would not
+      have exercised the ordering guarantee) failed `a general remark is rendered before every file
+      section`. Both restored; `./gradlew test --tests "dev.sasha.clauderemarks.render.PromptRendererTest"`
+      green again.**
+- [x] guard 2 is still empty. This file must stay free of the platform.
+      **Result: `grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt`
+      returned nothing.**
+- [x] commit: `feat: the prompt has a General section, and it comes first`
 
 ### Task 13: Resolve passes over a remark with no path
 
