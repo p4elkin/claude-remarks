@@ -26,14 +26,18 @@ machine reach that endpoint at all. Here is what the person needs to do, and wha
 agent:
 
 - **On the IDE machine**, in the repository: read the port and the token out of the handshake
-  file with two lines of shell. Do not send the token over anything that logs it.
+  file into shell variables, and print them so they are there to read. Do not send the token over
+  anything that logs it.
 
   ```console
   HS=~/.claude-remarks/$(printf %s "$(git rev-parse --show-toplevel)" | shasum -a 256 | cut -c1-16).json
-  jq . "$HS"     # prints path, port and token
+  PORT=$(jq -r .port "$HS")
+  TOKEN=$(jq -r .token "$HS")
+  echo "port: $PORT"
+  echo "token: $TOKEN"
   ```
-- **Start the tunnel from the IDE machine**, in that same shell, so the port that was just read is
-  the one being forwarded:
+- **Start the tunnel from the IDE machine**, in that same shell, so `$PORT` still holds the value
+  that was just read:
 
   ```console
   ssh -o ExitOnForwardFailure=yes -R 8765:127.0.0.1:"$PORT" the-agent-machine

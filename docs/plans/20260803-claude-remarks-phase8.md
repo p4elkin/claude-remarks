@@ -258,16 +258,20 @@ There is deliberately no guard forbidding a non-loopback host: the built-in serv
 connect, and connection refused is a legible failure. Every guard is shell code, every variable is
 assigned in the same shell scope that reads it, and the traps exit.
 
-**How the person discovers the values: on the IDE machine, from the handshake file, with two lines of
-shell.** Documented in `SKILL.md`'s new "Over SSH" section and summarised in `README.md`:
+**How the person discovers the values: on the IDE machine, from the handshake file, read into
+variables and printed.** Documented in `SKILL.md`'s new "Over SSH" section and summarised in
+`README.md`:
 
 ```sh
 HS=~/.claude-remarks/$(printf %s "$(git rev-parse --show-toplevel)" | shasum -a 256 | cut -c1-16).json
-jq . "$HS"     # prints path, port and token
+PORT=$(jq -r .port "$HS")
+TOKEN=$(jq -r .token "$HS")
+echo "port: $PORT"
+echo "token: $TOKEN"
 ```
 
 That is run in the repository, on the machine the IDE is on. The same shell then starts the tunnel, so
-the port that was just read is the one that gets forwarded. There is no new IDE surface for this — see
+`$PORT` still holds the value that was just read. There is no new IDE surface for this — see
 [section 8](#8-scope-judgement-what-i-cut).
 
 **The handshake file does not change, and here is why.** It already carries exactly the three values
@@ -940,9 +944,9 @@ task should be finished in one sitting rather than left half-edited.
 "Same machine only" section tells the model to refuse the remote case. The new "Over SSH" section is
 prose plus two commands, and it is written for the person, not for the model:
 
-- **On the IDE machine**, in the repository: read the port and the token out of the handshake file with
-  the two lines in [section 4](#4-the-design-questions-decided) above. Do not send the token over
-  anything that logs it.
+- **On the IDE machine**, in the repository: read the port and the token out of the handshake file
+  into variables and print them, with the lines in [section 4](#4-the-design-questions-decided)
+  above. Do not send the token over anything that logs it.
 - **Start the tunnel from the IDE machine**, in that same shell, so the port that was just read is the
   one being forwarded:
 
