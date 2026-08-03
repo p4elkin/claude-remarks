@@ -104,6 +104,12 @@ fun openRemarkEdit(project: Project, editor: Editor, id: String, text: String, t
 /**
  * setCancelKeyEnabled(true) is what gives Esc for free. showInBestPositionFor(editor) puts the
  * popup at the caret in one call, without guessBestPopupLocation.
+ *
+ * setCancelOnWindowDeactivation(false) is there because the class-name chooser is a second JBPopup
+ * opened from inside this one. Deactivating this popup's window must not throw away a half-typed
+ * remark. Clicking elsewhere in the IDE still abandons it: cancelOnClickOutside is left at its
+ * default true, and it is safe to leave there, because StackingPopupDispatcherImpl only ever cancels
+ * the TOP of the popup stack — which while the chooser is up is the chooser, not this popup.
  */
 private fun showRemarkInput(
     project: Project,
@@ -120,6 +126,7 @@ private fun showRemarkInput(
         .setRequestFocus(true)
         .setFocusable(true)
         .setCancelKeyEnabled(true)
+        .setCancelOnWindowDeactivation(false)
         .setMovable(true)
         .setResizable(true)
         .createPopup()

@@ -1,13 +1,16 @@
 package dev.sasha.clauderemarks.ui
 
+import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.ui.PopupHandler
 import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.editor.RemarkGutter
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.setRemarkBucket
@@ -158,6 +161,89 @@ class RemarksPanelTest : BasePlatformTestCase() {
         panel.tree.setSelectionRow(0)
         assertEquals(1, panel.tree.selectionCount)
         assertEquals(2, panel.selectedIds().size)
+    }
+
+    /**
+     * The only test that reaches `groupNodes` and `recollapse` below the top level. The flat test
+     * above keeps every group one step from the root, so a one-level walk over the root's children
+     * would pass it; a file group inside a bucket sits one step further down, and a one-level walk
+     * never finds its key, so it springs open on the next refresh.
+     *
+     * The bucket is left open on purpose. Collapsing a bucket is not the case to test here:
+     * `com.intellij.ui.treeStructure.Tree.collapsePath` collapses the whole visible subtree by
+     * default, so its file groups come back shut whether or not this panel records them, and the
+     * assertion would pass either way.
+     */
+    fun testAFileGroupCollapsedInsideABucketStaysCollapsedAcrossARefresh() {
+        val first = addRemark(project, "A.kt", LINES, 0..0, "one", null)
+        val second = addRemark(project, "B.kt", LINES, 0..0, "two", null)
+        setRemarkBucket(project, listOf(first.id!!, second.id!!), "auth refactor")
+        val panel = panel()
+        // bucket + two file groups + two rows
+        assertEquals(5, panel.tree.rowCount)
+
+        // Row 1 is the first file group under the bucket, not the bucket itself.
+        panel.tree.collapseRow(1)
+        assertEquals(4, panel.tree.rowCount)
+
+        panel.refresh()
+        settle()
+
+        assertEquals(
+            "the file group inside the bucket should still be shut",
+            4,
+            panel.tree.rowCount,
+        )
+    }
+
+    /**
+     * Right-clicking a row that is not selected used to open the menu against the PREVIOUS selection,
+     * because PopupHandler only shows the menu and BasicTreeUI moves the selection on button 1 only.
+     * With nothing selected every item was a silent no-op.
+     */
+    fun testARightClickSelectsTheRowUnderThePointer() {
+        addRemark(project, "A.kt", LINES, 0..0, "one", null)
+        addRemark(project, "A.kt", LINES, 1..1, "two", null)
+        val panel = panel()
+        panel.tree.clearSelection()
+
+        val bounds = panel.tree.getRowBounds(2)
+        selectRowForPopup(panel.tree, bounds.x + 1, bounds.y + 1)
+
+        assertEquals(2, panel.tree.selectionRows!!.single())
+    }
+
+    /** Adding, not replacing: right-clicking inside a multi-row selection must not collapse it. */
+    fun testARightClickInsideAnExistingSelectionKeepsIt() {
+        addRemark(project, "A.kt", LINES, 0..0, "one", null)
+        addRemark(project, "A.kt", LINES, 1..1, "two", null)
+        val panel = panel()
+        panel.tree.setSelectionRows(intArrayOf(1, 2))
+
+        val bounds = panel.tree.getRowBounds(2)
+        selectRowForPopup(panel.tree, bounds.x + 1, bounds.y + 1)
+
+        assertEquals(listOf(1, 2), panel.tree.selectionRows!!.sorted())
+    }
+
+    /**
+     * Nothing proved either side installed the shared menu. Removing the one line that installs it
+     * left the tree with no right-click menu at all and the whole suite green.
+     */
+    fun testTheTreeHasARightClickMenuOfferingSeverityAndBuckets() {
+        val panel = panel()
+
+        assertTrue(panel.tree.mouseListeners.any { it is PopupHandler })
+
+        // remarkChangeActions returns a plain group, which the platform inlines where it is placed,
+        // so the Severity submenu sits one level below the menu's own children.
+        val groups = panel.treeMenu().getChildren(null).filterIsInstance<ActionGroup>()
+        val severities = (groups + groups.flatMap { it.getChildren(null).filterIsInstance<ActionGroup>() })
+            .map { group -> group.getChildren(null).map { it.templatePresentation.text } }
+        assertTrue(
+            severities.toString(),
+            severities.contains(RemarkSeverity.entries.map { it.name.lowercase() }),
+        )
     }
 
     private fun panel(): RemarksPanel {

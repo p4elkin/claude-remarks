@@ -49,18 +49,38 @@ fun insertAtCaret(target: JTextComponent, name: String) {
     target.replaceSelection(name)
 }
 
-/** EDT. Reads the names off the EDT, then opens the chooser. */
+/**
+ * EDT. Reads the names off the EDT, then opens the chooser.
+ *
+ * The isShowing guards are not defensive noise, they are the two ways this can go wrong. The read
+ * action is asynchronous and expireWith(project) only fires when the PROJECT is disposed, not when
+ * the remark popup closes — so pressing the key and then Escape used to reach showInCenterOf on a
+ * component that is no longer on screen, which is AbstractPopup.getCenterOf calling
+ * SwingUtilities.convertPointToScreen on a non-showing component: IllegalComponentStateException.
+ * The second guard covers the same thing one step later: the remark box closing while the chooser is
+ * open would otherwise insert the chosen name into a dead text area, losing the typed remark with
+ * nothing said.
+ */
 fun chooseClassName(project: Project, target: JTextComponent) {
     ReadAction.nonBlocking<List<String>> { projectClassNames(project) }
         .expireWith(project)
         .coalesceBy(::chooseClassName, project)
         .finishOnUiThread(ModalityState.defaultModalityState()) { names ->
-            if (names.isEmpty()) return@finishOnUiThread
+            if (!target.isShowing) return@finishOnUiThread
+            if (names.isEmpty()) {
+                // Say so rather than doing nothing. An IDE without the extension point, or a project
+                // with nothing indexed yet, is otherwise a keystroke that silently does nothing —
+                // the same failure AddRemarkAction goes to real trouble to avoid with a hint.
+                JBPopupFactory.getInstance()
+                    .createMessage("No class names are indexed in this project yet.")
+                    .showInCenterOf(target)
+                return@finishOnUiThread
+            }
             JBPopupFactory.getInstance()
                 .createPopupChooserBuilder(names)
                 .setTitle("Insert Class Name")
                 .setNamerForFiltering { it }
-                .setItemChosenCallback { insertAtCaret(target, it) }
+                .setItemChosenCallback { if (target.isShowing) insertAtCaret(target, it) }
                 .createPopup()
                 .showInCenterOf(target)
         }

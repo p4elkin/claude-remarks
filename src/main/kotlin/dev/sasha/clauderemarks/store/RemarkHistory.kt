@@ -38,7 +38,8 @@ fun historyFile(project: Project): Path =
         .resolve("claude-remarks")
         .resolve("${safeName(project.name)}-${project.locationHash}.md")
 
-private fun safeName(name: String): String = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+/** Internal, so one assertion can cover it: a project called "My App / v2" must not become a path. */
+internal fun safeName(name: String): String = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
 
 /**
  * Appends [remarks] to [file] and returns how many were written.

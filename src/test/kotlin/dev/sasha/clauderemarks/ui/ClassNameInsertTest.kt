@@ -1,5 +1,8 @@
 package dev.sasha.clauderemarks.ui
 
+import com.intellij.navigation.ChooseByNameContributor
+import com.intellij.navigation.NavigationItem
+import com.intellij.openapi.project.Project
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.components.JBTextArea
 
@@ -28,9 +31,62 @@ class ClassNameInsertTest : BasePlatformTestCase() {
         assertEquals("see JcrSessionProvider for why", area.text)
     }
 
-    fun testAskingForNamesNeverThrows() {
-        // Answers whatever this IDE has, including nothing at all. The only requirement is that a
-        // missing extension point is an empty list, not an exception that kills the keystroke.
-        assertNotNull(projectClassNames(project))
+    /**
+     * `assertNotNull(projectClassNames(project))` used to stand here, on a function returning a
+     * non-nullable List — an assertion that passes against `fun projectClassNames(...) =
+     * emptyList<String>()`, so nothing covered the extension point, the per-extension runCatching,
+     * the distinct or the sort. This adds a class and asks for it back.
+     */
+    fun testAClassInTheProjectComesBackFromTheNameList() {
+        contribute("Zebra", "Apple", "Zebra")
+        contribute("Middle")
+
+        assertEquals(listOf("Apple", "Middle", "Zebra"), projectClassNames(project))
+    }
+
+    /**
+     * One contributor throwing must not take the others down with it. That is what the inner
+     * runCatching is for, and nothing exercised it.
+     */
+    fun testAContributorThatThrowsIsSkippedRatherThanKillingTheKeystroke() {
+        contribute("Apple")
+        ChooseByNameContributor.CLASS_EP_NAME.point.registerExtension(
+            object : ChooseByNameContributor {
+                override fun getNames(project: Project, includeNonProjectItems: Boolean): Array<String> =
+                    throw UnsupportedOperationException("this contributor is broken")
+
+                override fun getItemsByName(
+                    name: String,
+                    pattern: String,
+                    project: Project,
+                    includeNonProjectItems: Boolean,
+                ): Array<NavigationItem> = emptyArray()
+            },
+            testRootDisposable,
+        )
+
+        assertEquals(listOf("Apple"), projectClassNames(project))
+    }
+
+    /**
+     * The real extension point, with a contributor of our own on it. A file added through myFixture
+     * would not do: this fixture is the platform test framework only, so no language plugin registers
+     * a gotoClassContributor and the list comes back empty whatever is in the project.
+     */
+    private fun contribute(vararg names: String) {
+        ChooseByNameContributor.CLASS_EP_NAME.point.registerExtension(
+            object : ChooseByNameContributor {
+                override fun getNames(project: Project, includeNonProjectItems: Boolean): Array<String> =
+                    arrayOf(*names)
+
+                override fun getItemsByName(
+                    name: String,
+                    pattern: String,
+                    project: Project,
+                    includeNonProjectItems: Boolean,
+                ): Array<NavigationItem> = emptyArray()
+            },
+            testRootDisposable,
+        )
     }
 }

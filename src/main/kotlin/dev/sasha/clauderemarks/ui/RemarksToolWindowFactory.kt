@@ -40,10 +40,27 @@ import dev.sasha.clauderemarks.store.fileForStoredPath
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.resolveAll
+import java.awt.Component
 import javax.swing.Icon
+import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
+
+/**
+ * Adds the tree row at [x], [y] to the selection, unless it is already there.
+ *
+ * addSelectionPath, not setSelectionPath: right-clicking inside a selection of several rows must not
+ * collapse it to the one row under the pointer, because moving a whole reading pass into a bucket is
+ * exactly what that selection is for.
+ *
+ * A top-level function, so RemarksPanelTest can drive the rule without a window: showing a real
+ * popup menu needs one, and this is the part that was wrong.
+ */
+internal fun selectRowForPopup(tree: JTree, x: Int, y: Int) {
+    val path = tree.getPathForLocation(x, y) ?: return
+    if (!tree.isPathSelected(path)) tree.addSelectionPath(path)
+}
 
 class RemarksToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -86,7 +103,7 @@ class RemarksPanel(
         // The same actions the gutter icon menu offers, acting on the tree selection instead of on
         // one icon. This is the only reason the tree needs a right-click menu at all: severity and
         // buckets are set after the fact, and the tree is where a whole reading pass is triaged.
-        PopupHandler.installPopupMenu(tree, treeMenu(), "ClaudeRemarksTree")
+        tree.addMouseListener(TreePopupHandler())
 
         // One subscription is enough. RemarkGutter's own EditorFactoryListener already calls
         // notifyRemarksChanged when an editor opens or closes, so a second listener here would
@@ -125,11 +142,35 @@ class RemarksPanel(
     /** The ids currently selected, in the order the tree shows them. */
     fun selectedIds(): List<String> = selectedNodes().map { it.id }
 
-    private fun treeMenu(): ActionGroup = DefaultActionGroup(
+    /** Internal, not private, so RemarksPanelTest can check what the right-click menu offers. */
+    internal fun treeMenu(): ActionGroup = DefaultActionGroup(
         remarkChangeActions(project) { selectedIds() },
         Separator.getInstance(),
         DumbAwareAction.create("Delete") { deleteSelected() },
     )
+
+    /**
+     * A right-click first selects the row under the pointer, then opens the menu.
+     *
+     * PopupHandler.installPopupMenu only shows the menu, and BasicTreeUI moves the tree selection on
+     * button 1 only. So right-clicking a row that was not selected opened the menu against the
+     * PREVIOUS selection, and with nothing selected all three items were silent no-ops:
+     * setRemarkSeverity on an empty list changes nothing and publishes nothing, and chooseBucket and
+     * deleteSelected both return on their own empty checks.
+     *
+     * The menu is built here rather than through installPopupMenu because that helper offers no way
+     * in before the menu is shown. It is the same three calls the helper makes.
+     */
+    private inner class TreePopupHandler : PopupHandler() {
+        override fun invokePopup(comp: Component, x: Int, y: Int) {
+            selectRowForPopup(tree, x, y)
+            ActionManager.getInstance()
+                .createActionPopupMenu("ClaudeRemarksTree", treeMenu())
+                .also { it.setTargetComponent(tree) }
+                .component
+                .show(comp, x, y)
+        }
+    }
 
     /**
      * A while loop, NOT `for (row in 0 until tree.rowCount)`: that builds the range once, from the
@@ -180,10 +221,15 @@ class RemarksPanel(
     /**
      * The group rows that are shut right now, read before setRoot throws the rows away.
      *
-     * isVisible is not decoration. JTree reports a node inside a collapsed ancestor as not
-     * expanded, so without it every file group inside a collapsed bucket would be recorded as
-     * collapsed and would stay shut after the rebuild even when the bucket is opened again. The
-     * cost of the check: a file group you shut inside a bucket you then shut is forgotten. That is
+     * isVisible is there because JTree reports a node inside a collapsed ancestor as not expanded,
+     * so without it every file group inside a collapsed bucket would be recorded as collapsed and
+     * put back shut. How much that matters depends on an advanced setting:
+     * `com.intellij.ui.treeStructure.Tree.collapsePath` collapses the whole visible subtree when
+     * `ide.tree.collapse.recursively` is on, which is the default — and then shutting a bucket shuts
+     * its file groups whatever this method records. With that setting off, this check is what keeps a
+     * file group open after its bucket is closed and opened again.
+     *
+     * The cost either way: a file group you shut inside a bucket you then shut is forgotten. That is
      * the smaller surprise of the two.
      */
     private fun collapsedGroups(): Set<String> =

@@ -1,11 +1,16 @@
 package dev.sasha.clauderemarks.render
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import dev.sasha.clauderemarks.anchor.AnchorResult
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.store.RemarkStore
+import dev.sasha.clauderemarks.store.ResolvedRemark
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.projectRoot
+import dev.sasha.clauderemarks.store.remark
 import dev.sasha.clauderemarks.store.resolveAll
+import dev.sasha.clauderemarks.store.setRemarkSeverity
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -69,7 +74,11 @@ class CollectForPromptTest : BasePlatformTestCase() {
 
     fun testTheAnchoredLinesComeBackWithContextEitherSide() {
         writeFile("Foo.kt", (1..20).joinToString("\n") { "line $it" })
-        addRemark(project, "Foo.kt", (1..20).map { "line $it" }, 9..10, "why?", RemarkTag.BUG)
+        val stored =
+            addRemark(project, "Foo.kt", (1..20).map { "line $it" }, 9..10, "why?", RemarkTag.BUG)
+        // A non-default level on purpose: with the default, hardcoding severity = "should" in
+        // collectForPrompt would pass this assertion.
+        setRemarkSeverity(project, listOf(stored.id!!), RemarkSeverity.MUST)
 
         val collected = collectForPrompt(project, resolveAll(project)).single()
 
@@ -77,7 +86,7 @@ class CollectForPromptTest : BasePlatformTestCase() {
         assertEquals(9, collected.startLine)
         assertEquals(10, collected.endLine)
         assertEquals("bug", collected.tag)
-        assertEquals("should", collected.severity)
+        assertEquals("must", collected.severity)
         assertEquals(6, collected.codeStartLine)
         assertEquals(
             listOf("line 7", "line 8", "line 9", "line 10", "line 11", "line 12", "line 13", "line 14"),
@@ -166,6 +175,22 @@ class CollectForPromptTest : BasePlatformTestCase() {
         assertEquals("line 21", collected[1].code[collected[1].startLine - collected[1].codeStartLine])
     }
 
+    /**
+     * The commit has to reach the copied prompt: that is the whole point of stamping it. Built as a
+     * row by hand rather than through addRemark, because that is the only place the field is read.
+     * Mutation: `commit = null` in collectForPrompt and this fails.
+     */
+    fun testTheStoredCommitReachesTheCollectedRow() {
+        val stored = remark(id = "r-1", path = "Foo.kt", commit = SHA)
+
+        val collected = collectForPrompt(
+            project,
+            listOf(ResolvedRemark(stored, AnchorResult.Exact(0, 0))),
+        ).single()
+
+        assertEquals(SHA, collected.commit)
+    }
+
     private fun writeFile(name: String, content: String) {
         val onDisk = File(project.basePath!!, name)
         onDisk.parentFile.mkdirs()
@@ -182,5 +207,9 @@ class CollectForPromptTest : BasePlatformTestCase() {
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         super.tearDown()
+    }
+
+    private companion object {
+        const val SHA = "0123456789abcdef0123456789abcdef01234567"
     }
 }

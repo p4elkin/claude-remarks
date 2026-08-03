@@ -118,7 +118,11 @@ fun buildTreeRoot(rows: List<ResolvedRemark>): DefaultMutableTreeNode {
 
     nodes.groupBy { it.bucket }.forEach { (bucket, inBucket) ->
         val label = bucket ?: NO_BUCKET_LABEL
-        val key = "bucket:$label"
+        // Keyed on the raw bucket, not on the label: a bucket literally named "(no bucket)" would
+        // otherwise share a key with the null-bucket group, and the panel would restore the selection
+        // and the collapsed state of the wrong one of two sibling rows. A leading space cannot occur
+        // in a real bucket name, because setRemarkBucket trims it.
+        val key = "bucket:" + (bucket ?: " none")
         val bucketNode = DefaultMutableTreeNode(GroupNode(key, label))
         addFileGroups(bucketNode, "$key/", inBucket)
         root.add(bucketNode)

@@ -34,6 +34,7 @@ data class RemarkPlacement(
     val text: String,
     val tag: RemarkTag?,
     val severity: RemarkSeverity,
+    val commit: String?,
     val sent: Boolean,
     val startLine: Int,
     val endLine: Int,
@@ -46,12 +47,17 @@ data class RemarkPlacement(
  * The remark text is escaped: it is user input, and an unescaped "<" swallows everything up to the
  * next ">". The newlines become <br/>, because a raw "\n" is whitespace in HTML and the orphaned
  * and sent notes would end up on the same line as the remark.
+ *
+ * The commit is here in full, unlike the tree, which shows it only on an orphaned row: a tooltip has
+ * room and a tree row does not. It is cut to the same eight characters the tree's `writtenAt` and
+ * the prompt heading use, so all three agree on what a short sha is.
  */
 fun tooltipFor(placement: RemarkPlacement): String = buildString {
     append("<html>")
     append(StringUtil.escapeXmlEntities(placement.text).replace("\n", "<br/>"))
     placement.tag?.let { append("  [").append(it.label).append("]") }
     append("  ").append(placement.severity.label)
+    placement.commit?.let { append("  commit ").append(it.take(8)) }
     if (placement.orphaned) append("<br/>(orphaned — these line numbers are stale)")
     if (placement.sent) append("<br/>(sent)")
     append("</html>")

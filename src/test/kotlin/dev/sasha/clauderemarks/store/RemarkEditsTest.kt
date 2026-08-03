@@ -4,10 +4,11 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
+import java.io.File
 import java.nio.file.Files
 
 /**
- * The six functions that are the only way production code changes a remark. Each one must both
+ * The eight functions that are the only way production code changes a remark. Each one must both
  * mutate and publish, so a caller cannot mutate without the tool window and the gutter hearing
  * about it.
  */
@@ -45,6 +46,23 @@ class RemarkEditsTest : BasePlatformTestCase() {
         assertNotNull(stored.id)
         assertNotNull(stored.textHash)
         assertEquals(listOf(stored.id), RemarkStore.getInstance(project).all().map { it.id })
+    }
+
+    /**
+     * The one line in `addRemark` that wires `project.basePath` into `headCommit`. It was written off
+     * as untestable because the light fixture has no git repository — but the fixture project has a
+     * real base directory that these tests already write files into, so the same three files
+     * `GitHeadTest` builds make it one. Mutation: drop the `commit =` line and this fails.
+     */
+    fun testAddingARemarkInsideAGitRepositoryStampsTheHeadCommit() {
+        writeGitHead(SHA)
+
+        assertEquals(SHA, addOne().commit)
+    }
+
+    /** No repository, no stamp — and still a remark. A missing commit is never a refusal to add. */
+    fun testAddingARemarkOutsideAGitRepositoryStampsNothing() {
+        assertNull(addOne().commit)
     }
 
     fun testAddingARemarkCapturesTheContextAroundIt() {
@@ -143,12 +161,13 @@ class RemarkEditsTest : BasePlatformTestCase() {
 
     fun testClearSentPublishesOnlyWhenSomethingWentAway() {
         addOne()
+        val history = tempHistory()
 
-        clearSentRemarks(project)
+        clearSentRemarks(project, history)
         assertEquals(1, heard)
 
         markRemarksSent(project, RemarkStore.getInstance(project).all().map { it.id!! })
-        clearSentRemarks(project)
+        clearSentRemarks(project, history)
 
         assertEquals(3, heard)
         assertEquals(0, RemarkStore.getInstance(project).all().size)
@@ -158,10 +177,22 @@ class RemarkEditsTest : BasePlatformTestCase() {
         addOne()
         addOne()
 
-        clearAllRemarks(project)
+        clearAllRemarks(project, tempHistory())
 
         assertEquals(3, heard)
         assertEquals(0, RemarkStore.getInstance(project).all().size)
+    }
+
+    /**
+     * One archive file per project, not one shared by all of them. A version that dropped the
+     * location hash would put two projects of the same name into the same file, and reading either
+     * would mean reading both.
+     */
+    fun testTheHistoryFileIsPerProjectAndUnderItsOwnDirectory() {
+        val file = historyFile(project)
+
+        assertEquals("claude-remarks", file.parent.fileName.toString())
+        assertTrue(file.fileName.toString(), file.fileName.toString().contains(project.locationHash))
     }
 
     fun testClearSentWritesTheRemarksToTheHistoryFileFirst() {
@@ -206,4 +237,33 @@ class RemarkEditsTest : BasePlatformTestCase() {
         text = "note",
         tag = null,
     )
+
+    /**
+     * Every archive test passes an explicit path. Left to the default, these tests would append to
+     * the real `historyFile(project)` under the IDE configuration directory — which under Gradle is
+     * the project's own test sandbox, so nothing of the developer's is touched, but the file is never
+     * cleaned up and grows on every run.
+     */
+    private fun tempHistory() = Files.createTempDirectory("h").resolve("history.md")
+
+    /** The same three files GitHeadTest writes: HEAD, and the loose ref it names. */
+    private fun writeGitHead(sha: String) {
+        val gitDir = File(project.basePath!!, ".git")
+        File(gitDir, "refs/heads").mkdirs()
+        File(gitDir, "HEAD").writeText("ref: refs/heads/main\n")
+        File(gitDir, "refs/heads/main").writeText("$sha\n")
+    }
+
+    /** The light fixture project is shared, so a `.git` left behind would stamp the next class too. */
+    override fun tearDown() {
+        try {
+            File(project.basePath!!, ".git").deleteRecursively()
+        } finally {
+            super.tearDown()
+        }
+    }
+
+    private companion object {
+        const val SHA = "0123456789abcdef0123456789abcdef01234567"
+    }
 }

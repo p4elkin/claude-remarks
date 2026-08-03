@@ -8,12 +8,14 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.ui.UIUtil
+import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.store.markRemarksSent
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
+import dev.sasha.clauderemarks.store.setRemarkSeverity
 import java.io.File
 
 /**
@@ -102,6 +104,25 @@ class RemarkGutterTest : BasePlatformTestCase() {
         assertEquals(1, iconCount())
     }
 
+    /**
+     * The severity and the commit travel from the store into the placement, and the placement is
+     * what the tooltip is built from. Nothing asserted on either before this: `severity =
+     * remark.severity` could be hardcoded to SHOULD, and `commit = remark.commit` to null, with the
+     * whole suite still green and every gutter tooltip reading "should" and no commit for ever.
+     */
+    fun testTheTooltipCarriesTheSeverityAndTheCommitFromTheStore() {
+        writeGitHead(SHA)
+        openFoo()
+        val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
+        setRemarkSeverity(project, listOf(stored.id!!), RemarkSeverity.MUST)
+        gutter.start()
+        settle()
+
+        val tooltip = tooltips().single()
+        assertTrue(tooltip, tooltip.contains("must"))
+        assertTrue(tooltip, tooltip.contains("commit ${SHA.take(8)}"))
+    }
+
     fun testASentRemarkKeepsItsIcon() {
         openFoo()
         val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
@@ -174,6 +195,26 @@ class RemarkGutterTest : BasePlatformTestCase() {
         assertEquals(afterTyping, iconLines())
     }
 
+    /**
+     * Enough of a repository for `headCommit`, which reads HEAD and the loose ref and nothing else —
+     * the same three lines GitHeadTest writes. Removed again in tearDown: the light fixture project
+     * is shared, and a `.git` left behind would silently stamp every remark the next class adds.
+     */
+    private fun writeGitHead(sha: String) {
+        val gitDir = File(project.basePath!!, ".git")
+        File(gitDir, "refs/heads").mkdirs()
+        File(gitDir, "HEAD").writeText("ref: refs/heads/main\n")
+        File(gitDir, "refs/heads/main").writeText("$sha\n")
+    }
+
+    override fun tearDown() {
+        try {
+            File(project.basePath!!, ".git").deleteRecursively()
+        } finally {
+            super.tearDown()
+        }
+    }
+
     private fun openFoo() {
         val onDisk = File(project.basePath!!, "Foo.kt")
         onDisk.parentFile.mkdirs()
@@ -205,6 +246,13 @@ class RemarkGutterTest : BasePlatformTestCase() {
     private fun iconCount(): Int =
         highlighters().mapNotNull { it.gutterIconRenderer as? RemarkGutterIconRenderer }.distinct().size
 
+    /** The distinct tooltips on the document. Distinct for the same reason iconCount is. */
+    private fun tooltips(): List<String> =
+        highlighters()
+            .mapNotNull { it.gutterIconRenderer as? RemarkGutterIconRenderer }
+            .map { it.tooltipText }
+            .distinct()
+
     /** Every remark icon on the document, counting one per highlighter rather than per remark. */
     private fun rawIconCount(): Int =
         highlighters().count { it.gutterIconRenderer is RemarkGutterIconRenderer }
@@ -229,5 +277,6 @@ class RemarkGutterTest : BasePlatformTestCase() {
 
     private companion object {
         val LINES = listOf("alpha", "beta", "gamma", "delta")
+        const val SHA = "0123456789abcdef0123456789abcdef01234567"
     }
 }

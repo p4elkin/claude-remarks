@@ -228,6 +228,37 @@ class RemarksTreeTest {
         assertEquals(listOf("r-1", "r-2"), ids)
     }
 
+    /**
+     * A bucket somebody actually names "(no bucket)". Keyed on the label, that bucket and the
+     * null-bucket group both came out as "bucket:(no bucket)", so two sibling rows shared a key and
+     * the panel's restoreSelection and recollapse treated them as one row.
+     */
+    @Test
+    fun `a bucket named like the no-bucket label still gets its own key`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "r-1", bucket = NO_BUCKET_LABEL),
+                row(id = "r-2", bucket = null),
+            )
+        )
+
+        val keys = (0 until root.childCount)
+            .map { ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).key }
+
+        assertEquals(2, keys.size)
+        assertNotEquals(keys[0], keys[1])
+    }
+
+    /** buildTreeRoot's own doc says "buckets in name order", and nothing checked it. */
+    @Test
+    fun `buckets are drawn in name order`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", bucket = "z"), row(id = "r-2", bucket = "a"))
+        )
+
+        assertEquals(listOf("a", "z"), fileNames(root))
+    }
+
     @Test
     fun `a leaf carries its bucket and its severity`() {
         val node = remarkNode(row(bucket = "b", severity = RemarkSeverity.MUST))

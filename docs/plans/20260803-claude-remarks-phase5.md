@@ -1865,6 +1865,10 @@ private fun readTrimmed(path: Path): String? =
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/store/RemarkEdits.kt` — `addRemark` fills it
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/ui/RemarksTree.kt` — the orphan label in
   `remarkNode`
+- Modify: `src/main/kotlin/dev/sasha/clauderemarks/editor/RemarkGutterIcon.kt` — `commit` on
+  `RemarkPlacement`, and `tooltipFor` appending the short sha
+- Modify: `src/main/kotlin/dev/sasha/clauderemarks/editor/RemarkGutter.kt` — `placementsFor` fills it
+  beside `severity`
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt` — `RenderedRemark` and
   the heading
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/render/PromptPayload.kt` — fill it in
@@ -1878,7 +1882,10 @@ The commit is captured once, when the remark is written, and nothing refreshes i
 record what the author was looking at, not what the repository is doing now.
 
 **Where it is shown, and where it is not.** The gutter tooltip and the prompt heading always carry
-it. The tree row carries it only when the row is orphaned, folded into the label that already says
+it, both cut to the first eight characters. (The two gutter files were missing from the Files list
+above when this task was executed, so the tooltip half was left out and was added in the review-fix
+pass. The Files list is corrected too.) The tree row carries it only when the row is orphaned, folded
+into the label that already says
 so: `(orphaned, written at a1b2c3d)`. An orphan is exactly when the commit is worth something —
 `git diff` against that revision is the fastest way to find where the code went — and putting a sha
 on every row of a tree that is already showing a position, a text, a tag and a level would be
@@ -2336,8 +2343,20 @@ instead of cancelling and the first Enter belongs to vim. Every one of those is 
 running IDE, and none of them is coverable by a test.
 
 If you still want something, the task below is the cheap version: one keystroke in the box that
-opens a name chooser and inserts the pick at the caret. It does not touch the key handling, it does
-not nest one popup's focus inside another's, and it is about sixty lines.
+opens a name chooser and inserts the pick at the caret. It does not touch the key handling, and it is
+about sixty lines.
+
+> **Corrected in the phase 5 review-fix pass.** The sentence above used to end "it does not nest one
+> popup's focus inside another's". That was false. The chooser is a `JBPopup` too, opened while the
+> remark popup is still up, so the cheap version nests one popup inside another exactly as the
+> `EditorTextField` version would have — it just does not nest an *editor* inside a popup, which is
+> the part that would have cost the Enter bindings and the IdeaVim behaviour. What the nesting did
+> cost: `setCancelOnWindowDeactivation(false)` on the remark popup, and two `target.isShowing` checks
+> in `chooseClassName`. Without the first, opening the chooser could throw away a half-typed remark;
+> without the second, pressing the key and then Escape reached `showInCenterOf` on a component that is
+> no longer on screen (`IllegalComponentStateException`), and a remark box closing while the chooser
+> was open swallowed the chosen name into a dead text area. `cancelOnClickOutside` is left at its
+> default, because `StackingPopupDispatcherImpl` only cancels the top of the popup stack.
 
 **The unresolved thing, now settled: the extension point comes with `com.intellij.modules.platform`,
 so no new dependency is needed.**
@@ -2509,6 +2528,18 @@ fun chooseClassName(project: Project, target: JTextComponent) {
         })
 ```
 
+> **Corrected in the phase 5 review-fix pass: the keystroke is no longer `Ctrl+Space`.** The Alt keys
+> are safe inside this popup because the platform does not dispatch a modal-context-disabled action
+> while a modal-context popup is focused. Basic Completion is not one of those —
+> `BaseCodeCompletionAction` calls `setEnabledInModalContext(true)` — so `Ctrl+Space` really is offered
+> to it here, and on macOS the OS takes the combination for switching input source before the IDE sees
+> it at all. It is now `Cmd+Ctrl+Shift+Space` on macOS and `Ctrl+Alt+Shift+Space` elsewhere, decided in
+> one place, `CLASS_NAME_STROKE` in `ui/RemarkInputPanel.kt`. The modifier has to differ by platform
+> because this is a hardcoded Swing input-map binding, not a keymap shortcut: `Cmd` is
+> `META_DOWN_MASK`, which off macOS is the Super or Windows key and is usually taken by the window
+> manager, so the feature would have died silently there. `RemarkInputPanelTest` pins the binding and
+> pins that `Ctrl+Space` is not bound; hand check 10 below is what proves the key arrives.
+
 This needs a `Project`, which `RemarkInputPanel` does not have today. Add it as the first
 constructor parameter and pass it from `showRemarkInput` in `action/AddRemarkAction.kt`. Both
 existing call sites already have one. Every `RemarkInputPanel(...)` construction in
@@ -2645,7 +2676,20 @@ Recorded so they are not rediscovered as bugs.
   the copied prompt is grouped by file for the same reason. There is no toggle, because a toggle is
   a setting and a setting is a thing to maintain.
 - **The tree shows the commit only on an orphaned row.** Everywhere else it would be a sha on a row
-  that already carries a position, a text, a tag and a level. The gutter tooltip always has it.
+  that already carries a position, a text, a tag and a level. The gutter tooltip always has it, cut
+  to eight characters, the same length the tree's orphan label and the prompt heading use.
+- **`headCommit` does not stop at the project root.** A project that is not itself a repository but
+  sits inside one — a scratch directory under a `$HOME` dotfiles repo is the real case — is stamped
+  with that repository's HEAD. Kept deliberately: it is what `git` itself answers from that directory,
+  and the walk up is required for the case it exists for, a project opened at a module below the
+  repository root. It can mislead, because the prompt's scale note tells the model to diff an orphan
+  against the recorded revision. Stopping at the project root would be the fix if it ever bites.
+- **With a screen reader active the chip row is a combo box again, and Enter is ambiguous there.**
+  `SegmentedButtonImpl.rebuildUI` returns a combo box when `ScreenReader.isActive()`, and the plugin's
+  own Enter-submits binding then wins over the drop-down's commit — the same hazard the old
+  `enterInTagBox` guarded. Not fixed: a correct guard has to read the combo popup's highlighted item
+  and commit it by hand, which is more code than the case is worth on a path no test can reach. The
+  Alt keys still work there, so the tag can be set without touching the row at all.
 - **A single Delete does not archive.** Only Clear Sent and Clear All do.
 - **The commit is never refreshed.** A remark written on one branch keeps that branch's HEAD after a
   checkout. That is the point: it records what the author was looking at.
@@ -2655,6 +2699,10 @@ Recorded so they are not rediscovered as bugs.
   text area inside a popup, and the default keymap binds those combinations to tool windows. The
   test proves the bindings exist and do the right thing when invoked; it cannot prove the key event
   reaches them. See the hand check below and the fallback named in task 7.
+- **`Cmd+Ctrl+Shift+Space` is unproven the same way, and its macOS behaviour is unproven twice over.**
+  Same mechanism as the Alt keys, so the same gap. Two things source reading cannot settle: whether the
+  platform lets the combination through to the text area at all, and how the chooser and the remark
+  popup behave next to each other on a real macOS screen. Hand check 10 below.
 - **The chip row has not been built headlessly.** Whether the Kotlin UI DSL's `segmentedButton`
   constructs under `BasePlatformTestCase` is the one thing in task 6 that may need adjusting.
 - **A file group collapsed inside a bucket that you then collapse is forgotten on the next
@@ -2687,9 +2735,10 @@ starts an interactive sandbox IDE that never exits on its own.*
    two. Collapse the bucket, add a remark elsewhere, and confirm the bucket is still collapsed after
    the tree rebuilds.
 6. **The commit stamp.** Add a remark in a git repository. Confirm the gutter tooltip and the copied
-   prompt both carry `commit <sha>`, and that the sha matches `git rev-parse HEAD`. Repeat in a
-   `git worktree` and after `git checkout --detach`. Then delete a line inside a remarked block so
-   the remark orphans, and confirm the tree row reads `(orphaned, written at <sha>)`.
+   prompt both carry `commit <sha>` — the tooltip shows the first eight characters, and so does the
+   prompt heading — and that the sha matches `git rev-parse HEAD`. Repeat in a `git worktree` and
+   after `git checkout --detach`. Then delete a line inside a remarked block so the remark orphans,
+   and confirm the tree row reads `(orphaned, written at <sha>)`.
 7. **The history file.** Copy some remarks, press Clear Sent, confirm. Open
    `<IDE config>/claude-remarks/` and confirm a markdown file exists holding those remarks with
    their text, tag, level and commit. Press Clear All with pending remarks and confirm they are
@@ -2699,3 +2748,22 @@ starts an interactive sandbox IDE that never exits on its own.*
    `<leader>c` and confirm the balloon. Press `<leader>R` and confirm the tool window takes focus.
 9. **Nothing was written to a source file.** In the sandbox project, `git status` must be clean
    apart from `.idea/workspace.xml`.
+10. **The class-name insert.** This is the one new control the platform is most likely to take, and
+    two things about it cannot be settled by reading source.
+
+    First, whether the keystroke arrives. Open the remark box, type a word, and press
+    `Cmd+Ctrl+Shift+Space` on macOS or `Ctrl+Alt+Shift+Space` on Windows and Linux. A chooser titled
+    "Insert Class Name" must open. If nothing happens, something upstream took the combination and the
+    fix is to pick another one in `CLASS_NAME_STROKE` — that constant is the only place it is decided.
+    Then also press `Ctrl+Space` in the box and confirm it does NOT open this chooser: that is the
+    combination the IDE's own Basic Completion is offered even here, which is why it was given up.
+
+    Second, macOS behaviour, because the chooser is a second popup inside the first. Type a filter,
+    pick a name with Enter, and confirm it lands at the caret and replaces a selection if there was
+    one. Then reopen the chooser and press Escape: the chooser must close and the remark box must stay
+    open with the typed text intact. Press the keystroke and then Escape twice quickly, to close the
+    remark box while the name list is still being read — nothing may be thrown, and the tooltip-less
+    silence is the pass. Finally switch to another application and back: the remark box must still be
+    there, because `setCancelOnWindowDeactivation(false)` is set for exactly this. In a project with
+    nothing indexed, the keystroke must show "No class names are indexed in this project yet." rather
+    than doing nothing.

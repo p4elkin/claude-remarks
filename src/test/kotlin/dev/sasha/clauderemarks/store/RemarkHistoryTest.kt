@@ -5,6 +5,7 @@ import dev.sasha.clauderemarks.model.RemarkTag
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -45,6 +46,26 @@ class RemarkHistoryTest {
         assertFalse(out, out.contains("bucket "))
         assertFalse(out, out.contains("commit "))
         assertTrue(out, out.contains("should"))
+    }
+
+    /**
+     * The heading is what separates one reading pass from the next. Without it the archive is one
+     * undifferentiated bullet list, and the `now` parameter — which exists only so this is testable —
+     * has nothing reading it.
+     */
+    @Test
+    fun `each pass is written under its own dated heading`() {
+        val out = renderHistory(listOf(remark(id = "r-1")), now = 0L)
+
+        assertTrue(out, Regex("""## cleared \d{4}-\d{2}-\d{2} \d{2}:\d{2}""").containsMatchIn(out))
+        // Two different moments must render differently, or the timestamp is not being read.
+        assertNotEquals(out, renderHistory(listOf(remark(id = "r-1")), now = 400L * 86_400_000L))
+    }
+
+    /** A project called "My App / v2" must not turn its archive's name into a path. */
+    @Test
+    fun `a project name is reduced to something that can be a file name`() {
+        assertEquals("My_App___v2", safeName("My App / v2"))
     }
 
     @Test

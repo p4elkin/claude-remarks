@@ -11,8 +11,9 @@ ones, since a few of its pieces are proven only by reading the platform source, 
 `docs/claude/design.md` for exactly which. Select lines, press `Ctrl+Alt+Shift+R` (or use the "Add
 Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a severity
 level, and press Enter. A gutter icon appears on the marked lines and follows the code as you keep
-editing. The tool window lists every remark as a tree grouped by file, with a bucket level above
-the files once any remark is put in one. Press Copy All Pending in the tool window to turn every
+editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a class name
+from the project. The tool window lists every remark as a tree grouped by file, with a bucket level
+above the files once any remark is put in one; right-click a row for the severity and bucket menu. Press Copy All Pending in the tool window to turn every
 pending remark into one markdown prompt on the clipboard; a balloon says how many. Copied remarks
 turn gray rather than disappearing, so Copy Selected can send them again if the paste went to the
 wrong place. Clearing (Clear Sent, Clear All) archives to a history file in the IDE configuration
@@ -97,10 +98,12 @@ src/main/kotlin/dev/sasha/clauderemarks/
   store/GitHead.kt                 headCommit, reads .git directly, no platform import, no Git4Idea
   store/RemarkHistory.kt           historyFile, appendToHistory, renderHistory: the archive
   ui/RemarkInputPanel.kt           the popup's panel, the Enter/Shift+Enter keys, the tag chips and
-                                   their Alt keys, Ctrl+Space to insert a class name
+                                   their Alt keys, CLASS_NAME_STROKE to insert a class name
   ui/RemarkActions.kt              remarkChangeActions: the severity and bucket menu, shared by the
                                    gutter icon and the tree
-  ui/ClassNameInsert.kt            projectClassNames, chooseClassName: Ctrl+Space in the input popup
+  ui/ClassNameInsert.kt            projectClassNames, chooseClassName: the class-name chooser the
+                                   input popup opens on Cmd+Ctrl+Shift+Space (Ctrl+Alt+Shift+Space
+                                   off macOS — NOT Ctrl+Space, see CLASS_NAME_STROKE for why)
   ui/RemarksTree.kt                node building (files, and buckets above them) and the tree cell
                                    renderer
   ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar, self-refresh on REMARKS_CHANGED

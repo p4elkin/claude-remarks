@@ -2,6 +2,7 @@ package dev.sasha.clauderemarks.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.dsl.builder.SegmentedButton
@@ -32,6 +33,31 @@ const val TAG_KEY_PREFIX = "claudeRemarks.tag."
 
 /** Action map key for the class-name chooser. */
 const val CLASS_NAME_KEY = "claudeRemarks.className"
+
+/**
+ * The class-name chooser's keystroke: `Cmd+Ctrl+Shift+Space` on macOS, `Ctrl+Alt+Shift+Space`
+ * everywhere else.
+ *
+ * NOT `Ctrl+Space`. The Alt keys are safe inside this popup because the platform does not dispatch a
+ * modal-context-disabled action while a modal-context popup is focused, and `ActivateToolWindowAction`
+ * is one of those. Basic Completion is not: `BaseCodeCompletionAction` calls
+ * `setEnabledInModalContext(true)`, so `Ctrl+Space` really is offered to it here. On macOS
+ * `Ctrl+Space` is also the OS input-source shortcut, which the IDE never sees at all.
+ *
+ * The modifier is platform-aware because this is a hardcoded Swing input-map binding, not a
+ * plugin.xml keyboard shortcut the keymap could adapt. `Cmd` is `META_DOWN_MASK`, which on Windows
+ * and Linux is the Super or Windows key — usually taken by the window manager, which would leave the
+ * feature silently dead there. So `Alt` stands in for `Cmd` off macOS.
+ */
+val CLASS_NAME_STROKE: KeyStroke = KeyStroke.getKeyStroke(
+    KeyEvent.VK_SPACE,
+    InputEvent.CTRL_DOWN_MASK or InputEvent.SHIFT_DOWN_MASK or
+        (if (SystemInfo.isMac) InputEvent.META_DOWN_MASK else InputEvent.ALT_DOWN_MASK),
+)
+
+/** The same keystroke as words, for the placeholder text. */
+val CLASS_NAME_STROKE_LABEL: String =
+    if (SystemInfo.isMac) "Cmd+Ctrl+Shift+Space" else "Ctrl+Alt+Shift+Space"
 
 /** The chips, "(no tag)" first, then the four tags in enum order. The Alt keys in the next task
  *  index into this list, so the order here is the order there. */
@@ -69,7 +95,7 @@ class RemarkInputPanel(
         lineWrap = true
         wrapStyleWord = true
         emptyText.text = "Your remark. Enter saves, Shift+Enter adds a line, Alt+1-4 picks a tag, " +
-            "Ctrl+Space inserts a class name, Esc cancels."
+            "$CLASS_NAME_STROKE_LABEL inserts a class name, Esc cancels."
     }
 
     // Assigned by the panel { } builder below, which runs eagerly, so it is set before the init
@@ -83,7 +109,16 @@ class RemarkInputPanel(
      * It also removes a special case rather than adding one. With a drop-down, Enter meant "save"
      * or "commit the highlighted item" depending on whether the list was open, and the plugin's own
      * binding won both times — so arrowing to "bug" and pressing Enter saved the remark with the
-     * previous tag. There is no open state on a chip row, so that whole branch is gone.
+     * previous tag. A chip row has no open state, so that branch is gone for everyone whose chips
+     * really are chips.
+     *
+     * One case is left, and it is recorded rather than fixed: with a screen reader active,
+     * SegmentedButtonImpl.rebuildUI builds a ComboBox instead of a chip row
+     * (`ScreenReader.isActive() || items.size > maxButtonsCount` — the item count is fine, the
+     * screen-reader branch is not). There the old hazard is back: Enter with the drop-down open saves
+     * with the previous tag. A correct guard would have to read the combo popup's highlighted item
+     * and commit it, which is more code than the case is worth for a path no test can reach. See the
+     * known limits in the phase 5 plan.
      */
     private val chipRow: DialogPanel = panel {
         row("Tag:") {
@@ -143,12 +178,9 @@ class RemarkInputPanel(
             })
         }
 
-        // Ctrl+Space, the key people already press for completion, even though this opens a chooser
-        // rather than completing inline.
-        map.put(
-            KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK),
-            CLASS_NAME_KEY,
-        )
+        // See CLASS_NAME_STROKE for why this is not Ctrl+Space and why the modifier differs by
+        // platform.
+        map.put(CLASS_NAME_STROKE, CLASS_NAME_KEY)
         textArea.actionMap.put(CLASS_NAME_KEY, object : AbstractAction() {
             override fun actionPerformed(e: ActionEvent) = chooseClassName(project, textArea)
         })

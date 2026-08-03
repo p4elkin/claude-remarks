@@ -50,9 +50,12 @@ Open questions, worth settling before writing code:
 
 ## Class name completion in the remark input
 
-**Built in phase 5, the cheap version only.** `Ctrl+Space` in the remark box opens a chooser
-(`ui/ClassNameInsert.kt`) listing every class name in the project and inserts the one picked at the
-caret. See `docs/claude/design.md`, section "Tag chips, and picking one from the keyboard".
+**Built in phase 5, the cheap version only.** `Cmd+Ctrl+Shift+Space` in the remark box
+(`Ctrl+Alt+Shift+Space` off macOS) opens a chooser (`ui/ClassNameInsert.kt`) listing every class name
+in the project and inserts the one picked at the caret. It was `Ctrl+Space` at first; that is the one
+combination the IDE's own Basic Completion is offered even inside a modal popup, and macOS takes it for
+switching input source, so it was given up. See `docs/claude/design.md`, section "Tag chips, and
+picking one from the keyboard".
 
 **The `EditorTextField` swap described below was cut, not built.** The phase 5 plan's own
 recommendation was to drop it: the prompt already quotes the code each remark points at, so a

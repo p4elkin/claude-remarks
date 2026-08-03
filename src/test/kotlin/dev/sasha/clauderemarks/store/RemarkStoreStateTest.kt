@@ -24,40 +24,37 @@ import org.junit.Test
  */
 class RemarkStoreStateTest {
 
+    /**
+     * Compared as serialized XML rather than field by field, the same way `a snapshot carries every
+     * field a remark is stored with` does. The eleven hand-written assertions this replaces named
+     * every field except severity, bucket and commit — so the test's name kept getting less true as
+     * phase 5 added fields, and would have again on the next one.
+     */
     @Test
     fun `every field survives a write and read cycle`() {
-        val original = RemarkStore.RemarksState()
-        original.addRemark(
-            remark(
-                id = "r-1",
-                path = "src/main/kotlin/Foo.kt",
-                startLine = 10,
-                endLine = 12,
-                text = "why is this synchronized?",
-                tag = RemarkTag.QUESTION,
-                status = RemarkStatus.SENT,
-                createdAt = 1_700_000_000_000L,
-                textHash = "abcdef0123456789",
-                contextBefore = "line a\nline b",
-                contextAfter = "line c\nline d",
-            )
+        val original = remark(
+            id = "r-1",
+            path = "src/main/kotlin/Foo.kt",
+            startLine = 10,
+            endLine = 12,
+            text = "why is this synchronized?",
+            tag = RemarkTag.QUESTION,
+            status = RemarkStatus.SENT,
+            createdAt = 1_700_000_000_000L,
+            textHash = "abcdef0123456789",
+            contextBefore = "line a\nline b",
+            contextAfter = "line c\nline d",
+            severity = RemarkSeverity.MUST,
+            bucket = "auth refactor",
+            commit = "0123456789abcdef0123456789abcdef01234567",
         )
+        val state = RemarkStore.RemarksState()
+        state.addRemark(original)
 
-        val restored = roundTrip(original)
+        val restored = roundTrip(state)
 
         assertEquals(1, restored.remarks.size)
-        val r = restored.remarks.single()
-        assertEquals("r-1", r.id)
-        assertEquals("src/main/kotlin/Foo.kt", r.path)
-        assertEquals(10, r.startLine)
-        assertEquals(12, r.endLine)
-        assertEquals("why is this synchronized?", r.text)
-        assertEquals(RemarkTag.QUESTION, r.tag)
-        assertEquals(RemarkStatus.SENT, r.status)
-        assertEquals(1_700_000_000_000L, r.createdAt)
-        assertEquals("abcdef0123456789", r.textHash)
-        assertEquals("line a\nline b", r.contextBefore)
-        assertEquals("line c\nline d", r.contextAfter)
+        assertEquals(asXml(original), asXml(restored.remarks.single()))
     }
 
     @Test
@@ -292,8 +289,15 @@ class RemarkStoreStateTest {
         assertEquals(RemarkSeverity.SHOULD, restored.remarks.single().severity)
     }
 
+    /**
+     * The name no longer claims to guard `setSeverity`'s own `incrementModificationCount()` call,
+     * because it cannot: writing `severity` on a child RemarkState already bumps that child's count,
+     * and ListStoredProperty surfaces it through the outer state — so the count rises with the
+     * explicit call deleted. The call is left in place, matching markSent and removeSent; only the
+     * name is corrected. The same is true of setBucket.
+     */
     @Test
-    fun `setting the severity only touches the ids given and marks the state as changed`() {
+    fun `setting the severity only touches the ids given`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1"))
         state.addRemark(remark(id = "r-2"))

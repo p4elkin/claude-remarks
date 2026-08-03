@@ -523,7 +523,10 @@ A group row — a bucket or a file — is `GroupNode(key, label)`, not a bare st
 group used to be. A bucket named "src" and a directory named "src" can coexist, and the panel
 restores a selection after every rebuild by matching a key, so two groups sharing a key would
 restore the wrong one after a refresh. The key is the whole path from the root down to that node;
-the label is only what gets drawn.
+the label is only what gets drawn. A bucket's own key is built from the raw bucket name, not from its
+label, so that a bucket somebody actually calls "(no bucket)" does not collide with the null-bucket
+group — the null one is keyed `"bucket: none"`, and a leading space cannot occur in a real name
+because `setRemarkBucket` trims it.
 
 `remarkNodesUnder` (also `RemarksTree.kt`) walks the whole subtree under a selected node, not one
 level down the way it used to. That is what makes Copy Selected on a bucket node mean "copy this
@@ -543,7 +546,12 @@ This removes a special case rather than adding one. The drop-down made Enter amb
 list open, Enter meant "commit the highlighted item"; closed, it meant "save the remark" — and the
 plugin's own Enter-submits binding won both times, so arrowing down to "bug" and pressing Enter
 saved the remark with whatever tag had been selected before. A chip selection is immediate, with no
-open state, so that whole branch of behaviour no longer exists to reason about.
+open state, so that branch of behaviour no longer exists to reason about — for everyone whose chips
+really are chips. With a screen reader active they are not: `SegmentedButtonImpl.rebuildUI` builds a
+combo box when `ScreenReader.isActive()`, and the old ambiguity is back there. It is recorded in the
+known limits of the phase 5 plan rather than fixed, because a correct guard would have to read the
+combo popup's highlighted item and commit it by hand, which is more code than the case is worth on a
+path no test can reach.
 
 `Alt+0` through `Alt+4` pick a chip directly: `Alt+0` clears the tag, `Alt+1` through `Alt+4` pick
 the four tags in the order `TAG_CHOICES` lists them. They are Swing input-map bindings on the text
@@ -551,26 +559,59 @@ area, the same mechanism Enter and Shift+Enter already use — ten lines added o
 already existed, rather than waiting on the larger rewrite covered next. See "What is proven and
 what is not" below for the real limit of what this proves.
 
-`Ctrl+Space` in the text area opens a chooser (`ui/ClassNameInsert.kt`) listing every class name the
-project knows about — the same source, `ChooseByNameContributor.CLASS_EP_NAME`, that backs Ctrl+N.
-No extra platform dependency was needed for it: that extension point is declared in the same
-descriptor that declares `com.intellij.modules.platform`, so it is present wherever this plugin can
-load at all — a `runCatching` still guards the call, for an IDE that ships its own descriptor
-instead of IDEA CORE. Picking a name inserts it at the caret, or replaces the current selection if
-there is one.
+`Cmd+Ctrl+Shift+Space` in the text area (`Ctrl+Alt+Shift+Space` off macOS) opens a chooser
+(`ui/ClassNameInsert.kt`) listing every class name the project knows about — the same source,
+`ChooseByNameContributor.CLASS_EP_NAME`, that backs Ctrl+N. No extra platform dependency was needed
+for it: that extension point is declared in the same descriptor that declares
+`com.intellij.modules.platform`, so it is present wherever this plugin can load at all — a
+`runCatching` still guards the call, for an IDE that ships its own descriptor instead of IDEA CORE.
+Picking a name inserts it at the caret, or replaces the current selection if there is one. An empty
+list says so in a message rather than doing nothing.
+
+**Why not `Ctrl+Space`.** The keystroke was `Ctrl+Space` at first, on the reasoning that made the Alt
+keys safe: the platform does not dispatch a modal-context-disabled action while a modal-context popup
+is focused. Basic Completion is not one of those — `BaseCodeCompletionAction` calls
+`setEnabledInModalContext(true)` — so `Ctrl+Space` really is offered to it inside this popup. On macOS
+the OS takes that combination as well, for switching input source, so the IDE never sees it. The
+binding is a hardcoded Swing input map, not a keymap shortcut, so it has to name a modifier per
+platform itself: `Cmd` is `META_DOWN_MASK`, which off macOS is the Super or Windows key and is usually
+taken by the window manager, so `Alt` stands in for it there. `ui/RemarkInputPanel.kt`'s
+`CLASS_NAME_STROKE` is the one place that decides, and the placeholder text reads it.
 
 This is deliberately the cheap version of an idea in `docs/ideas.md`: no completion popup living
 inside the text area, no swap of the plain `JBTextArea` for an `EditorTextField`. That swap was
 scoped and rejected before being built. It would have cost the Enter and Shift+Enter bindings, a
-fight over which of two nested popups owns Escape, and an IdeaVim interaction nobody had tested —
-for a feature the platform's own Copy Reference (`Ctrl+Alt+Shift+C`) already covers for naming code
+fight over which of two popups owns Escape, and an IdeaVim interaction nobody had tested — for a
+feature the platform's own Copy Reference (`Ctrl+Alt+Shift+C`) already covers for naming code
 elsewhere, since the remark box already accepts a paste.
+
+**The cheap version does nest one popup inside another, and that had to be handled.** An earlier note
+claimed it did not. It does: the chooser is a `JBPopup` opened while the remark popup is up. Two
+things follow. The remark popup sets `setCancelOnWindowDeactivation(false)`, so a half-typed remark is
+not thrown away when the chooser takes the window's focus. And `chooseClassName` checks
+`target.isShowing` twice — the read action that fetches the names is asynchronous and
+`expireWith(project)` only fires when the project is disposed, not when the remark popup closes, so
+without the first check pressing the key and then Escape reached `showInCenterOf` on a component that
+is no longer on screen (`IllegalComponentStateException`), and without the second the chosen name went
+into a dead text area and the typed remark was lost with nothing said. `cancelOnClickOutside` is left
+at its default `true`, so clicking elsewhere in the IDE still abandons a remark:
+`StackingPopupDispatcherImpl` only ever cancels the top of the popup stack, which while the chooser is
+up is the chooser.
 
 ### One menu, two places
 
 `ui/RemarkActions.kt`'s `remarkChangeActions(project, ids)` builds one `ActionGroup` — a Severity
 submenu plus "Move to Bucket…" — used from two places: the gutter icon's click menu, which acts on
 the one remark under the icon, and the tree's right-click menu, which acts on whatever is selected.
+
+On the tree side, "whatever is selected" needs one thing the platform does not give for free.
+`PopupHandler.installPopupMenu` only shows the menu, and `BasicTreeUI` moves the tree selection on
+button 1 only — so right-clicking a row that was not selected opened the menu against the previous
+selection, and with nothing selected every item was a silent no-op. `RemarksPanel`'s own
+`PopupHandler` subclass therefore calls `selectRowForPopup` before it shows the menu. It ADDS the
+clicked path rather than replacing the selection, so a right-click inside a selection of several rows
+does not collapse it to one — moving a whole reading pass into a bucket is exactly what that selection
+is for.
 `ids` is a lambda, not a list, because the tree rebuilds itself on every remark change, so a list
 captured at the moment the menu was built would be stale by the time anything in it is pressed. The
 bucket chooser is `Messages.showEditableChooseDialog`, offering every bucket name already in use
@@ -599,8 +640,16 @@ again — the point is to record what the author was looking at, not to track th
 result is cached: two small file reads on the EDT, once per remark, at human typing speed, cost less
 than the code a cache would add.
 
+One thing `headCommit` deliberately does not do is stop at the project root. A project that is not
+itself a repository but sits inside one — a scratch directory under a `$HOME` dotfiles repo is the
+real case — gets that repository's HEAD. This matches what `git` itself would answer from the same
+directory, and the walk up is required for the case it exists for: a project opened at a module below
+the repository root. It is written down in the known limits because it can mislead, not because it is
+wrong: the prompt's scale note tells the model to diff an orphan against the recorded revision.
+
 The commit is shown in three places, each treating it differently because of how crowded the row
-already is. The gutter tooltip always has it (`editor/RemarkGutterIcon.kt`'s `tooltipFor`). The
+already is. The gutter tooltip always has it, cut to eight characters
+(`editor/RemarkGutterIcon.kt`'s `tooltipFor`, fed from `RemarkPlacement.commit`). The
 copied prompt's heading always has it (`— commit <sha, first 8 chars>` in
 `render/PromptRenderer.kt`). The tree row shows it only when the remark is orphaned (`", written at
 <sha>"`, in `ui/RemarksTree.kt`'s `remarkNode`), because everywhere else it would be one more thing
@@ -638,8 +687,8 @@ contain a markdown heading cannot restructure the archive around it.
 
 ### What is proven and what is not
 
-Everything above is covered by a plain JUnit test, a fixture-backed test, or both, except for two
-things, both flagged here rather than claimed as working:
+Everything above is covered by a plain JUnit test, a fixture-backed test, or both, except for the
+keystrokes, which are flagged here rather than claimed as working:
 
 - **Whether `Alt+1` through `Alt+4` actually reach the popup.** They are Swing input-map bindings on
   a `JBTextArea` inside a `JBPopup`, and the IDE's default keymap binds those same key combinations
@@ -652,13 +701,19 @@ things, both flagged here rather than claimed as working:
   platform classes during phase 5, not observed in a live IDE — `./gradlew runIde` is not run from
   an agent session. Hand check 1 in the phase 5 plan (`docs/plans/20260803-claude-remarks-phase5.md`,
   section 10) is the actual authority on this until someone runs it.
-- **The commit capture inside `addRemark`.** No test in the suite adds a remark inside an actual git
-  repository and asserts the stored `commit` matches `git rev-parse HEAD`, because the light fixture
-  project that `BasePlatformTestCase` provides has no `.git` directory at all. `GitHeadTest` proves
-  that `headCommit` itself works, against real `.git` directories built on disk for the test (a
-  plain repository, a worktree, a detached HEAD, packed refs) — what stays unproven is only the one
-  line inside `addRemark` that wires `project.basePath` into it. Hand check 6 in the phase 5 plan is
-  what actually exercises that path end to end.
+- **Whether `Cmd+Ctrl+Shift+Space` reaches the popup, and how it behaves on macOS.** Same shape of
+  gap as the Alt keys, and the same kind of reasoning behind the choice — see "Why not `Ctrl+Space`"
+  above. `RemarkInputPanelTest` proves the binding exists on the right keystroke and that `Ctrl+Space`
+  is no longer bound; it cannot prove the key event arrives, and it says nothing about how the chooser
+  and the remark popup behave next to each other on screen. Hand check 10 in the phase 5 plan is the
+  authority.
+
+The commit capture inside `addRemark` used to be listed here as unprovable. It is not: the light
+fixture project has a real base directory, and `RemarkEditsTest` now writes the same three files
+`GitHeadTest` builds — `.git/HEAD` and the loose ref it names — into it, then asserts the stored
+`commit`. `GitHeadTest` still covers `headCommit` itself against a plain repository, a worktree, a
+detached HEAD and packed refs. Hand check 6 remains worth doing, because only a real repository proves
+the stamp equals `git rev-parse HEAD`.
 
 ## Adding a Remark While Reading a Diff
 

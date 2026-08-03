@@ -167,20 +167,38 @@ class RemarkInputPanelTest : BasePlatformTestCase() {
     }
 
     /**
-     * The binding existing is not the same as the binding doing the right thing. This presses the
-     * actions and checks what the chips ended up saying, so a key wired to the wrong chip fails.
+     * The binding existing is not the same as the binding doing the right thing. This presses every
+     * action and checks what the chips ended up saying, so a key wired to the wrong chip fails.
+     * Checking only indices 0, 1 and 4 used to let Alt+2 and Alt+3 be swapped with nothing failing.
      */
-    fun testAltOneSelectsTheFirstTagAndAltZeroClearsIt() {
+    fun testEveryAltKeyPicksItsOwnChip() {
         val panel = RemarkInputPanel(project, "", null)
         val event = ActionEvent(panel, ActionEvent.ACTION_PERFORMED, "")
 
-        panel.textArea.actionMap.get("${TAG_KEY_PREFIX}1").actionPerformed(event)
-        assertEquals(RemarkTag.entries.first(), panel.selectedTag)
+        TAG_CHOICES.indices.forEach { index ->
+            // Set a different tag first, so an action that does nothing at all cannot pass by
+            // leaving the previous answer in place.
+            panel.selectedTag = RemarkTag.entries.last()
+            panel.textArea.actionMap.get("$TAG_KEY_PREFIX$index").actionPerformed(event)
 
-        panel.textArea.actionMap.get("${TAG_KEY_PREFIX}4").actionPerformed(event)
-        assertEquals(RemarkTag.entries.last(), panel.selectedTag)
+            if (index == 0) assertNull(panel.selectedTag)
+            else assertEquals(RemarkTag.entries[index - 1], panel.selectedTag)
+        }
+    }
 
-        panel.textArea.actionMap.get("${TAG_KEY_PREFIX}0").actionPerformed(event)
-        assertNull(panel.selectedTag)
+    /**
+     * The one control the platform is most likely to take, so the binding is pinned here and the
+     * keystroke itself is a hand check. Deleting the two lines that install it leaves the feature
+     * unreachable with nothing failing.
+     */
+    fun testTheClassNameChooserHasItsOwnKey() {
+        val panel = RemarkInputPanel(project, "", null)
+        val map = panel.textArea.getInputMap(JComponent.WHEN_FOCUSED)
+
+        assertEquals(CLASS_NAME_KEY, map.get(CLASS_NAME_STROKE))
+        assertNotNull(panel.textArea.actionMap.get(CLASS_NAME_KEY))
+        // Not Ctrl+Space: Basic Completion is enabled in a modal context, so the platform really does
+        // offer that combination to it while this popup is focused, and on macOS the OS takes it too.
+        assertNull(map.get(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK)))
     }
 }

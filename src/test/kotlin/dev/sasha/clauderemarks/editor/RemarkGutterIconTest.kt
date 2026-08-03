@@ -38,6 +38,19 @@ class RemarkTooltipTest {
         assertTrue(tooltipFor(placement(severity = RemarkSeverity.MUST)).contains("must"))
     }
 
+    /**
+     * The tooltip is the one place the commit is always shown, cut to the same eight characters the
+     * tree's orphan label and the prompt heading use.
+     */
+    @Test
+    fun `the commit is shown short, and only when there is one`() {
+        val stamped = tooltipFor(placement(commit = "0123456789abcdef0123456789abcdef01234567"))
+
+        assertTrue(stamped, stamped.contains("commit 01234567"))
+        assertFalse(stamped, stamped.contains("0123456789a"))
+        assertFalse(tooltipFor(placement(commit = null)).contains("commit"))
+    }
+
     @Test
     fun `an orphan and a sent remark each say so on their own line`() {
         val html = tooltipFor(placement(orphaned = true, sent = true))
@@ -55,6 +68,7 @@ class RemarkTooltipTest {
         text: String = "why?",
         tag: RemarkTag? = null,
         severity: RemarkSeverity = RemarkSeverity.SHOULD,
+        commit: String? = null,
         sent: Boolean = false,
         orphaned: Boolean = false,
     ) = RemarkPlacement(
@@ -62,6 +76,7 @@ class RemarkTooltipTest {
         text = text,
         tag = tag,
         severity = severity,
+        commit = commit,
         sent = sent,
         startLine = 4,
         endLine = 6,

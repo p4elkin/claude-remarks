@@ -30,6 +30,18 @@ class RemarkActionsTest : BasePlatformTestCase() {
     }
 
     /**
+     * The bucket item is the only way in the UI to put a remark in a bucket, and the severity test
+     * above only ever looks inside the submenu — so deleting this item left both tests green and the
+     * whole bucket feature unreachable.
+     */
+    fun testThereIsABucketItemBesideTheSeverityMenu() {
+        val group = remarkChangeActions(project) { emptyList() }
+
+        val items = group.getChildren(null).map { it.templatePresentation.text }
+        assertEquals(listOf("Severity", "Move to Bucket…"), items)
+    }
+
+    /**
      * The ids are read when the item is pressed, not when the menu is built. The tree rebuilds
      * itself on every remark change, so a list captured at build time is stale by the time anybody
      * clicks — it would set the severity on rows that are no longer selected.
