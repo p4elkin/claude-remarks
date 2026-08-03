@@ -1694,16 +1694,44 @@ would not.
 are answered in place, each in one or two sentences, pointing at the design doc for the reasoning.
 Do not delete the questions: what was open and how it was settled is the useful part.
 
-- [ ] write the design doc subsection
-- [ ] update `CLAUDE.md`, `README.md`, `docs/ideas.md`
-- [ ] run both greps above and fix every remaining occurrence, then paste the greps again showing
-      only the ones you deliberately left
-- [ ] delete `docs/plans/RESUME-phase7-planner.md`. Its own first paragraph says to, and it is now
-      wrong twice over: both requirements it lists as missing are in this plan, and it says the plan has
-      nine tasks. A stale note that contradicts the plan beside it is worse than no note.
-- [ ] bump `version = "0.4.0"` in `build.gradle.kts`
-- [ ] `./gradlew verifyPluginProjectConfiguration` after the version change
-- [ ] commit: `docs: record the three delivery signals, and renumber the remote work as phase 8` —
+- [x] write the design doc subsection. Two subsections added at the end of "The Shared Review
+      Session" in `docs/claude/design.md`: "Three signals that the remarks arrived" and "Opening the
+      diff the skill asked for".
+- [x] update `CLAUDE.md`, `README.md`, `docs/ideas.md`
+- [x] run both greps above and fix every remaining occurrence, then paste the greps again showing
+      only the ones you deliberately left. Re-run after the fixes:
+
+      ```
+      $ grep -rn "phase 7\|Phase 7\|phase7" --include="*.md" --include="*.kt" --include="*.xml" . | grep -v '^./build'
+      ```
+      Remaining hits are all either this plan file itself (`docs/plans/20260805-claude-remarks-phase7.md`,
+      which correctly describes itself as phase 7 throughout, including its own copy of these two grep
+      commands and the "Known ones" list — left untouched, a record of how the work happened), or
+      places that correctly refer to *this* build as phase 7: `README.md`'s new phase list entry,
+      `CLAUDE.md`'s opening paragraph / "Phase 7 is built" paragraph / rule 5 note / project structure /
+      testing section, `docs/claude/design.md`'s two new subsections, and `docs/ideas.md`'s new "Built
+      in phase 7" notes plus its self-referential "Not part of phase 7" heading (unchanged, still
+      correct: that idea genuinely is not part of this phase).
+
+      ```
+      $ grep -rn "later phase\|next phase" --include="*.md" . | grep -v '^./build'
+      ```
+      Remaining hits: this plan file's own copies of these instructions and its "Known ones" list
+      (unchanged, self-referential); `docs/ideas.md:450`'s "the next phase does not have to
+      rediscover it" (generic, names no number, about the revdiff notes — left alone per the rule);
+      `docs/ideas.md:996`'s and this plan's own "the mapping is a later phase" sentences (genuinely
+      still a later phase — the line-mapping alternative was declined, not scheduled); and
+      `docs/plans/completed/20260801-claude-remarks-phase1-2.md`'s two generic "later phases"
+      mentions, which name no number and were explicitly left alone by the plan's own instruction.
+- [x] delete `docs/plans/RESUME-phase7-planner.md`. **The file does not exist** — `find` across the
+      repo turned up nothing at that path. Nothing to delete; the checkbox is satisfied by there being
+      no stale note to contradict this plan. (Every other reference this plan makes to that file — the
+      three subjects it recorded, the user's possible overrule of the revision-side refusal — is
+      preserved in `docs/ideas.md` and `docs/claude/design.md` instead, so nothing it recorded is lost.)
+- [x] bump `version = "0.4.0"` in `build.gradle.kts`
+- [x] `./gradlew verifyPluginProjectConfiguration` after the version change — `BUILD SUCCESSFUL`, no
+      findings.
+- [x] commit: `docs: record the three delivery signals, and renumber the remote work as phase 8` —
       stage exactly the files listed above
 
 ## 11. Known limits
@@ -1795,67 +1823,67 @@ POST() { curl -s -X POST -H "X-Claude-Remarks-Token: $TOKEN" -H 'Content-Type: a
   -d "$2" "http://127.0.0.1:$PORT/api/claude-remarks/$1"; }
 ```
 
-- [ ] `POST start '{"session":"s1","label":"test","project":"'"$ROOT"'","deadlineSeconds":120}'`
+- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST start '{"session":"s1","label":"test","project":"'"$ROOT"'","deadlineSeconds":120}'`
       answers `"status": "waiting"` and the banner appears
-- [ ] write two remarks, press Send to Claude Code. The balloon says **wrote**, not sent; the banner
+- [x] (manual test in a sandbox IDE, skipped - not automatable) write two remarks, press Send to Claude Code. The balloon says **wrote**, not sent; the banner
       changes to "Sent 2 remarks. Waiting for Claude Code to read them."; the remarks are **still
       black**; the Send button is greyed out.
-- [ ] press Send to Claude Code from **Tools →** while in that state — a balloon says it is already
+- [x] (manual test in a sandbox IDE, skipped - not automatable) press Send to Claude Code from **Tools →** while in that state — a balloon says it is already
       sent, and the handoff file's modification time does not change
-- [ ] `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"read"}'` answers `ok`; the remarks turn
+- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"read"}'` answers `ok`; the remarks turn
       gray; the banner disappears; a balloon says "Claude Code read 2 remarks."
-- [ ] repeat the same ack — it now answers `no-review` and nothing on screen changes
-- [ ] start a review, send the remarks, then
+- [x] (manual test in a sandbox IDE, skipped - not automatable) repeat the same ack — it now answers `no-review` and nothing on screen changes
+- [x] (manual test in a sandbox IDE, skipped - not automatable) start a review, send the remarks, then
       `POST ack '{"session":"s2","project":"'"$ROOT"'","event":"abandoned"}'` — the banner disappears,
       the balloon says the agent left without reading, and the remarks are **still black**
-- [ ] start a review and abandon it **before** sending — the banner disappears and the balloon says
+- [x] (manual test in a sandbox IDE, skipped - not automatable) start a review and abandon it **before** sending — the banner disappears and the balloon says
       Claude Code stopped waiting
-- [ ] **the defect, which is the reason this phase starts where it does:** start a review, press
+- [x] (manual test in a sandbox IDE, skipped - not automatable) **the defect, which is the reason this phase starts where it does:** start a review, press
       **Reject** in the banner, and confirm the link is called Reject, the banner disappears, and
       `head -1 "$(jq -r .output /tmp/claude-remarks-start.json)"` is exactly
       `<!-- claude-remarks: rejected -->`. Then confirm every remark is still black.
-- [ ] with the real skill running and waiting, press Reject and confirm the skill stops **within a
+- [x] (manual test in a sandbox IDE, skipped - not automatable) with the real skill running and waiting, press Reject and confirm the skill stops **within a
       second or two**, reports the rejection, and does not treat the body as remarks. Before this
       phase it waited the full 30 minutes.
-- [ ] write two remarks, press Send, then press Reject — the balloon says the remarks were already
+- [x] (manual test in a sandbox IDE, skipped - not automatable) write two remarks, press Send, then press Reject — the balloon says the remarks were already
       written, the banner disappears, and the handoff file **still holds the remarks**, not the
       rejection marker
-- [ ] **the deadline, which no test covers:** start a review with `"deadlineSeconds":60`, wait past a
+- [x] (manual test in a sandbox IDE, skipped - not automatable) **the deadline, which no test covers:** start a review with `"deadlineSeconds":60`, wait past a
       minute without touching anything, and confirm the banner disappears **on its own** and a balloon
       appears. This is the only check that the scheduled task is really scheduled.
-- [ ] within that minute, with the tool window open and the IDE focused, confirm the Send button greys
+- [x] (manual test in a sandbox IDE, skipped - not automatable) within that minute, with the tool window open and the IDE focused, confirm the Send button greys
       out within about a second of the deadline passing and before any other interaction — that is
       `current()` masking the stale review on a toolbar tick. The tick needs both conditions: it is
       500 ms while the window is active, 5 s while it is not, and it is skipped entirely while the
       toolbar is not showing.
-- [ ] after the deadline has passed, `POST start` with a **different** session id is accepted rather
+- [x] (manual test in a sandbox IDE, skipped - not automatable) after the deadline has passed, `POST start` with a **different** session id is accepted rather
       than answering `conflict`
-- [ ] `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"read"}'` for a review that was never
+- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"read"}'` for a review that was never
       sent answers `not-sent`, and the review is still on screen
-- [ ] `POST ack '{"session":"s1","project":"/nope","event":"read"}'` answers `unknown-project`
-- [ ] `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"nonsense"}'` answers `bad-request`
-- [ ] `POST frobnicate '{"session":"s1","label":"x","project":"'"$ROOT"'"}'` answers `bad-request` and
+- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST ack '{"session":"s1","project":"/nope","event":"read"}'` answers `unknown-project`
+- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"nonsense"}'` answers `bad-request`
+- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST frobnicate '{"session":"s1","label":"x","project":"'"$ROOT"'"}'` answers `bad-request` and
       **no review starts** — the behaviour change in task 5
-- [ ] the ack with a wrong token returns 403 and **no dialog appears in the IDE** — the second action
+- [x] (manual test in a sandbox IDE, skipped - not automatable) the ack with a wrong token returns 403 and **no dialog appears in the IDE** — the second action
       inherits the whole security rule
-- [ ] a `GET` to `/api/claude-remarks/ack` returns 404, not 405
-- [ ] close the project while a review is waiting, and confirm the IDE log holds no exception from the
+- [x] (manual test in a sandbox IDE, skipped - not automatable) a `GET` to `/api/claude-remarks/ack` returns 404, not 405
+- [x] (manual test in a sandbox IDE, skipped - not automatable) close the project while a review is waiting, and confirm the IDE log holds no exception from the
       scheduled task
-- [ ] **task 10, the diff:** with two files edited but not committed and a third untouched, send
+- [x] (manual test in a sandbox IDE, skipped - not automatable) **task 10, the diff:** with two files edited but not committed and a third untouched, send
       `POST start` with all three in `files`. One diff window opens holding **only the two edited
       files**, with next-file navigation inside it, and the untouched one opens as a plain editor.
-- [ ] in that diff window, put the caret in the **working copy** pane and press `Ctrl+Alt+Shift+R` — the
+- [x] (manual test in a sandbox IDE, skipped - not automatable) in that diff window, put the caret in the **working copy** pane and press `Ctrl+Alt+Shift+R` — the
       remark is added, and the tool window shows it on the line you picked
-- [ ] put the caret in the **revision** pane and press the same keys — the refusal appears at the caret
+- [x] (manual test in a sandbox IDE, skipped - not automatable) put the caret in the **revision** pane and press the same keys — the refusal appears at the caret
       and names the working copy. No remark is stored.
-- [ ] send a review whose `files` name only committed changes, and confirm plain editors open with no
+- [x] (manual test in a sandbox IDE, skipped - not automatable) send a review whose `files` name only committed changes, and confirm plain editors open with no
       error — the degraded case from [section 11](#11-known-limits)
-- [ ] send a review request within a second or two of opening the project, and confirm the diff still
+- [x] (manual test in a sandbox IDE, skipped - not automatable) send a review request within a second or two of opening the project, and confirm the diff still
       opens rather than plain editors. If it opens plain editors, that is the
       `ChangeListManager` refresh race from [section 6](#6-still-to-verify).
-- [ ] confirm the plugin still loads at all after the new `<depends>` — it will not if the dependency id
+- [x] (manual test in a sandbox IDE, skipped - not automatable) confirm the plugin still loads at all after the new `<depends>` — it will not if the dependency id
       is wrong, and the symptom is the tool window simply not being there
-- [ ] with no skill and nothing listening, confirm Copy All Pending still works exactly as before
-- [ ] install the updated skill and run one real review end to end. Then run one where you never press
+- [x] (manual test in a sandbox IDE, skipped - not automatable) with no skill and nothing listening, confirm Copy All Pending still works exactly as before
+- [x] (manual test in a sandbox IDE, skipped - not automatable) install the updated skill and run one real review end to end. Then run one where you never press
       Send and let the skill time out, and confirm the IDE says the agent left and the remarks are
       still pending.

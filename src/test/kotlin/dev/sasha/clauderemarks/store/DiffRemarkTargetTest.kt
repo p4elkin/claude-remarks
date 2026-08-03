@@ -153,7 +153,7 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
      * the description names it a revision ("working copy"); the sibling test below shows what the
      * description says when that context is missing instead.
      */
-    fun testTheActionAcceptsADiffPaneThroughTheEventsDataContext() {
+    fun testTheActionRefusesADiffPaneThreadedThroughTheEventsDataContext() {
         val revision = revisionContentOf(fileUnderProjectRoot("Diffed.kt", WORKING_TREE))
         val editor = diffViewerOn(revision)
         val action = AddRemarkAction()

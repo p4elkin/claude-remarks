@@ -646,7 +646,10 @@ so this has to be designed, not borrowed.
 
 ## Sending remarks to a remote agent session
 
-**Decided for phase 7.** Not an open question — the only open part is the plan.
+**Decided for phase 8.** Not an open question — the only open part is the plan. (Renumbered from
+phase 7: phase 7 turned out to carry the delivery-acknowledgement signals and the diff opening
+instead — see "Tell the IDE the remarks were actually delivered" and "Open the real diff for just
+the files the skill named" below.)
 
 Sasha sometimes works from a laptop and attaches to a Claude Code session running on the main
 machine over SSH. Today the remarks cannot reach that session at all.
@@ -662,12 +665,12 @@ still the right choice — a rename is atomic, the reader needs no completeness 
 like a file that never appeared. The remote case simply falls outside that assumption. Nothing about
 phase 6 has to be undone.
 
-**Phase 6 needs no protocol change, and phase 7 must not start from the opposite belief.** The endpoint
+**Phase 6 needs no protocol change, and phase 8 must not start from the opposite belief.** The endpoint
 is the IDE's own built-in server, so it always runs on the same machine as the IDE, whatever machine the
 agent is on. The handoff file is therefore always local *to the endpoint*. Reading it is a local read
 that the endpoint can already do.
 
-Three things phase 7 needs:
+Three things phase 8 needs:
 
 - **A fetch action on the existing endpoint** that reads the waiting review's local handoff file and
   returns its content in the HTTP response body, instead of returning a path. Phase 6's two guarantees
@@ -792,6 +795,16 @@ Still open:
 
 ## Tell the IDE the remarks were actually delivered
 
+**Built in phase 7.** See `docs/claude/design.md`, section "The Shared Review Session", subsection
+"Three signals that the remarks arrived", for the actual shape: the phase machine (`Waiting` /
+`Sent`), the deadline declared by the skill and clamped at the endpoint, and the two acknowledgement
+events (`read`, `abandoned`) plus the scheduled staleness check that covers a killed session. Both
+open questions below were settled the same way: nothing is marked sent until the read
+acknowledgement arrives, so there is nothing to "un-send" on an abandoned or rejected review, and
+the deadline is a number the skill declares in the `start` request rather than a plugin setting, so
+the two sides cannot drift apart. The rejection defect described in the subsection right below this
+one was fixed in the same phase, first.
+
 Right now the IDE knows it **wrote a file**. It has no idea whether anything read it. Raised by Sasha
 on 2026-08-03, straight after the first real end-to-end run.
 
@@ -836,18 +849,31 @@ filesystem. The agent knows it read the file; let it say so.
 waiting, read at a time, or no longer waiting because the agent left. A banner that only knows
 "waiting" is what makes the current one able to lie.
 
-**This matters more in phase 7, not less.** Over an SSH tunnel the ways a handoff can fail multiply,
+**This matters more in phase 8, not less.** Over an SSH tunnel the ways a handoff can fail multiply,
 and a local file existing proves even less about what happened on the other machine. See
 [[Sending remarks to a remote agent session]].
 
-Still open:
+Still open, now answered:
 
 - Whether an abandoned review should keep the remarks pending, or mark them pending again if they were
   already marked sent. Pending is the safe answer: nothing was delivered, so nothing was sent.
+  **Answered: they are never marked sent in the first place**, so there is nothing to undo. The send
+  writes the file and records which ids it wrote; only the read acknowledgement calls
+  `markRemarksSent`. See `docs/claude/design.md`'s "Three signals that the remarks arrived" and the
+  phase 7 plan's section "The four open questions, decided".
 - Whether the deadline is the plugin's own setting or a number the skill declares when it starts the
-  review. The skill declaring it keeps the two from drifting apart.
+  review. The skill declaring it keeps the two from drifting apart. **Answered: the skill declares
+  it**, in the `start` request's `deadlineSeconds`, clamped at the endpoint between 60 seconds and 24
+  hours (`clampDeadlineSeconds` in `review/ReviewRestService.kt`).
 
 ### Rejecting a review has to reach Claude Code, and the link should say Reject
+
+**Built in phase 7, first, before any of the new machinery above.** `rejectWaitingReview` in
+`review/SendReview.kt` writes the handoff file through the same `atomicWriteString` the send path
+uses, with a body whose first line is the wire-format marker `<!-- claude-remarks: rejected -->`,
+then clears the review. The banner's second link is now labelled Reject. See `docs/claude/design.md`,
+"Three signals that the remarks arrived", for the phase and clearing order, and the two questions
+below for how the open decisions were settled.
 
 Found by hand on 2026-08-03, in a real IDE. This is a defect, not a wish.
 
@@ -875,14 +901,19 @@ it has, and that is how the defect got written in the first place. "Reject" says
 and is being sent. The word and the behavior should arrive together, in one change, so neither can
 ship without the other.
 
-Two things to settle while building it:
+Two things to settle while building it, now settled:
 
 - Whether the rejection body should carry a reason the person typed, or just the fact. Just the fact
   is the smaller version and probably enough — the person is sitting next to the agent and can say
-  more in the next message if they want to.
+  more in the next message if they want to. **Answered: only the fact.** The body is a fixed
+  constant, `REJECTION_BODY` in `review/SendReview.kt`; no modal input box.
 - What the remarks' own status should be. Rejecting the request is not the same as discarding the
   remarks: the person may be refusing this particular handoff and still want to keep what they wrote.
-  Pending is almost certainly the right answer, the same as for an abandoned review above.
+  Pending is almost certainly the right answer, the same as for an abandoned review above. **Answered:
+  nothing at all.** `rejectWaitingReview` never touches the store, so every remark stays exactly as it
+  was — pending if it was pending, sent if a send had already recorded it. Rejecting after a send
+  writes nothing to the handoff file either, so the remarks already written are not overwritten with
+  the rejection body.
 
 Also fix the skill's own text. Its step 6 currently tells the reader "A timeout does not clear the
 waiting review inside the IDE — the person clears it themselves from the banner's Cancel link." That
@@ -890,6 +921,13 @@ sentence describes today's broken behavior accurately, so it stops being true th
 built.
 
 ## Open the real diff for just the files the skill named
+
+**Built in phase 7.** See `docs/claude/design.md`, "The Shared Review Session", subsection "Opening
+the diff the skill asked for", for the actual shape: `ChangeListManager.getChange` decides per file
+whether it has a local change, every changed file lands in one `showDiffForChange` window, and a
+file with no local change still opens as a plain editor exactly as before. The one real hazard below
+was settled by refusing, not mapping — see the hazard's own paragraph, now updated — and committed
+ranges stayed out of scope exactly as this entry already expected.
 
 Today a review request carries a `files` list and the IDE opens each one as a plain editor. The
 skill's own comment calls this "the cheap version of the diff": the person still has to press the
@@ -953,6 +991,9 @@ orphan it — neither is guaranteed. Opening a diff by default makes this case c
 rare, so it has to be answered as part of this work and not after it. See
 [[Annotating inside the diff viewer]], which already lists the options: refuse the old side with a
 sentence saying why, or map the line through the diff's own line mapping onto the new revision.
+**Answered: refuse.** `remarkTargetProblem` in `store/RemarkTarget.kt` refuses a remark on the
+revision side of a diff with a sentence naming the working copy as the other side, one click away.
+Mapping the line through the diff's own line mapping is real work and stays a later phase.
 
 ### Committed ranges are a separate, bigger job
 
@@ -1039,6 +1080,39 @@ Find Usages and in Recent Files, so it also looks familiar.
 **Split the path into tree levels** — a node per directory, so the file name gets a row to itself and
 never competes with anything. Reads better on deep paths, and the tree already has a layered shape
 because buckets sit above files.
+
+## Annotate a selection inside a rendered markdown preview
+
+Reported by hand on 2026-08-03. Right now a remark can only be anchored to a source file: `anchor/`
+hashes lines of a real `Document` in a real file. The ask is to select text inside a rendered
+markdown preview (IntelliJ's built-in preview, or the file rows this plugin already renders) and add
+a remark on that selection too.
+
+**Why this is tricky, not just another entry point.** Every existing entry point —
+`AddRemarkAction`, the Alt+Enter intention, the diff pane — ends up at `remarkTargetProblem`, whose
+whole job is finding a real project file and a real line range under the caret. A markdown preview
+breaks that in at least two ways:
+
+- **The preview is rendered HTML, not a `Document`.** IntelliJ's own markdown preview is a JCEF/JEditorPane
+  view over the *rendered* output. A text selection inside it is a browser-style DOM range or a
+  Swing text offset into HTML, not a line number in the `.md` source. Getting from "the person
+  selected this rendered span" back to "these source lines" needs its own mapping, and Markdown
+  syntax (headers, lists, code fences, inline emphasis) does not sit at a fixed offset from the
+  rendered text the way plain code does.
+- **`anchor/`'s two-pass resolve is line-hash based**, and a markdown file edited by hand drifts
+  the same way source does — so the anchoring problem itself is not new. What is new is the first
+  hop: turning a preview selection into a starting line range to hash, before `anchor/` ever runs.
+
+**What is already in place.** `store/RemarkTarget.kt`'s `remarkTargetProblem` is still the one gate
+every entry point goes through, so a preview entry point would want to become a third case there
+rather than a parallel mechanism. `render/PromptRenderer.kt` and `anchor/` stay platform-free either
+way — nothing about this idea touches them, only what feeds them a line range.
+
+**Not part of phase 7 or any phase yet.** No design decision has been made — whether to support
+IntelliJ's built-in preview, this plugin's own rendered views, or both; whether a preview selection
+maps to the nearest heading/block instead of an exact line; whether it is worth the source-mapping
+work at all versus telling the person to add the remark in the source file, where the tooling already
+works. Needs its own brainstorm before a plan.
 
 I would take the first. Three reasons, all of them about work already done:
 

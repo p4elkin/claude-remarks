@@ -1121,6 +1121,135 @@ the plugin's write wherever that user chose. `outputPath` is instead a fresh
 loses the response cannot guess the path and has to re-run `start`, which the same-session reuse
 branch in `startOrConflict` turns into a no-op that returns the same path again.
 
+### Three signals that the remarks arrived
+
+Phase 7 closes the gap between "the IDE wrote a file" and "the agent read it." Before this phase the
+IDE knew only that a write succeeded; it never learned whether the skill on the other end actually
+saw the remarks, gave up, or was killed outright. `WaitingReviewState` now carries a `phase`
+(`ReviewPhase.Waiting` or `ReviewPhase.Sent(ids, at)`) and a `deadlineAt`, and `WaitingReviewService`
+gained `markSent`, `acknowledge` and `expireIfStale` to move between them.
+
+**Rejecting writes the handoff file, then clears — it does not just close the banner.**
+`rejectWaitingReview` (`review/SendReview.kt`) writes `REJECTION_BODY` through the same
+`atomicWriteString` the send path uses, onto the same path the skill is already polling, then calls
+`WaitingReviewService.clear()`. Before this phase the banner's second link was called Cancel and did
+only the clear half — the skill kept polling a file that would never appear, for its whole 30-minute
+timeout. The link is now called Reject, because "Cancel" reads as "close this banner", which was
+exactly the wrong behaviour that produced the defect. `REJECTION_BODY`'s first line,
+`<!-- claude-remarks: rejected -->`, is a wire format shared with
+`docs/skill/claude-remarks-review/SKILL.md` — an HTML comment, so it reads as invisible prose to a
+model and as a `grep -q` match to the skill's shell loop. It is spelled out as a literal in both
+places, in the plugin's test and in the skill, rather than the test reading the constant, so a rename
+that broke the skill would also break the test.
+
+**Reject in the `Sent` phase writes nothing.** Once a send has happened the handoff file already
+holds the rendered remarks, and the agent may already be reading them. Overwriting it with a
+rejection body would destroy remarks that were never actually delivered, silently. So
+`rejectWaitingReview` checks the phase first: in `Sent`, it only clears the review and tells the
+person the remarks were already written: there is nothing left to reject.
+
+**The send no longer clears the review, and nothing is marked sent until the agent says it read the
+file.** This is the phase's whole point. Before phase 7, `sendToWaitingReview` called
+`markRemarksSent` and then `WaitingReviewService.clear()` in the same breath as the write — so by the
+time the skill finished reading the file, there was no state left to record a read acknowledgement
+on, and "sent" meant only "written," never "delivered." Now a successful send calls
+`WaitingReviewService.markSent(ids)`, which moves the phase to `Sent(ids, at)` and keeps the review
+current; the remarks stay `PENDING`. Only a `read` acknowledgement — `finishReview` in
+`review/SendReview.kt`, reached through the `ack` endpoint action — calls `markRemarksSent(project,
+ids)`. This is also why no ninth mutation function marks a remark pending again: nothing is ever
+marked sent early, so there is nothing to undo when a review is abandoned or rejected after a send.
+
+**The deadline is declared by the skill, not configured in the plugin, and it is clamped at the
+endpoint.** The skill already had the number as a literal in its own wait loop; a plugin setting
+would be a second source of truth for the same value, and the two drifting apart is bad in both
+directions — a shorter plugin deadline calls a live agent dead, a longer one leaves the banner lying
+for exactly the window this phase exists to close. So the `start` request carries `deadlineSeconds`,
+and `clampDeadlineSeconds` in `ReviewRestService.kt` bounds whatever arrives into 60 seconds through
+24 hours (absent means 1800). The clamp lives at the endpoint, where untrusted input arrives, not
+inside the service — which also lets a test hand the service a deadline of zero and get an instantly
+stale review, the only practical way to test staleness without waiting a minute.
+
+**The deadline is enforced two ways, and each covers a hole the other leaves alone.**
+`WaitingReviewState.isStale(now)` is a pure comparison of two longs, used inside `current()`:
+`state?.takeIf { !it.isStale() }`. That is what stops a stale review from ever being sent to or
+enabling a button, no matter what the scheduler did — but a predicate alone leaves a stale banner on
+screen until something else happens to trigger a repaint, since the banner only redraws from
+`refresh()`. A `ScheduledFuture`, one `schedule` per accepted review (cancelled on `clear` and on
+`dispose`, never a repeating poll), is what makes the *screen* catch up: it fires at the deadline and
+calls `expireStaleReview(project)`, which is `expireIfStale()` plus the same balloon an abandoned
+review gets. The task alone would be a promise about timing that a laptop asleep past the deadline
+breaks; together the two cost about fifteen lines and cover both failure shapes. `current()` staying
+unsynchronized while `start`/`clear` hold a lock is the same deliberate bend recorded above under "One
+waiting review per project" — masking a stale review is one more comparison of two longs on that same
+unsynchronized read, not a lock, not IO, and does not disturb that decision.
+
+**The branch order in `startOrConflict` matters: same session before staleness.** The branches, in
+order: an absent review accepts; the same session id gets its own state back unchanged, an honest
+retry, however late; only then does a stale review get replaced by a different session's request;
+anything else conflicts. Checking staleness before the same-session branch would mean a slow retry of
+the review that is legitimately still running could get bumped by its own lateness. Checking it after
+means a killed session's stale state does not block a next, different review from starting — the
+person is not stuck pressing Cancel/Reject on a dead banner before they can start again.
+
+**The agent's read is reported, never detected.** There is no portable signal on the plugin side for
+"this file was read" — anything built on access times or file locks would be wrong on some
+filesystem. The skill says so itself, through the `ack` action, and the IDE takes its word for it.
+
+**The endpoint now dispatches on a sub-path, and an unrecognized one refuses rather than starting a
+review.** `execute` splits the request path the same way the platform's own `UploadLogsService`
+does — `urlDecoder.path().split(getServiceName()).last().trimStart('/')` — so `/start` and `/ack`
+reach the same handler under one `isHostTrusted` check and one rate limit. Before this phase `execute`
+never looked at the path at all, so any sub-path — including a typo — silently started a review. Now
+anything other than `start` or `ack` answers `bad-request` and starts nothing.
+
+### Opening the diff the skill asked for
+
+Before phase 7 a review request's `files` list was opened as one plain editor per file — the skill's
+own comment called this "the cheap version of the diff." `OpenReviewFiles.kt` now decides, per file,
+whether to open a real diff instead.
+
+**The IDE decides diff-or-editor per file; the skill is never asked.** Whether a file has a local
+change is a fact the IDE already holds and the skill would only be guessing at, so there is no new
+request field and no mode flag. `ChangeListManager.getInstance(project).getChange(file)` answers
+`null` for a file with no local change — that file opens as a plain editor, exactly as before, which
+is also the right answer for a file the person should read but has not touched. A non-null `Change`
+is collected instead of opened immediately.
+
+**One diff window holds every changed file.** After the loop, `ShowDiffAction.showDiffForChange(project,
+changes)` opens a single window over every collected `Change`, with next-file and previous-file
+navigation built into it. A window per file would put the person back in the tab-shuffling this
+feature exists to remove. Everything still runs inside the `invokeLater` `OpenReviewFiles.kt` already
+had, so the HTTP response never waits for an editor or a diff window to appear on screen.
+
+**This is why the plugin now declares a second `plugin.xml` dependency, `com.intellij.modules.vcs`,
+and why `build.gradle.kts` needed a line for it.** `ShowDiffAction` lives in
+`lib/modules/intellij.platform.vcs.impl.jar`, not in `app.jar` — confirmed by `javap` against the
+2025.2 jars — while `ChangeListManager` and `Change` are both in `app.jar` and would have resolved
+either way. Whether that module jar was already on the compile classpath was settled by compiling,
+not by reading: the bare import did not resolve, so `bundledModule("intellij.platform.vcs.impl")`
+was added to the `intellijPlatform` dependencies block in `build.gradle.kts`, the only entry there.
+The dependency is a hard `<depends>`, not an optional one — every JetBrains IDE ships VCS, so the
+optional form would need a second descriptor file and a code path that could never be tested; the
+cost of being wrong this way is the plugin refusing to load, loud rather than half-working.
+
+**A review of committed revisions degrades to plain editors, silently.** `ChangeListManager` only
+knows about uncommitted work, so a review of `main..HEAD` gets `null` back for every file and every
+one of them opens as a plain editor — indistinguishable, from the IDE's side, from a file with no
+local change at all. Building `Change` objects out of two committed revisions needs the Git plugin
+rather than the platform's VCS API, and is real work left for later. Local changes were the case
+worth building first: that is when the work is unfinished, which is when a remark is worth writing.
+
+**A remark on the revision side of a diff is refused, not mapped.** Opening a diff by default makes
+this pane common rather than rare, so it had to be answered as part of this work rather than after
+it. `remarkTargetProblem` (`store/RemarkTarget.kt`) now refuses a remark whose only resolving
+candidate is the revision's highlight file, with a sentence naming the working copy as the other
+side, one click away. Before this phase such a remark was stored, sometimes landing correctly through
+the content hashing in `anchor/` when the region happened to be unchanged between the two revisions —
+which is exactly the case where the remark mattered least — and orphaning with no warning when the
+region had actually changed, which is the case the review is usually about. Mapping the line through
+the diff's own line mapping onto the working copy is real work and stays a later phase; refusing costs
+one branch and a sentence the person can act on immediately.
+
 ## Two Positions On Screen, And When They Differ
 
 The gutter shows the live highlighter position. The platform moves it as you type, for free and

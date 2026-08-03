@@ -3,12 +3,13 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-6 are implemented and covered by unit tests. None of it has been loaded into a running
-IDE in this run: every `runIde` check in the phase 1-2, phase 3-4, phase 5 and phase 6 plans was
-skipped in the autonomous sessions that did the work, so treat "it works" as "the tests pass"
-until someone does the hand checks listed at the end of each plan — phase 6's hand checks matter
-most now, since its endpoint's trust chain is proven mostly by reading the platform source, not by
-a test. See `docs/claude/design.md` for exactly which. Select lines, press `Ctrl+Alt+Shift+R` (or
+Phases 1-7 are implemented and covered by unit tests. None of it has been loaded into a running
+IDE in any of these sessions: every `runIde` check in the phase 1-2, phase 3-4, phase 5, phase 6
+and phase 7 plans was skipped in the autonomous sessions that did the work, so treat "it works" as
+"the tests pass" until someone does the hand checks listed at the end of each plan — phase 7's hand
+checks matter most now, since a second delivery signal, a scheduled deadline, and a diff opened over
+VCS all depend on platform behaviour no automated test in this project reaches. See
+`docs/claude/design.md` for exactly which. Select lines, press `Ctrl+Alt+Shift+R` (or
 use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a
 severity level, and press Enter. A gutter icon appears on the marked lines and follows the code as
 you keep editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a
@@ -41,6 +42,21 @@ and the remarks reach the skill through a file both sides agree on. The plugin w
 did before with no skill installed and nothing listening. See `docs/claude/design.md`, section "The
 Shared Review Session", for the whole design, and `docs/ideas.md` for the reasoning this carries
 forward from before it was built.
+
+**Phase 7 is built.** It closes the gap between "the IDE wrote a file" and "the agent actually read
+it." Rejecting a review in the banner now writes that decision to the handoff file and clears the
+review — the link is called Reject, not Cancel — instead of only closing the banner while the skill
+waits out its full timeout. A review carries a phase, `Waiting` or `Sent`: sending writes the file
+and records which remarks it wrote, but does not mark them sent; only a `read` acknowledgement from
+the skill does that, over a second endpoint action, `POST /api/claude-remarks/ack`. The skill also
+declares how long it will wait, and the IDE clamps and enforces that deadline itself, so a killed
+or abandoned session does not leave a stale banner and a live Send button on screen forever. A
+review request that names files with a local change now opens one real diff over just those files,
+through `ShowDiffAction`, instead of a plain editor per file — which also means a remark on the
+revision side of a diff is now refused, with a sentence pointing at the working copy, rather than
+stored with line numbers that described a different revision. See `docs/claude/design.md`, section
+"The Shared Review Session", for both new subsections, and `docs/ideas.md` for the ideas this
+carries forward.
 
 ## Rules that must not break
 
@@ -126,6 +142,12 @@ forward from before it was built.
    cannot tell a comment from code, so an explanatory comment naming them would trip the guard it is
    explaining.
 
+   **Phase 7 hit the same trap and it is still live.** The `ack` action's consequences — marking a
+   remark sent, showing a balloon — live in `review/SendReview.kt`, not in `ReviewRestService.kt`,
+   for exactly this rule. The comment in `ReviewRestService.kt` that explains why says "the file that
+   owns the editor side" and names `review/SendReview.kt` by path, and does not spell out any of the
+   five forbidden symbols, even to say they are absent.
+
 Every command above must come back empty.
 
 ## Project structure
@@ -137,7 +159,8 @@ src/main/kotlin/dev/sasha/clauderemarks/
   store/RemarkStore.kt             @Service project component, state in workspace.xml
   store/RemarkEdits.kt             the eight mutation functions, the REMARKS_CHANGED topic
   store/RemarkResolver.kt          projectRoot, resolveAll, and anchorOf
-  store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, and the diff fallback
+  store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, the diff fallback, and the
+                                   refusal for a remark on the revision side of a diff
   store/ContextFormat.kt           joinContext/splitContext, how context lines are stored
   store/GitHead.kt                 headCommit, reads .git directly, no platform import, no Git4Idea
   store/RemarkHistory.kt           historyFile, appendToHistory, renderHistory: the archive
@@ -167,17 +190,28 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    the per-run ReviewToken, and ReviewHandshakeService (@Service
                                    PROJECT, Disposable) — the file a skill reads to find this IDE
   review/AtomicWrite.kt            atomicWriteString: temp file beside the target, then rename
-  review/WaitingReview.kt          WaitingReviewState, StartResult, the pure startOrConflict, and
-                                   WaitingReviewService (@Service PROJECT) — at most one waiting
-                                   review per project, in memory only
-  review/ReviewRestService.kt      the RestService at POST /api/claude-remarks/start: isHostTrusted,
-                                   execute, and the pure requestIsAllowed/projectForPath helpers.
-                                   Rule 5 above governs this file specifically
+  review/WaitingReview.kt          WaitingReviewState (with its ReviewPhase, deadlineAt and
+                                   isStale), StartResult, the pure startOrConflict, and
+                                   WaitingReviewService (@Service PROJECT, Disposable) — at most one
+                                   waiting review per project, in memory only, plus markSent,
+                                   acknowledge and the scheduled expiry
+  review/ReviewRestService.kt      the RestService at POST /api/claude-remarks/{start,ack}:
+                                   isHostTrusted, execute (dispatches on the sub-path),
+                                   clampDeadlineSeconds, and the pure requestIsAllowed/projectForPath
+                                   helpers. Rule 5 above governs this file specifically
   review/SendReview.kt             sendToWaitingReview and SendReviewAction: the same prepare()
                                    pipeline Copy All Pending uses, written to the handoff file
-                                   instead of the clipboard
-  review/OpenReviewFiles.kt        the only file in review/ that touches the VFS or the editor
-src/main/resources/META-INF/plugin.xml
+                                   instead of the clipboard; rejectWaitingReview; finishReview and
+                                   expireStaleReview, the ack's consequences (marking sent, the
+                                   balloon), kept out of ReviewRestService.kt by rule 5
+  review/OpenReviewFiles.kt        the only file in review/ that touches the VFS or the editor —
+                                   opens a real diff over the files that have a local change,
+                                   through ShowDiffAction, and a plain editor for the rest
+src/main/resources/META-INF/plugin.xml           declares two dependencies: com.intellij.modules.platform
+                                                  and, since phase 7, com.intellij.modules.vcs — for
+                                                  ShowDiffAction, which lives in a module jar
+                                                  (lib/modules/intellij.platform.vcs.impl.jar), not
+                                                  in app.jar
 src/main/resources/intentionDescriptions/AddRemarkIntention/description.html
 src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
 ```
@@ -236,9 +270,11 @@ the test, including a worktree, a detached HEAD and packed refs), `RemarkHistory
 archive's markdown rendering, and the write itself against a temp file), `AtomicWriteTest` (the
 temp file lands beside the target, not in the system temp directory, and no temp file is left
 behind), `ReviewHandshakeTest` (the name, the rendering, the escaping, and the owner-only
-permissions), `WaitingReviewTest` (the pure `startOrConflict`: accept, honest-retry reuse, and
-conflict), and `ReviewRequestTest` (the pure `requestIsAllowed` and `projectForPath`) are plain
-JUnit tests with no fixture, so they run in milliseconds. The rest need a light IDE fixture
+permissions), `WaitingReviewTest` (the pure `startOrConflict`: accept, honest-retry reuse, a
+same-session retry after the deadline, and conflict, plus `isStale`'s boundary), and
+`ReviewRequestTest` (the pure `requestIsAllowed`, `projectForPath`, and, since phase 7,
+`clampDeadlineSeconds`) are plain JUnit tests with no fixture, so they run in milliseconds. The rest
+need a light IDE fixture
 (`BasePlatformTestCase`, which needs `testFramework(TestFrameworkType.Platform)` in
 `build.gradle.kts`) and are slower, because each goes through a real project service, a real
 `Document`, or a real markup model: `RemarkStoreServiceTest`, `ResolveAllTest` (stored remarks
@@ -256,10 +292,15 @@ service), `RemarksPanelTest` (the tool window panel: every file and bucket group
 and the selection survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
 0-based line argument), the collector half of `PromptPayloadTest`, `CopyRemarksTest`,
 `ReviewEndpointSmokeTest` (the one test that calls `ReviewRestService.execute` itself, through a
-real `EmbeddedChannel`, so the response actually carries a body), `OpenReviewFilesTest` (the
-string-only half of the path filter: absolute paths and `..` segments are dropped), and
-`SendReviewTest` (the send action's success and failure paths, and that nothing is marked sent on
-a failed write).
+real `EmbeddedChannel`, so the response actually carries a body, plus the ack action and the
+unknown-action refusal added in phase 7), `OpenReviewFilesTest` (the string-only half of the path
+filter: absolute paths and `..` segments are dropped, plus a fixture-backed class for the
+diff-or-editor decision, since a light fixture project has no VCS root and every file takes the
+plain-editor branch), `SendReviewTest` (the send action's success and failure paths, that nothing is
+marked sent until the read acknowledgement, the reject action, and the phase guards that refuse a
+second send or an overwrite after a send), and `WaitingReviewServiceTest` (fixture-backed, because a
+project-level service needs a project: `markSent`, `acknowledge`, `expireIfStale`, and that a stale
+review is not `current()`).
 
 Every fixture-backed test class that asserts on the whole store clears it in `setUp`, not only in
 `tearDown`: the light fixture project is shared across test classes, so remarks left behind by an

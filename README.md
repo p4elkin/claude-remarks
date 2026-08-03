@@ -13,7 +13,8 @@ Remarks stay on your machine, stored in `.idea/workspace.xml`. The `.idea/.gitig
 - **Phase 1-2**: Storage, persistence, and the two-pass anchoring search that keeps a remark pointed at the right lines as the file changes around it.
 - **Phase 3-4**: The input popup, the gutter icon, the tree tool window, the settings page, and the Copy Remarks action described above.
 - **Phase 5**: Severity and named buckets, tag chips picked from the keyboard, a commit stamp read straight out of `.git`, a history file that cleared remarks are archived to instead of deleted, and the `Cmd+Ctrl+Shift+Space` class-name insert — all described above, and in more depth in `docs/claude/design.md`.
-- **Phase 6** (this build): A review session shared between a Claude Code skill and the IDE — described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session".
+- **Phase 6**: A review session shared between a Claude Code skill and the IDE — described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session".
+- **Phase 7** (this build): The review session tells the truth about what happened to it. Rejecting it in the banner now writes that decision to the handoff file instead of only closing the banner, and the link is called Reject. A remark is marked sent only once the skill acknowledges it read the handoff file, not the moment the file is written; a review that never gets a reply goes stale on its own deadline, declared by the skill and enforced by the IDE. The review also opens a real diff over just the files the skill named, instead of a plain editor per file — described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session".
 
 An earlier brief also planned a pluggable dispatch step beyond the clipboard — a `Dispatcher` interface, a tmux pane, a file inside `.idea/`. That was dropped before it was built: Copy Remarks already gets a prompt into a Claude Code session with none of that machinery. See `docs/claude/design.md`, section "The Copy Pipeline", for the reasoning. Phase 6 below adds a different, later automated path; that earlier idea stays dropped regardless.
 
@@ -30,18 +31,32 @@ A Claude Code skill (`docs/skill/claude-remarks-review/SKILL.md`) can ask a runn
 review open for a repository. It reads a small handshake file the plugin writes under
 `~/.claude-remarks/` when the project opens, then sends one HTTP request to the IDE's own built-in
 server. If the IDE accepts, a banner appears at the top of the Claude Remarks tool window: "Claude
-Code is waiting: <label>". Read and write remarks as usual, then press **Send to Claude Code** —
-either the toolbar button that appears next to the others while a review is waiting, or **Tools →
-Send Claude Remarks to the Waiting Session**, which works even with the tool window closed. Every
-pending remark is rendered the same way Copy All Pending renders them and written to a file the
-skill has been waiting for; the remarks turn gray, `markRemarksSent` runs exactly as it does after a
-copy, and the banner disappears. Pressing **Cancel** in the banner instead clears the waiting review
-with nothing written and every remark still pending.
+Code is waiting: <label>", and — if the request named files that have a local change — the person
+lands directly in a diff of just those files, with the rest opened as plain editors; the "Reviewing"
+walkthrough above is the plain-editor case, and this is what happens instead once the skill names
+files. Read and write remarks as usual, then press **Send to Claude Code** — either the toolbar
+button that appears next to the others while a review is waiting, or **Tools → Send Claude Remarks
+to the Waiting Session**, which works even with the tool window closed. Every pending remark is
+rendered the same way Copy All Pending renders them and written to a file the skill has been waiting
+for; the banner then says the remarks are waiting to be read, and the Send control disables itself so
+a second press cannot overwrite what was just written. Nothing is marked sent yet — that happens only
+once the skill acknowledges it actually read the file, at which point the remarks turn gray exactly
+as they do after a copy and the banner disappears. Pressing **Reject** in the banner instead writes
+that decision to the handoff file — so a Claude Code session waiting on it hears about it within a
+second or two, instead of waiting out its own timeout — and clears the review; every remark stays
+exactly as it was. If the skill never answers at all, the review goes stale on its own after the
+deadline the skill declared when it started, and the banner disappears with a balloon saying the
+agent left; nothing sent this way is ever lost, since the remarks it wrote were never marked sent in
+the first place.
+
+Writing a remark from a diff pane's revision side (the "before" of a change) is refused rather than
+stored: its line numbers describe the revision, not the file on disk, and the working copy is one
+click away. Working-copy remarks are unaffected.
 
 **This only works when the IDE and the Claude Code session run on the same machine.** Both the
 handshake file and the handoff file are local paths, so there is nothing to read if the skill runs
 on a different machine from the IDE — the common case being a laptop attached over SSH to a session
-running elsewhere. Sending to a remote agent session is planned for a later phase and is not built;
+running elsewhere. Sending to a remote agent session is planned for phase 8 and is not built yet;
 see `docs/ideas.md` for the reasoning. Nothing about this limitation is silent: the skill checks for
 it and says so rather than trying and failing confusingly.
 
@@ -119,7 +134,7 @@ There are no UI-rendering or end-to-end tests. The popup appearing at the caret,
 
 - `src/main/kotlin/dev/sasha/clauderemarks/anchor/`: Pure Kotlin, no platform imports. Logic for hashing lines and finding anchored text after files change.
 - `src/main/kotlin/dev/sasha/clauderemarks/model/`: The `RemarkState` record and its enums (`RemarkTag`, `RemarkStatus`).
-- `src/main/kotlin/dev/sasha/clauderemarks/store/`: `RemarkStore.kt`, the project service that persists remarks; `RemarkEdits.kt`, the eight functions that are the only way production code changes a remark, plus the `REMARKS_CHANGED` notification; `RemarkResolver.kt`, which turns stored remarks into resolved rows; `RemarkTarget.kt`, which decides where a remark on the current editor would go; `ContextFormat.kt`, which says how context lines are written into a remark and read back; `GitHead.kt`, which reads the repository HEAD straight out of `.git` with no VCS plugin dependency; and `RemarkHistory.kt`, the markdown archive that cleared remarks are written to.
+- `src/main/kotlin/dev/sasha/clauderemarks/store/`: `RemarkStore.kt`, the project service that persists remarks; `RemarkEdits.kt`, the eight functions that are the only way production code changes a remark, plus the `REMARKS_CHANGED` notification; `RemarkResolver.kt`, which turns stored remarks into resolved rows; `RemarkTarget.kt`, which decides where a remark on the current editor would go, and refuses one on the revision side of a diff; `ContextFormat.kt`, which says how context lines are written into a remark and read back; `GitHead.kt`, which reads the repository HEAD straight out of `.git` — it still needs no VCS plugin API of its own, even though the plugin as a whole now depends on `com.intellij.modules.vcs` for the diff window described below; and `RemarkHistory.kt`, the markdown archive that cleared remarks are written to.
 - `src/main/kotlin/dev/sasha/clauderemarks/ui/`: `RemarkInputPanel.kt`, the popup that captures a remark, its key bindings and its tag chips; `RemarkActions.kt`, the severity-and-bucket menu shared by the gutter icon and the tree; `ClassNameInsert.kt`, the class-name chooser the remark box opens; `RemarksTree.kt` and `RemarksToolWindowFactory.kt`, the tool window's tree and its toolbar.
 - `src/main/kotlin/dev/sasha/clauderemarks/action/`: `AddRemarkAction.kt` (the shortcut and popup-menu entry point) and `AddRemarkIntention.kt` (the Alt+Enter entry point), both opening the same input popup; `CopyRemarks.kt`, the copy pipeline.
 - `src/main/kotlin/dev/sasha/clauderemarks/editor/`: `RemarkGutterIcon.kt` (the icon renderer) and `RemarkGutter.kt` (the project service that keeps gutter icons in step with the code), started by `RemarkGutterStartup.kt`.
