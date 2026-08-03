@@ -736,3 +736,56 @@ Still open:
   subtree for Copy Selected, so the machinery is there.
 - Whether the drag image should say how many remarks are moving. Cheap, and it is the only feedback
   that a multi-row drag picked up what was intended.
+
+## A button that installs the skill into every detected harness
+
+A button in the plugin's settings page that finds every agent harness on the machine and installs the
+review skill into each one, instead of the person copying a directory by hand. Raised by Sasha on
+2026-08-03, right after doing it by hand.
+
+Today the skill is installed by hand. During development it was symlinked:
+`~/.claude/skills/claude-remarks-review` → `docs/skill/claude-remarks-review` in the checkout.
+
+**The blocker comes first: the skill is not in the plugin zip.** It lives in `docs/skill/`, which
+never reaches the artifact — checked against `claude-remarks-0.3.0.zip`, which contains no skill file
+at all. So step one is not the button; it is making `SKILL.md` a plugin resource under
+`src/main/resources/`, the way `intentionDescriptions/` already is. Until that happens the button has
+nothing to install.
+
+**Copy, do not symlink — and this is the opposite of what development does.** An installed plugin lives
+under a versioned path, so a symlink into it dies on the next plugin update and leaves a broken skill
+entry behind. The button must copy the file out. The dev symlink is right for a checkout, wrong for an
+install, and the reason they differ is worth stating in the code.
+
+**Detection, not assumption.** Offer only harnesses whose directory already exists, and never create a
+harness directory that was not there — that would be the plugin guessing that a tool is wanted. Three
+exist on this machine: `~/.claude/skills`, `~/.codex`, `~/.gemini`. Each has its own convention for
+where a skill goes and what shape it takes, and those conventions must be **read from each tool's own
+documentation, not remembered.** The same rule as the platform APIs: a guessed path writes a file
+nobody reads.
+
+Where the button goes: `settings/RemarkSettingsConfigurable.kt` already exists as a `BoundConfigurable`
+under Tools, so this is a row on a page that is already there, not a new surface.
+
+What it must show, not just do:
+
+- which harnesses were found, and which of them already have the skill
+- the version installed versus the version the plugin carries, so an out-of-date copy is visible
+- one button per harness, or one button and a checkbox list — not a single silent "install everywhere"
+
+**Consent, because this writes outside the project.** A click is the consent, and the write is to the
+person's home directory rather than to the working tree, so it does not touch the rule that nothing
+remark-related enters VCS. `store/RemarkHistory.kt` already writes outside the project for the same
+reason, so there is a precedent to follow rather than a new argument to have.
+
+**It only helps the local case.** For a remote agent session — see
+[[Sending remarks to a remote agent session]] above — the skill has to exist on the *agent's* machine,
+which this button cannot reach. The honest version prints the one-line command to run over there rather
+than pretending the button covered it.
+
+Still open:
+
+- Whether uninstalling the plugin should remove the skills it installed. Probably not: silently deleting
+  files from a person's home on uninstall is worse than leaving a stale directory.
+- Whether a project-level install (`.claude/skills/` in the repo) should be offered too. It would put
+  the skill in VCS, which is fine for a shared team skill and wrong by default for this plugin.
