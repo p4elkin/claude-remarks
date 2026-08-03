@@ -3,13 +3,14 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-7 are implemented and covered by unit tests. None of it has been loaded into a running
-IDE in any of these sessions: every `runIde` check in the phase 1-2, phase 3-4, phase 5, phase 6
-and phase 7 plans was skipped in the autonomous sessions that did the work, so treat "it works" as
-"the tests pass" until someone does the hand checks listed at the end of each plan — phase 7's hand
-checks matter most now, since a second delivery signal, a scheduled deadline, and a diff opened over
-VCS all depend on platform behaviour no automated test in this project reaches. See
-`docs/claude/design.md` for exactly which. Select lines, press `Ctrl+Alt+Shift+R` (or
+Phases 1-7 are implemented and covered by unit tests. What has and has not been in front of a real
+IDE, per phase: **phase 6's seven security hand checks were run in a real IDE before 0.3.0 was
+released**, and phase 5's commit stamp was checked in a real IDE too. The `runIde` checks in the
+phase 1-2, phase 3-4, phase 5 and **phase 7** plans were skipped in the autonomous sessions that did
+that work, so for those treat "it works" as "the tests pass" until someone runs the hand checks at
+the end of the plan. **Phase 7's matter most now**, and none of them has been run: a second delivery
+signal, a scheduled deadline, and a diff opened over VCS all depend on platform behaviour no
+automated test in this project reaches. See `docs/claude/design.md` for exactly which. Select lines, press `Ctrl+Alt+Shift+R` (or
 use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a
 severity level, and press Enter. A gutter icon appears on the marked lines and follows the code as
 you keep editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a
@@ -254,7 +255,7 @@ written down here rather than silently carried.
 ```bash
 ./gradlew test                              # the whole suite
 ./gradlew build                             # compile, test, assemble
-./gradlew buildPlugin                       # build/distributions/claude-remarks-0.1.1.zip
+./gradlew buildPlugin                       # build/distributions/claude-remarks-<version>.zip
 ./gradlew verifyPluginProjectConfiguration  # after any plugin.xml or build.gradle.kts change
 ./gradlew verifyPlugin                      # compatibility report against the target IDE
 ```
@@ -292,15 +293,16 @@ service), `RemarksPanelTest` (the tool window panel: every file and bucket group
 and the selection survives a rebuild), `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
 0-based line argument), the collector half of `PromptPayloadTest`, `CopyRemarksTest`,
 `ReviewEndpointSmokeTest` (the one test that calls `ReviewRestService.execute` itself, through a
-real `EmbeddedChannel`, so the response actually carries a body, plus the ack action and the
-unknown-action refusal added in phase 7), `OpenReviewFilesTest` (the string-only half of the path
+real `EmbeddedChannel`, so the response actually carries a body, plus the ack action's five answers,
+the unknown-action refusal, and that the deadline the request declares really reaches the review), `OpenReviewFilesTest` (the string-only half of the path
 filter: absolute paths and `..` segments are dropped, plus a fixture-backed class for the
 diff-or-editor decision, since a light fixture project has no VCS root and every file takes the
 plain-editor branch), `SendReviewTest` (the send action's success and failure paths, that nothing is
-marked sent until the read acknowledgement, the reject action, and the phase guards that refuse a
-second send or an overwrite after a send), and `WaitingReviewServiceTest` (fixture-backed, because a
-project-level service needs a project: `markSent`, `acknowledge`, `expireIfStale`, and that a stale
-review is not `current()`).
+marked sent until the read acknowledgement, that an abandoned acknowledgement and the deadline both
+leave the remarks pending, the reject action, and the phase guards that refuse a second send or an
+overwrite after a send), and `WaitingReviewServiceTest` (fixture-backed, because a
+project-level service needs a project: `markSent` and the session it names, `acknowledge`,
+`expireIfStale`, that `clear` cancels the deadline task, and that a stale review is not `current()`).
 
 Every fixture-backed test class that asserts on the whole store clears it in `setUp`, not only in
 `tearDown`: the light fixture project is shared across test classes, so remarks left behind by an

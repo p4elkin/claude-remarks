@@ -23,10 +23,17 @@ import java.nio.file.Path
  * twenty — a request naming a thousand paths must not lock the IDE up opening them. The
  * VFS-and-ancestor half of the check happens later, in [openReviewFiles], because it needs the
  * project root.
+ *
+ * The paths arrive over HTTP, so `Path.of` can throw: a NUL byte in a name is enough, and on Windows
+ * so is `?` or `*`. An unparseable path is dropped exactly like an absolute one. Letting it throw
+ * would leave the netty thread's own catch turning it into a 500 with a stack trace for a body,
+ * after the review had already been accepted and the answer written.
  */
 internal fun filterReviewPaths(paths: List<String>?): List<String> =
     (paths ?: emptyList())
-        .filterNot { Path.of(it).isAbsolute || it.split("/").contains("..") }
+        .filterNot {
+            runCatching { Path.of(it).isAbsolute }.getOrDefault(true) || it.split("/").contains("..")
+        }
         .take(20)
 
 /**
@@ -41,6 +48,9 @@ fun openReviewFiles(project: Project, paths: List<String>?) {
     val filtered = filterReviewPaths(paths)
     if (filtered.isEmpty()) return
     ApplicationManager.getApplication().invokeLater {
+        // The project can close between the HTTP request and this hop to the EDT, and every call
+        // below throws AlreadyDisposedException on a disposed project.
+        if (project.isDisposed) return@invokeLater
         val root = projectRoot(project) ?: return@invokeLater
         val changes = mutableListOf<Change>()
         filtered.forEach { path ->

@@ -71,11 +71,17 @@ fun remarkTargetProblem(project: Project, editor: Editor, dataContext: DataConte
     // The ordinary editor, and the working-copy side of a diff: the document being read IS the file
     // the remark will be stored against, so the line numbers describe it.
     if (VfsUtilCore.getRelativePath(own, root) != null) return null
-    // Only the second candidate resolved, which means this pane holds a revision and the file was
-    // found through DocumentContent.getHighlightFile. Right file, wrong line numbers.
-    if (candidates.any { VfsUtilCore.getRelativePath(it, root) != null }) {
+    // Only a later candidate resolved, which means this pane holds a revision and the file was found
+    // through DocumentContent.getHighlightFile. Right file, wrong line numbers. drop(1), not the
+    // whole list: the first candidate was just refused one line above.
+    //
+    // The advice names the working copy rather than "the other side of the diff": in a diff between
+    // two commits neither pane is the working copy, so the other side refuses the same way and the
+    // person is sent in a circle.
+    if (candidates.drop(1).any { VfsUtilCore.getRelativePath(it, root) != null }) {
         return "$name here is a revision, not the working copy, so a remark's line numbers would " +
-            "not describe the file on disk. Add it on the other side of the diff."
+            "not describe the file on disk. Add it on the working copy — the working-tree side of " +
+            "this diff, or the file itself."
     }
     // Nothing resolved at all: the two messages that were already there, unchanged.
     return if (editor.editorKind == EditorKind.DIFF) {

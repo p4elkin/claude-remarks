@@ -38,13 +38,15 @@ files. Read and write remarks as usual, then press **Send to Claude Code** — e
 button that appears next to the others while a review is waiting, or **Tools → Send Claude Remarks
 to the Waiting Session**, which works even with the tool window closed. Every pending remark is
 rendered the same way Copy All Pending renders them and written to a file the skill has been waiting
-for; the banner then says the remarks are waiting to be read, and the Send control disables itself so
-a second press cannot overwrite what was just written. Nothing is marked sent yet — that happens only
+for; the banner then says the remarks are waiting to be read, the toolbar button greys out, and
+pressing Send again from the banner or from Tools answers that it is already sent, so a second press
+cannot overwrite what was just written. Nothing is marked sent yet — that happens only
 once the skill acknowledges it actually read the file, at which point the remarks turn gray exactly
 as they do after a copy and the banner disappears. Pressing **Reject** in the banner instead writes
 that decision to the handoff file — so a Claude Code session waiting on it hears about it within a
 second or two, instead of waiting out its own timeout — and clears the review; every remark stays
-exactly as it was. If the skill never answers at all, the review goes stale on its own after the
+exactly as it was. Reject *after* a send writes nothing — the file already holds the remarks — and
+only closes the review, saying so. If the skill never answers at all, the review goes stale on its own after the
 deadline the skill declared when it started, and the banner disappears with a balloon saying the
 agent left; nothing sent this way is ever lost, since the remarks it wrote were never marked sent in
 the first place.
@@ -69,7 +71,7 @@ You need a JDK (17 through 25) and network access on the first build. Gradle its
 ./gradlew buildPlugin
 ```
 
-`buildPlugin` writes the installable plugin as `build/distributions/claude-remarks-0.1.1.zip`. Plain jars land in `build/libs/`; the zip is what an IDE installs.
+`buildPlugin` writes the installable plugin as `build/distributions/claude-remarks-<version>.zip`, where the version is the one in `build.gradle.kts`. Plain jars land in `build/libs/`; the zip is what an IDE installs.
 
 ## Running in a Sandbox IDE
 
@@ -81,11 +83,11 @@ To test the plugin in an isolated IntelliJ instance:
 
 The sandbox IDE launches with the plugin loaded. Open or create any project inside it, open a file, select some lines, and press `Ctrl+Alt+Shift+R` (or place the caret on a line and use Alt+Enter, then pick "Add Claude Remark"). Type a note, optionally pick a tag, and press Enter. A gutter icon should appear on the marked lines, and the "Claude Remarks" tool window on the right edge should show the remark under its file without pressing anything. Typing lines above the marked block should move the icon with the code. With a remark pending, press Copy All Pending in the tool window's toolbar and paste somewhere to see the rendered prompt — the remark's row should turn gray afterward. Close and reopen the sandbox IDE to confirm the remark, its tag, and its status persist.
 
-That walkthrough covers the phase 3-4 flow only. Phase 5 added severity, buckets, the `Alt+0`-`Alt+4` tag keys, the class-name insert, the commit stamp and the history file, and none of those is checked by an automated test end to end — the key combinations in particular can be taken by the IDE keymap or by the OS before the plugin sees them. Section 10 of `docs/plans/20260803-claude-remarks-phase5.md` lists ten specific hand checks for exactly these. Work through that list in the sandbox before trusting any of phase 5.
+That walkthrough covers the phase 3-4 flow only. Phase 5 added severity, buckets, the `Alt+0`-`Alt+4` tag keys, the class-name insert, the commit stamp and the history file, and none of those is checked by an automated test end to end — the key combinations in particular can be taken by the IDE keymap or by the OS before the plugin sees them. Section 10 of `docs/plans/20260803-claude-remarks-phase5.md` lists ten specific hand checks for exactly these. Work through that list in the sandbox before trusting any of phase 5. Phase 6 and phase 7 each added their own list, and section 12 of `docs/plans/20260805-claude-remarks-phase7.md` is the one that matters most: it is the only thing that can show the scheduled deadline really firing, the read acknowledgement turning remarks gray, and one real diff window opening over just the changed files. None of those has been run yet.
 
 ## Installing into your own IDE
 
-Build the zip, then in the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick `build/distributions/claude-remarks-0.1.1.zip`, and restart when asked. The plugin needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound set).
+Build the zip, then in the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick the zip `buildPlugin` wrote under `build/distributions/`, and restart when asked. The plugin needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound set). It also needs an IDE that ships the VCS module — every JetBrains IDE does, but if the plugin ever fails to load and the tool window simply does not appear, that hard `<depends>com.intellij.modules.vcs</depends>` is the first thing to check.
 
 ## IdeaVim
 
@@ -126,7 +128,7 @@ Run all tests:
 ./gradlew test
 ```
 
-Roughly two thirds of the suite is plain JUnit with no fixture and runs in milliseconds: anchoring (`AnchoringTest`), the stored state's XML round trip and its mutators (`RemarkStoreStateTest`), the resolver helpers, the tree's node-building (`RemarksTreeTest`), the markdown renderer (`PromptRendererTest`), the settings round trip, the commit reader against real `.git` directories built on disk (`GitHeadTest`), and the archive's rendering (`RemarkHistoryTest`). The rest start a light IDE fixture (`BasePlatformTestCase`) and are slower, because each goes through a real project service, a real `Document`, or a real markup model: the eight mutation functions and their change notification (`RemarkEditsTest`), the input popup's key bindings (`RemarkInputPanelTest`), the Add Remark action (`AddRemarkActionTest`, `DiffRemarkTargetTest`), the action ids a `.ideavimrc` maps (`ActionIdsTest`), the severity-and-bucket menu (`RemarkActionsTest`), the class-name insert (`ClassNameInsertTest`), the gutter icon renderer's equality (`RemarkGutterIconTest`), the gutter service itself (`RemarkGutterTest`), the tool window's tree and its navigation (`RemarksPanelTest`, `NavigationLineBaseTest`), the payload collector (`PromptPayloadTest`), and the copy action (`CopyRemarksTest`). No count is given on purpose: it goes stale on the next commit, and `./gradlew test` prints the real one.
+Roughly two thirds of the suite is plain JUnit with no fixture and runs in milliseconds: anchoring (`AnchoringTest`), the stored state's XML round trip and its mutators (`RemarkStoreStateTest`), the resolver helpers, the tree's node-building (`RemarksTreeTest`), the markdown renderer (`PromptRendererTest`), the settings round trip, the commit reader against real `.git` directories built on disk (`GitHeadTest`), and the archive's rendering (`RemarkHistoryTest`). The rest start a light IDE fixture (`BasePlatformTestCase`) and are slower, because each goes through a real project service, a real `Document`, or a real markup model: the eight mutation functions and their change notification (`RemarkEditsTest`), the input popup's key bindings (`RemarkInputPanelTest`), the Add Remark action (`AddRemarkActionTest`, `DiffRemarkTargetTest`), the action ids a `.ideavimrc` maps (`ActionIdsTest`), the severity-and-bucket menu (`RemarkActionsTest`), the class-name insert (`ClassNameInsertTest`), the gutter icon renderer's equality (`RemarkGutterIconTest`), the gutter service itself (`RemarkGutterTest`), the tool window's tree and its navigation (`RemarksPanelTest`, `NavigationLineBaseTest`), the payload collector (`PromptPayloadTest`), and the copy action (`CopyRemarksTest`). The shared review session has its own set, split the same way: `AtomicWriteTest`, `ReviewHandshakeTest`, `ReviewRequestTest` and `WaitingReviewTest` need no fixture, while `WaitingReviewServiceTest`, `ReviewEndpointSmokeTest`, `SendReviewTest` and `OpenReviewFilesTest` do. No count is given on purpose: it goes stale on the next commit, and `./gradlew test` prints the real one.
 
 There are no UI-rendering or end-to-end tests. The popup appearing at the caret, the gutter icon painting, the tree colours, the balloon, and the settings page layout are checked by hand in a sandbox IDE — see "Running in a Sandbox IDE" above.
 
@@ -139,6 +141,7 @@ There are no UI-rendering or end-to-end tests. The popup appearing at the caret,
 - `src/main/kotlin/dev/sasha/clauderemarks/action/`: `AddRemarkAction.kt` (the shortcut and popup-menu entry point) and `AddRemarkIntention.kt` (the Alt+Enter entry point), both opening the same input popup; `CopyRemarks.kt`, the copy pipeline.
 - `src/main/kotlin/dev/sasha/clauderemarks/editor/`: `RemarkGutterIcon.kt` (the icon renderer) and `RemarkGutter.kt` (the project service that keeps gutter icons in step with the code), started by `RemarkGutterStartup.kt`.
 - `src/main/kotlin/dev/sasha/clauderemarks/render/`: `PromptRenderer.kt`, pure Kotlin, turns resolved remarks into the markdown prompt; `PromptPayload.kt`, reads the code around each remark and decides whether the payload goes on the clipboard directly or through a temp file.
+- `src/main/kotlin/dev/sasha/clauderemarks/review/`: the shared review session. `ReviewHandshake.kt` writes the file a skill reads to find this IDE; `ReviewRestService.kt` is the endpoint at `POST /api/claude-remarks/{start,ack}`; `WaitingReview.kt` holds the one waiting review per project, its phase and its deadline; `SendReview.kt` writes the handoff file, writes a rejection, and carries out what an acknowledgement means; `OpenReviewFiles.kt` opens the diff or the plain editors; `AtomicWrite.kt` is the temp-file-then-rename write both handoff writes use.
 - `src/main/kotlin/dev/sasha/clauderemarks/settings/`: The app-level service holding the editable prompt header, and its settings page.
 
 See `docs/claude/design.md` for a deeper look at how anchoring, the gutter, the change notification, and the copy pipeline work.

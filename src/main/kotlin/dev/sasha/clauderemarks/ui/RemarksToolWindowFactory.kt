@@ -34,6 +34,7 @@ import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.review.ReviewPhase
 import dev.sasha.clauderemarks.review.WaitingReviewService
+import dev.sasha.clauderemarks.review.canSend
 import dev.sasha.clauderemarks.review.rejectWaitingReview
 import dev.sasha.clauderemarks.review.sendToWaitingReview
 import dev.sasha.clauderemarks.store.REMARKS_CHANGED
@@ -204,14 +205,12 @@ class RemarksPanel(
     }
 
     /**
-     * Whether "Send to Claude Code" would do anything right now: a review waiting for its first
-     * send, and something pending to put in it. Internal, not private, so RemarksPanelTest can
-     * check it without simulating a toolbar tick through an AnActionEvent. Shared with the
-     * toolbar's own enabled lambda below, so the two can never drift apart.
+     * Whether "Send to Claude Code" would do anything right now. The condition itself lives in
+     * `review/SendReview.kt` as `canSend`, so the Tools-menu action and this toolbar button read one
+     * function rather than two copies of the same pair of checks. Internal, not private, so
+     * RemarksPanelTest can check it without simulating a toolbar tick through an AnActionEvent.
      */
-    internal fun sendEnabled(): Boolean =
-        WaitingReviewService.getInstance(project).current()?.phase is ReviewPhase.Waiting &&
-            remarks().any { it.status == RemarkStatus.PENDING }
+    internal fun sendEnabled(): Boolean = canSend(project)
 
     /** The ids currently selected, in the order the tree shows them. */
     fun selectedIds(): List<String> = selectedNodes().map { it.id }

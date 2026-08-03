@@ -25,7 +25,7 @@ enum class ReviewEnd { READ, ABANDONED, STALE }
  */
 sealed interface ReviewPhase {
     object Waiting : ReviewPhase
-    data class Sent(val ids: List<String>, val at: Long) : ReviewPhase
+    data class Sent(val ids: List<String>) : ReviewPhase
 }
 
 /** One waiting review: the skill's session id, the label it sent, and where the handoff file will land. */
@@ -42,13 +42,17 @@ data class WaitingReviewState(
 }
 
 /**
- * What a start request produces. Accepted also covers an honest retry of the same session id,
- * which gets the state already held back unchanged rather than a fresh one. The endpoint turns
- * both branches straight into a response: "waiting" with the output path for Accepted, "conflict"
- * with the other label and start time for Conflict.
+ * What a start request produces. Accepted also covers an honest retry of the same session id, which
+ * keeps the output path it was already given and only has its deadline moved forward. The endpoint
+ * turns both branches straight into a response: "waiting" with the output path for Accepted,
+ * "conflict" with the other label and start time for Conflict.
+ *
+ * [Accepted.fresh] is false for that retry, and it exists for one caller: the endpoint opens the
+ * files a review names, and a retry must not open a second diff window over the same changes on top
+ * of the one the person is already reading.
  */
 sealed class StartResult {
-    data class Accepted(val state: WaitingReviewState) : StartResult()
+    data class Accepted(val state: WaitingReviewState, val fresh: Boolean = true) : StartResult()
     data class Conflict(val waiting: WaitingReviewState) : StartResult()
 }
 
@@ -68,15 +72,22 @@ internal fun startOrConflict(
     deadlineSeconds: Long,
     now: Long = System.currentTimeMillis(),
     outputPath: () -> Path,
-): StartResult = when {
-    current == null ->
+): StartResult {
+    fun accept() =
         StartResult.Accepted(WaitingReviewState(session, label, outputPath(), now, now + deadlineSeconds * 1000))
-    current.sessionId == session -> StartResult.Accepted(current)
-    // Same-session retry is checked first: a retry always gets its own state back, even a late one.
-    // A different session gets in only when the current review is really dead.
-    current.isStale(now) ->
-        StartResult.Accepted(WaitingReviewState(session, label, outputPath(), now, now + deadlineSeconds * 1000))
-    else -> StartResult.Conflict(current)
+    return when {
+        current == null -> accept()
+        // Same-session retry is checked first: a retry keeps its own output path, even a late one, so
+        // a slow skill never starts polling a directory the plugin has just replaced. The deadline
+        // moves forward with it — handing back a deadline already in the past would answer "waiting"
+        // for a review the scheduled expiry kills in the same millisecond, which is the kind of lie
+        // this phase exists to remove.
+        current.sessionId == session ->
+            StartResult.Accepted(current.copy(deadlineAt = now + deadlineSeconds * 1000), fresh = false)
+        // A different session gets in only when the current review is really dead.
+        current.isStale(now) -> accept()
+        else -> StartResult.Conflict(current)
+    }
 }
 
 /**
@@ -101,7 +112,8 @@ class WaitingReviewService(private val project: Project) : Disposable {
     private var state: WaitingReviewState? = null
 
     // The task scheduled for the current state's deadline. Re-scheduled on every accepted start
-    // (scheduleExpiry cancels the previous one first) and cancelled on clear() and dispose().
+    // (scheduleExpiry cancels the previous one first) and cancelled by endReview() — which every
+    // path that ends a review goes through — and by dispose().
     @Volatile
     private var expiry: ScheduledFuture<*>? = null
 
@@ -147,10 +159,16 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * about the store. Uses [state] rather than [current]: the send already checked the review was
      * live before it wrote, and a review that turned stale in the millisecond since still has to
      * record what was written, so an abandoned acknowledgement afterwards can name the count.
+     *
+     * [session] is what stops it stamping the wrong review. The send renders off the EDT, so the
+     * review it snapshotted can end and a different one start while it works; marking that new
+     * review Sent would claim ids whose file was written into the old review's directory.
      */
     @Synchronized
-    fun markSent(ids: List<String>) {
-        state = state?.copy(phase = ReviewPhase.Sent(ids, System.currentTimeMillis()))
+    fun markSent(session: String, ids: List<String>) {
+        val acting = state ?: return
+        if (acting.sessionId != session) return
+        state = acting.copy(phase = ReviewPhase.Sent(ids))
         notifyPanel()
     }
 
@@ -166,11 +184,7 @@ class WaitingReviewService(private val project: Project) : Disposable {
         // A read acknowledgement for a file that was never written is a bug on one of the two
         // sides, not a transient failure, so it must not silently clear a live review.
         if (end == ReviewEnd.READ && acting.phase == ReviewPhase.Waiting) return AckOutcome.NOT_SENT to null
-        state = null
-        expiry?.cancel(false)
-        expiry = null
-        notifyPanel()
-        return AckOutcome.OK to acting
+        return AckOutcome.OK to endReview()
     }
 
     /**
@@ -179,16 +193,16 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * state it removed, or null if there was nothing to remove — no session argument, because a
      * newer review that replaced the one this task was scheduled for is not stale, and this is then
      * correctly a no-op.
+     *
+     * [now] is a parameter for the tests only, the same way [WaitingReviewState.isStale] takes one:
+     * a test that wants a stale review can name a later instant instead of starting a review with a
+     * zero deadline, which schedules a task that races the test's own assertion.
      */
     @Synchronized
-    fun expireIfStale(): WaitingReviewState? {
+    fun expireIfStale(now: Long = System.currentTimeMillis()): WaitingReviewState? {
         val acting = state ?: return null
-        if (!acting.isStale()) return null
-        state = null
-        expiry?.cancel(false)
-        expiry = null
-        notifyPanel()
-        return acting
+        if (!acting.isStale(now)) return null
+        return endReview()
     }
 
     /**
@@ -209,11 +223,36 @@ class WaitingReviewService(private val project: Project) : Disposable {
         )
     }
 
+    /**
+     * The person ending the review from the banner, and the tests clearing the shared fixture.
+     *
+     * [session] is optional because the tests clear whatever is there, while a Reject has to name
+     * the review the person was looking at: the rejection is written off a snapshot, and clearing
+     * without checking could kill a different review that started in between.
+     */
     @Synchronized
-    fun clear() {
-        state = null
-        notifyPanel()
+    fun clear(session: String? = null) {
+        if (session != null && state?.sessionId != session) return
+        endReview()
     }
+
+    /**
+     * The one teardown every ending shares: forget the review, stop its deadline task, repaint.
+     * Returns the state that was removed, which `acknowledge` and `expireIfStale` hand to their
+     * caller for the balloon. Three hand-rolled copies of these four lines is how `clear()` came to
+     * leave the scheduled task queued while a comment said it cancelled it.
+     */
+    private fun endReview(): WaitingReviewState? {
+        val acting = state
+        state = null
+        expiry?.cancel(false)
+        expiry = null
+        notifyPanel()
+        return acting
+    }
+
+    /** Test-only window onto the scheduled task: cancelling it has no other observable effect. */
+    internal fun expiryIsLive(): Boolean = expiry?.isDone == false
 
     // cancel(false), never cancel(true): the scheduled body is a field swap, so interrupting a
     // running one buys nothing and can only surprise the shared app-wide pool.

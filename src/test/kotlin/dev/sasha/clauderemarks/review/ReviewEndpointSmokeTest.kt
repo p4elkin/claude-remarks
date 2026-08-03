@@ -69,18 +69,86 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     fun testAnAcknowledgementOfASentReviewAnswersOk() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800, Files.createTempDirectory("ack-smoke"))
-        WaitingReviewService.getInstance(project).markSent(listOf(remark.id!!))
-        // The real, symlink-resolved path: projectForPath compares it as given, and the endpoint's
-        // own side resolves every open project's basePath with toRealPath() before comparing.
-        val projectPath = Path.of(project.basePath!!).toRealPath().toString()
+        WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
 
-        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"$projectPath","event":"read"}""")
+        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"read"}""")
         // finishReview's store mutation and balloon run inside invokeLater.
         UIUtil.dispatchAllInvocationEvents()
 
         assertTrue(sent, sent.contains("\"status\""))
         assertTrue(sent, sent.contains("\"ok\""))
         assertEquals(RemarkStatus.SENT, RemarkStore.getInstance(project).all().single { it.id == remark.id }.status)
+    }
+
+    /**
+     * The other four answers `handleAck` can give. The skill branches on these exact strings, so the
+     * outcome-to-string mapping is pinned here rather than left to be swapped unnoticed.
+     */
+    fun testAnAcknowledgementWithNothingWaitingAnswersNoReview() {
+        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"read"}""")
+
+        assertTrue(sent, sent.contains("\"no-review\""))
+    }
+
+    fun testAReadAcknowledgementForAReviewThatWasNeverSentAnswersNotSent() {
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, Files.createTempDirectory("ack-smoke"))
+
+        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"read"}""")
+
+        assertTrue(sent, sent.contains("\"not-sent\""))
+        assertNotNull(WaitingReviewService.getInstance(project).current())
+    }
+
+    fun testAnAcknowledgementForAProjectNothingHasOpenAnswersUnknownProject() {
+        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"/nope","event":"read"}""")
+
+        assertTrue(sent, sent.contains("\"unknown-project\""))
+    }
+
+    fun testAnAcknowledgementWithAnEventNobodyRecognizesAnswersBadRequest() {
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, Files.createTempDirectory("ack-smoke"))
+
+        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"nonsense"}""")
+
+        // Not read as "abandoned": an unrecognized event must not end the review.
+        assertTrue(sent, sent.contains("\"bad-request\""))
+        assertNotNull(WaitingReviewService.getInstance(project).current())
+    }
+
+    /**
+     * The deadline the skill declares really reaches the review. Without this, `handleStart` could
+     * ignore `deadlineSeconds` and hardcode its own number with the whole suite still green — which
+     * is the one thing the skill's own wait loop cannot survive, since the two clocks then disagree.
+     * This is also the only test that posts a `files` list through the endpoint.
+     */
+    fun testTheStartRequestsDeadlineReachesTheReview() {
+        val before = System.currentTimeMillis()
+
+        val sent = post(
+            "/api/claude-remarks/start",
+            """{"session":"s1","label":"t","project":"${projectPath()}","deadlineSeconds":60,"files":["A.kt"]}""",
+        )
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertTrue(sent, sent.contains("\"waiting\""))
+        val deadlineAt = WaitingReviewService.getInstance(project).current()!!.deadlineAt
+        assertTrue("$deadlineAt is not about 60 seconds after $before", deadlineAt in before + 60_000..before + 70_000)
+    }
+
+    /**
+     * projectForPath compares the path as given, and the endpoint resolves every open project's
+     * basePath with toRealPath() before comparing, so a symlinked checkout still matches.
+     *
+     * The createDirectories is not decoration: the light fixture project is reused across test
+     * methods but its temp base directory is created for, and deleted after, the one method that
+     * first built it. Without this, every method after that one gets NoSuchFileException here — and
+     * `matchProject` catches the same failure on its own side and answers `unknown-project`, so the
+     * test would look like a wrong status rather than a missing directory.
+     */
+    private fun projectPath(): String {
+        val base = Path.of(project.basePath!!)
+        Files.createDirectories(base)
+        return base.toRealPath().toString()
     }
 
     /** One no-op handler, not a bare `EmbeddedChannel()`: `firstContext()` returns null when the

@@ -9,6 +9,7 @@ import io.netty.handler.codec.http.FullHttpRequest
 import io.netty.handler.codec.http.HttpHeaderNames
 import io.netty.handler.codec.http.HttpMethod
 import io.netty.handler.codec.http.QueryStringDecoder
+import java.io.IOException
 import java.nio.file.Path
 import org.jetbrains.ide.RestService
 
@@ -18,7 +19,7 @@ import org.jetbrains.ide.RestService
  * file, then later tells the IDE whether it read that file or gave up waiting.
  *
  * The answer is always HTTP 200 with a `status` field. `start` answers one of `waiting`,
- * `conflict`, `unknown-project`, `bad-request`; `ack` answers one of `ok`, `no-review`,
+ * `conflict`, `unknown-project`, `bad-request`, `failed`; `ack` answers one of `ok`, `no-review`,
  * `not-sent`, `unknown-project`, `bad-request`. Real status codes stay reserved for what
  * `RestService.process` produces above this class — 403, 429, and 400 or 500 from its catch — so a
  * plumbing failure never looks like an application answer to the shell script reading it.
@@ -178,14 +179,26 @@ class ReviewRestService : RestService() {
         }
         val project = matchProject(wanted, writer) ?: return
         val deadline = clampDeadlineSeconds(parsed.deadlineSeconds)
-        when (val result = WaitingReviewService.getInstance(project).start(session, label, deadline)) {
+        // Accepting creates the review's temp directory, so an unwritable or full TMPDIR fails here.
+        // Answered as a status field, not left to escape: RestService.process catches it above this
+        // class, calls LOG.error — which raises the IDE's fatal-error notification — and answers 500
+        // with the stack trace as the body, which no shell script can read.
+        val result = try {
+            WaitingReviewService.getInstance(project).start(session, label, deadline)
+        } catch (e: IOException) {
+            writer.name("status").value("failed")
+            writer.name("detail").value(e.message ?: e.toString())
+            return
+        }
+        when (result) {
             is StartResult.Accepted -> {
                 writer.name("status").value("waiting")
                 writer.name("output").value(handoffFile(result.state.outputPath).toString())
                 writer.name("project").value(project.name)
                 // The one call into the file that owns the VFS and the editor. See
-                // review/OpenReviewFiles.kt for why it lives there and not here.
-                openReviewFiles(project, parsed.files)
+                // review/OpenReviewFiles.kt for why it lives there and not here. Only on a first
+                // accept: a retry must not open a second diff window over the same changes.
+                if (result.fresh) openReviewFiles(project, parsed.files)
             }
             is StartResult.Conflict -> {
                 writer.name("status").value("conflict")

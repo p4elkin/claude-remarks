@@ -154,6 +154,61 @@ class SendReviewTest : BasePlatformTestCase() {
         assertNull(WaitingReviewService.getInstance(project).current())
     }
 
+    /**
+     * The phase's central decision, from the other side: only a `read` acknowledgement marks
+     * anything sent. An agent that gave up after the file was written leaves every remark pending.
+     */
+    fun testAnAbandonedAcknowledgementAfterASendLeavesTheRemarksPending() {
+        val outputPath = Files.createTempDirectory("send-review-test")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        sendToWaitingReview(project)
+        settle()
+
+        val outcome = finishReview(project, "s1", ReviewEnd.ABANDONED)
+        settle()
+
+        assertEquals(AckOutcome.OK, outcome)
+        assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
+        assertNull(WaitingReviewService.getInstance(project).current())
+    }
+
+    /** The deadline path, the one that runs with nobody watching, marks nothing sent either. */
+    fun testTheDeadlinePassingAfterASendLeavesTheRemarksPending() {
+        val outputPath = Files.createTempDirectory("send-review-test")
+        val started = System.currentTimeMillis()
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        sendToWaitingReview(project)
+        settle()
+
+        expireStaleReview(project, now = started + 1_800_001L)
+        settle()
+
+        assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
+        assertNull(WaitingReviewService.getInstance(project).current())
+    }
+
+    /**
+     * The window between the snapshot the send starts from and the write it ends with: prepare()
+     * runs off the EDT, so a Reject can land in between. The rejection body must survive, and the
+     * balloon must not claim a send.
+     */
+    fun testASendWhoseReviewEndedMidRenderDoesNotOverwriteTheRejection() {
+        val outputPath = Files.createTempDirectory("send-review-test")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+        addRemark(project, "A.kt", LINES, 0..0, "a note about A", null)
+
+        // The write in sendToWaitingReview happens inside finishOnUiThread, which has not run yet:
+        // nothing here has drained the queue.
+        sendToWaitingReview(project)
+        rejectWaitingReview(project)
+        settle()
+
+        val firstLine = Files.readString(handoffFile(outputPath)).lineSequence().first()
+        assertEquals(REJECTED_MARKER, firstLine)
+    }
+
     fun testAFailedRejectionStillClearsTheReview() {
         // The parent of outputPath is a regular file, so Files.createDirectories throws when the
         // write tries to create outputPath itself.

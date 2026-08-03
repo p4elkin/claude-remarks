@@ -1,5 +1,24 @@
 # Claude Remarks — Design Document
 
+## Contents
+
+1. [Overview](#overview)
+2. [The Data Model](#the-data-model)
+3. [The Anchoring Design](#the-anchoring-design)
+4. [From Stored Remarks to Tool Window Rows](#from-stored-remarks-to-tool-window-rows)
+5. [The ProjectUtil Trap](#the-projectutil-trap)
+6. [Why the Bookmarks API Was Rejected](#why-the-bookmarks-api-was-rejected)
+7. [What Phases 3-4 Built](#what-phases-3-4-built)
+8. [What Phase 5 Built](#what-phase-5-built)
+9. [Adding a Remark While Reading a Diff](#adding-a-remark-while-reading-a-diff)
+10. [The Editor Side](#the-editor-side)
+11. [The Change Notification](#the-change-notification)
+12. [The Copy Pipeline](#the-copy-pipeline)
+13. [The Shared Review Session](#the-shared-review-session)
+14. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
+15. [Build Choices Worth Remembering](#build-choices-worth-remembering)
+16. [Performance Tuning Knobs](#performance-tuning-knobs)
+
 ## Overview
 
 A remark is a short note you attach to a line range in a file without modifying the file itself. The plugin stores all remarks persistently so they survive IDE restarts. If the file changes, the plugin checks whether the remark still points at the right lines.
@@ -780,14 +799,18 @@ intention builds one with `DataManager.getInstance().getDataContext(editor.conte
 `EditorKind.DIFF` editor without deciding, and lets `invoke` either open the input or show the
 reason at the caret.
 
-**What such a remark means.** The path is the working tree's file. The anchor is captured from
-`editor.document`, which is the *revision's* text — and that is correct, not a bug to fix later. An
-anchor is a fingerprint, never a pointer: `textHash` plus a few context lines. Resolving it runs
-against the working tree like every other remark, so the two-pass search in `anchor/Anchoring.kt`
-either finds the block unchanged, relocates it within the search radius, or orphans it. A remark
-written against a revision whose lines still exist in the working tree lands on them. One written
-against lines that the working tree no longer has is orphaned, which is the truth about it. That is
-what makes annotating a revision honest rather than wrong.
+**Such a remark is refused, since phase 7.** The route above finds the working tree's file, and the
+anchor would still be captured from `editor.document`, which is the *revision's* text. Phase 6 shipped
+that combination as a stored remark; phase 7 refuses it. `remarkTargetProblem` answers with a sentence
+naming the working copy, and the reasoning for the reversal is in "Opening the diff the skill asked
+for" below — opening a diff by default made this pane common rather than rare, and a remark whose line
+numbers describe a different revision either lands by luck or orphans with no warning.
+
+**The anchor-is-a-fingerprint reasoning still holds, for the working-copy side.** An anchor is a
+fingerprint, never a pointer: `textHash` plus a few context lines, resolved against the working tree
+by the two-pass search in `anchor/Anchoring.kt`. That is why the working-copy pane of a diff needs no
+special case at all — its document *is* the file the remark is stored against — and it is also why the
+revision side is not merely imprecise but describes text that is not there.
 
 **The path-escape guard is not bypassed.** Both candidate files — the document's own file first,
 the highlight file second — go through the same `VfsUtilCore.getRelativePath(file, root)`, which
@@ -1105,8 +1128,10 @@ copy, and are only archived later when Clear Sent or Clear All runs. `docs/ideas
 revdiff recommended a second durable copy of the payload alongside the ephemeral handoff file,
 matching revdiff's own two-tier design. That was declined: revdiff needs the second tier because its
 handoff file is deleted by the calling script's `trap` the moment its own process is about to exit.
-Neither is true here — the plugin never deletes the handoff file, and the store already keeps every
-sent remark until somebody clears it. Writing a second copy would also double-count against the
+Neither is true here — the plugin never deletes the handoff file *or the directory holding it*, so
+every review leaves one `$TMPDIR/claude-remarks-review-*/remarks.md` behind for the operating system
+to clean up (0600 on the file, 0700 on the directory, so the leftovers are readable only by the person
+who ran the IDE) — and the store already keeps every sent remark until somebody clears it. Writing a second copy would also double-count against the
 history file, which archives on *clear*: a remark handed over and later cleared would then appear in
 the history twice.
 
@@ -1126,7 +1151,7 @@ branch in `startOrConflict` turns into a no-op that returns the same path again.
 Phase 7 closes the gap between "the IDE wrote a file" and "the agent read it." Before this phase the
 IDE knew only that a write succeeded; it never learned whether the skill on the other end actually
 saw the remarks, gave up, or was killed outright. `WaitingReviewState` now carries a `phase`
-(`ReviewPhase.Waiting` or `ReviewPhase.Sent(ids, at)`) and a `deadlineAt`, and `WaitingReviewService`
+(`ReviewPhase.Waiting` or `ReviewPhase.Sent(ids)`) and a `deadlineAt`, and `WaitingReviewService`
 gained `markSent`, `acknowledge` and `expireIfStale` to move between them.
 
 **Rejecting writes the handoff file, then clears — it does not just close the banner.**
@@ -1153,7 +1178,7 @@ file.** This is the phase's whole point. Before phase 7, `sendToWaitingReview` c
 `markRemarksSent` and then `WaitingReviewService.clear()` in the same breath as the write — so by the
 time the skill finished reading the file, there was no state left to record a read acknowledgement
 on, and "sent" meant only "written," never "delivered." Now a successful send calls
-`WaitingReviewService.markSent(ids)`, which moves the phase to `Sent(ids, at)` and keeps the review
+`WaitingReviewService.markSent(session, ids)`, which moves the phase to `Sent(ids)` and keeps the review
 current; the remarks stay `PENDING`. Only a `read` acknowledgement — `finishReview` in
 `review/SendReview.kt`, reached through the `ack` endpoint action — calls `markRemarksSent(project,
 ids)`. This is also why no ninth mutation function marks a remark pending again: nothing is ever
@@ -1184,9 +1209,13 @@ waiting review per project" — masking a stale review is one more comparison of
 unsynchronized read, not a lock, not IO, and does not disturb that decision.
 
 **The branch order in `startOrConflict` matters: same session before staleness.** The branches, in
-order: an absent review accepts; the same session id gets its own state back unchanged, an honest
-retry, however late; only then does a stale review get replaced by a different session's request;
-anything else conflicts. Checking staleness before the same-session branch would mean a slow retry of
+order: an absent review accepts; the same session id gets its own state back — the same output path,
+with the deadline moved forward from the retry's own instant — an honest retry, however late; only then
+does a stale review get replaced by a different session's request; anything else conflicts. The
+deadline has to move: handing back a deadline already in the past would answer `waiting` for a review
+the scheduled expiry then kills in the same millisecond, so both sides would be lying at once. That
+retry is also marked `fresh = false`, which is how the endpoint knows not to open a second diff window
+over changes the person is already reading. Checking staleness before the same-session branch would mean a slow retry of
 the review that is legitimately still running could get bumped by its own lateness. Checking it after
 means a killed session's stale state does not block a next, different review from starting — the
 person is not stuck pressing Cancel/Reject on a dead banner before they can start again.

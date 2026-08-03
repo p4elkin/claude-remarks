@@ -46,10 +46,11 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
 
     /**
      * The case the whole change exists for: the right pane of a diff, showing an older revision of
-     * a file that is in the project. The remark is stored against the real file's path, even though
-     * the document being read is the revision's text.
+     * a file that is in the project. The real file is found — `relativePathOf` answers its path —
+     * and the remark is nonetheless refused, because the line numbers would describe the revision's
+     * text rather than the file on disk.
      */
-    fun testARevisionPaneIsStoredAgainstTheProjectFileItIsAVersionOf() {
+    fun testARevisionPaneIsRefusedEvenThoughTheProjectFileItIsAVersionOfIsFound() {
         val real = fileUnderProjectRoot("Diffed.kt", WORKING_TREE)
         val revision = revisionContentOf(real)
         val editor = diffViewerOn(revision)
@@ -89,16 +90,17 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
     }
 
     /**
-     * The guard on the branch order: a revision whose highlight file is ALSO outside the project
-     * keeps the existing "no matching file under the project directory" message rather than the new
-     * "working copy" one. The two candidates never having resolved is what distinguishes this case
-     * from the one above.
+     * The path-escape guard, on the new route, and the third branch's own message. Neither candidate
+     * resolves here — the highlight file is in the fixture's in-memory file system, which is not the
+     * project directory on disk — so the refusal must be the existing "no matching file under the
+     * project directory" sentence, not the new "working copy" one.
      */
     fun testARevisionWithNoMatchingProjectFileKeepsItsOwnMessage() {
         val outside = myFixture.addFileToProject("elsewhere/Outside.kt", WORKING_TREE).virtualFile
         val revision = DiffContentFactory.getInstance().create(project, REVISION, outside)
         val editor = diffViewerOn(revision)
 
+        assertNull(relativePathOf(project, editor, contextOf(revision)))
         val problem = remarkTargetProblem(project, editor, contextOf(revision))
         assertNotNull(problem)
         assertTrue(problem!!.contains("no matching file under the project directory"))
@@ -118,20 +120,6 @@ class DiffRemarkTargetTest : BasePlatformTestCase() {
                 "directory, so a remark on it could not be found again.",
             remarkTargetProblem(project, editor, DataContext.EMPTY_CONTEXT),
         )
-    }
-
-    /**
-     * The path-escape guard, on the new route. A highlight file that is not under the project root
-     * is refused exactly like any other file that is not under it. The fixture's own temp file
-     * system is such a place: it is not the project directory and not even the same file system.
-     */
-    fun testAHighlightFileOutsideTheProjectRootIsRefused() {
-        val outside = myFixture.addFileToProject("elsewhere/Outside.kt", WORKING_TREE).virtualFile
-        val revision = DiffContentFactory.getInstance().create(project, REVISION, outside)
-        val editor = diffViewerOn(revision)
-
-        assertNull(relativePathOf(project, editor, contextOf(revision)))
-        assertNotNull(remarkTargetProblem(project, editor, contextOf(revision)))
     }
 
     /**

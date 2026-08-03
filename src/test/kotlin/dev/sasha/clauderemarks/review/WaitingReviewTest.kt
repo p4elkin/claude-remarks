@@ -27,11 +27,21 @@ class WaitingReviewTest {
     fun `the same session starting again gets the same output path back`() {
         val waiting = WaitingReviewState("s1", "review one", somePath, startedAt = 1000L, deadlineAt = Long.MAX_VALUE)
 
-        val result = startOrConflict(current = waiting, session = "s1", label = "a different label", deadlineSeconds = 1800) {
+        val result = startOrConflict(current = waiting, session = "s1", label = "a different label", deadlineSeconds = 1800, now = 2000L) {
             error("must not create a new output path when the same session retries")
         }
 
-        assertEquals(StartResult.Accepted(waiting), result)
+        assertEquals(
+            StartResult.Accepted(waiting.copy(deadlineAt = 1_802_000L), fresh = false),
+            result,
+        )
+    }
+
+    @Test
+    fun `a first accept is fresh, so the endpoint opens the files only once`() {
+        val result = startOrConflict(current = null, session = "s1", label = "review one", deadlineSeconds = 1800, now = 1000L) { somePath }
+
+        assertTrue((result as StartResult.Accepted).fresh)
     }
 
     @Test
@@ -81,14 +91,20 @@ class WaitingReviewTest {
     }
 
     @Test
-    fun `a retry of the same session gets the same state back even after the deadline`() {
+    fun `a retry of the same session after the deadline keeps its path and gets a live deadline`() {
         val stale = WaitingReviewState("s1", "review one", somePath, startedAt = 0L, deadlineAt = 1000L)
 
         val result = startOrConflict(current = stale, session = "s1", label = "a different label", deadlineSeconds = 1800, now = 2000L) {
             error("must not create a new output path when the same session retries, even a late one")
         }
 
-        assertSame(stale, (result as StartResult.Accepted).state)
+        val state = (result as StartResult.Accepted).state
+        assertSame(somePath, state.outputPath)
+        // Handing the old deadline back would answer "waiting" for a review the expiry task kills at
+        // once: the skill would poll a path nothing can write to for its whole second deadline.
+        assertEquals(1_802_000L, state.deadlineAt)
+        assertFalse(state.isStale(2000L))
+        assertFalse(result.fresh)
     }
 
     @Test

@@ -1,6 +1,7 @@
 package dev.sasha.clauderemarks.review
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.util.ui.UIUtil
 import java.nio.file.Files
 
 /**
@@ -18,6 +19,9 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
 
     override fun tearDown() {
         WaitingReviewService.getInstance(project).clear()
+        // Every transition queues a notifyPanel, and the stale path queues a balloon. Draining them
+        // here keeps them out of whichever test class runs next in this shared fixture.
+        UIUtil.dispatchAllInvocationEvents()
         super.tearDown()
     }
 
@@ -35,7 +39,7 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
         val outputPath = Files.createTempDirectory("waiting-review-service-test")
         service.start("s1", "a label", 1800L, outputPath)
 
-        service.markSent(listOf("a", "b"))
+        service.markSent("s1", listOf("a", "b"))
 
         val current = service.current()
         assertNotNull(current)
@@ -48,7 +52,7 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
         val service = WaitingReviewService.getInstance(project)
         val outputPath = Files.createTempDirectory("waiting-review-service-test")
         service.start("s1", "a label", 1800L, outputPath)
-        service.markSent(listOf("a", "b"))
+        service.markSent("s1", listOf("a", "b"))
 
         val (outcome, state) = service.acknowledge("s1", ReviewEnd.READ)
 
@@ -92,17 +96,72 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
         assertNull(service.current())
     }
 
-    fun testExpireIfStaleRemovesAReviewPastItsDeadlineAndNothingElse() {
+    fun testAnAcknowledgementWithNoReviewAtAllChangesNothing() {
+        val service = WaitingReviewService.getInstance(project)
+
+        val (outcome, state) = service.acknowledge("s1", ReviewEnd.READ)
+
+        assertEquals(AckOutcome.NO_REVIEW, outcome)
+        assertNull(state)
+    }
+
+    fun testMarkingSentForAnotherSessionChangesNothing() {
         val service = WaitingReviewService.getInstance(project)
         val outputPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s1", "a label", 0L, outputPath)
+        service.start("s1", "a label", 1800L, outputPath)
 
-        assertNotNull(service.expireIfStale())
+        // What a send whose review ended mid-render would otherwise do to the review that replaced it.
+        service.markSent("s0", listOf("a", "b"))
 
-        val otherPath = Files.createTempDirectory("waiting-review-service-test")
-        service.start("s2", "another label", 1800L, otherPath)
+        assertEquals(ReviewPhase.Waiting, service.current()!!.phase)
+    }
+
+    /**
+     * A named instant rather than a zero deadline: `start(… 0L …)` also schedules an expiry with a
+     * delay of zero, and that pool thread then races this test's own call.
+     */
+    fun testExpireIfStaleRemovesAReviewPastItsDeadline() {
+        val service = WaitingReviewService.getInstance(project)
+        val outputPath = Files.createTempDirectory("waiting-review-service-test")
+        val started = System.currentTimeMillis()
+        service.start("s1", "a label", 1800L, outputPath)
+
+        assertNotNull(service.expireIfStale(now = started + 1_800_001L))
+        assertNull(service.current())
+    }
+
+    fun testExpireIfStaleLeavesALiveReviewAlone() {
+        val service = WaitingReviewService.getInstance(project)
+        val outputPath = Files.createTempDirectory("waiting-review-service-test")
+        service.start("s1", "a label", 1800L, outputPath)
 
         assertNull(service.expireIfStale())
+        assertNotNull(service.current())
+    }
+
+    /**
+     * Reject leaves nothing behind on the app-wide scheduled pool. Without this, the deadline task
+     * stays queued for up to 24 hours holding the project, while the field's own comment claims it
+     * was cancelled.
+     */
+    fun testClearingCancelsTheDeadlineTask() {
+        val service = WaitingReviewService.getInstance(project)
+        val outputPath = Files.createTempDirectory("waiting-review-service-test")
+        service.start("s1", "a label", 1800L, outputPath)
+        assertTrue(service.expiryIsLive())
+
+        service.clear()
+
+        assertFalse(service.expiryIsLive())
+    }
+
+    fun testClearingNamesTheReviewItMeans() {
+        val service = WaitingReviewService.getInstance(project)
+        val outputPath = Files.createTempDirectory("waiting-review-service-test")
+        service.start("s1", "a label", 1800L, outputPath)
+
+        service.clear("s0")
+
         assertNotNull(service.current())
     }
 }

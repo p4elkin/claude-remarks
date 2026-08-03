@@ -47,7 +47,12 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    is broken. Do not retry and do not scan ports; re-opening the project in the IDE is what
    creates this file.
 
-3. **POST to the start endpoint.**
+3. **POST to the start endpoint.** **Run steps 3 to 6 as one Bash call, in one shell.** The Bash
+   tool starts a new shell for every call, and nothing crosses that boundary: no variables and no
+   shell functions. Steps 4 and 5 are decisions about the answer this step writes to a file, so they
+   cost nothing extra inside the same shell, and step 6 needs `$session`, `$port`, `$token`, `$root`,
+   `$output` and `deadline_seconds`, all set here or in step 2. Split across calls, step 6 posts to
+   `http://127.0.0.1:/api/claude-remarks/ack` with an empty token and waits for a file called `""`.
 
    If there is a commit range or a set of changed files this review is about, send their paths so
    the IDE opens them for the person before they start writing remarks. This is the cheap version
@@ -92,9 +97,9 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    assignment, so the POST is sent, a review really does start in the IDE, and the script dies
    believing nothing happened. The next attempt then gets `conflict` and the cause looks like a
    stuck review rather than a shell error. Found on 2026-08-03, on the first real end-to-end run.
-   The same rule holds for every variable added below: `deadline_seconds`, `deadline` and `ack_code`
-   if a response code is captured — none of them collides today, but do not rename any of them to
-   `status`.
+   The same rule holds for every variable added below: `deadline_seconds`, `deadline`, `ack_code`
+   and `ack_answer` — none of them collides today, but do not rename any of them to `status`, and in
+   particular do not call the acknowledgement's `status` field `$status`.
 
    Never use `curl -f`: it throws the body away on a non-2xx response, and the body is exactly
    what carries the application-level outcomes in step 5. Never add `-H Origin:` or
@@ -116,7 +121,7 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    - anything else, or a 200 whose body does not parse as JSON — report the HTTP status and the
      raw body verbatim and stop. Do not guess what it means.
 
-5. **On a 200 with parseable JSON, read `status`.** It is exactly one of four values:
+5. **On a 200 with parseable JSON, read `status`.** It is exactly one of five values:
 
    - `"waiting"` — accepted. Read `output` from the body; that is the path to wait for in step 6.
    - `"conflict"` — another review is already waiting in that IDE. The body carries `label` and
@@ -127,6 +132,9 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    - `"bad-request"` — the body carries `detail`. This means this skill and the plugin disagree
      about the shape of the request, which is a bug in one of them, not a transient failure.
      Report the detail and stop; do not retry.
+   - `"failed"` — the IDE accepted the request and then could not set the review up, almost always
+     because it could not create its temp directory. The body carries `detail`. Report it and stop;
+     no review is waiting and nothing will be written.
 
 6. **Wait for the handoff file, tell a rejection from remarks, then acknowledge.** Take `output`
    from the `waiting` response.
@@ -135,12 +143,13 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    ack() {
      jq -n --arg session "$session" --arg project "$root" --arg event "$1" \
        '{session:$session, project:$project, event:$event}' \
-     | curl -s -o /dev/null -X POST "http://127.0.0.1:$port/api/claude-remarks/ack" \
+     | curl -s -o /tmp/claude-remarks-ack.json -w '%{http_code}' \
+         -X POST "http://127.0.0.1:$port/api/claude-remarks/ack" \
          -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-
    }
-   trap 'ack abandoned' EXIT INT TERM
+   trap 'ack abandoned >/dev/null' EXIT INT TERM
 
-   deadline=$(( $(date +%s) + deadline_seconds ))
+   deadline=$(( $(date +%s) + ${deadline_seconds:-1800} ))
    while [ ! -e "$output" ]; do
      [ "$(date +%s)" -ge "$deadline" ] && { echo "timed out waiting for the IDE"; exit 1; }
      sleep 1
@@ -152,7 +161,9 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
      echo "the person rejected this review; no remarks were sent"
      exit 0
    fi
-   ack read
+   ack_code=$(ack read)
+   ack_answer=$(jq -r .status /tmp/claude-remarks-ack.json 2>/dev/null)
+   echo "ack read: http $ack_code, status $ack_answer"
    ```
 
    Checking existence is enough: the plugin writes the file's full content to a temp file beside
@@ -161,8 +172,14 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    half-written. Do not "improve" this into a size check or a lock file; the atomic rename is
    what makes the plain existence check correct.
 
-   Five things about this block are load-bearing, and each one is a decision somebody will
+   Six things about this block are load-bearing, and each one is a decision somebody will
    otherwise undo:
+
+   - **`ack read` captures the answer; the trap's `ack abandoned` throws it away on purpose.** The
+     read acknowledgement is the one request whose answer changes what to report — it is what marks
+     the remarks sent in the IDE — so its HTTP code and its `status` field are both kept, in
+     variables named `ack_code` and `ack_answer`. The trap runs while the shell is already leaving,
+     with nowhere left to report to, so it discards its output instead.
 
    - **The trap is set only after a `waiting` response.** Before that there is no review to
      abandon, and an acknowledgement for a review that does not exist just gets `no-review`.
@@ -173,10 +190,12 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    - **`trap - EXIT INT TERM` restores the default; it does not run the handler.** Writing
      `trap "" EXIT` instead would also work but reads as "run nothing", which is easy to misread
      as "run the old thing".
-   - **The trap covers this command's shell, not the whole session.** Each step here runs as its
-     own shell, so the trap catches a timeout inside this loop and an interrupt of this command.
-     An agent process killed between steps sends nothing at all, and the IDE's own deadline is
-     what covers that case instead.
+   - **The trap covers this one shell, which is why steps 3 to 6 belong in one Bash call.** It
+     catches a timeout inside this loop and an interrupt of this command. An agent process killed
+     between two Bash calls sends nothing at all, and the IDE's own deadline is what covers that
+     case instead. `${deadline_seconds:-1800}` is a seatbelt for exactly that mistake: split across
+     calls, the bare arithmetic would leave `deadline` empty, `[ "$(date +%s)" -ge "" ]` would never
+     fire, and the loop would poll silently until the Bash tool's own timeout.
    - **The rejection check comes before the acknowledgement, and it is anchored to the start of
      the line.** `grep -q '^<!-- claude-remarks: rejected -->'` — without the `^` a remark quoting
      that string in its own text would be read as a rejection. There is nothing to acknowledge on
@@ -197,8 +216,14 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
    **What the acknowledgement answers:** `ok`, `no-review` (nothing is waiting under that session
    — the review was cancelled, expired, or already finished), `not-sent` (a read acknowledgement
    for a review whose file was never written, which is a bug in one of the two sides),
-   `unknown-project`, `bad-request`. Report and stop in every case except `ok`. Do not retry more
-   than once: the IDE's own deadline already covers a lost acknowledgement.
+   `unknown-project`, `bad-request`. `$ack_answer` above holds it, and `$ack_code` holds the HTTP
+   status for the cases that carry no `status` field at all — see step 4 for those.
+
+   On anything other than `ok`, say so plainly and name the value, then still do step 7: the remarks
+   were really read, and they are still in hand. What the non-`ok` answer means for the person is
+   that the IDE never marked them sent, so they are still pending in the tool window and can be sent
+   again. Do not retry the acknowledgement more than once — the IDE's own deadline already covers a
+   lost one — and do not start a second review.
 
 7. **Read the file and act on it.** It is one markdown prompt built the same way "Copy All
    Pending" builds one — remarks grouped by file, each with its severity, its tag and the code it
@@ -217,4 +242,7 @@ it is not built. If asked to do this over SSH, say so and stop rather than tryin
 - The person rejected the review: "The review was rejected in the IDE. No remarks were sent."
   Stop; do not retry and do not start a second review for the same request.
 - An acknowledgement answers anything other than `ok`: report the outcome (`no-review`,
-  `not-sent`, `unknown-project`, `bad-request`) and the body verbatim, then stop.
+  `not-sent`, `unknown-project`, `bad-request`) and the body verbatim, and add that the remarks were
+  read here but stay marked pending in the IDE, so the person can send them again.
+- `start` answers `failed`: "The IDE could not open a review session: <detail>." No review is
+  waiting, so there is nothing to wait for and nothing to reject.

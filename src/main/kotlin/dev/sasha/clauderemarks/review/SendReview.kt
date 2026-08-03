@@ -47,11 +47,23 @@ fun sendToWaitingReview(project: Project) {
                 notifyRemarks(project, "No remarks to send. The review stays waiting.")
                 return@finishOnUiThread
             }
+            // Read again, on the EDT, right before the write. prepare() ran off the EDT, and the
+            // review it started from can have been rejected, acknowledged or expired in the
+            // meantime — all three happen on other threads. Writing to the snapshot's path then
+            // overwrites a rejection body, and the balloon claims a send nothing recorded.
+            val live = WaitingReviewService.getInstance(project).current()
+            if (live == null || live.sessionId != waiting.sessionId || live.phase is ReviewPhase.Sent) {
+                notifyRemarks(
+                    project,
+                    "The review ended before the remarks could be sent. They are still pending.",
+                )
+                return@finishOnUiThread
+            }
             // Built here, not inside the read action above: a non-blocking read action is
             // cancelled and re-run whenever a write action asks for the lock, so a write in there
             // would run again on every retry and leave a stray file behind each time.
             try {
-                atomicWriteString(handoffFile(waiting.outputPath), prepared.markdown)
+                atomicWriteString(handoffFile(live.outputPath), prepared.markdown)
             } catch (e: IOException) {
                 // Nothing marked sent, review stays waiting: the handover did not succeed.
                 notifyRemarks(
@@ -61,7 +73,7 @@ fun sendToWaitingReview(project: Project) {
                 )
                 return@finishOnUiThread
             }
-            WaitingReviewService.getInstance(project).markSent(prepared.ids)
+            WaitingReviewService.getInstance(project).markSent(live.sessionId, prepared.ids)
             val count = prepared.ids.size
             notifyRemarks(
                 project,
@@ -108,7 +120,7 @@ fun rejectWaitingReview(project: Project) {
         // Overwriting it with the rejection body would destroy remarks that were never delivered,
         // silently, and the agent would read a rejection instead of the review it was handed.
         notifyRemarks(project, "The remarks were already written. There is nothing left to reject.")
-        WaitingReviewService.getInstance(project).clear()
+        WaitingReviewService.getInstance(project).clear(waiting.sessionId)
         return
     }
     try {
@@ -123,8 +135,9 @@ fun rejectWaitingReview(project: Project) {
         )
     }
     // Cleared either way. The person asked for this review to end, and a banner they cannot dismiss
-    // is worse than a session that waits for its own deadline.
-    WaitingReviewService.getInstance(project).clear()
+    // is worse than a session that waits for its own deadline. Named by session: the rejection above
+    // was written to this review's path, so it must not close a different one that started since.
+    WaitingReviewService.getInstance(project).clear(waiting.sessionId)
 }
 
 /**
@@ -134,19 +147,29 @@ fun rejectWaitingReview(project: Project) {
  */
 fun finishReview(project: Project, session: String, end: ReviewEnd): AckOutcome {
     val (outcome, acted) = WaitingReviewService.getInstance(project).acknowledge(session, end)
-    if (outcome == AckOutcome.OK && acted != null) {
-        ApplicationManager.getApplication().invokeLater { reportReviewEnd(project, acted, end) }
-    }
+    if (outcome == AckOutcome.OK && acted != null) reportLater(project, acted, end)
     return outcome
 }
 
 /**
  * The deadline backstop for the scheduled task in [WaitingReviewService]: the same transition as
- * an abandoned acknowledgement, plus the balloon.
+ * an abandoned acknowledgement, plus the balloon. [now] is a parameter for the tests only, the same
+ * reason [WaitingReviewService.expireIfStale] takes one.
  */
-fun expireStaleReview(project: Project) {
-    val acted = WaitingReviewService.getInstance(project).expireIfStale() ?: return
-    ApplicationManager.getApplication().invokeLater { reportReviewEnd(project, acted, ReviewEnd.STALE) }
+fun expireStaleReview(project: Project, now: Long = System.currentTimeMillis()) {
+    val acted = WaitingReviewService.getInstance(project).expireIfStale(now) ?: return
+    reportLater(project, acted, ReviewEnd.STALE)
+}
+
+/**
+ * The disposal check sits inside the queued runnable, not in front of `invokeLater`: a project can
+ * close between the two, and cancellation cannot catch a task already handed to a thread. Both the
+ * store mutation and the balloon would throw on a disposed project.
+ */
+private fun reportLater(project: Project, acted: WaitingReviewState, end: ReviewEnd) {
+    ApplicationManager.getApplication().invokeLater {
+        if (!project.isDisposed) reportReviewEnd(project, acted, end)
+    }
 }
 
 /**
@@ -176,6 +199,15 @@ private fun reportReviewEnd(project: Project, state: WaitingReviewState, end: Re
 }
 
 /**
+ * Whether Send would do anything right now: a review waiting for its first send, and something
+ * pending to put in it. One function, because the condition has two readers — this action and the
+ * tool window's toolbar button — and two copies of it drift apart silently.
+ */
+fun canSend(project: Project): Boolean =
+    WaitingReviewService.getInstance(project).current()?.phase is ReviewPhase.Waiting &&
+        RemarkStore.getInstance(project).all().any { it.status == RemarkStatus.PENDING }
+
+/**
  * Reachable without the tool window: from the Tools menu, from Search Everywhere, and from a
  * keymap entry the user assigns. Enabled only while a review is waiting and something is pending
  * to send it, the same pair `CopyAllRemarksAction` checks for its own condition.
@@ -186,9 +218,7 @@ class SendReviewAction : AnAction() {
 
     override fun update(e: AnActionEvent) {
         val project = e.project
-        e.presentation.isEnabled = project != null &&
-            WaitingReviewService.getInstance(project).current()?.phase is ReviewPhase.Waiting &&
-            RemarkStore.getInstance(project).all().any { it.status == RemarkStatus.PENDING }
+        e.presentation.isEnabled = project != null && canSend(project)
     }
 
     override fun actionPerformed(e: AnActionEvent) {

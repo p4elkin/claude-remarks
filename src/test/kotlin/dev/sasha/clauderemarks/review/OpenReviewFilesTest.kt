@@ -28,6 +28,20 @@ class OpenReviewFilesTest {
 
         assertEquals(20, filtered.size)
     }
+
+    /**
+     * A NUL byte is rejected by Path.of on every platform.
+     *
+     * The paths come from an HTTP body, so Path.of can throw on them. Dropped like an absolute path
+     * rather than thrown out of the netty thread, where the platform turns it into a 500 whose body
+     * is a stack trace — after the review was already accepted and answered.
+     */
+    @Test
+    fun `a path no filesystem can parse is dropped rather than thrown`() {
+        val filtered = filterReviewPaths(listOf("bad\u0000name.kt", "good.kt"))
+
+        assertEquals(listOf("good.kt"), filtered)
+    }
 }
 
 /**
@@ -42,13 +56,37 @@ class OpenReviewFilesTest {
  */
 class OpenReviewFilesFixtureTest : BasePlatformTestCase() {
 
+    /**
+     * The fixture project is shared with every other test class in the JVM, and this test asserts an
+     * editor is open. An editor another class left open on the same path would make it pass without
+     * openReviewFiles doing anything, so both ends are closed here.
+     */
+    override fun setUp() {
+        super.setUp()
+        closeAllEditors()
+    }
+
+    override fun tearDown() {
+        try {
+            closeAllEditors()
+        } finally {
+            super.tearDown()
+        }
+    }
+
     fun testAFileWithNoLocalChangeStillOpensAsAnEditor() {
         val file = fileUnderProjectRoot("A.kt", "alpha\nbeta\n")
+        assertFalse(FileEditorManager.getInstance(project).openFiles.any { it == file })
 
         openReviewFiles(project, listOf("A.kt"))
         settle()
 
         assertTrue(FileEditorManager.getInstance(project).openFiles.any { it == file })
+    }
+
+    private fun closeAllEditors() {
+        val manager = FileEditorManager.getInstance(project)
+        manager.openFiles.forEach { manager.closeFile(it) }
     }
 
     private fun fileUnderProjectRoot(name: String, text: String): VirtualFile {

@@ -291,7 +291,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
         val panel = panel()
         val outputPath = Files.createTempDirectory("remarks-panel-test")
         WaitingReviewService.getInstance(project).start("s1", "a review label", 1800, outputPath)
-        WaitingReviewService.getInstance(project).markSent(listOf("a"))
+        WaitingReviewService.getInstance(project).markSent("s1", listOf("a"))
 
         panel.refresh()
         settle()
@@ -303,12 +303,22 @@ class RemarksPanelTest : BasePlatformTestCase() {
         )
     }
 
-    /** Proves the staleness backstop in WaitingReviewService actually reaches the screen. */
+    /**
+     * Proves the staleness backstop in WaitingReviewService actually reaches the screen. The live
+     * review first, because the banner starts hidden: without that half, this test also passes when
+     * updateBanner never runs at all.
+     */
     fun testTheBannerIsHiddenForAReviewPastItsDeadline() {
         val panel = panel()
-        val outputPath = Files.createTempDirectory("remarks-panel-test")
-        WaitingReviewService.getInstance(project).start("s1", "a review label", 0, outputPath)
+        WaitingReviewService.getInstance(project)
+            .start("s1", "a review label", 1800, Files.createTempDirectory("remarks-panel-test"))
+        panel.refresh()
+        settle()
+        assertTrue(panel.banner.isVisible)
 
+        WaitingReviewService.getInstance(project).clear()
+        WaitingReviewService.getInstance(project)
+            .start("s2", "a stale label", 0, Files.createTempDirectory("remarks-panel-test"))
         panel.refresh()
         settle()
 
@@ -320,7 +330,11 @@ class RemarksPanelTest : BasePlatformTestCase() {
         val panel = panel()
         val outputPath = Files.createTempDirectory("remarks-panel-test")
         WaitingReviewService.getInstance(project).start("s1", "a review label", 1800, outputPath)
-        WaitingReviewService.getInstance(project).markSent(listOf("a"))
+
+        // Both directions: a permanently dead Send button would pass the assertion below on its own.
+        assertTrue(panel.sendEnabled())
+
+        WaitingReviewService.getInstance(project).markSent("s1", listOf("a"))
 
         assertFalse(panel.sendEnabled())
     }

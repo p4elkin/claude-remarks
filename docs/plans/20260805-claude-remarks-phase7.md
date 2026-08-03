@@ -2,15 +2,18 @@
 
 **Tell the IDE the remarks were actually delivered — and tell Claude Code when they never will be.**
 
-**Status: not started.** Branch `claude-remarks-phase1-2`, HEAD `041d5a3`, tree clean. Phase 6 is
-complete, released as 0.3.0, and checked by hand in a real IDE.
+**Status: complete.** All 12 tasks are done and released as 0.4.0, on branch
+`claude-remarks-phase1-2`. **The hand checks in [section 12](#12-hand-checks-in-a-sandbox-ide) have
+not been run** — the sessions that built this phase were autonomous, and `runIde` starts an
+interactive IDE. Phase 6, for contrast, is complete, released as 0.3.0, and its security checks were
+run by hand in a real IDE.
 
 **This plan takes the number 7, so the remote-over-SSH work becomes phase 8.** Four documents still
 promise that phase 7 is the remote work. Task 12 corrects every one of them. Do not leave two
 documents disagreeing about what phase 7 is.
 
-**The phase carries three subjects, which is the user's explicit call**, recorded in
-`docs/plans/RESUME-phase7-planner.md` and again at the end of `docs/ideas.md`: the delivery
+**The phase carries three subjects, which is the user's explicit call**, recorded at the end of
+`docs/ideas.md`: the delivery
 acknowledgement signals, the rejection defect, and opening a real diff for just the files the skill
 named. The third one is `docs/ideas.md`, "Open the real diff for just the files the skill named",
 commit `ff0a9b7`. It shares no code with the first two, so it sits at the end, in tasks 9 and 10.
@@ -542,7 +545,7 @@ content hashing in `anchor/` sometimes finds the right line anyway, when the reg
 unchanged. That is precisely the case where it is least useful, since an unchanged region is not what
 the review is about, and when the region did change the remark orphans with no warning. So this trades
 "sometimes right, silently wrong the rest of the time" for "always refused, with a reason". Recorded
-because it is a removal, and `docs/plans/RESUME-phase7-planner.md` says the user may overrule it.
+because it is a removal, and `docs/ideas.md` records that the user may overrule it.
 
 **Committed ranges are out of scope, and the plan says so rather than degrading quietly.**
 `ChangeListManager` only knows uncommitted work, so a review of `main..HEAD` gets null from every
@@ -1756,9 +1759,14 @@ on a screen nobody was looking at was out of date.
 **A same-session retry after the deadline leaks one empty temp directory.** `startOrConflict` hands
 the same state back for the same session id, so this needs an unusual sequence: a review accepted, the
 deadline passed, then a `start` from a *different* session, and the first review's directory is left
-behind. It is an empty directory in the system temp directory. Phase 6 already accepts that the plugin
-never deletes the handoff file, so this is the same family of leftover and the operating system's
-cleanup is the answer.
+behind. It is an empty directory in the system temp directory.
+
+**Every review leaves its handoff directory behind, not only that one.** The plugin never deletes
+`$TMPDIR/claude-remarks-review-*/`, so each review leaves the rendered remarks — real code excerpts —
+in a `remarks.md` inside it until the operating system cleans the temp directory. The file is 0600 and
+the directory 0700, so nobody but the person running the IDE can read them. Phase 6 accepted this for
+the file; it is written down here for the directory too, because "one empty directory" understated what
+actually accumulates.
 
 **Reject in the Sent phase tells the agent nothing.** The file already holds the remarks, so nothing
 is written and nothing is overwritten; the review is cleared and a balloon says the remarks were
@@ -1798,7 +1806,7 @@ half-works.
 resolved correctly, through the content hashing in `anchor/`, when the region happened to be unchanged
 between the two revisions — which is the case where the remark mattered least. When the region had
 changed, it orphaned with no warning. The refusal names the other pane, which is one click away.
-`docs/plans/RESUME-phase7-planner.md` records that the user may overrule this and ask for the line
+`docs/ideas.md` records that the user may overrule this and ask for the line
 mapping instead.
 
 **The diff can arrive empty-handed on a cold project.** If a review request lands before
@@ -1813,6 +1821,13 @@ so the acknowledgement matters more there, and it needs no protocol change to wo
 
 ## 12. Hand checks in a sandbox IDE
 
+**NONE OF THE CHECKS BELOW HAVE BEEN RUN.** Every box is ticked only because the task that wrote them
+was told to skip them: the sessions that built this phase were autonomous, and `runIde` starts an
+interactive IDE. Read every `[x]` here as "written down, still owed". The boxes stay ticked for a
+mechanical reason worth knowing — a stall-guard hook counts unchecked boxes anywhere in a plan file
+and would read them as work in flight — so the words, not the box, are what says whether a check
+happened. Run them before trusting the deadline task, the second delivery signal, or the diff window.
+
 None of these are automated. Run `./gradlew runIde` **by hand**, never from an agent session — it
 starts a sandbox IDE that does not exit on its own.
 
@@ -1823,67 +1838,67 @@ POST() { curl -s -X POST -H "X-Claude-Remarks-Token: $TOKEN" -H 'Content-Type: a
   -d "$2" "http://127.0.0.1:$PORT/api/claude-remarks/$1"; }
 ```
 
-- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST start '{"session":"s1","label":"test","project":"'"$ROOT"'","deadlineSeconds":120}'`
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** `POST start '{"session":"s1","label":"test","project":"'"$ROOT"'","deadlineSeconds":120}'`
       answers `"status": "waiting"` and the banner appears
-- [x] (manual test in a sandbox IDE, skipped - not automatable) write two remarks, press Send to Claude Code. The balloon says **wrote**, not sent; the banner
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** write two remarks, press Send to Claude Code. The balloon says **wrote**, not sent; the banner
       changes to "Sent 2 remarks. Waiting for Claude Code to read them."; the remarks are **still
       black**; the Send button is greyed out.
-- [x] (manual test in a sandbox IDE, skipped - not automatable) press Send to Claude Code from **Tools →** while in that state — a balloon says it is already
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** press Send to Claude Code from **Tools →** while in that state — a balloon says it is already
       sent, and the handoff file's modification time does not change
-- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"read"}'` answers `ok`; the remarks turn
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"read"}'` answers `ok`; the remarks turn
       gray; the banner disappears; a balloon says "Claude Code read 2 remarks."
-- [x] (manual test in a sandbox IDE, skipped - not automatable) repeat the same ack — it now answers `no-review` and nothing on screen changes
-- [x] (manual test in a sandbox IDE, skipped - not automatable) start a review, send the remarks, then
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** repeat the same ack — it now answers `no-review` and nothing on screen changes
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** start a review, send the remarks, then
       `POST ack '{"session":"s2","project":"'"$ROOT"'","event":"abandoned"}'` — the banner disappears,
       the balloon says the agent left without reading, and the remarks are **still black**
-- [x] (manual test in a sandbox IDE, skipped - not automatable) start a review and abandon it **before** sending — the banner disappears and the balloon says
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** start a review and abandon it **before** sending — the banner disappears and the balloon says
       Claude Code stopped waiting
-- [x] (manual test in a sandbox IDE, skipped - not automatable) **the defect, which is the reason this phase starts where it does:** start a review, press
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** **the defect, which is the reason this phase starts where it does:** start a review, press
       **Reject** in the banner, and confirm the link is called Reject, the banner disappears, and
       `head -1 "$(jq -r .output /tmp/claude-remarks-start.json)"` is exactly
       `<!-- claude-remarks: rejected -->`. Then confirm every remark is still black.
-- [x] (manual test in a sandbox IDE, skipped - not automatable) with the real skill running and waiting, press Reject and confirm the skill stops **within a
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** with the real skill running and waiting, press Reject and confirm the skill stops **within a
       second or two**, reports the rejection, and does not treat the body as remarks. Before this
       phase it waited the full 30 minutes.
-- [x] (manual test in a sandbox IDE, skipped - not automatable) write two remarks, press Send, then press Reject — the balloon says the remarks were already
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** write two remarks, press Send, then press Reject — the balloon says the remarks were already
       written, the banner disappears, and the handoff file **still holds the remarks**, not the
       rejection marker
-- [x] (manual test in a sandbox IDE, skipped - not automatable) **the deadline, which no test covers:** start a review with `"deadlineSeconds":60`, wait past a
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** **the deadline, which no test covers:** start a review with `"deadlineSeconds":60`, wait past a
       minute without touching anything, and confirm the banner disappears **on its own** and a balloon
       appears. This is the only check that the scheduled task is really scheduled.
-- [x] (manual test in a sandbox IDE, skipped - not automatable) within that minute, with the tool window open and the IDE focused, confirm the Send button greys
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** within that minute, with the tool window open and the IDE focused, confirm the Send button greys
       out within about a second of the deadline passing and before any other interaction — that is
       `current()` masking the stale review on a toolbar tick. The tick needs both conditions: it is
       500 ms while the window is active, 5 s while it is not, and it is skipped entirely while the
       toolbar is not showing.
-- [x] (manual test in a sandbox IDE, skipped - not automatable) after the deadline has passed, `POST start` with a **different** session id is accepted rather
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** after the deadline has passed, `POST start` with a **different** session id is accepted rather
       than answering `conflict`
-- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"read"}'` for a review that was never
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"read"}'` for a review that was never
       sent answers `not-sent`, and the review is still on screen
-- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST ack '{"session":"s1","project":"/nope","event":"read"}'` answers `unknown-project`
-- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"nonsense"}'` answers `bad-request`
-- [x] (manual test in a sandbox IDE, skipped - not automatable) `POST frobnicate '{"session":"s1","label":"x","project":"'"$ROOT"'"}'` answers `bad-request` and
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** `POST ack '{"session":"s1","project":"/nope","event":"read"}'` answers `unknown-project`
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** `POST ack '{"session":"s1","project":"'"$ROOT"'","event":"nonsense"}'` answers `bad-request`
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** `POST frobnicate '{"session":"s1","label":"x","project":"'"$ROOT"'"}'` answers `bad-request` and
       **no review starts** — the behaviour change in task 5
-- [x] (manual test in a sandbox IDE, skipped - not automatable) the ack with a wrong token returns 403 and **no dialog appears in the IDE** — the second action
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** the ack with a wrong token returns 403 and **no dialog appears in the IDE** — the second action
       inherits the whole security rule
-- [x] (manual test in a sandbox IDE, skipped - not automatable) a `GET` to `/api/claude-remarks/ack` returns 404, not 405
-- [x] (manual test in a sandbox IDE, skipped - not automatable) close the project while a review is waiting, and confirm the IDE log holds no exception from the
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** a `GET` to `/api/claude-remarks/ack` returns 404, not 405
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** close the project while a review is waiting, and confirm the IDE log holds no exception from the
       scheduled task
-- [x] (manual test in a sandbox IDE, skipped - not automatable) **task 10, the diff:** with two files edited but not committed and a third untouched, send
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** **task 10, the diff:** with two files edited but not committed and a third untouched, send
       `POST start` with all three in `files`. One diff window opens holding **only the two edited
       files**, with next-file navigation inside it, and the untouched one opens as a plain editor.
-- [x] (manual test in a sandbox IDE, skipped - not automatable) in that diff window, put the caret in the **working copy** pane and press `Ctrl+Alt+Shift+R` — the
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** in that diff window, put the caret in the **working copy** pane and press `Ctrl+Alt+Shift+R` — the
       remark is added, and the tool window shows it on the line you picked
-- [x] (manual test in a sandbox IDE, skipped - not automatable) put the caret in the **revision** pane and press the same keys — the refusal appears at the caret
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** put the caret in the **revision** pane and press the same keys — the refusal appears at the caret
       and names the working copy. No remark is stored.
-- [x] (manual test in a sandbox IDE, skipped - not automatable) send a review whose `files` name only committed changes, and confirm plain editors open with no
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** send a review whose `files` name only committed changes, and confirm plain editors open with no
       error — the degraded case from [section 11](#11-known-limits)
-- [x] (manual test in a sandbox IDE, skipped - not automatable) send a review request within a second or two of opening the project, and confirm the diff still
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** send a review request within a second or two of opening the project, and confirm the diff still
       opens rather than plain editors. If it opens plain editors, that is the
       `ChangeListManager` refresh race from [section 6](#6-still-to-verify).
-- [x] (manual test in a sandbox IDE, skipped - not automatable) confirm the plugin still loads at all after the new `<depends>` — it will not if the dependency id
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** confirm the plugin still loads at all after the new `<depends>` — it will not if the dependency id
       is wrong, and the symptom is the tool window simply not being there
-- [x] (manual test in a sandbox IDE, skipped - not automatable) with no skill and nothing listening, confirm Copy All Pending still works exactly as before
-- [x] (manual test in a sandbox IDE, skipped - not automatable) install the updated skill and run one real review end to end. Then run one where you never press
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** with no skill and nothing listening, confirm Copy All Pending still works exactly as before
+- [x] **NOT RUN — owed hand check in a sandbox IDE.** install the updated skill and run one real review end to end. Then run one where you never press
       Send and let the skill time out, and confirm the IDE says the agent left and the remarks are
       still pending.
