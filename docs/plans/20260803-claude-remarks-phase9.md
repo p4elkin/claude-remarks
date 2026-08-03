@@ -51,8 +51,14 @@ survives the next commit in the same file.
     - [Task 16: File rows show the file name first](#task-16-file-rows-show-the-file-name-first)
     - [Task 17: Drag remarks onto a bucket](#task-17-drag-remarks-onto-a-bucket)
     - [Task 18 (optional, dropped by default): a Published group](#task-18-optional-dropped-by-default-a-published-group)
-    - [Task 19: The version, the idea file, and the final sweep](#task-19-the-version-the-idea-file-and-the-final-sweep)
-9. [Group five: annotating a rendered markdown preview, and its gate](#9-group-five-annotating-a-rendered-markdown-preview-and-its-gate)
+    - [Group five: annotating a rendered markdown preview](#group-five-annotating-a-rendered-markdown-preview)
+    - [Task 19: Read the preview, and settle what is still open](#task-19-read-the-preview-and-settle-what-is-still-open)
+    - [Task 20: A selection becomes a range in the source](#task-20-a-selection-becomes-a-range-in-the-source)
+    - [Task 21: The browser side, and the message it sends](#task-21-the-browser-side-and-the-message-it-sends)
+    - [Task 22: The action in the preview's right-click menu](#task-22-the-action-in-the-previews-right-click-menu)
+    - [Task 23: Group five documentation](#task-23-group-five-documentation)
+    - [Task 24: The version, the idea file, and the final sweep](#task-24-the-version-the-idea-file-and-the-final-sweep)
+9. [Group five: what the preview can do, read from the platform](#9-group-five-what-the-preview-can-do-read-from-the-platform)
 10. [What this phase deliberately does not build](#10-what-this-phase-deliberately-does-not-build)
 11. [Known limits, and the Known Issues entries to add](#11-known-limits-and-the-known-issues-entries-to-add)
 12. [Hand checks](#12-hand-checks)
@@ -166,7 +172,7 @@ whole line with `no matches found: --include=*.kt` before grep starts. The pipel
 nothing, which looks exactly like a guard that passed. Checked by running both forms in `zsh -c`.
 The quoted form `--include='*.kt'` runs. This is not a phase 9 defect, but every task in this phase
 runs that guard, so [task 1](#task-1-prove-what-phase-9-depends-on) checks it and
-[task 19](#task-19-the-version-the-idea-file-and-the-final-sweep) fixes the wording in `CLAUDE.md`.
+[task 24](#task-24-the-version-the-idea-file-and-the-final-sweep) fixes the wording in `CLAUDE.md`.
 
 ## 3. The state machine, which is the core change
 
@@ -295,8 +301,10 @@ flowchart TD
     G2[Group two, tasks 8 to 11<br/>the phrase a remark points at] --> G3
     G3[Group three, tasks 12 to 15<br/>a remark about no file] --> G4
     G4[Group four, tasks 16 to 18<br/>one pass over RemarksTree.kt] --> G5
-    G5[Group five<br/>markdown preview, gated, not planned as tasks]
+    G5[Group five, tasks 19 to 23<br/>a remark on the rendered markdown preview] --> T24
+    T24[Task 24<br/>the version, the idea file, and the final sweep]
     G2 -. sub-line offsets are its prerequisite .-> G5
+    G3 -. its popup over a component is reused .-> G5
     G3 -. its General node is the last new node shape .-> G4
 ```
 
@@ -325,6 +333,11 @@ The reason in one line: after task 1, no two tasks touch disjoint files. Group o
 tree read; groups three and four both edit `ui/RemarksTree.kt`. The one task that looks parallel, the
 skill edit in task 6, depends on the published file's exact name and header being final, which is
 task 4. Running it early would mean writing the skill against a guess.
+
+Group five is sequential for the same reason. Its browser side has to exist before the action that
+reads what the browser stored, its action needs the gate that the same task splits, and all four
+tasks are written against what [task 19](#task-19-read-the-preview-and-settle-what-is-still-open)
+confirms in the platform.
 
 ## 7. Rules that must hold at every step
 
@@ -355,6 +368,11 @@ Four rules bind specific tasks in this phase:
 - **The review endpoint is not touched by this phase at all.** Publishing needs no endpoint action,
   because the skill reads a file whose name it can compute. So rule 5 stays true for free, and no
   task may add anything to `review/ReviewRestService.kt`.
+- **The preview code stays out of `anchor/`, and it writes to no file.** Group five adds a new
+  package, `preview/`, and changes nothing in `anchor/`, so rule 1 holds without anyone thinking
+  about it. Rule 4 matters more here than anywhere else in the phase: the person is looking at a
+  rendered view of a real `.md` file, and a remark written from that view is still only stored in
+  `workspace.xml`. No task in group five may edit the file being read.
 
 **Every task ends green, not only every group.** No task in this plan may leave the tree not
 compiling, a test failing or a guard tripping at its own boundary. The reason is how the plan is run:
@@ -778,7 +796,7 @@ current one to a skill reading it, and only the header's timestamp gives it away
 - [ ] update `docs/claude/design.md`, describing the state machine in words and naming which action
       causes which transition
 - [ ] update `CLAUDE.md`, including the counts in rule 3 and the new guard, and write rule 3's glob
-      quoted while you are in there if task 19 has not run yet
+      quoted while you are in there if task 24 has not run yet
 - [ ] update `README.md`
 - [ ] `./gradlew test` still passes, and all six guards are empty. Documentation should not change
       either, and running them here is what proves the group is shippable.
@@ -1242,7 +1260,409 @@ while reading the file.
       putting the Published group below the buckets
 - [ ] if dropping: no commit, and say so in the report
 
-### Task 19: The version, the idea file, and the final sweep
+### Group five: annotating a rendered markdown preview
+
+Ships: select words in IntelliJ's rendered markdown preview, right-click, and get a remark that
+points at the exact characters in the `.md` source behind them.
+
+Read [section 9](#9-group-five-what-the-preview-can-do-read-from-the-platform) before starting any
+of these tasks. It holds every platform fact they are built on, with the file in the IntelliJ
+checkout each fact came from.
+
+**Why this is worth building.** Sasha reads plan documents in IntelliJ's markdown preview now. The
+Mermaid plugin draws the diagrams there, so the preview shows a plan the way it is meant to be read,
+and that is better than the text diff tool used until now. Today a remark about something in the
+preview has to be written by finding the same words again in the source file. This group removes
+that step.
+
+**The group is droppable and nothing before it depends on it.** Dropping it leaves tasks 1 to 18
+complete and shippable, and leaves the plugin with no dependency on the markdown plugin at all.
+
+**It cannot move earlier.** It needs group two's sub-line columns, because a preview selection is a
+range of characters and not a set of whole lines. It also reuses the popup shown over a component
+that [task 14](#task-14-the-entry-point-in-the-tool-window) builds, because the preview has no
+`Editor` to position a popup at. If group three is dropped, then
+[task 22](#task-22-the-action-in-the-previews-right-click-menu) has to add that one popup variant
+itself, which is a few lines.
+
+### Task 19: Read the preview, and settle what is still open
+
+**Model:** opus
+
+**Files:**
+- Read only: the IntelliJ Community checkout at `~/dev/oss/intellij-community`, tag
+  `idea/2025.2.6.3`
+- Read only: the downloaded IDE under
+  `~/.gradle/caches/9.1.0/transforms/*/transformed/ideaIC-2025.2-aarch64/`
+- Edit: this plan file, [section 9](#9-group-five-what-the-preview-can-do-read-from-the-platform),
+  the subsection "What is still open after the reading"
+
+**This task writes no production code, no test and no JavaScript.** It finishes the reading of the
+preview and writes what it found into section 9 as prose, so tasks 20 to 23 are written against
+something a person actually read.
+
+**Section 9 already holds what was read while this plan was written.** Do not read that code a
+second time. The four questions below are the ones left open on purpose. Each of them can turn a
+later task into dead work, and none of them can be answered by reading the markdown plugin alone.
+
+- [ ] **Which thread a pipe handler runs on, and what it may call there.**
+      `ui/preview/jcef/impl/JcefBrowserPipeImpl.kt` calls its `receiveHandler` from a `JBCefJSQuery`
+      handler. Read `JBCefJSQuery` in the platform and settle whether that is the EDT, a CEF thread,
+      or neither. Then settle whether a handler may read a `Document` or call a project service
+      there. `extensions/common/highlighter/CodeFenceCopyButtonBrowserExtension.kt` wraps its own
+      work in `invokeLater`, which is a strong hint and not an answer.
+      **What changes if the answer is "not the EDT": nothing**, because
+      [task 21](#task-21-the-browser-side-and-the-message-it-sends) is already written for that case.
+      If the answer is "the EDT", write that down and say that the care taken there was not needed.
+- [ ] **Whether the markdown plugin is really in the IDE this project builds against.** List the
+      distribution's `plugins/markdown/lib/` directory and run `javap` against the jar, the way
+      `CLAUDE.md` says to under "Reading the platform": the checkout says what the code does, the
+      jars say what compiles. Confirm `MarkdownBrowserPreviewExtension`,
+      `MarkdownBrowserPreviewExtension.Provider`, `MarkdownHtmlPanel`, `BrowserPipe` and
+      `ResourceProvider` are all there with the shapes section 9 records.
+      **If they are not there, the whole group is cut.**
+- [ ] **What the plugin verifier reports for the annotations on that API.**
+      `MarkdownBrowserPreviewExtension` carries `@ApiStatus.Obsolete`, and `getBrowserPipe`,
+      `getProject` and `getVirtualFile` on `MarkdownHtmlPanel` all carry `@ApiStatus.Experimental`.
+      `build.gradle.kts` today subtracts one failure level, `INTERNAL_API_USAGES`, with a comment
+      arguing for exactly that one. Find out which levels these two annotations report under. Write
+      the answer down, and write down which choice
+      [task 21](#task-21-the-browser-side-and-the-message-it-sends) then has to make: subtract that
+      level too, with its own written argument in the same shape as the existing comment, or drop
+      the group. **Do not change `build.gradle.kts` in this task.**
+- [ ] **Which elements carry `md-src-pos` for the constructs a plan document actually uses.**
+      Section 9 records what the test data under `plugins/markdown/test/data/` shows for paragraphs,
+      list items and fenced code. Settle the rest by reading the generating providers under
+      `ui/preview/html/` and the `HtmlGenerator` in the markdown library: headings, table cells,
+      links, emphasis, and above all **a Mermaid fence after the Mermaid plugin has replaced it with
+      a drawing**. The Mermaid one matters most, because reading plan diagrams is the reason this
+      group exists. If a Mermaid fence loses the attribute, that is a limit for
+      [section 11](#11-known-limits-and-the-known-issues-entries-to-add) and not a reason to cut
+      anything: the feature then works everywhere in a plan except inside the drawings.
+- [ ] write every answer into section 9, replacing the "What is still open after the reading"
+      subsection with what was found. **The file contains no em dash and must still contain none.**
+- [ ] **if an answer makes a later task pointless, cut that task from this plan and say so in the
+      report.** A task written hopefully is worse than a task that is not there.
+- [ ] `./gradlew test` still passes and all six guards are empty. Nothing in `src/` changed, and
+      running them is what proves it.
+- [ ] commit: `docs: record what the markdown preview can and cannot do`
+
+### Task 20: A selection becomes a range in the source
+
+**Model:** opus
+
+**Files:**
+- New: `src/main/kotlin/dev/sasha/clauderemarks/preview/PreviewSelection.kt`, `SourceRange`,
+  `PreviewSelection`, `parseSelectionMessage`, `narrowToSelection`
+- New: `src/main/kotlin/dev/sasha/clauderemarks/preview/PreviewSelectionService.kt`, the one-entry
+  holder
+- New: `src/test/kotlin/dev/sasha/clauderemarks/preview/PreviewSelectionTest.kt`
+- New: `src/test/kotlin/dev/sasha/clauderemarks/preview/PreviewSelectionServiceTest.kt`
+
+**Nothing in this task knows about the markdown plugin, about JCEF or about JavaScript.** It is the
+arithmetic and the storage, and it is where every decision this group makes can be tested in
+milliseconds. The browser comes next, in
+[task 21](#task-21-the-browser-side-and-the-message-it-sends). `PreviewSelection.kt` has no platform
+import, for the same reason `anchor/` has none: its tests then need no fixture. That is written here
+rather than added as a seventh guard, because this phase adds one guard on purpose and a guard for a
+one-file rule nobody has broken yet is a guard nobody reads.
+
+**What the browser is allowed to send, and why it is that shape.** A page can only name whole
+elements. `md-src-pos` sits on block elements and on one span per source line of a paragraph, and
+not on inline elements such as `<strong>`. Section 9 records where that was read. So the message
+carries four numbers and one string: the position range of the nearest ancestor of where the
+selection starts, the same for where it ends, and the text the person actually highlighted.
+
+The coarse range runs from the start ancestor's first offset to the end ancestor's last offset.
+Usually that is one whole source line. `narrowToSelection` then tightens it: take the source slice
+for the coarse range, and look for the highlighted text inside it with one `indexOf`. Found, and the
+range is exactly those characters. Not found, and the coarse range stands.
+
+**Why one `indexOf` and not something cleverer.** The rendered text and the source text differ
+wherever markup sits between the words. The source says `some **bold** words`, the render says
+`some bold words`, the search fails, and the remark then points at the whole line. That is the same
+fallback [task 9](#task-9-find-the-phrase-again) chose for a phrase that no longer matches, and the
+same one `markersValid` already makes in the renderer. The alternative is to walk the markdown parse
+tree and map rendered characters back to source characters. It buys precision on emphasised words,
+and it costs a parser-shaped subsystem with its own tests, for a case where a whole-line remark is
+already an honest answer.
+
+**Why the search takes the first occurrence.** Select the second `the` on a line and get the first
+one. That is wrong and it is not worth fixing here: the coarse range is usually a single line, so
+the two are a few characters apart and the remark is still on the right line. Written down as a
+limit in [section 11](#11-known-limits-and-the-known-issues-entries-to-add).
+
+```kotlin
+/**
+ * A range of characters in the .md source, with an exclusive end.
+ *
+ * Exclusive because selectedLines and selectedColumns in action/AddRemarkAction.kt already take a
+ * pair of plain document offsets whose end is exclusive, and they already carry every rule about
+ * what counts as a whole-line selection. Reusing them is why this file needs no line and column
+ * arithmetic of its own, and why SelectedLinesTest covers this path for free.
+ */
+data class SourceRange(val startOffset: Int, val endOffsetExclusive: Int)
+
+/**
+ * One message from the page. Every field came out of a browser, so none of it is trusted:
+ * parseSelectionMessage refuses anything that is not four non-negative offsets in order, plus a
+ * text that is not empty.
+ */
+data class PreviewSelection(
+    val startFrom: Int,
+    val startTo: Int,
+    val endFrom: Int,
+    val endTo: Int,
+    val text: String,
+)
+
+fun parseSelectionMessage(raw: String): PreviewSelection?
+
+fun narrowToSelection(source: String, selection: PreviewSelection): SourceRange?
+```
+
+**The service holds one selection, not one per file.** A person selects in one preview at a time.
+It stores the file url beside the range, and the reader compares. Two previews open side by side,
+selection made in one and the right click done in the other: the urls differ and
+[task 22](#task-22-the-action-in-the-previews-right-click-menu) refuses, which is the right answer
+and is one test. The entry is replaced on every message, and cleared when the message says nothing
+is selected.
+
+```kotlin
+@Service(Service.Level.PROJECT)
+class PreviewSelectionService {
+    fun remember(fileUrl: String, range: SourceRange)
+    fun forget()
+    fun current(): StoredSelection?
+}
+```
+
+- [ ] write the failing tests in `PreviewSelectionTest`:
+  - `a well formed message parses into five fields`. Assert each field on its own, so a parser that
+    reads two of them in the wrong order is caught.
+  - `a malformed message parses as null`. Four cases: broken json, a missing field, a negative
+    offset, and an end offset before its start.
+  - `the range tightens onto the highlighted words inside the line`. One source line, a coarse range
+    covering all of it, and a phrase highlighted in the middle.
+  - `the range stays coarse when markup sits between the highlighted words`. Source
+    `some **bold** words`, highlighted `some bold words`.
+  - `a selection that starts in one line and ends in another spans both`. The coarse range then runs
+    from the first ancestor's start to the second ancestor's end.
+  - `a coarse range that does not fit the source gives null`. An offset past the end of the text,
+    which is what a stale render sends after the file got shorter.
+  - `the first occurrence wins when the words appear twice`. The limit, pinned so it stays a
+    decision rather than becoming a surprise.
+- [ ] write the failing tests in `PreviewSelectionServiceTest`: a stored selection reads back; a
+      second store replaces the first; after `forget` there is nothing; and the stored file url is
+      the one that was passed in.
+- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.preview.*"` and expect a compile failure
+- [ ] implement, then the same command passes and `./gradlew test` passes whole
+- [ ] **mutation:** make `narrowToSelection` always return the coarse range; the tightening test must
+      fail. Make it return null rather than the coarse range when the search fails; the markup test
+      must fail. Drop its bounds check; the out-of-range test must fail with an exception instead of
+      a null. Make `parseSelectionMessage` accept a negative offset; that test must fail. Make the
+      service keep the first entry instead of the last; the replace test must fail. Restore all five.
+- [ ] commit: `feat: a preview selection becomes a character range in the markdown source`
+
+### Task 21: The browser side, and the message it sends
+
+**Model:** opus
+
+**Files:**
+- Edit: `build.gradle.kts`, one `bundledPlugin("org.intellij.plugins.markdown")` line, and possibly
+  one more subtraction from the verifier's failure levels, decided in
+  [task 19](#task-19-read-the-preview-and-settle-what-is-still-open)
+- Edit: `src/main/resources/META-INF/plugin.xml`, one optional `<depends>` naming its config file
+- New: `src/main/resources/META-INF/claude-remarks-markdown.xml`, the extension registration
+- New: `src/main/kotlin/dev/sasha/clauderemarks/preview/PreviewRemarkExtension.kt`, the browser
+  preview extension, its provider and its resource provider
+- New: `src/main/resources/dev/sasha/clauderemarks/preview/claude-remarks-preview.js`
+- Edit: `CLAUDE.md`, the project structure
+
+**Everything here is one shape copied from a worked example in the platform.**
+`extensions/common/highlighter/CodeFenceCopyButtonBrowserExtension.kt` in the IntelliJ checkout does
+exactly this in about seventy lines: a provider is handed the `MarkdownHtmlPanel`, takes its
+`BrowserPipe`, subscribes to one message type, declares one script by name, and serves the bytes
+from its own `ResourceProvider`. Section 9 records every part of it. The script's resource path has
+to sit under the extension class's own package, because `ResourceProvider.loadInternalResource`
+resolves the name against that class's loader.
+
+**The dependency is optional, and it has to be.**
+`<depends optional="true" config-file="claude-remarks-markdown.xml">org.intellij.plugins.markdown</depends>`.
+The markdown plugin is bundled in every JetBrains IDE, but a person can disable it, and a hard
+dependency then stops this whole plugin from loading. The only symptom of that is the tool window
+simply not being there, with no dialog and no visible error, which is the exact failure
+[task 1](#task-1-prove-what-phase-9-depends-on)'s first hand check exists to catch. The extension
+registration and the action from
+[task 22](#task-22-the-action-in-the-previews-right-click-menu) both go in the config file and never
+in `plugin.xml`, because both name classes and group ids that do not exist without the markdown
+plugin.
+
+**The page pushes, the IDE does not ask.** The script listens for `selectionchange`, throttled,
+works out the two position ranges, and posts one message. The IDE keeps the last one. The rejected
+alternative is a request and a response: the action posts "what is selected", the page answers, and
+a pipe handler opens the input box. Two things go wrong with it. The action can never grey itself
+out, because enablement is decided before any answer could arrive. And the code that opens the input
+box has to live inside a pipe handler, on whatever thread that turns out to be, instead of in an
+action on the EDT where every other entry point in this plugin already lives.
+
+**The handler parses and stores, and calls nothing else.** It does not read a `Document`, does not
+touch the store, and shows nothing. That is the same argument rule 5 makes for
+`review/ReviewRestService.kt`, for the same reason: the thread is not ours.
+`parseSelectionMessage` is pure and `PreviewSelectionService.remember` is one assignment. Everything
+else waits for the action.
+
+What the script does, in order: read the current selection; give up when it is empty or collapsed;
+walk up from the start container and from the end container to the nearest ancestor carrying the
+position attribute; give up when either walk reaches the body without finding one; post the four
+offsets and `selection.toString()`. It reads the attribute's name from the page's own
+`meta[name="markdown-position-attribute-name"]` tag rather than writing `md-src-pos` into the
+script, which is what `ui/preview/jcef/ScrollSync.js` already does. On an empty selection it posts a
+message that says so, and that is what clears the stored entry.
+
+- [ ] add the Gradle dependency and confirm the markdown classes resolve at compile time
+- [ ] write the extension, its provider, its resource provider and the script
+- [ ] register the extension in the config file, and add the optional `<depends>` to `plugin.xml`
+- [ ] `./gradlew build` passes and `./gradlew verifyPluginProjectConfiguration` passes
+- [ ] `./gradlew verifyPlugin` passes. If it fails **only** on the obsolete or experimental
+      annotations task 19 named, subtract that failure level in `build.gradle.kts` with a comment in
+      the same shape as the existing one: which API, why there is no public alternative, and what
+      the subtraction stops reporting from now on. If it fails on anything else, stop and report.
+- [ ] `./gradlew test` passes whole and all six guards are empty. Guard 4 is the one to watch: no
+      part of the script or the extension may gain anything that writes to a file.
+- [ ] **prove the script cannot be reached from an arbitrary page.** Read
+      `ui/preview/jcef/impl/JcefBrowserPipeImpl.kt`'s `injectionAllowedUrls` and
+      `ui/preview/PreviewStaticServer.kt`, then report in one paragraph what serves this script and
+      to whom. There is no automated test for this, so it is read and reported, the way
+      [task 6](#task-6-the-skill-learns-to-read-a-published-file)'s skill mutation is.
+- [ ] **mutation, read and reported rather than run, because no test in this project reaches
+      JavaScript:** take out the walk up to the nearest ancestor and use the selection's container
+      directly, then say what a selection inside a `<strong>` would report. Write `md-src-pos` into
+      the script instead of reading the meta tag, then say what breaks when the platform renames the
+      attribute. Restore both.
+- [ ] add the `preview/` package to the project structure in `CLAUDE.md`
+- [ ] commit: `feat: the markdown preview tells the IDE which words are selected`
+
+### Task 22: The action in the preview's right-click menu
+
+**Model:** opus
+
+**Files:**
+- Edit: `src/main/kotlin/dev/sasha/clauderemarks/store/RemarkTarget.kt`, `fileTargetProblem` and a
+  file-taking `relativePathOf`, both extracted out of the two functions that take an `Editor`
+- New: `src/main/kotlin/dev/sasha/clauderemarks/action/AddPreviewRemarkAction.kt`, the action and a
+  pure `previewRemarkProblem`
+- Edit: `src/main/resources/META-INF/claude-remarks-markdown.xml`, the action and its group
+- Edit: `src/main/kotlin/dev/sasha/clauderemarks/action/AddRemarkAction.kt`, the popup shown over a
+  component becomes reachable from this action too
+- New: `src/test/kotlin/dev/sasha/clauderemarks/store/FileTargetTest.kt`
+- New: `src/test/kotlin/dev/sasha/clauderemarks/action/PreviewRemarkProblemTest.kt`
+- Edit: `README.md`, one line under the id table
+
+**`remarkTargetProblem` stays the one gate, and this is how.** Today both `relativePathOf` and
+`remarkTargetProblem` start from an `Editor`, because every entry point so far had one. The preview
+has none: it is a browser, and the file it shows comes from the panel. So the part that decides
+about a file is extracted, and the part that decides about an editor keeps its two diff sentences
+and calls the extracted part. **Behaviour for every existing caller is unchanged**, and the proof is
+that `DiffRemarkTargetTest` stays green with no edit to it.
+
+```kotlin
+/**
+ * Why a remark on this file cannot be stored, in words a person can read, or null when it can.
+ *
+ * Split out of the Editor version so the markdown preview can ask the same question: it holds a
+ * VirtualFile and no Editor at all. The Editor version keeps both of its diff sentences and calls
+ * this for everything else, so there is still one place that decides.
+ */
+fun fileTargetProblem(project: Project, file: VirtualFile?): String?
+```
+
+**The action reads what the browser already stored.** It asks `PreviewSelectionService` for the last
+selection, checks it against the file the action's own data context names, and refuses in the same
+sentence style used everywhere else when there is none. That decision is a pure function,
+`previewRemarkProblem`, so it is the part of this task a test can reach.
+
+Then it converts the two offsets into a line range and a column pair with `selectedLines` and
+`selectedColumns` from `action/AddRemarkAction.kt`, **unchanged**. Both already take plain document
+offsets with an exclusive end, and both already carry every rule about what counts as a whole-line
+selection, so this path inherits `SelectedLinesTest`'s cover for free. Then it calls `addRemark` with
+the `.md` file's own relative path and text, exactly as the editor entry point does.
+
+**The document stamp check is the one `openNewRemarkInput` already makes.** The selection came from
+a render, the remark text arrives seconds later, and if the `.md` file changed in between then the
+offsets describe characters the person never chose. Same guard, same refusal wording, same reason.
+
+**The popup is shown over the preview's component**, not at a caret, for the same reason
+[task 14](#task-14-the-entry-point-in-the-tool-window) shows it over the tool window's tree: there
+is no editor to position it at.
+
+**The action's id is not pinned by a test, and that is deliberate.** It is registered in the optional
+config file, so it does not exist unless the markdown plugin is loaded, and the test fixture does not
+load it. Putting it in `ActionIdsTest` would make that test fail on a correct build. It is named in
+`README.md` beside the other three instead, with one sentence saying it only appears where the
+markdown preview is available.
+
+- [ ] write the failing tests in `FileTargetTest`: a file inside the project root gives null; a file
+      outside it gives the sentence that names the file; a null file gives the "no file on disk"
+      sentence; and the file-taking `relativePathOf` returns the same string the editor version
+      returns for the same file.
+- [ ] write the failing tests in `PreviewRemarkProblemTest`: nothing stored gives the "select
+      something in the preview first" sentence; a stored selection whose file url matches the action's
+      file is accepted; a stored selection whose url is a different file is refused, with a sentence
+      saying another preview holds the selection; a stored selection with no file in the data context
+      is accepted, because the stored url is then the only thing that names a file.
+- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` and
+      `--tests "dev.sasha.clauderemarks.action.*"`, and expect compile failures
+- [ ] extract `fileTargetProblem`, then both commands pass **including `DiffRemarkTargetTest` with no
+      edit to it**, which is what proves the extraction changed no behaviour
+- [ ] write the action, register it in the config file with
+      `<add-to-group group-id="Markdown.PreviewGroup" anchor="last"/>`, and wire it to `addRemark`
+- [ ] `./gradlew test` passes whole, `./gradlew verifyPluginProjectConfiguration` passes, and all six
+      guards are empty
+- [ ] **mutation:** make `fileTargetProblem` skip the project root check; the outside-the-root test
+      must fail. Make it return null for a null file; the null-file test must fail. Make
+      `previewRemarkProblem` accept a stored selection whose url is a different file; that test must
+      fail. Restore all three.
+- [ ] **the action itself cannot be tested here.** It needs a JCEF panel, a rendered page and a real
+      browser selection, none of which a light fixture has. Its checks are in
+      [section 12](#12-hand-checks). Say so in the report rather than implying it is covered.
+- [ ] commit: `feat: a remark can be written on the rendered markdown preview`
+
+### Task 23: Group five documentation
+
+**Model:** sonnet
+
+**Files:**
+- Edit: `docs/claude/design.md`, a new section "A Remark on the Rendered Preview", and one new entry
+  in `## Known Issues`
+- Edit: `CLAUDE.md`, the opening paragraph's walkthrough, the phase list, the `preview/` lines of the
+  project structure, the testing paragraph, and a toolchain note about the optional dependency
+- Edit: `README.md`, the walkthrough, and the fourth action id with its "only where the markdown
+  preview is available" sentence if
+  [task 22](#task-22-the-action-in-the-previews-right-click-menu) did not add it
+
+The design section answers four things a future session would otherwise re-derive by reading the
+IntelliJ checkout: that the page pushes the selection and the IDE never asks for it; that
+`md-src-pos` sits on block elements and on one span per paragraph line and not on inline elements;
+that the range is narrowed with one `indexOf` and falls back to whole lines; and that the markdown
+dependency is optional so the plugin still loads without it. Section 9 of this plan holds the
+platform citations. The design doc holds what the plugin now is.
+
+The `## Known Issues` entry keeps the existing convention, a likelihood word then a severity word:
+**OCCASIONAL, MINOR: a remark from the preview can point at whole lines rather than at the words
+that were selected**, with the reasoning from
+[section 11](#11-known-limits-and-the-known-issues-entries-to-add).
+
+- [ ] update `docs/claude/design.md`
+- [ ] update `CLAUDE.md`, including the `preview/` package in the project structure and the new test
+      classes in the testing paragraph
+- [ ] update `README.md`
+- [ ] `./gradlew test` still passes, `./gradlew verifyPlugin` still passes, and all six guards are
+      empty. Documentation should change none of that, and running them here is what proves the group
+      is shippable on its own.
+- [ ] commit: `docs: record how a remark is written on the rendered markdown preview`
+
+### Task 24: The version, the idea file, and the final sweep
 
 **Model:** sonnet
 
@@ -1259,9 +1679,15 @@ while reading the file.
       "The file rows in the tree show the whole path", "Drag a remark onto a bucket". Correct the
       two things the entries got wrong, listed in
       [section 2](#2-what-contradicts-docsideasmd): the selection entry's list of remaining work,
-      and hashing the phrase instead of storing it. Leave "Annotate a selection inside a rendered
-      markdown preview" open, with the gate from
-      [section 9](#9-group-five-annotating-a-rendered-markdown-preview-and-its-gate) written into it.
+      and hashing the phrase instead of storing it.
+- [ ] in `docs/ideas.md`, handle "Annotate a selection inside a rendered markdown preview" according
+      to what actually happened. **Built:** mark it built, and record the two things the design
+      settled that the entry never asked about, both explained in
+      [section 9](#9-group-five-what-the-preview-can-do-read-from-the-platform): that a selection is
+      narrowed by searching for the highlighted text rather than by mapping a parse tree, and that
+      the markdown plugin is an optional dependency so the plugin still loads without it.
+      **Dropped:** leave it open and write in the reason group five was cut, so a later phase does
+      not have to derive it again.
 - [ ] fix rule 3's glob in `CLAUDE.md` to the quoted form, with one sentence saying why: in zsh the
       bare form fails before grep runs and prints nothing, which looks exactly like a guard that
       passed
@@ -1274,33 +1700,111 @@ while reading the file.
       [section 12](#12-hand-checks) have been run or explicitly deferred with a note saying so
 - [ ] commit: `chore: version 0.6.0, and the idea file records what phase 9 built`
 
-## 9. Group five: annotating a rendered markdown preview, and its gate
+## 9. Group five: what the preview can do, read from the platform
 
-**Not planned as tasks, and cutting this section touches nothing else in the plan.**
+**The gate this section used to hold has passed.** It asked for three things before group five was
+worth starting, and all three are now settled.
 
-What is now true and was not before: `md-src-pos` attributes in the bundled Markdown plugin carry
-character offset ranges into the `.md` source, on paragraph and span elements. Found in
-`plugins/markdown` test data in the local IntelliJ checkout. Character offsets, not line numbers,
-which is why group two had to land first. After group two a remark can hold a sub-line range, find
-its phrase again, and print the exact words into the prompt. So the model side is ready.
+Mermaid had to draw well enough to read a plan in. Sasha installed the Mermaid plugin, the id
+`com.intellij.mermaid` that the bundled markdown plugin itself advertises from
+`MermaidPluginAdvertisement.kt`, and checked both of this plan's own diagrams in IntelliJ's preview.
+`flowchart LR` and `flowchart TD` both draw. `<br/>` breaks work inside node labels and inside edge
+labels. Dotted edges keep their labels. Stadium nodes draw. The background follows the IDE theme
+rather than painting white. Reading a plan in IntelliJ is now better than the text diff tool used
+until now, which is the whole reason to build this group.
 
-Three things must be true before this is worth starting, and none of them is code:
+A preview selection had to be reachable from a plugin at all. It is, through a published extension
+point, and the route is written out below. And `remarkTargetProblem` had to stay the one gate. It
+does: [task 22](#task-22-the-action-in-the-previews-right-click-menu) splits the file half out of it
+rather than adding a second mechanism beside it.
 
-- **Mermaid rendering in the preview has to be good enough to read a plan in.** Mermaid needs a
-  third-party plugin, and Sasha has not checked whether it draws these plans acceptably. If plan
-  review does not happen in the IntelliJ preview, this whole feature has no user.
-- **A preview selection has to be reachable from a plugin at all.** The preview is JCEF or a Compose
-  renderer, chosen by a registry key, and a text selection inside it is a browser-level range. Read
-  `MarkdownHtmlPanelProvider` and the `org.intellij.markdown.html.panel.provider` extension point in
-  the checkout, and find out whether a selection can be read without a fork of the panel. If it
-  cannot, the answer is "add the remark in the source file", where the tooling already works.
-- **`remarkTargetProblem` has to stay the one gate.** Every entry point goes through it today. A
-  preview entry point should become a third case there, not a parallel mechanism.
+**Everything below was read in the IntelliJ Community checkout at `~/dev/oss/intellij-community`,
+tag `idea/2025.2.6.3`.** Paths are relative to
+`plugins/markdown/core/src/org/intellij/plugins/markdown/`.
 
-The first slice, if all three hold: read a preview selection, map its offsets to a line and column
-range through `md-src-pos`, and hand that to the code path
-[task 14](#task-14-the-entry-point-in-the-tool-window) and `addRemark` already use. No change to
-`anchor/` and no change to the renderer.
+**A plugin gets into the preview page through a published extension point.**
+`org.intellij.markdown.browserPreviewExtensionProvider`, declared in the markdown plugin's own
+`plugin.xml`. The interface is `extensions/MarkdownBrowserPreviewExtension.kt`, and
+`extensions/common/highlighter/CodeFenceCopyButtonBrowserExtension.kt` is a complete worked example
+in about seventy lines. A provider is handed the `MarkdownHtmlPanel`, takes its `BrowserPipe`,
+subscribes to one message type, declares one script by name, and serves the bytes from its own
+`ResourceProvider`. `ui/preview/jcef/MarkdownJCEFHtmlPanel.kt` collects every registered provider
+with no filter of any kind, turns each declared script into a `<script src>` tag, and builds the
+page's Content Security Policy from that same list, so a declared script is allowed to run.
+
+**Reaching the panel through user data is the other route, and it is not the one to take.**
+`ui/preview/MarkdownPreviewFileEditor.kt` publishes the panel under the key `PREVIEW_BROWSER`, and
+six actions under `ui/actions/` read it that way. The key itself is public, but the class it is
+declared on carries `@ApiStatus.Internal`. The extension point is the supported route and it hands
+the panel over without any of that.
+
+**The pipe is three named methods and one JavaScript object.** `ui/preview/BrowserPipe.kt` is the
+interface: `send(type, data)`, `subscribe(type, handler)`, `removeSubscription(type, handler)`.
+`ui/preview/jcef/impl/JcefBrowserPipeImpl.kt` is the JCEF implementation, built on `JBCefJSQuery`.
+`ui/preview/jcef/BrowserPipe.js` is the browser half: a page posts with
+`window.__IntelliJTools.messagePipe.post(type, data)` and listens with `.subscribe(type, callback)`.
+Both sides carry plain strings, so a payload has to carry its own format. Which thread
+`processMessageReceived` runs on is the first open question in
+[task 19](#task-19-read-the-preview-and-settle-what-is-still-open).
+
+**`md-src-pos` is not on every element.** It holds a character range into the `.md` source, written
+`from..to`. The attribute name is not hard-coded in the page: `MarkdownJCEFHtmlPanel.kt` writes it
+into a `<meta name="markdown-position-attribute-name">` tag, and `ui/preview/jcef/ScrollSync.js`
+reads the name back from there rather than assuming it. What the test data under
+`plugins/markdown/test/data/` shows: `body`, `div`, `p`, `ul`, `li`, `pre` and `code` all carry it,
+and `ui/preview/html/ParagraphGeneratingProvider.kt` wraps **each source line of a paragraph** in its
+own `<span>` with its own exact range, which is the finest granularity the page offers for free.
+`<strong>` does not carry it. So a selection has to walk up from where it lands to the nearest
+ancestor that has the attribute, and the answer is a whole source line far more often than it is a
+phrase.
+
+**The offsets really are offsets into the file the person is editing.**
+`ui/preview/jcef/HtmlSourceTextPreprocessor.kt` calls
+`generateMarkdownHtml(file, document.text, project)`. Nothing rewrites the text before it is parsed,
+so an offset inside `md-src-pos` is an offset in the same `Document` the editor half of the split
+shows. That is what makes the whole idea work, and it was the thing most likely to have been false.
+
+**A browser selection gives two containers, not one range in the source.**
+`window.getSelection().getRangeAt(0)` has a `startContainer` with an offset and an `endContainer`
+with an offset, and the two are usually different text nodes inside different elements. A remark
+needs one character range in one file. The answer this plan takes: report the position range of the
+nearest ancestor of each end, take the whole span between them, then narrow it by searching for the
+highlighted text inside that source slice.
+[Task 20](#task-20-a-selection-becomes-a-range-in-the-source) is that arithmetic, and it says why the
+search is one `indexOf` and what happens when it fails.
+
+**JCEF is the renderer, and the Compose one is off.**
+`ui/preview/jcef/JCEFHtmlPanelProvider` is the only `html.panel.provider` in the markdown plugin's
+`plugin.xml`. The Compose renderer registers a second one from the content module
+`intellij.markdown.compose.preview`, and its `isAvailable` returns `UNAVAILABLE` unless the registry
+key `enable.markdown.compose.preview.renderer.choice` is turned on, which it is not by default. Only
+the JCEF panel returns a pipe: `MarkdownHtmlPanel.getBrowserPipe()` defaults to null. So on a Compose
+preview the extension is simply never created and the action finds nothing to act on, which is a
+limit in [section 11](#11-known-limits-and-the-known-issues-entries-to-add) rather than a crash.
+
+**The right-click menu in the preview is a real action group.**
+`ui/preview/MarkdownPreviewFileEditor.kt` installs an AWT mouse listener, and on a right click inside
+the preview it opens a popup built from the action group `Markdown.PreviewGroup`, which the markdown
+plugin declares in its `plugin.xml`. An action added to that group is the entry point, and it needs
+no fork of anything.
+
+### What is still open after the reading
+
+[Task 19](#task-19-read-the-preview-and-settle-what-is-still-open) settles these four and writes the
+answers here, replacing this list. They were left open on purpose: each one can turn a later task
+into dead work, and none of them can be answered by reading the markdown plugin alone.
+
+1. Which thread a `BrowserPipe` handler runs on, and what it is allowed to call there.
+2. Whether the markdown plugin's classes are in the IDE distribution this project builds against,
+   with the shapes recorded above.
+3. What the plugin verifier reports for `@ApiStatus.Obsolete` on `MarkdownBrowserPreviewExtension`
+   and `@ApiStatus.Experimental` on `MarkdownHtmlPanel.getBrowserPipe`.
+4. Whether a Mermaid fence still carries `md-src-pos` after the Mermaid plugin has replaced it with a
+   drawing, and what headings, table cells, links and emphasis carry.
+
+Two more things cannot be read at all, in any checkout, and are hand checks in
+[section 12](#12-hand-checks): whether a right click keeps the browser selection alive, and whether a
+selection survives the incremental DOM patch the preview does on every keystroke in the source.
 
 ## 10. What this phase deliberately does not build
 
@@ -1322,6 +1826,17 @@ range through `md-src-pos`, and hand that to the code path
 - **A `RangeHighlighter` underline for a sub-line range in the editor.** The gutter is a line-level
   surface, so a sub-line remark shows its icon on the line it starts on, as today. An underline is
   separate, optional work.
+- **Mapping rendered characters back to source characters through the markdown parse tree.** See
+  [task 20](#task-20-a-selection-becomes-a-range-in-the-source). One `indexOf` and an honest
+  whole-line fallback instead of a second parser.
+- **Showing existing remarks inside the preview.** The gutter already shows where remarks are, and
+  in a split editor it is on screen beside the preview. Painting them a second time in the browser
+  means keeping two surfaces in step across every re-render, for a picture the person can already
+  see.
+- **A keyboard shortcut for the preview entry point.** The preview is a browser component, and
+  whether it hands IDE keystrokes through is another platform question nobody needs answered yet.
+  The right-click menu is one surface and it is enough, the same argument
+  [task 14](#task-14-the-entry-point-in-the-tool-window) makes for the general remark.
 
 ## 11. Known limits, and the Known Issues entries to add
 
@@ -1343,6 +1858,25 @@ clipboard succeeded, so the remarks are marked published and the balloon says th
 updated. But the file still on disk looks exactly like a current one to a skill reading it. Only the
 `published:` line in its header gives it away, which is why that line exists. Needs a write failure
 to `$HOME`, which normally means a full or read-only home directory.
+
+**A Compose markdown preview offers nothing to select from.** The registry key that turns that
+renderer on is off by default, and only the JCEF panel has a `BrowserPipe`. With Compose chosen, the
+preview extension is never created, the right-click item finds no stored selection, and it says so
+in a sentence. Nothing breaks, and nothing works either.
+
+**A selection that crosses markup points at whole lines.** The source says `some **bold** words` and
+the render says `some bold words`, so the search for the highlighted text inside the source fails and
+the coarse range stands. This is the fallback, not a defect, and it is the same answer `markersValid`
+already gives in the renderer. It is the entry
+[task 23](#task-23-group-five-documentation) adds to `## Known Issues`, as **OCCASIONAL, MINOR**.
+
+**The same words twice on one line: the first one wins.** The search takes the first occurrence
+inside the coarse range. That range is usually a single line, so the two are a few characters apart
+and the remark still lands on the right line.
+
+**The preview only helps for markdown.** There is no rendered preview for anything else in the IDE,
+so every other file keeps the editor entry point it already has. That is not a gap this group left;
+it is the whole scope of the group.
 
 **Do not make the existing EDT-blocking entry worse.** `docs/claude/design.md` records that the EDT
 can block behind a netty thread's filesystem call, because `WaitingReviewService.start` holds the
@@ -1410,6 +1944,35 @@ list is added to a backlog rather than to a clean slate.
       as a valid target. Then confirm the tree still restores the selection after the redraw.
 - [ ] **the gutter tooltip.** Hover a sub-line remark's icon and confirm the phrase is there on its
       own line, and that a remark whose text contains `<` still renders as text.
+
+**These are group five's, and they need the Mermaid plugin installed as well.** Every one of them is
+about a browser, so no automated test in this project reaches any of them.
+
+- [ ] **the plugin still loads with the markdown plugin disabled.** Turn Markdown off in the sandbox
+      IDE's plugin list, restart, and confirm the Claude Remarks tool window is still there and that
+      the editor entry point still works. The optional dependency in
+      [task 21](#task-21-the-browser-side-and-the-message-it-sends) is what makes this true, and a
+      wrong `<depends>` shows up as the tool window simply not appearing, with no error anywhere.
+- [ ] **a remark written on the preview.** Open a plan document, show the preview, select a few words
+      inside a paragraph, right-click, and pick the Claude Remarks item. The input box opens over the
+      preview. Then Publish, and confirm `⟦` and `⟧` sit around those same words in the prompt.
+- [ ] **a right click keeps the selection.** The same gesture, done slowly: select, right-click, and
+      confirm the highlight is still on screen when the menu opens. If a right click clears the
+      selection, the whole gesture has to change, and this is the check that finds it.
+- [ ] **the selection survives a re-render, or is cleared honestly.** Select in the preview, type one
+      character in the source half so the preview re-renders, then right-click in the preview. Either
+      the item refuses with a sentence saying nothing is selected, or the remark lands on the right
+      words. **A remark on the wrong words is a defect**, and this is the only place it can be seen.
+- [ ] **a selection inside emphasis.** Select words that include a `**bold**` run in the source.
+      Confirm the remark covers the whole line rather than the wrong characters, and that the tree row
+      shows a plain line range and not a nonsense column pair.
+- [ ] **a selection inside a drawn Mermaid diagram.** Select some text inside a rendered diagram.
+      Either a remark lands on the fence, or the item refuses with a sentence. Both are acceptable
+      answers; a remark with wrong offsets is not.
+- [ ] **two previews at once.** Open two markdown files side by side, select in one, right-click in
+      the other, and confirm it refuses rather than storing the remark against the wrong file.
+- [ ] **a markdown file outside the project.** Open one, show the preview, select, right-click, and
+      confirm the refusal names the file in the same sentence the editor entry point gives.
 
 **These need a second machine, an `sshd`, and an agent session on the far side of a tunnel.** They
 are phase 8's, not this phase's, and they are still owed. Do not tick them from a guess. Section 13
