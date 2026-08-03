@@ -1066,7 +1066,7 @@ Two things that are new here:
 - **the review is cleared after a successful send.** The banner disappears, the button greys out, and a
   later `start` from a new session is accepted.
 
-- [ ] write the failing tests in `SendReviewTest.kt`. This one needs the light fixture
+- [x] write the failing tests in `SendReviewTest.kt`. This one needs the light fixture
       (`BasePlatformTestCase`), like `CopyRemarksTest`. **`setUp` and `tearDown` must both clear
       `RemarkStore` and `WaitingReviewService`.** The fixture project is shared between test classes, and
       the failure-path test below deliberately leaves a review waiting — without the clear, task 7's
@@ -1086,18 +1086,18 @@ Two things that are new here:
     write fail. It is the only guard on rule 8 — if it cannot be made to fail for the right reason, stop
     and report rather than deleting it.
   - `sending with nothing pending leaves the review waiting and writes no file`
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"` — expect a compile
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"` — expect a compile
       failure
-- [ ] create `review/SendReview.kt` and the Tools-menu action. The action's `update()` enables it only
+- [x] create `review/SendReview.kt` and the Tools-menu action. The action's `update()` enables it only
       when a review is waiting **and** at least one remark is pending, on `ActionUpdateThread.BGT`, the
       same as `CopyAllRemarksAction`.
-- [ ] register the action in `plugin.xml` with id `ClaudeRemarks.SendToWaiting`, text "Send Claude
+- [x] register the action in `plugin.xml` with id `ClaudeRemarks.SendToWaiting`, text "Send Claude
       Remarks to the Waiting Session", added to `ToolsMenu`, with no default keystroke — the same choice
       `ClaudeRemarks.CopyAll` made, for the reason given in the comment above it
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"` — must pass
-- [ ] **mutation check**: move `markRemarksSent` above the write, so it runs before the file is written.
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest"` — must pass
+- [x] **mutation check**: move `markRemarksSent` above the write, so it runs before the file is written.
       `a failed write marks nothing sent and leaves the review waiting` must fail. Restore it.
-- [ ] commit, staging exactly:
+- [x] commit, staging exactly:
 
   ```bash
   git add src/main/kotlin/dev/sasha/clauderemarks/review/SendReview.kt \
