@@ -395,6 +395,11 @@ class RemarkStoreStateTest {
      * snapshot(). This compares the serialized form rather than listing fields, so it covers every
      * stored field by name and value including any added afterwards: a field the copy dropped would
      * disappear from workspace.xml with nothing logged.
+     *
+     * Every field is set to something OTHER than its default, and that is load-bearing. BaseState
+     * omits a property still at its default when it serializes, so leaving severity, bucket and
+     * commit alone made the comparison pass even if the copy dropped all three — which is what this
+     * test is cited as proof against, in RemarkStore.snapshot()'s own doc.
      */
     @Test
     fun `a snapshot carries every field a remark is stored with`() {
@@ -411,6 +416,9 @@ class RemarkStoreStateTest {
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",
             contextAfter = "line c\nline d",
+            severity = RemarkSeverity.MUST,
+            bucket = "auth refactor",
+            commit = "0123456789abcdef0123456789abcdef01234567",
         )
         state.addRemark(original)
 

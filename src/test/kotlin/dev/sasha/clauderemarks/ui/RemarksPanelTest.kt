@@ -246,6 +246,22 @@ class RemarksPanelTest : BasePlatformTestCase() {
         )
     }
 
+    /**
+     * The toolbar reads one cached snapshot instead of deep-copying the store three times per update
+     * tick, so the cache has to be dropped whenever the store changes. If it is not, every toolbar
+     * button keeps the enabled state it had when the panel was built: Copy All Pending stays greyed
+     * out after the first remark is added, until something else rebuilds the panel.
+     */
+    fun testTheToolbarsCachedSnapshotIsDroppedWhenARemarkIsAdded() {
+        val panel = panel()
+        assertEquals(0, panel.remarks().size)
+
+        addRemark(project, "A.kt", LINES, 0..0, "one", null)
+        settle()
+
+        assertEquals(1, panel.remarks().size)
+    }
+
     private fun panel(): RemarksPanel {
         val disposable = Disposer.newDisposable()
         Disposer.register(testRootDisposable, disposable)

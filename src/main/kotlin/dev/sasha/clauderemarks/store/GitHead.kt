@@ -1,5 +1,6 @@
 package dev.sasha.clauderemarks.store
 
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -31,9 +32,25 @@ fun headCommit(startDir: Path): String? {
         ?.let { runCatching { gitDir.resolve(it).normalize() }.getOrNull() }
         ?: gitDir
 
-    val loose = readTrimmed(commonDir.resolve(ref))?.takeIf { SHA.matches(it) }
+    val loose = refInside(commonDir, ref)?.let { readTrimmed(it) }?.takeIf { SHA.matches(it) }
     return loose ?: packedRef(commonDir, ref)
 }
+
+/**
+ * [commonDir] joined with the ref path out of HEAD, but only if it stayed under [commonDir].
+ *
+ * A real ref always lives inside the git directory. A hand-written `ref: ../../../../etc/shadow`
+ * would otherwise make readTrimmed open that file, and while only 40 lowercase hex characters survive
+ * SHA.matches — so at most one bit about the file leaks — there is no reason to read it at all. Note
+ * what this cannot cover: readString follows symlinks, so a symlinked refs/heads/main still resolves
+ * wherever it points.
+ */
+private fun refInside(commonDir: Path, ref: String): Path? =
+    try {
+        commonDir.resolve(ref).normalize().takeIf { it.startsWith(commonDir) }
+    } catch (e: RuntimeException) {
+        null
+    }
 
 /**
  * The directory holding HEAD, found by walking up from [startDir]. A project can be opened at a
@@ -41,6 +58,12 @@ fun headCommit(startDir: Path): String? {
  *
  * .git is a file rather than a directory in a worktree and in a submodule. It then holds one line,
  * "gitdir: <path>", and that path may be relative to the file's own directory.
+ *
+ * The gitdir path is deliberately NOT constrained to stay under this directory, unlike the ref path
+ * in headCommit. Pointing outside is what gitdir is for: a worktree's .git names
+ * <main repo>/.git/worktrees/<name>, which is not under the worktree at all. A containment check here
+ * would break every real worktree and submodule to guard against a hand-edited .git file, which
+ * already implies write access to the repository.
  */
 private fun gitDirFor(startDir: Path): Path? {
     val start = runCatching { startDir.toAbsolutePath().normalize() }.getOrNull() ?: return null
@@ -67,5 +90,17 @@ private fun packedRef(commonDir: Path, ref: String): String? =
         ?.firstOrNull { it.size == 2 && it[1] == ref && SHA.matches(it[0]) }
         ?.first()
 
+/**
+ * IOException and RuntimeException, not Throwable. This reads a whole file into a String before
+ * anything looks at it, and a `packed-refs` big enough to exhaust the heap would otherwise report
+ * "no commit" having taken the process's memory down with it — an OutOfMemoryError swallowed and
+ * relabelled. RuntimeException stays in for InvalidPathException.
+ */
 private fun readTrimmed(path: Path): String? =
-    runCatching { Files.readString(path).trim() }.getOrNull()
+    try {
+        Files.readString(path).trim()
+    } catch (e: IOException) {
+        null
+    } catch (e: RuntimeException) {
+        null
+    }

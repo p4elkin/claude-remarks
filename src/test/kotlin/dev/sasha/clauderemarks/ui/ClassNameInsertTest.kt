@@ -2,9 +2,11 @@ package dev.sasha.clauderemarks.ui
 
 import com.intellij.navigation.ChooseByNameContributor
 import com.intellij.navigation.NavigationItem
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.components.JBTextArea
+import org.junit.Assert.assertThrows
 
 /**
  * The chooser popup needs a window and is checked by hand. What is tested here is the part that
@@ -66,6 +68,35 @@ class ClassNameInsertTest : BasePlatformTestCase() {
         )
 
         assertEquals(listOf("Apple"), projectClassNames(project))
+    }
+
+    /**
+     * A cancellation must escape, where any other failure must not.
+     *
+     * projectClassNames runs inside ReadAction.nonBlocking, and getNames walks stub indexes, which
+     * call ProgressManager.checkCanceled() constantly: when a write action asks for the lock, PCE is
+     * thrown and the read action has to unwind so the lock goes back. Swallowing it means the walk
+     * carries on over every remaining contributor, and the keystroke that wanted the lock waits it
+     * out — the EDT stall a non-blocking read action exists to prevent.
+     */
+    fun testACancellationIsNotSwallowedTheWayABrokenContributorIs() {
+        contribute("Apple")
+        ChooseByNameContributor.CLASS_EP_NAME.point.registerExtension(
+            object : ChooseByNameContributor {
+                override fun getNames(project: Project, includeNonProjectItems: Boolean): Array<String> =
+                    throw ProcessCanceledException()
+
+                override fun getItemsByName(
+                    name: String,
+                    pattern: String,
+                    project: Project,
+                    includeNonProjectItems: Boolean,
+                ): Array<NavigationItem> = emptyArray()
+            },
+            testRootDisposable,
+        )
+
+        assertThrows(ProcessCanceledException::class.java) { projectClassNames(project) }
     }
 
     /**

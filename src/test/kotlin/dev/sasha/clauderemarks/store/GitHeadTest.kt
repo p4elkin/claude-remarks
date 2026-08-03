@@ -71,6 +71,21 @@ class GitHeadTest {
         assertEquals(sha, headCommit(module))
     }
 
+    /**
+     * A hand-written `ref:` must not reach outside the git directory. Only 40 lowercase hex survives
+     * SHA.matches, so at most one bit about the file would leak — but there is no reason to open it.
+     */
+    @Test
+    fun `a ref pointing outside the git directory is refused`() {
+        val repo = repo()
+        val outside = repo.resolve("outside")
+        Files.createDirectories(outside)
+        Files.writeString(outside.resolve("secret"), "$sha\n")
+        write(repo, ".git/HEAD", "ref: ../outside/secret\n")
+
+        assertNull(headCommit(repo))
+    }
+
     @Test
     fun `a directory with no repository above it has no commit`() {
         assertNull(headCommit(repo()))

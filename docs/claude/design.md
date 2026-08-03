@@ -568,6 +568,15 @@ for it: that extension point is declared in the same descriptor that declares
 Picking a name inserts it at the caret, or replaces the current selection if there is one. An empty
 list says so in a message rather than doing nothing.
 
+`projectClassNames` tolerates a broken contributor and never a cancellation. `getNames` walks stub
+indexes, which call `ProgressManager.checkCanceled()` constantly, and this whole function runs inside
+`ReadAction.nonBlocking` — so when a write action asks for the lock, `ProcessCanceledException` is how
+the read action is told to unwind and give it back. A `catch` on `Throwable` turned that into an empty
+list and carried on to the next contributor, which swallowed its own cancellation in turn: the lock
+stayed held for the length of the whole walk plus `distinct().sorted()` over tens of thousands of
+strings, which is the EDT stall a non-blocking read action exists to prevent. Both catches now rethrow
+`ProcessCanceledException` ahead of the `Throwable` case that covers a missing extension point.
+
 **Why not `Ctrl+Space`.** The keystroke was `Ctrl+Space` at first, on the reasoning that made the Alt
 keys safe: the platform does not dispatch a modal-context-disabled action while a modal-context popup
 is focused. Basic Completion is not one of those — `BaseCodeCompletionAction` calls
@@ -647,6 +656,22 @@ directory, and the walk up is required for the case it exists for: a project ope
 the repository root. It is written down in the known limits because it can mislead, not because it is
 wrong: the prompt's scale note tells the model to diff an orphan against the recorded revision.
 
+Two things it does guard. The ref path out of `HEAD` is required to stay under the git directory
+(`refInside`), so a hand-written `ref: ../../../../etc/shadow` is refused rather than opened — only 40
+lowercase hex survives `SHA.matches`, so at most one bit would leak, but there is no reason to read
+the file. What that cannot cover: `readString` follows symlinks, so a symlinked `refs/heads/main`
+still resolves wherever it points. The `gitdir:` path is deliberately NOT constrained the same way,
+because pointing outside is what `gitdir` is for — a worktree's `.git` names
+`<main repo>/.git/worktrees/<name>`, which is not under the worktree at all. And `readTrimmed` catches
+`IOException` and `RuntimeException` rather than `Throwable`: it reads a whole file into a `String`
+before anything looks at it, so a `packed-refs` big enough to exhaust the heap used to be reported as
+"no commit" with the `OutOfMemoryError` swallowed and relabelled.
+
+The read stays on the EDT, and the comment in `addRemark` now names the real ceiling rather than "two
+small file reads": for a loose ref it is two, but after `git gc` the third read is all of `packed-refs`,
+which on a large repository is megabytes read into a `String` and split. Still once per remark at
+typing speed, so it stays where it is, with the ceiling written down.
+
 The commit is shown in three places, each treating it differently because of how crowded the row
 already is. The gutter tooltip always has it, cut to eight characters
 (`editor/RemarkGutterIcon.kt`'s `tooltipFor`, fed from `RemarkPlacement.commit`). The
@@ -677,6 +702,16 @@ The alternative, a second `PersistentStateComponentWithModificationTracker`, wou
 window before anyone could read a single archived remark — which this plan does not build either
 way. The markdown file is about fifteen lines of code, and can be opened, grepped and pasted from
 today. What is given up: there is no button that restores an archived remark.
+
+Two details of the write are less obvious than they look. The history file is a **nullable** parameter
+on `clearSentRemarks` and `clearAllRemarks`, not one defaulted to `historyFile(project)`: Kotlin
+evaluates a default argument in the synthetic bridge, before the body runs, so a default would resolve
+the path OUTSIDE `archive`'s try — and anything it threw would leave the function as an unhandled
+exception out of the toolbar action rather than as the balloon written for that case. Null means "the
+real one", resolved inside the try. And Clear Sent shows its success balloon only when something was
+actually removed: `clearSentRemarks` returns 0 both for "nothing was sent" and "the archive failed",
+the sent count is already known non-zero by then, so 0 can only mean failure — and "Removed 0 sent
+remarks." beside a red error balloon was the wrong half of the truth.
 
 `appendToHistory` writes what was STORED about each remark — its stored line numbers, text, tag,
 severity, bucket and commit — not a fresh resolve against the file as it stands now: by the time
@@ -906,8 +941,13 @@ of its own (a `.md` file, a doc comment with an example), so the fence is sized 
 the longest backtick run inside the block. The remark text is prose outside every fence, and
 Shift+Enter makes a pasted snippet ordinary, so each of its lines that would open a fence, forge a
 heading or turn the line above into one is escaped with a backslash. Either one, left alone, breaks
-every remark listed after it. The prompt header itself is the user's own text and is written out as
-given: it is deliberate markdown, at the top, where its author can see what it did.
+every remark listed after it. "Turn the line above into one" means a SETEXT underline, and it takes
+only ONE character: a line of `=` under a paragraph is an H1, a line of `-` is an H2. `STRUCTURE_LINE`
+therefore matches `[-=]+`, not three-or-more dashes — the earlier pattern caught a thematic break and
+missed both setext forms, in the class written to stop exactly this. A bullet like `- item` still
+passes through, because the whole line after the optional indent has to be dashes. The prompt header
+itself is the user's own text and is written out as given: it is deliberate markdown, at the top,
+where its author can see what it did.
 
 The header follows revdiff's model: a remark that asks a question gets answered rather than turned
 into an edit.

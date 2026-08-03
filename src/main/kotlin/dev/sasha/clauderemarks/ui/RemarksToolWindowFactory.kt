@@ -28,6 +28,7 @@ import com.intellij.util.EditSourceOnDoubleClickHandler
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.action.copyRemarks
 import dev.sasha.clauderemarks.action.notifyRemarks
+import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.REMARKS_CHANGED
 import dev.sasha.clauderemarks.store.RemarkStore
@@ -109,7 +110,13 @@ class RemarksPanel(
         // notifyRemarksChanged when an editor opens or closes, so a second listener here would
         // refresh twice on every open — and, being unfiltered by project, would run a full
         // resolveAll for this project whenever a file opened in ANY project.
-        project.messageBus.connect(parent).subscribe(REMARKS_CHANGED, RemarksListener { refresh() })
+        project.messageBus.connect(parent).subscribe(
+            REMARKS_CHANGED,
+            RemarksListener {
+                remarksCache = null
+                refresh()
+            },
+        )
 
         setToolbar(buildToolbar().component)
         setContent(JBScrollPane(tree))
@@ -330,7 +337,22 @@ class RemarksPanel(
         override fun actionPerformed(e: AnActionEvent) = onPress()
     }
 
-    private fun remarks() = RemarkStore.getInstance(project).all()
+    /**
+     * One snapshot per change, not three per toolbar tick.
+     *
+     * `all()` is a deep copy — a fresh RemarkState per remark, taken under the store's lock — and
+     * ToolbarAction.update runs on the EDT for every button on every tick, so Copy All Pending,
+     * Clear Sent and Clear All each took their own copy of the whole store several times a second.
+     *
+     * Cleared by the REMARKS_CHANGED subscription above, which is the only thing that can change the
+     * store as far as this panel is concerned: all eight mutation functions publish it, and rule 3 in
+     * CLAUDE.md is what keeps anything else from mutating without publishing. EDT only.
+     */
+    private var remarksCache: List<RemarkState>? = null
+
+    /** Internal, not private, so RemarksPanelTest can prove the cache is dropped on a change. */
+    internal fun remarks(): List<RemarkState> =
+        remarksCache ?: RemarkStore.getInstance(project).all().also { remarksCache = it }
 
     private fun sentCount() = remarks().count { it.status == RemarkStatus.SENT }
 
@@ -391,7 +413,12 @@ class RemarksPanel(
         )
         if (answer != Messages.YES) return
         val removed = clearSentRemarks(project)
-        notifyRemarks(project, "Removed $removed sent remark${if (removed == 1) "" else "s"}.")
+        // 0 here can only mean the archive write failed: the sent count was checked non-zero just
+        // above, and clearSentRemarks returns 0 in that case having already shown its own error
+        // balloon. Saying "Removed 0 sent remarks." beside that error was the wrong half of the truth.
+        if (removed > 0) {
+            notifyRemarks(project, "Removed $removed sent remark${if (removed == 1) "" else "s"}.")
+        }
     }
 
     /** The other destructive one, and the only one that also throws away work not handed over. */

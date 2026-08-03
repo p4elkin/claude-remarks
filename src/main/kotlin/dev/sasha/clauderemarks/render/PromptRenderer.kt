@@ -105,7 +105,15 @@ private fun escapeMarkdown(text: String): String =
         else line.takeWhile { it == ' ' }.let { indent -> "$indent\\${line.removePrefix(indent)}" }
     }
 
-private val STRUCTURE_LINE = Regex("""^ {0,3}(`{3,}|~{3,}|#{1,6}(\s|$)|-{3,}\s*$)""")
+/**
+ * A thematic break needs three dashes, but a SETEXT heading underline needs only one character: a
+ * line of "=" under a paragraph makes an H1 and a line of "-" makes an H2. The remark text is prose
+ * in the document, so the line above is always a paragraph — which is exactly the setup a setext
+ * underline needs. Hence "one or more" and both characters, not "three or more dashes".
+ *
+ * A bullet like "- item" does not match: the whole line after the optional indent has to be dashes.
+ */
+private val STRUCTURE_LINE = Regex("""^ {0,3}(`{3,}|~{3,}|#{1,6}(\s|$)|[-=]+\s*$)""")
 
 /**
  * The anchored lines, marked with ">", plus whatever context came with them. The fence is tagged

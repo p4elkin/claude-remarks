@@ -41,6 +41,11 @@ fun remarkChangeActions(project: Project, ids: () -> List<String>): ActionGroup 
  * case, and re-typing it is exactly how "auth refactor" and "auth-refactor" become two buckets that
  * look like one from across the tree. An empty answer means no bucket, which is how a remark comes
  * back out of one. Cancel returns null and changes nothing.
+ *
+ * The dialog is not parented to the project window, and cannot be: `Messages` has exactly one
+ * `showEditableChooseDialog` overload in 2025.2 and it takes no `Project`. The parented alternative,
+ * `showChooseDialog(Project, ...)`, returns an index into a fixed list, so it cannot express "type a
+ * name that is not in the list yet" — which is the whole reason this dialog is the editable one.
  */
 private fun chooseBucket(project: Project, ids: List<String>) {
     if (ids.isEmpty()) return

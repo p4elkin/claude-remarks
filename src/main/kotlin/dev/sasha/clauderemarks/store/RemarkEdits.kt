@@ -1,6 +1,7 @@
 package dev.sasha.clauderemarks.store
 
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.util.messages.Topic
 import dev.sasha.clauderemarks.action.notifyRemarks
@@ -9,7 +10,6 @@ import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
-import java.io.IOException
 import java.nio.file.Path
 import java.util.UUID
 
@@ -60,8 +60,12 @@ fun addRemark(
         this.textHash = anchor.textHash
         this.contextBefore = joinContext(anchor.contextBefore)
         this.contextAfter = joinContext(anchor.contextAfter)
-        // Two small file reads on the EDT, once per remark, at human pace. No cache: one keyed on
-        // the HEAD file's timestamp would be more code than the read it saves.
+        // Two small file reads on the EDT, once per remark, at human pace — for a loose ref, which
+        // is the normal case. The ceiling is higher: after `git gc` there is no loose ref file and
+        // the third read is all of `packed-refs`, read into a String and split, which on a large
+        // repository can be megabytes. Still once per remark at typing speed, so it stays here
+        // rather than moving off the EDT, but the ceiling is written down rather than implied.
+        // No cache either: one keyed on the HEAD file's timestamp would be more code than it saves.
         this.commit = project.basePath?.let { headCommit(Path.of(it)) }
     }
     RemarkStore.getInstance(project).add(remark)
@@ -102,10 +106,15 @@ fun setRemarkBucket(project: Project, ids: Collection<String>, bucket: String?) 
 /**
  * Writes the sent remarks to the history file, then removes them. Returns how many were removed.
  *
- * The history file is a parameter with a default so the failure path can be tested. Nothing else
- * passes it.
+ * The history file is a nullable parameter rather than one defaulted to `historyFile(project)`.
+ * Kotlin evaluates a default argument in the synthetic bridge, BEFORE the body runs, so a default of
+ * `historyFile(project)` is resolved outside `archive`'s try — and anything it throws (a malformed
+ * configuration path, an unrepresentable name) escapes this function entirely, arriving as an
+ * unhandled exception out of the toolbar action instead of the balloon written for exactly that case.
+ * Nothing is deleted either way, so nothing is lost; the failure just arrives as a crash. Null means
+ * "the real one", resolved inside the try. Only the tests pass a path.
  */
-fun clearSentRemarks(project: Project, historyFile: Path = historyFile(project)): Int {
+fun clearSentRemarks(project: Project, historyFile: Path? = null): Int {
     val going = RemarkStore.getInstance(project).all().filter { it.status == RemarkStatus.SENT }
     if (!archive(project, historyFile, going)) return 0
     val removed = RemarkStore.getInstance(project).removeSent()
@@ -113,7 +122,7 @@ fun clearSentRemarks(project: Project, historyFile: Path = historyFile(project))
     return removed
 }
 
-fun clearAllRemarks(project: Project, historyFile: Path = historyFile(project)): Int {
+fun clearAllRemarks(project: Project, historyFile: Path? = null): Int {
     if (!archive(project, historyFile, RemarkStore.getInstance(project).all())) return 0
     val removed = RemarkStore.getInstance(project).clear()
     if (removed > 0) notifyRemarksChanged(project)
@@ -124,19 +133,29 @@ fun clearAllRemarks(project: Project, historyFile: Path = historyFile(project)):
  * False when the archive could not be written, and then nothing may be deleted. A single Delete on
  * a row is not routed through here on purpose: that is an explicit "this one was a mistake", and
  * archiving every typo makes the history file useless.
+ *
+ * Catches Exception rather than IOException, because working out WHERE to write is inside the try
+ * now and can fail on its own. ProcessCanceledException is rethrown: it is a RuntimeException, and
+ * turning a cancellation into a red balloon would be a lie.
  */
-private fun archive(project: Project, file: Path, remarks: List<RemarkState>): Boolean =
-    try {
-        appendToHistory(file, remarks)
+private fun archive(project: Project, file: Path?, remarks: List<RemarkState>): Boolean {
+    var target = file?.toString() ?: "the remark history file"
+    return try {
+        val path = file ?: historyFile(project)
+        target = path.toString()
+        appendToHistory(path, remarks)
         true
-    } catch (e: IOException) {
+    } catch (e: ProcessCanceledException) {
+        throw e
+    } catch (e: Exception) {
         notifyRemarks(
             project,
-            "Nothing was cleared: the remark history could not be written to $file (${e.message}).",
+            "Nothing was cleared: the remark history could not be written to $target (${e.message}).",
             NotificationType.ERROR,
         )
         false
     }
+}
 
 /**
  * Also published when an editor opens or closes, because that changes which remarks can be

@@ -62,6 +62,21 @@ class RemarkHistoryTest {
         assertNotEquals(out, renderHistory(listOf(remark(id = "r-1")), now = 400L * 86_400_000L))
     }
 
+    /**
+     * The remark text is indented into a block, so a heading inside it cannot restructure the file.
+     * The heading LINE is not indented, and the bucket is the only free-form field on it —
+     * setRemarkBucket trims the ends but leaves an inner newline alone. Not reachable from today's
+     * single-line chooser; this closes the asymmetry rather than relying on the chooser staying that
+     * way.
+     */
+    @Test
+    fun `a newline inside a bucket name cannot break out of the heading line`() {
+        val out = renderHistory(listOf(remark(id = "r-1", bucket = "auth\n## forged")), now = 0L)
+
+        assertTrue(out, out.contains("bucket auth ## forged"))
+        assertFalse(out, out.lines().any { it.startsWith("## forged") })
+    }
+
     /** A project called "My App / v2" must not turn its archive's name into a path. */
     @Test
     fun `a project name is reduced to something that can be a file name`() {

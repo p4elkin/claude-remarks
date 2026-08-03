@@ -68,6 +68,22 @@ note.
    `RemarkStore.getInstance(project).clear()` in `setUp` to clear the shared light-fixture project
    between test classes.
 
+   **Two ways past it, named rather than patched.** The grep is a line-based text search, so it does
+   not see either of these:
+
+   ```kotlin
+   val store = RemarkStore.getInstance(project)   // no dot after the call
+   store.setBucket(setOf(id), "x")                // this line never says RemarkStore
+
+   project.service<RemarkStore>().setBucket(...)  // never says getInstance either
+   ```
+
+   A wrapped chain hides the same way, and any line that also contains `.all()` is dropped whole by
+   the third filter. Do not grow the pattern to chase these: the rule's own argument is that a guard
+   which quietly stops covering things is the failure being fixed, and a cleverer regex is a guard
+   nobody can reason about. Naming the holes is the honest version. If a bypass is ever found in a
+   review, the fix is to move the call into `RemarkEdits.kt`, not to widen the grep.
+
 4. **No code ever writes to a source file.** The whole point of the plugin is that the working tree
    stays clean.
 

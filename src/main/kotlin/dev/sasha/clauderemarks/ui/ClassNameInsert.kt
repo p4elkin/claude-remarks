@@ -3,6 +3,7 @@ package dev.sasha.clauderemarks.ui
 import com.intellij.navigation.ChooseByNameContributor
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.util.concurrency.AppExecutorUtil
@@ -29,16 +30,39 @@ import javax.swing.text.JTextComponent
  * The catch stays anyway, for the case that reading the sources cannot rule out: an IDE that ships
  * its own descriptor instead of IDEA CORE. There the keystroke does nothing rather than throwing.
  *
+ * ProcessCanceledException is rethrown, and that is not tidiness. This runs inside
+ * ReadAction.nonBlocking, and getNames walks stub indexes, which call
+ * ProgressManager.checkCanceled() constantly. When a write action asks for the lock the indicator is
+ * cancelled and PCE is thrown. A catch on Throwable turns that into an empty list and carries on to
+ * the next contributor, which swallows its own cancellation in turn — so the read action does not
+ * give the lock back when asked, and a keystroke in the editor waits out the whole walk plus
+ * distinct().sorted() over tens of thousands of strings. That is the EDT stall a non-blocking read
+ * action exists to prevent.
+ *
  * Must run inside a read action, off the EDT. getNames walks indexes and returns tens of thousands
  * of strings on a large project.
  */
 fun projectClassNames(project: Project): List<String> =
-    runCatching {
+    try {
         ChooseByNameContributor.CLASS_EP_NAME.extensionList
-            .flatMap { runCatching { it.getNames(project, false).toList() }.getOrDefault(emptyList()) }
+            .flatMap { namesFrom(it, project) }
             .distinct()
             .sorted()
-    }.getOrDefault(emptyList())
+    } catch (e: ProcessCanceledException) {
+        throw e
+    } catch (e: Throwable) {
+        emptyList()
+    }
+
+/** One contributor's names, or none. Tolerates a broken contributor, never a cancellation. */
+private fun namesFrom(contributor: ChooseByNameContributor, project: Project): List<String> =
+    try {
+        contributor.getNames(project, false).toList()
+    } catch (e: ProcessCanceledException) {
+        throw e
+    } catch (e: Throwable) {
+        emptyList()
+    }
 
 /**
  * replaceSelection, not insert(text, caretPosition): insert ignores a selection, so choosing a name

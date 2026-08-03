@@ -32,11 +32,18 @@ import java.time.format.DateTimeFormatter
 
 private val WHEN = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault())
 
-/** One file per project, named so a person can find it, keyed so two projects cannot collide. */
+/**
+ * One file per project, named so a person can find it, keyed so two projects cannot collide.
+ *
+ * safeName wraps the WHOLE basename, not just the project name. Both halves come from the project
+ * rather than from us: `locationHash` is plain hex for a directory-based project, but a file-based
+ * `.ipr` project prefixes it with the project name, so sanitizing one half and interpolating the
+ * other raw would leave the same untrusted characters in the path by a different route.
+ */
 fun historyFile(project: Project): Path =
     PathManager.getConfigDir()
         .resolve("claude-remarks")
-        .resolve("${safeName(project.name)}-${project.locationHash}.md")
+        .resolve(safeName("${project.name}-${project.locationHash}") + ".md")
 
 /** Internal, so one assertion can cover it: a project called "My App / v2" must not become a path. */
 internal fun safeName(name: String): String = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
@@ -77,7 +84,11 @@ internal fun renderHistory(
             .append(remark.startLine + 1).append("-").append(remark.endLine + 1)
         remark.tag?.let { append(" — ").append(it.label) }
         append(" — ").append(remark.severity.label)
-        remark.bucket?.let { append(" — bucket ").append(it) }
+        // Flattened, because the heading is one line and the bucket is the only free-form field on
+        // it. setRemarkBucket trims the ends but does not touch an inner newline, and a newline here
+        // would put whatever follows it at document level, outside the indent that protects the text
+        // below. Not reachable from the current single-line chooser; this closes the asymmetry.
+        remark.bucket?.let { append(" — bucket ").append(it.lines().joinToString(" ")) }
         remark.commit?.let { append(" — commit ").append(it.take(8)) }
         append("\n\n")
         // Indented, so a remark holding a markdown heading or a fence cannot restructure the

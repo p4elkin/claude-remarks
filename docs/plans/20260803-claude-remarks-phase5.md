@@ -2691,6 +2691,17 @@ Recorded so they are not rediscovered as bugs.
   and commit it by hand, which is more code than the case is worth on a path no test can reach. The
   Alt keys still work there, so the tag can be set without touching the row at all.
 - **A single Delete does not archive.** Only Clear Sent and Clear All do.
+- **The bucket dialog is not parented to the project window.** `Messages` has exactly one
+  `showEditableChooseDialog` overload in 2025.2 and it takes no `Project`. The parented alternative,
+  `showChooseDialog(Project, …)`, returns an index into a fixed list, so it cannot express "type a name
+  that is not in the list yet" — which is the only reason this dialog is the editable one. Accepted
+  until the platform grows an overload.
+- **Three fixes in the archive path have no test, by nature rather than by omission.** The history file
+  becoming a nullable parameter so its resolution happens inside `archive`'s try needs a broken IDE
+  configuration directory to reproduce; `readTrimmed` narrowing its catch off `Throwable` needs an
+  actual `OutOfMemoryError`; and Clear Sent skipping its success balloon on an archive failure runs
+  behind a modal confirmation dialog. All three are reasoned from the code and written down in
+  `docs/claude/design.md` instead.
 - **The commit is never refreshed.** A remark written on one branch keeps that branch's HEAD after a
   checkout. That is the point: it records what the author was looking at.
 - **`headCommit` only understands git.** No Mercurial, no Subversion, no Perforce. A project under

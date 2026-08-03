@@ -131,6 +131,28 @@ class PromptRendererTest {
     }
 
     /**
+     * A setext underline is the other way to forge a heading, and it needs only ONE character: "=" a
+     * line below a paragraph makes an H1, "-" makes an H2. The remark text is prose in the document,
+     * so the line above the underline is always a paragraph — the exact setup setext needs.
+     */
+    @Test
+    fun `a single dash or equals under a line in the remark text cannot forge a heading`() {
+        val out = renderPrompt(
+            "H",
+            listOf(
+                RenderedRemark(
+                    path = "a.kt", startLine = 0, endLine = 0, tag = null, severity = "should",
+                    text = "this is important\n-\nand this\n===",
+                    orphaned = false, codeStartLine = 0, code = listOf("one"),
+                )
+            ),
+        )
+
+        assertTrue(out, out.contains("\\-\n"))
+        assertTrue(out, out.contains("\\===\n"))
+    }
+
+    /**
      * An orphan has no code to quote, but it still carries the lines that surrounded it when it was
      * written. Those are the only thing left to search the file for, and a renamed file orphans
      * every remark in it, so without them a whole file's remarks arrive unactionable.
