@@ -189,10 +189,19 @@ class WaitingReviewService(private val project: Project) : Disposable {
         deadlineSeconds: Long,
         outputPath: Path? = null,
     ): StartResult {
-        val result = startOrConflict(state, session, label, deadlineSeconds) {
+        val previous = state
+        val result = startOrConflict(previous, session, label, deadlineSeconds) {
             outputPath ?: Files.createTempDirectory("claude-remarks-review-")
         }
         if (result is StartResult.Accepted) {
+            // A different session only reaches this branch when startOrConflict found the current
+            // review stale (see the branch order there). That review is being replaced, not
+            // continued, so it has to go through the same teardown every other ending does —
+            // endReview() records it as lastEnded and cancels its own scheduled task — before the
+            // new state and the new scheduleExpiry below take its place. Without this, the old
+            // review's own expiry task, cancelled a few lines down, never gets to run and set
+            // lastEnded itself, so its output path would be lost for good.
+            if (previous != null && previous.sessionId != session) endReview()
             state = result.state
             scheduleExpiry(result.state)
         }

@@ -1335,6 +1335,15 @@ cannot read another agent's remarks this way. The same field covers a second cas
 and then the file holds real remarks that no live review points at any more. `endedOutputPath` finds
 those too.
 
+**`start` is also one of the places that ends a review, not only `clear`, `acknowledge` and
+`expireIfStale`.** `startOrConflict`'s stale branch (see "The branch order in `startOrConflict`
+matters" below) accepts a different session once the current review is stale, and that means the
+old review is being replaced, not continued. `start` calls `endReview()` on the old review before it
+installs the new one and calls `scheduleExpiry` for it. Without that call, the old review's own
+scheduled expiry task gets cancelled a few lines later, by the new `scheduleExpiry`, before it ever
+gets to run and set `lastEnded` itself. The old review's output path would then be lost for good,
+not just for the short window the scheduled task normally covers.
+
 **The size cap, and why it refuses instead of truncating.** A response over 1 MiB is refused with
 `status: "too-large"`, and no content field at all. Truncating was the alternative, and it is worse:
 a markdown prompt cut in the middle looks complete to a model reading it. The check runs on the

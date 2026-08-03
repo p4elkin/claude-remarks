@@ -178,6 +178,23 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
         assertNull(service.endedOutputPath("s2"))
     }
 
+    /**
+     * `start`'s stale-replacement branch (a different session arriving after the current review
+     * went stale, but before the scheduled expiry task fires) has to tear down the old review the
+     * same way every other ending does, or the old session's output path is lost for good, not just
+     * for the short window the scheduled task normally covers.
+     */
+    fun testAReviewSupersededWhileStaleIsStillFindableByItsSession() {
+        val service = WaitingReviewService.getInstance(project)
+        val firstDir = temp.dir("superseded-while-stale-first")
+        service.start("s1", "a label", 0L, firstDir)
+
+        val secondDir = temp.dir("superseded-while-stale-second")
+        service.start("s2", "a label", 60L, secondDir)
+
+        assertEquals(firstDir, service.endedOutputPath("s1"))
+    }
+
     fun testOnlyTheMostRecentlyEndedReviewIsRemembered() {
         val service = WaitingReviewService.getInstance(project)
         val firstDir = temp.dir("ended-review-test-first")
