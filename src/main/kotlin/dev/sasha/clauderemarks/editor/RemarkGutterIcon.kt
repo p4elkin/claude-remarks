@@ -15,6 +15,7 @@ import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.text.StringUtil
 import dev.sasha.clauderemarks.action.openRemarkEdit
 import dev.sasha.clauderemarks.model.RemarkSeverity
+import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.RemarkStore
@@ -25,8 +26,11 @@ import javax.swing.Icon
 
 private val PENDING_ICON: Icon = AllIcons.General.Note
 
-/** Half transparent, so a remark you have already handed over reads as done without disappearing. */
-private val SENT_ICON: Icon = IconLoader.getTransparentIcon(AllIcons.General.Note, 0.45f)
+/** Half transparent, so a remark you have published reads as handed over without disappearing. */
+private val PUBLISHED_ICON: Icon = IconLoader.getTransparentIcon(AllIcons.General.Note, 0.45f)
+
+/** Fainter still: an agent said it actually read this one. */
+private val READ_ICON: Icon = IconLoader.getTransparentIcon(AllIcons.General.Note, 0.25f)
 
 /** Everything the gutter needs about one remark, computed off the EDT. */
 data class RemarkPlacement(
@@ -35,7 +39,7 @@ data class RemarkPlacement(
     val tag: RemarkTag?,
     val severity: RemarkSeverity,
     val commit: String?,
-    val sent: Boolean,
+    val status: RemarkStatus,
     val startLine: Int,
     val endLine: Int,
     val orphaned: Boolean,
@@ -59,7 +63,11 @@ fun tooltipFor(placement: RemarkPlacement): String = buildString {
     append("  ").append(placement.severity.label)
     placement.commit?.let { append("  commit ").append(it.take(8)) }
     if (placement.orphaned) append("<br/>(orphaned — these line numbers are stale)")
-    if (placement.sent) append("<br/>(sent)")
+    when (placement.status) {
+        RemarkStatus.PUBLISHED -> append("<br/>(published)")
+        RemarkStatus.READ -> append("<br/>(read)")
+        RemarkStatus.PENDING -> {}
+    }
     append("</html>")
 }
 
@@ -75,10 +83,14 @@ class RemarkGutterIconRenderer(
     private val project: Project,
     private val id: String,
     private val text: String,
-    private val sent: Boolean,
+    private val status: RemarkStatus,
 ) : GutterIconRenderer() {
 
-    override fun getIcon(): Icon = if (sent) SENT_ICON else PENDING_ICON
+    override fun getIcon(): Icon = when (status) {
+        RemarkStatus.PENDING -> PENDING_ICON
+        RemarkStatus.PUBLISHED -> PUBLISHED_ICON
+        RemarkStatus.READ -> READ_ICON
+    }
 
     override fun getTooltipText(): String = text
 
@@ -97,9 +109,9 @@ class RemarkGutterIconRenderer(
 
     override fun equals(other: Any?): Boolean =
         other is RemarkGutterIconRenderer &&
-            other.id == id && other.text == text && other.sent == sent
+            other.id == id && other.text == text && other.status == status
 
-    override fun hashCode(): Int = Objects.hash(id, text, sent)
+    override fun hashCode(): Int = Objects.hash(id, text, status)
 }
 
 private fun menuFor(project: Project, editor: Editor, id: String): ActionGroup = DefaultActionGroup(

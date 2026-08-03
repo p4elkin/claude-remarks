@@ -2,6 +2,7 @@ package dev.sasha.clauderemarks.editor
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.model.RemarkSeverity
+import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.RemarkTag
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -9,8 +10,8 @@ import org.junit.Test
 
 /**
  * The platform renders a gutter tooltip as HTML. That decides two things at once. A plain "\n"
- * would not break a line, so the orphaned and sent notes would run into the remark text. And the
- * remark text is whatever the user typed, so a remark reading "why is List<String> here?" would
+ * would not break a line, so the orphaned and handed-over notes would run into the remark text. And
+ * the remark text is whatever the user typed, so a remark reading "why is List<String> here?" would
  * show as "why is  here?" — the browser eats <String> as a tag.
  */
 class RemarkTooltipTest {
@@ -52,11 +53,16 @@ class RemarkTooltipTest {
     }
 
     @Test
-    fun `an orphan and a sent remark each say so on their own line`() {
-        val html = tooltipFor(placement(orphaned = true, sent = true))
+    fun `an orphan and a published remark each say so on their own line`() {
+        val html = tooltipFor(placement(orphaned = true, status = RemarkStatus.PUBLISHED))
 
         assertTrue(html.contains("<br/>(orphaned"))
-        assertTrue(html.contains("<br/>(sent)"))
+        assertTrue(html.contains("<br/>(published)"))
+    }
+
+    @Test
+    fun `a read remark says so on its own line`() {
+        assertTrue(tooltipFor(placement(status = RemarkStatus.READ)).contains("<br/>(read)"))
     }
 
     @Test
@@ -69,7 +75,7 @@ class RemarkTooltipTest {
         tag: RemarkTag? = null,
         severity: RemarkSeverity = RemarkSeverity.SHOULD,
         commit: String? = null,
-        sent: Boolean = false,
+        status: RemarkStatus = RemarkStatus.PENDING,
         orphaned: Boolean = false,
     ) = RemarkPlacement(
         id = "r-1",
@@ -77,7 +83,7 @@ class RemarkTooltipTest {
         tag = tag,
         severity = severity,
         commit = commit,
-        sent = sent,
+        status = status,
         startLine = 4,
         endLine = 6,
         orphaned = orphaned,
@@ -108,10 +114,10 @@ class RemarkGutterRendererTest : BasePlatformTestCase() {
         assertFalse(renderer() == renderer(text = "something else"))
     }
 
-    fun testARemarkThatBecameSentIsADifferentRendererSoTheIconDims() {
-        assertFalse(renderer() == renderer(sent = true))
+    fun testARemarkThatBecamePublishedIsADifferentRendererSoTheIconDims() {
+        assertFalse(renderer() == renderer(status = RemarkStatus.PUBLISHED))
     }
 
-    private fun renderer(id: String = "r-1", text: String = "why?", sent: Boolean = false) =
-        RemarkGutterIconRenderer(project, id, text, sent)
+    private fun renderer(id: String = "r-1", text: String = "why?", status: RemarkStatus = RemarkStatus.PENDING) =
+        RemarkGutterIconRenderer(project, id, text, status)
 }

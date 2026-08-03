@@ -30,7 +30,7 @@ val REMARKS_CHANGED: Topic<RemarksListener> =
     Topic.create("Claude remarks changed", RemarksListener::class.java, Topic.BroadcastDirection.NONE)
 
 /**
- * These eight functions are the only way production code changes a remark. Nothing calls
+ * These nine functions are the only way production code changes a remark. Nothing calls
  * RemarkStore.add / RemarkStore.remove directly any more, and task 12 greps to keep that true.
  *
  * The reason is not tidiness. The tool window and the gutter both have to redraw after any change,
@@ -85,8 +85,17 @@ fun deleteRemark(project: Project, id: String) {
     if (RemarkStore.getInstance(project).remove(id)) notifyRemarksChanged(project)
 }
 
-fun markRemarksSent(project: Project, ids: Collection<String>) {
-    if (RemarkStore.getInstance(project).markSent(ids.toSet()) > 0) notifyRemarksChanged(project)
+fun markRemarksPublished(project: Project, ids: Collection<String>) {
+    if (RemarkStore.getInstance(project).markPublished(ids.toSet()) > 0) notifyRemarksChanged(project)
+}
+
+/**
+ * Only the review path may call this: a real `read` acknowledgement over
+ * POST /api/claude-remarks/ack, in `review/SendReview.kt`'s `reportReviewEnd`. CLAUDE.md's guard
+ * keeps every other call site out.
+ */
+fun markRemarksRead(project: Project, ids: Collection<String>) {
+    if (RemarkStore.getInstance(project).markRead(ids.toSet()) > 0) notifyRemarksChanged(project)
 }
 
 fun setRemarkSeverity(project: Project, ids: Collection<String>, severity: RemarkSeverity) {
@@ -108,7 +117,8 @@ fun setRemarkBucket(project: Project, ids: Collection<String>, bucket: String?) 
 }
 
 /**
- * Writes the sent remarks to the history file, then removes them. Returns how many were removed.
+ * Writes every handed-over remark — PUBLISHED or READ — to the history file, then removes them.
+ * Returns how many were removed.
  *
  * The history file is a nullable parameter rather than one defaulted to `historyFile(project)`.
  * Kotlin evaluates a default argument in the synthetic bridge, BEFORE the body runs, so a default of
@@ -118,10 +128,10 @@ fun setRemarkBucket(project: Project, ids: Collection<String>, bucket: String?) 
  * Nothing is deleted either way, so nothing is lost; the failure just arrives as a crash. Null means
  * "the real one", resolved inside the try. Only the tests pass a path.
  */
-fun clearSentRemarks(project: Project, historyFile: Path? = null): Int {
-    val going = RemarkStore.getInstance(project).all().filter { it.status == RemarkStatus.SENT }
+fun clearHandedOverRemarks(project: Project, historyFile: Path? = null): Int {
+    val going = RemarkStore.getInstance(project).all().filter { it.status != RemarkStatus.PENDING }
     if (!archive(project, historyFile, going)) return 0
-    val removed = RemarkStore.getInstance(project).removeSent()
+    val removed = RemarkStore.getInstance(project).removeHandedOver()
     if (removed > 0) notifyRemarksChanged(project)
     return removed
 }

@@ -12,7 +12,7 @@ import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.deleteRemark
-import dev.sasha.clauderemarks.store.markRemarksSent
+import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.setRemarkSeverity
 import dev.sasha.clauderemarks.store.settleInvocationQueue
@@ -123,13 +123,13 @@ class RemarkGutterTest : BasePlatformTestCase() {
         assertTrue(tooltip, tooltip.contains("commit ${SHA.take(8)}"))
     }
 
-    fun testASentRemarkKeepsItsIcon() {
+    fun testAPublishedRemarkKeepsItsIcon() {
         openFoo()
         val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
         gutter.start()
         settleInvocationQueue()
 
-        markRemarksSent(project, listOf(stored.id!!))
+        markRemarksPublished(project, listOf(stored.id!!))
         settleInvocationQueue()
 
         assertEquals(1, iconCount())

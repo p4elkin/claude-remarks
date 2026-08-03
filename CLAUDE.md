@@ -182,6 +182,18 @@ this carries forward.
    The comment trap is still live: the grep is line-based, so a comment naming any of the five
    forbidden symbols would trip it, even to say they are absent.
 
+6. **Only `store/RemarkEdits.kt` and `review/SendReview.kt` may call `markRemarksRead`.** A remark
+   reaches `READ` for one reason only: a real `read` acknowledgement over
+   `POST /api/claude-remarks/ack`, handled by `reportReviewEnd` in `review/SendReview.kt`. Publishing
+   — the clipboard, or the published file — can only ever move a remark to `PUBLISHED`. Letting
+   anything else call `markRemarksRead` would let a copy or a publish quietly claim an agent read
+   remarks it never saw.
+
+   ```bash
+   grep -rn "markRemarksRead(" src/main --include='*.kt' \
+     | grep -v "store/RemarkEdits.kt" | grep -v "review/SendReview.kt"   # must be empty
+   ```
+
 Every command above must come back empty.
 
 ## Project structure

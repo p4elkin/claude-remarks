@@ -16,7 +16,7 @@ import dev.sasha.clauderemarks.action.plural
 import dev.sasha.clauderemarks.action.prepare
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.RemarkStore
-import dev.sasha.clauderemarks.store.markRemarksSent
+import dev.sasha.clauderemarks.store.markRemarksRead
 import java.io.IOException
 import java.util.concurrent.CancellationException
 
@@ -189,7 +189,7 @@ private fun reportLater(project: Project, acted: WaitingReviewState, end: Review
 }
 
 /**
- * For [ReviewEnd.READ] the remarks that were written are marked sent. For anything else — the
+ * For [ReviewEnd.READ] the remarks that were written are marked read. For anything else — the
  * agent gave up, or the deadline passed — nothing in the store changes; what was written, if
  * anything, is still pending.
  *
@@ -203,7 +203,7 @@ private fun reportReviewEnd(project: Project, state: WaitingReviewState, end: Re
         phase !is ReviewPhase.Sent ->
             notifyRemarks(project, "Claude Code stopped waiting for your remarks.")
         end == ReviewEnd.READ -> {
-            markRemarksSent(project, phase.ids)
+            markRemarksRead(project, phase.ids)
             val count = phase.ids.size
             notifyRemarks(project, "Claude Code read $count remark${plural(count)}.")
         }

@@ -17,7 +17,7 @@ import dev.sasha.clauderemarks.render.collectForPrompt
 import dev.sasha.clauderemarks.render.renderPrompt
 import dev.sasha.clauderemarks.settings.RemarkSettings
 import dev.sasha.clauderemarks.store.RemarkStore
-import dev.sasha.clauderemarks.store.markRemarksSent
+import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.resolveAll
 import java.io.IOException
 import java.util.concurrent.CancellationException
@@ -36,12 +36,12 @@ internal data class Prepared(val markdown: String, val ids: List<String>, val fi
 
 /**
  * Renders the chosen remarks into one markdown prompt, puts it on the clipboard, marks those
- * remarks sent and says so in a balloon.
+ * remarks published and says so in a balloon.
  *
- * [ids] null means every pending remark. A non-null list is used as given, sent ones included, so
- * copying again after a paste went to the wrong place works.
+ * [ids] null means every pending remark. A non-null list is used as given, published ones
+ * included, so copying again after a paste went to the wrong place works.
  *
- * Sent remarks are not deleted. They stay listed in gray until Clear Sent.
+ * Published remarks are not deleted. They stay listed in gray until Clear Handed Over.
  */
 fun copyRemarks(project: Project, ids: Collection<String>?) {
     ReadAction.nonBlocking<Prepared> { prepare(project, ids) }
@@ -79,7 +79,7 @@ fun copyRemarks(project: Project, ids: Collection<String>?) {
                 )
                 return@finishOnUiThread
             }
-            markRemarksSent(project, prepared.ids)
+            markRemarksPublished(project, prepared.ids)
 
             val what = "${prepared.ids.size} remark${plural(prepared.ids.size)} " +
                 "across ${prepared.files} file${plural(prepared.files)}"
@@ -140,7 +140,7 @@ internal fun prepare(project: Project, ids: Collection<String>?): Prepared {
 internal fun plural(n: Int): String = if (n == 1) "" else "s"
 
 /**
- * Internal, because the tool window's toolbar reports its Clear Sent count the same way.
+ * Internal, because the tool window's toolbar reports its Clear Handed Over count the same way.
  *
  * The type is a parameter so a failed copy can say so in red rather than in the same quiet blue as
  * a success.

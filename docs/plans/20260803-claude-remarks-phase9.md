@@ -577,7 +577,7 @@ the limit in [section 11](#11-known-limits-and-the-known-issues-entries-to-add).
 and the acknowledgement has not arrived. Renaming it would spread this phase into phase 7's design
 for no gain.
 
-- [ ] write the failing tests in `RemarkStoreStateTest`:
+- [x] write the failing tests in `RemarkStoreStateTest`:
   - `a remark stored as SENT by an older build loads as pending`. Build the XML by hand with
     `JDOMUtil.load` carrying `status="SENT"`, deserialize it the way the existing round trip does,
     and assert `PENDING`. This is the accepted reset, pinned so it is a decision and not a surprise.
@@ -585,22 +585,22 @@ for no gain.
     the way `every field survives a write and read cycle` already does.
   - `marking published moves a read remark back to published`. And `markPublished` returns 1 for it.
   - `clearing handed over removes published and read and keeps pending`.
-- [ ] write the failing tests in `RemarkEditsTest`: `markRemarksPublished` publishes
+- [x] write the failing tests in `RemarkEditsTest`: `markRemarksPublished` publishes
       `REMARKS_CHANGED`, `markRemarksRead` publishes it, and neither publishes when nothing changed.
-- [ ] write the failing tests for the readers: `RemarksTreeTest`, a published remark's node carries
+- [x] write the failing tests for the readers: `RemarksTreeTest`, a published remark's node carries
       `PUBLISHED` and a read one carries `READ`; `SendReviewTest`, an `ack read` leaves the remarks
       `READ`, not `PUBLISHED`; `ReviewEndpointSmokeTest`, the same through the endpoint.
-- [ ] run `./gradlew test` and expect compile failures in the store and in every reader
-- [ ] implement the enum, the store, the three edit functions and every reader in one pass, and add
+- [x] run `./gradlew test` and expect compile failures in the store and in every reader
+- [x] implement the enum, the store, the three edit functions and every reader in one pass, and add
       the new guard to `CLAUDE.md`
-- [ ] `./gradlew test` passes whole, and all six guards are empty
-- [ ] **mutation:** make `markPublished` skip a remark whose status is `READ`; the "moves a read
+- [x] `./gradlew test` passes whole, and all six guards are empty
+- [x] **mutation:** make `markPublished` skip a remark whose status is `READ`; the "moves a read
       remark back" test must fail. Make `removeHandedOver` remove only `PUBLISHED`; the clearing test
       must fail. Keep the enum constant named `SENT` next to the other two; the older-build test must
       fail. Make `reportReviewEnd` call `markRemarksPublished` instead of `markRemarksRead`; the
       `SendReviewTest` and endpoint tests must fail. Make `remarkNode` map both handed-over states to
       one value; the tree test must fail. Restore all five.
-- [ ] commit: `feat: a remark is pending, published or read, and published is not read`
+- [x] commit: `feat: a remark is pending, published or read, and published is not read`
 
 ### Task 3: Publish replaces copy
 

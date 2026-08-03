@@ -146,7 +146,9 @@ class SendReviewTest : BasePlatformTestCase() {
         assertNull(WaitingReviewService.getInstance(project).current())
     }
 
-    fun testAReadAcknowledgementAfterASendMarksTheRemarksSent() {
+    /** An ack leaves the remarks READ, not PUBLISHED: only a real `read` acknowledgement over
+     *  POST /api/claude-remarks/ack may reach READ, per CLAUDE.md's guard on markRemarksRead. */
+    fun testAReadAcknowledgementAfterASendMarksTheRemarksRead() {
         val outputPath = temp.dir("send-review-test")
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
@@ -158,7 +160,7 @@ class SendReviewTest : BasePlatformTestCase() {
         settleInvocationQueue()
 
         assertEquals(AckOutcome.OK, outcome)
-        assertEquals(RemarkStatus.SENT, statusOf(remark.id!!))
+        assertEquals(RemarkStatus.READ, statusOf(remark.id!!))
         assertNull(WaitingReviewService.getInstance(project).current())
     }
 

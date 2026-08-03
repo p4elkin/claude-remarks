@@ -3,7 +3,7 @@ package dev.sasha.clauderemarks.action
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
-import dev.sasha.clauderemarks.store.markRemarksSent
+import dev.sasha.clauderemarks.store.markRemarksPublished
 
 /**
  * Which remarks a copy takes. Copy All must leave out the ones already sent, and Copy Selected
@@ -22,7 +22,7 @@ class CopyRemarksTest : BasePlatformTestCase() {
     fun testCopyAllLeavesOutRemarksThatWereAlreadySent() {
         val sent = addRemark(project, "Foo.kt", LINES, 0..0, "already handed over", null)
         val pending = addRemark(project, "Foo.kt", LINES, 1..1, "still waiting", null)
-        markRemarksSent(project, listOf(sent.id!!))
+        markRemarksPublished(project, listOf(sent.id!!))
 
         assertEquals(listOf(pending.id), prepare(project, null).ids)
     }
@@ -30,7 +30,7 @@ class CopyRemarksTest : BasePlatformTestCase() {
     fun testCopySelectedTakesTheIdsItWasGivenEvenWhenTheyAreSent() {
         val sent = addRemark(project, "Foo.kt", LINES, 0..0, "already handed over", null)
         addRemark(project, "Foo.kt", LINES, 1..1, "still waiting", null)
-        markRemarksSent(project, listOf(sent.id!!))
+        markRemarksPublished(project, listOf(sent.id!!))
 
         assertEquals(listOf(sent.id), prepare(project, listOf(sent.id!!)).ids)
     }

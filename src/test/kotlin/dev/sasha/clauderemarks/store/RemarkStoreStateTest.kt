@@ -41,7 +41,7 @@ class RemarkStoreStateTest {
             endColumn = 9,
             text = "why is this synchronized?",
             tag = RemarkTag.QUESTION,
-            status = RemarkStatus.SENT,
+            status = RemarkStatus.PUBLISHED,
             createdAt = 1_700_000_000_000L,
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",
@@ -176,55 +176,82 @@ class RemarkStoreStateTest {
     }
 
     @Test
-    fun `marking sent only touches the ids given`() {
+    fun `marking published only touches the ids given`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1"))
         state.addRemark(remark(id = "r-2"))
         val before = state.modificationCount
 
-        assertEquals(1, state.markSent(setOf("r-1")))
+        assertEquals(1, state.markPublished(setOf("r-1")))
 
-        assertEquals(RemarkStatus.SENT, state.snapshot().first { it.id == "r-1" }.status)
+        assertEquals(RemarkStatus.PUBLISHED, state.snapshot().first { it.id == "r-1" }.status)
         assertEquals(RemarkStatus.PENDING, state.snapshot().first { it.id == "r-2" }.status)
-        // markSent writes a FIELD on a remark that is already in the list, which is not the same
-        // as adding or removing a list element. Whether that alone would reach the outer state's
-        // modification count is not settled, and if it does not, the SENT flag is lost on restart
-        // with nothing logged. So the count is pinned here.
+        // markPublished writes a FIELD on a remark that is already in the list, which is not the
+        // same as adding or removing a list element. Whether that alone would reach the outer
+        // state's modification count is not settled, and if it does not, the PUBLISHED flag is lost
+        // on restart with nothing logged. So the count is pinned here.
         assertTrue(state.modificationCount > before)
     }
 
     @Test
-    fun `marking a remark sent twice does not change it a second time`() {
+    fun `marking a remark published twice does not change it a second time`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1"))
-        state.markSent(setOf("r-1"))
+        state.markPublished(setOf("r-1"))
         val before = state.modificationCount
 
-        assertEquals(0, state.markSent(setOf("r-1")))
+        assertEquals(0, state.markPublished(setOf("r-1")))
 
         assertEquals(before, state.modificationCount)
     }
 
+    /**
+     * `markPublished` filters on `status != PUBLISHED`, not on `status == PENDING`: Publish
+     * Selected exists exactly to re-publish something already handed over, so a READ remark has to
+     * move back to PUBLISHED, not be skipped as already handled.
+     */
     @Test
-    fun `removing sent keeps the pending ones`() {
+    fun `marking published moves a read remark back to published`() {
         val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1", status = RemarkStatus.SENT))
+        state.addRemark(remark(id = "r-1", status = RemarkStatus.READ))
+
+        assertEquals(1, state.markPublished(setOf("r-1")))
+
+        assertEquals(RemarkStatus.PUBLISHED, state.snapshot().single().status)
+    }
+
+    @Test
+    fun `removing handed over keeps the pending ones`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", status = RemarkStatus.PUBLISHED))
         state.addRemark(remark(id = "r-2", status = RemarkStatus.PENDING))
         val before = state.modificationCount
 
-        assertEquals(1, state.removeSent())
+        assertEquals(1, state.removeHandedOver())
 
         assertEquals(listOf("r-2"), state.snapshot().map { it.id })
         assertTrue(state.modificationCount > before)
     }
 
+    /** `removeHandedOver` takes out READ remarks too, not only PUBLISHED ones. */
     @Test
-    fun `removing sent when there are none changes nothing`() {
+    fun `removing handed over takes out read remarks too`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", status = RemarkStatus.READ))
+        state.addRemark(remark(id = "r-2", status = RemarkStatus.PENDING))
+
+        assertEquals(1, state.removeHandedOver())
+
+        assertEquals(listOf("r-2"), state.snapshot().map { it.id })
+    }
+
+    @Test
+    fun `removing handed over when there are none changes nothing`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1"))
         val before = state.modificationCount
 
-        assertEquals(0, state.removeSent())
+        assertEquals(0, state.removeHandedOver())
 
         assertEquals(before, state.modificationCount)
     }
@@ -233,7 +260,7 @@ class RemarkStoreStateTest {
     fun `clear removes everything`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1"))
-        state.addRemark(remark(id = "r-2", status = RemarkStatus.SENT))
+        state.addRemark(remark(id = "r-2", status = RemarkStatus.PUBLISHED))
         val before = state.modificationCount
 
         assertEquals(2, state.clear())
@@ -243,17 +270,29 @@ class RemarkStoreStateTest {
     }
 
     @Test
+    fun `published and read both survive the round trip`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", status = RemarkStatus.PUBLISHED))
+        state.addRemark(remark(id = "r-2", status = RemarkStatus.READ))
+
+        val restored = roundTrip(state).remarks
+
+        assertEquals(RemarkStatus.PUBLISHED, restored.first { it.id == "r-1" }.status)
+        assertEquals(RemarkStatus.READ, restored.first { it.id == "r-2" }.status)
+    }
+
+    @Test
     fun `an edited remark survives the round trip through xml`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1", text = "old", tag = null))
         state.editRemark("r-1", "new", RemarkTag.REFACTOR)
-        state.markSent(setOf("r-1"))
+        state.markPublished(setOf("r-1"))
 
         val restored = roundTrip(state).remarks.single()
 
         assertEquals("new", restored.text)
         assertEquals(RemarkTag.REFACTOR, restored.tag)
-        assertEquals(RemarkStatus.SENT, restored.status)
+        assertEquals(RemarkStatus.PUBLISHED, restored.status)
     }
 
     /**
@@ -288,6 +327,24 @@ class RemarkStoreStateTest {
 
         assertEquals(0, restored.remarks.single().startColumn)
         assertEquals(0, restored.remarks.single().endColumn)
+    }
+
+    /**
+     * The accepted reset, pinned so it is a decision and not a surprise: a remark an older build
+     * wrote as "SENT" does not parse against the new enum — which has no SENT constant — and comes
+     * back at the delegate's default, PENDING. Nothing is lost but the colour; the remark had
+     * already been handed over once.
+     */
+    @Test
+    fun `a remark stored as SENT by an older build loads as pending`() {
+        val restored = XmlSerializer.deserialize(
+            JDOMUtil.load(
+                """<RemarksState><remarks><RemarkState id="r-1" path="src/Foo.kt" status="SENT" /></remarks></RemarksState>"""
+            ),
+            RemarkStore.RemarksState::class.java,
+        )
+
+        assertEquals(RemarkStatus.PENDING, restored.remarks.single().status)
     }
 
     @Test
@@ -329,7 +386,7 @@ class RemarkStoreStateTest {
      * The name no longer claims to guard `setSeverity`'s own `incrementModificationCount()` call,
      * because it cannot: writing `severity` on a child RemarkState already bumps that child's count,
      * and ListStoredProperty surfaces it through the outer state — so the count rises with the
-     * explicit call deleted. The call is left in place, matching markSent and removeSent; only the
+     * explicit call deleted. The call is left in place, matching markPublished and removeHandedOver; only the
      * name is corrected. The same is true of setBucket.
      */
     @Test
@@ -418,7 +475,7 @@ class RemarkStoreStateTest {
         val snapshot = state.snapshot()
 
         state.editRemark("r-1", "new", RemarkTag.BUG)
-        state.markSent(setOf("r-1"))
+        state.markPublished(setOf("r-1"))
 
         assertEquals("old", snapshot.single().text)
         assertNull(snapshot.single().tag)
@@ -449,7 +506,7 @@ class RemarkStoreStateTest {
             endColumn = 9,
             text = "why is this synchronized?",
             tag = RemarkTag.QUESTION,
-            status = RemarkStatus.SENT,
+            status = RemarkStatus.PUBLISHED,
             createdAt = 1_700_000_000_000L,
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",

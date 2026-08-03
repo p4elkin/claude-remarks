@@ -8,7 +8,6 @@ import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import javax.swing.tree.DefaultMutableTreeNode
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,7 +57,7 @@ class RemarksTreeTest {
         assertEquals("why?", node.text)
         assertEquals("bug", node.tag)
         assertEquals(4, node.startLine)
-        assertFalse(node.sent)
+        assertEquals(RemarkStatus.PENDING, node.status)
     }
 
     @Test
@@ -93,8 +92,9 @@ class RemarksTreeTest {
     }
 
     @Test
-    fun `a sent row is flagged, not dropped`() {
-        assertTrue(remarkNode(row(status = RemarkStatus.SENT)).sent)
+    fun `a published remark's node carries PUBLISHED and a read one carries READ`() {
+        assertEquals(RemarkStatus.PUBLISHED, remarkNode(row(status = RemarkStatus.PUBLISHED)).status)
+        assertEquals(RemarkStatus.READ, remarkNode(row(status = RemarkStatus.READ)).status)
     }
 
     @Test

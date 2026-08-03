@@ -8,8 +8,19 @@ enum class RemarkTag { BUG, QUESTION, REFACTOR, NOTE }
 /** Lowercase, because this exact string is printed into the tree, the tooltip and the prompt. */
 val RemarkTag.label: String get() = name.lowercase()
 
-/** SENT is written by `markRemarksSent` once a copy reaches the clipboard, in `action/CopyRemarks.kt`. */
-enum class RemarkStatus { PENDING, SENT }
+/**
+ * What has happened to a remark, in order.
+ *
+ * PENDING is written, handed nowhere. PUBLISHED means handed to a channel that cannot confirm a
+ * read: the clipboard is one, the published file is another. READ means an agent said it read them,
+ * over POST /api/claude-remarks/ack. Only the review path can produce READ, which is the whole
+ * reason there are two words for "handed over" rather than one.
+ *
+ * PENDING stays the first value and the default, so BaseState keeps omitting it and nothing has to
+ * migrate. A remark stored by an older build as "SENT" does not parse and loads as PENDING. That is
+ * accepted: those remarks had already been handed over, and nothing about them is lost but a colour.
+ */
+enum class RemarkStatus { PENDING, PUBLISHED, READ }
 
 /**
  * How strongly a remark should be acted on. Declared low to high.

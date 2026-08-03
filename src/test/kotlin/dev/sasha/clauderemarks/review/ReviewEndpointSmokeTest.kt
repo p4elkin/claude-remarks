@@ -81,7 +81,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
         assertTrue(sent, sent.contains("\"status\""))
         assertTrue(sent, sent.contains("\"ok\""))
-        assertEquals(RemarkStatus.SENT, RemarkStore.getInstance(project).all().single { it.id == remark.id }.status)
+        assertEquals(RemarkStatus.READ, RemarkStore.getInstance(project).all().single { it.id == remark.id }.status)
     }
 
     /**

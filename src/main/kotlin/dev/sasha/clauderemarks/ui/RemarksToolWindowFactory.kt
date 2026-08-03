@@ -43,7 +43,7 @@ import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.RemarksListener
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import dev.sasha.clauderemarks.store.clearAllRemarks
-import dev.sasha.clauderemarks.store.clearSentRemarks
+import dev.sasha.clauderemarks.store.clearHandedOverRemarks
 import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.store.fileForStoredPath
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
@@ -378,8 +378,8 @@ class RemarksPanel(
      * DumbAwareAction.create returns an action whose update() cannot be overridden, so a button
      * built that way is always live. Task 3 went to real trouble to make the editor action
      * visible-but-disabled with a reason rather than silently dead; the same rule belongs here.
-     * Copy Selected with nothing selected and Clear Sent with nothing sent were live buttons that
-     * did nothing at all when pressed.
+     * Copy Selected with nothing selected and Clear Handed Over with nothing handed over were live
+     * buttons that did nothing at all when pressed.
      *
      * ActionUpdateThread.EDT, because [enabled] reads the tree selection and the store.
      */
@@ -401,7 +401,8 @@ class RemarksPanel(
      *
      * `all()` is a deep copy — a fresh RemarkState per remark, taken under the store's lock — and
      * ToolbarAction.update runs on the EDT for every button on every tick, so Copy All Pending,
-     * Clear Sent and Clear All each took their own copy of the whole store several times a second.
+     * Clear Handed Over and Clear All each took their own copy of the whole store several times a
+     * second.
      *
      * Cleared by the REMARKS_CHANGED subscription above, which is the only thing that can change the
      * store as far as this panel is concerned: all eight mutation functions publish it, and rule 3 in
@@ -413,7 +414,7 @@ class RemarksPanel(
     internal fun remarks(): List<RemarkState> =
         remarksCache ?: RemarkStore.getInstance(project).all().also { remarksCache = it }
 
-    private fun sentCount() = remarks().count { it.status == RemarkStatus.SENT }
+    private fun handedOverCount() = remarks().count { it.status != RemarkStatus.PENDING }
 
     /**
      * Built in code, not registered as a <group> in plugin.xml: these actions are private to this
@@ -435,8 +436,8 @@ class RemarksPanel(
                 AllIcons.Actions.InSelection,
                 { selectedIds().isNotEmpty() },
             ) { copyRemarks(project, selectedIds()) },
-            ToolbarAction("Clear Sent", AllIcons.Actions.GC, { sentCount() > 0 }) {
-                confirmClearSent()
+            ToolbarAction("Clear Handed Over", AllIcons.Actions.GC, { handedOverCount() > 0 }) {
+                confirmClearHandedOver()
             },
             ToolbarAction("Clear All", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
                 confirmClearAll()
@@ -461,27 +462,29 @@ class RemarksPanel(
     }
 
     /**
-     * Asks first, and says how many went. "Already copied" is not a reason to skip the question:
-     * copied means one clipboard buffer that the next copy overwrites, and sent remarks are kept
-     * precisely so that a paste which went to the wrong place can be copied again. The button also
-     * sits next to Clear All, so a misclick between two destructive buttons is easy.
+     * Asks first, and says how many went. "Already handed over" is not a reason to skip the
+     * question: published means one clipboard buffer or one file that the next publish overwrites,
+     * and handed-over remarks are kept precisely so that a paste or a fetch that went to the wrong
+     * place can be handed over again. The button also sits next to Clear All, so a misclick between
+     * two destructive buttons is easy.
      */
-    private fun confirmClearSent() {
-        val sent = sentCount()
-        if (sent == 0) return
+    private fun confirmClearHandedOver() {
+        val handedOver = handedOverCount()
+        if (handedOver == 0) return
         val answer = Messages.showYesNoDialog(
             project,
-            "Remove $sent sent remark${plural(sent)}? They cannot be copied again.",
-            "Clear Sent Claude Remarks",
+            "Remove $handedOver handed-over remark${plural(handedOver)}? They cannot be published again.",
+            "Clear Handed Over Claude Remarks",
             Messages.getWarningIcon(),
         )
         if (answer != Messages.YES) return
-        val removed = clearSentRemarks(project)
-        // 0 here can only mean the archive write failed: the sent count was checked non-zero just
-        // above, and clearSentRemarks returns 0 in that case having already shown its own error
-        // balloon. Saying "Removed 0 sent remarks." beside that error was the wrong half of the truth.
+        val removed = clearHandedOverRemarks(project)
+        // 0 here can only mean the archive write failed: the handed-over count was checked non-zero
+        // just above, and clearHandedOverRemarks returns 0 in that case having already shown its own
+        // error balloon. Saying "Removed 0 handed-over remarks." beside that error was the wrong
+        // half of the truth.
         if (removed > 0) {
-            notifyRemarks(project, "Removed $removed sent remark${plural(removed)}.")
+            notifyRemarks(project, "Removed $removed handed-over remark${plural(removed)}.")
         }
     }
 

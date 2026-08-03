@@ -105,13 +105,42 @@ class RemarkEditsTest : BasePlatformTestCase() {
         assertEquals(0, RemarkStore.getInstance(project).all().size)
     }
 
-    fun testMarkingSentPublishesAndKeepsTheRemark() {
+    fun testMarkingPublishedPublishesAndKeepsTheRemark() {
         val stored = addOne()
 
-        markRemarksSent(project, listOf(stored.id!!))
+        markRemarksPublished(project, listOf(stored.id!!))
 
         assertEquals(2, heard)
-        assertEquals(RemarkStatus.SENT, RemarkStore.getInstance(project).all().single().status)
+        assertEquals(RemarkStatus.PUBLISHED, RemarkStore.getInstance(project).all().single().status)
+    }
+
+    fun testMarkingPublishedTwiceDoesNotPublishTheSecondTime() {
+        val stored = addOne()
+        markRemarksPublished(project, listOf(stored.id!!))
+        val before = heard
+
+        markRemarksPublished(project, listOf(stored.id!!))
+
+        assertEquals(before, heard)
+    }
+
+    fun testMarkingReadPublishes() {
+        val stored = addOne()
+
+        markRemarksRead(project, listOf(stored.id!!))
+
+        assertEquals(2, heard)
+        assertEquals(RemarkStatus.READ, RemarkStore.getInstance(project).all().single().status)
+    }
+
+    fun testMarkingReadTwiceDoesNotPublishTheSecondTime() {
+        val stored = addOne()
+        markRemarksRead(project, listOf(stored.id!!))
+        val before = heard
+
+        markRemarksRead(project, listOf(stored.id!!))
+
+        assertEquals(before, heard)
     }
 
     fun testSettingTheSeverityPublishes() {
@@ -159,15 +188,15 @@ class RemarkEditsTest : BasePlatformTestCase() {
         assertEquals("auth refactor", RemarkStore.getInstance(project).all().single().bucket)
     }
 
-    fun testClearSentPublishesOnlyWhenSomethingWentAway() {
+    fun testClearHandedOverPublishesOnlyWhenSomethingWentAway() {
         addOne()
         val history = tempHistory()
 
-        clearSentRemarks(project, history)
+        clearHandedOverRemarks(project, history)
         assertEquals(1, heard)
 
-        markRemarksSent(project, RemarkStore.getInstance(project).all().map { it.id!! })
-        clearSentRemarks(project, history)
+        markRemarksPublished(project, RemarkStore.getInstance(project).all().map { it.id!! })
+        clearHandedOverRemarks(project, history)
 
         assertEquals(3, heard)
         assertEquals(0, RemarkStore.getInstance(project).all().size)
@@ -195,12 +224,12 @@ class RemarkEditsTest : BasePlatformTestCase() {
         assertTrue(file.fileName.toString(), file.fileName.toString().contains(project.locationHash))
     }
 
-    fun testClearSentWritesTheRemarksToTheHistoryFileFirst() {
+    fun testClearHandedOverWritesTheRemarksToTheHistoryFileFirst() {
         val stored = addOne()
-        markRemarksSent(project, listOf(stored.id!!))
+        markRemarksPublished(project, listOf(stored.id!!))
         val history = Files.createTempDirectory("h").resolve("history.md")
 
-        assertEquals(1, clearSentRemarks(project, history))
+        assertEquals(1, clearHandedOverRemarks(project, history))
 
         assertEquals(0, RemarkStore.getInstance(project).all().size)
         assertTrue(Files.readString(history).contains("note"))

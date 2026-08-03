@@ -217,7 +217,7 @@ class RemarkGutter(private val project: Project) : Disposable {
                     tag = remark.tag,
                     severity = remark.severity,
                     commit = remark.commit,
-                    sent = remark.status == RemarkStatus.SENT,
+                    status = remark.status,
                     startLine = result.startLine,
                     endLine = result.endLine,
                     orphaned = result is AnchorResult.Orphaned,
@@ -295,7 +295,7 @@ class RemarkGutter(private val project: Project) : Disposable {
         project = project,
         id = placement.id,
         text = tooltipFor(placement),
-        sent = placement.sent,
+        status = placement.status,
     )
 
     /** EDT. */

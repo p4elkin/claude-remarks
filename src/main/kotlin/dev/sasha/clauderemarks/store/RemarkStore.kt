@@ -103,11 +103,23 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
             return true
         }
 
-        /** Returns how many actually changed, so marking an already-sent remark is a no-op. */
+        /** Returns how many actually changed, so publishing an already-published remark is a
+         *  no-op. A READ remark moves back to PUBLISHED too: Publish Selected exists exactly to
+         *  re-publish something already handed over. */
         @Synchronized
-        fun markSent(ids: Set<String>): Int {
-            val changed = remarks.filter { it.id in ids && it.status != RemarkStatus.SENT }
-            changed.forEach { it.status = RemarkStatus.SENT }
+        fun markPublished(ids: Set<String>): Int {
+            val changed = remarks.filter { it.id in ids && it.status != RemarkStatus.PUBLISHED }
+            changed.forEach { it.status = RemarkStatus.PUBLISHED }
+            if (changed.isNotEmpty()) incrementModificationCount()
+            return changed.size
+        }
+
+        /** Returns how many actually changed, the same shape as markPublished. Only the review
+         *  path's `read` acknowledgement produces READ; see CLAUDE.md's guard on this. */
+        @Synchronized
+        fun markRead(ids: Set<String>): Int {
+            val changed = remarks.filter { it.id in ids && it.status != RemarkStatus.READ }
+            changed.forEach { it.status = RemarkStatus.READ }
             if (changed.isNotEmpty()) incrementModificationCount()
             return changed.size
         }
@@ -131,11 +143,12 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
             return changed.size
         }
 
-        /** Returns how many were removed. */
+        /** Removes everything that is not PENDING — PUBLISHED and READ alike. Returns how many
+         *  were removed. */
         @Synchronized
-        fun removeSent(): Int {
+        fun removeHandedOver(): Int {
             val before = remarks.size
-            remarks.removeIf { it.status == RemarkStatus.SENT }
+            remarks.removeIf { it.status != RemarkStatus.PENDING }
             val removed = before - remarks.size
             if (removed > 0) incrementModificationCount()
             return removed
@@ -156,7 +169,7 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
          * A copy of the list AND of every remark in it, taken under the lock the mutators hold, so
          * a reader never touches an object anything can still change.
          *
-         * Deep, not shallow, and that is the whole point. `editRemark` and `markSent` write fields
+         * Deep, not shallow, and that is the whole point. `editRemark` and `markPublished` write fields
          * on a remark that is already in the list. A shallow copy hands those same objects to
          * readers running on other threads: `resolveAll` and `collectForPrompt` walk them inside a
          * non-blocking read action on a pooled thread, for as long as a copy of the whole project
@@ -203,14 +216,16 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
 
     fun edit(id: String, text: String, tag: RemarkTag?): Boolean = liveState.editRemark(id, text, tag)
 
-    fun markSent(ids: Set<String>): Int = liveState.markSent(ids)
+    fun markPublished(ids: Set<String>): Int = liveState.markPublished(ids)
+
+    fun markRead(ids: Set<String>): Int = liveState.markRead(ids)
 
     fun setSeverity(ids: Set<String>, severity: RemarkSeverity): Int =
         liveState.setSeverity(ids, severity)
 
     fun setBucket(ids: Set<String>, bucket: String?): Int = liveState.setBucket(ids, bucket)
 
-    fun removeSent(): Int = liveState.removeSent()
+    fun removeHandedOver(): Int = liveState.removeHandedOver()
 
     fun clear(): Int = liveState.clear()
 

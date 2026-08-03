@@ -31,7 +31,7 @@ data class RemarkNode(
     val tag: String?,
     val severity: String,
     val bucket: String?,
-    val sent: Boolean,
+    val status: RemarkStatus,
     val startLine: Int,
 )
 
@@ -63,7 +63,7 @@ fun remarkNode(row: ResolvedRemark): RemarkNode {
         tag = row.remark.tag?.label,
         severity = row.remark.severity.label,
         bucket = row.remark.bucket,
-        sent = row.remark.status == RemarkStatus.SENT,
+        status = row.remark.status,
         startLine = result.startLine,
     )
 }
@@ -161,13 +161,17 @@ class RemarkTreeRenderer : ColoredTreeCellRenderer() {
         when (val user = (value as? DefaultMutableTreeNode)?.userObject) {
             is RemarkNode -> {
                 val body =
-                    if (user.sent) SimpleTextAttributes.GRAYED_ATTRIBUTES
-                    else SimpleTextAttributes.REGULAR_ATTRIBUTES
+                    if (user.status == RemarkStatus.PENDING) SimpleTextAttributes.REGULAR_ATTRIBUTES
+                    else SimpleTextAttributes.GRAYED_ATTRIBUTES
                 append("${user.position}  ", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 append(user.text, body)
                 user.tag?.let { append("  [$it]", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
                 append("  ${user.severity}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                if (user.sent) append("  sent", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                when (user.status) {
+                    RemarkStatus.PUBLISHED -> append("  published", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    RemarkStatus.READ -> append("  read", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    RemarkStatus.PENDING -> {}
+                }
             }
 
             is GroupNode -> append(user.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
