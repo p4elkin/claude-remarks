@@ -75,6 +75,7 @@ fun openNewRemarkInput(project: Project, editor: Editor, dataContext: DataContex
     val document = editor.document
     val selection = editor.selectionModel
     val range = selectedLines(document, selection.selectionStart, selection.selectionEnd)
+    val columns = selectedColumns(document, selection.selectionStart, selection.selectionEnd)
     val stampWhenOpened = document.modificationStamp
 
     showRemarkInput(project, editor, "Add Claude Remark", "", null) { input ->
@@ -90,7 +91,10 @@ fun openNewRemarkInput(project: Project, editor: Editor, dataContext: DataContex
             )
             return@showRemarkInput
         }
-        addRemark(project, path, document.text.split("\n"), range, input.text, input.tag)
+        addRemark(
+            project, path, document.text.split("\n"), range, input.text, input.tag,
+            startColumn = columns.first, endColumn = columns.second,
+        )
     }
 }
 
@@ -153,4 +157,41 @@ fun selectedLines(document: Document, selectionStart: Int, selectionEnd: Int): I
     val endsOnAFreshLine =
         endLine > startLine && document.getLineStartOffset(endLine) == selectionEnd
     return startLine..(if (endsOnAFreshLine) endLine - 1 else endLine)
+}
+
+/**
+ * The sub-line columns a selection covers, or `0 to 0` — "no sub-line range" — when the selection
+ * does not describe one:
+ * - empty (caret only, no selection)
+ * - covers whole lines, from the first character of the first line to the last character of the
+ *   last line (gutter drag, shift+down, Ctrl+A)
+ *
+ * Otherwise the first of the pair is the column [selectedLines]'s start line begins at, and the
+ * second is the column its end line stops at — the same [IntRange] this pair rides alongside, so a
+ * selection spanning several lines is expressed the same way a one-line selection is: a start
+ * column on the first line, an end column on the last, nothing in between. The renderer draws the
+ * two boundary markers on whichever quoted lines those turn out to be.
+ *
+ * Shares [selectedLines]'s exclusive-selectionEnd correction: selecting whole lines by dragging the
+ * gutter leaves selectionEnd at the first offset of the following line, which is not part of what
+ * was selected, so the effective end line is stepped back one and its end column taken as that
+ * line's own length.
+ */
+fun selectedColumns(document: Document, selectionStart: Int, selectionEnd: Int): Pair<Int, Int> {
+    if (selectionStart == selectionEnd) return 0 to 0
+
+    val startLine = document.getLineNumber(selectionStart)
+    val rawEndLine = document.getLineNumber(selectionEnd)
+    val endsOnAFreshLine =
+        rawEndLine > startLine && document.getLineStartOffset(rawEndLine) == selectionEnd
+    val endLine = if (endsOnAFreshLine) rawEndLine - 1 else rawEndLine
+    val endOffset = if (endsOnAFreshLine) document.getLineEndOffset(endLine) else selectionEnd
+
+    val startColumn = selectionStart - document.getLineStartOffset(startLine)
+    val endColumn = endOffset - document.getLineStartOffset(endLine)
+    val endLineLength = document.getLineEndOffset(endLine) - document.getLineStartOffset(endLine)
+
+    val wholeLines = startColumn <= 0 && endColumn >= endLineLength
+    if (wholeLines) return 0 to 0
+    return startColumn to endColumn
 }

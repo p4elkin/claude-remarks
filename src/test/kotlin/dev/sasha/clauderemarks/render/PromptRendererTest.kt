@@ -249,6 +249,95 @@ class PromptRendererTest {
         assertEquals("H\n", renderPrompt("H", emptyList()))
     }
 
+    /**
+     * The whole point of the feature: a selection inside one long line shows up marked in place,
+     * not just as "the whole line" with no indication of what was actually selected. code[1] is
+     * "two"; columns 1-3 select "wo", so the marked line must read "t⟦wo⟧" — checked at the exact
+     * position, not merely that both markers occur somewhere in the output, so a swapped or
+     * misplaced marker is caught.
+     */
+    @Test
+    fun `a single-line selection is marked at its exact columns`() {
+        val out = renderPrompt("H", listOf(remark(startLine = 1, startColumn = 1, endColumn = 3)))
+
+        assertTrue(out, out.contains("t⟦wo⟧"))
+    }
+
+    /**
+     * A selection spanning several quoted lines puts the start marker on the first line and the end
+     * marker on the last, each at its own column — the case the earlier "no columns for multi-line"
+     * design was dropped for. "beta" (line 1) gets only the start marker at column 1, "gamma" (line
+     * 2) gets only the end marker at column 3.
+     */
+    @Test
+    fun `a multi-line selection is marked on both its boundary lines`() {
+        val out = renderPrompt(
+            "H",
+            listOf(
+                RenderedRemark(
+                    path = "a.kt", startLine = 1, endLine = 2, startColumn = 1, endColumn = 3,
+                    tag = null, severity = "should", text = "why?", orphaned = false,
+                    codeStartLine = 0, code = listOf("alpha", "beta", "gamma", "delta"),
+                )
+            ),
+        )
+
+        assertTrue(out, out.contains("b⟦eta"))
+        assertTrue(out, out.contains("gam⟧ma"))
+        // The middle of the range carries no marker of its own; only "beta" opens and "gamma" closes.
+        assertFalse(out, out.contains("⟦alpha") || out.contains("delta⟧"))
+    }
+
+    /**
+     * endColumn 0 is the convention for "no sub-line range" (see RemarkState). Byte for byte the
+     * same as before this feature existed: no marker anywhere in the document.
+     */
+    @Test
+    fun `a remark with no columns renders exactly as before`() {
+        val withDefaultColumns = renderPrompt("H", listOf(remark(startLine = 1)))
+        val explicitlyZero = renderPrompt("H", listOf(remark(startLine = 1, startColumn = 0, endColumn = 0)))
+
+        assertEquals(withDefaultColumns, explicitlyZero)
+        assertNoMarkersInTheRemarks(withDefaultColumns)
+    }
+
+    /**
+     * A stored column can be stale — the line may have been edited since the remark was written —
+     * so a column past the end of the line that is actually there now must not throw or mark a
+     * garbled position. It falls back to no markers at all, the same as a whole-line remark.
+     */
+    @Test
+    fun `columns beyond the line's length emit no markers and do not throw`() {
+        val out = renderPrompt("H", listOf(remark(startLine = 1, startColumn = 0, endColumn = 100)))
+
+        assertNoMarkersInTheRemarks(out)
+    }
+
+    /**
+     * An orphan's line numbers no longer point at real code, so there is no line left to mark a
+     * selection inside — same reasoning as why an orphan carries no code at all.
+     */
+    @Test
+    fun `an orphaned remark with columns emits no markers`() {
+        val out = renderPrompt(
+            "H",
+            listOf(remark(startLine = 1, orphaned = true, startColumn = 1, endColumn = 3)),
+        )
+
+        assertNoMarkersInTheRemarks(out)
+    }
+
+    /**
+     * The preamble itself teaches the ⟦/⟧ convention, so it names both characters once — checking
+     * the whole document for their absence would fail on every render, not only a marked one. The
+     * remarks always start after the "---" separator, so that is what these tests check instead.
+     */
+    private fun assertNoMarkersInTheRemarks(out: String) {
+        val body = out.substringAfter("---\n")
+        assertFalse(body, body.contains("⟦"))
+        assertFalse(body, body.contains("⟧"))
+    }
+
     private fun remark(
         path: String = "a.kt",
         startLine: Int = 0,
@@ -257,10 +346,14 @@ class PromptRendererTest {
         commit: String? = null,
         orphaned: Boolean = false,
         code: List<String> = listOf("one", "two", "three"),
+        startColumn: Int = 0,
+        endColumn: Int = 0,
     ) = RenderedRemark(
         path = path,
         startLine = startLine,
         endLine = startLine,
+        startColumn = startColumn,
+        endColumn = endColumn,
         tag = tag,
         severity = severity,
         commit = commit,

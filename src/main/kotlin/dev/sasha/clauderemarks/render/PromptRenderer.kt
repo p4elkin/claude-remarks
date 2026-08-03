@@ -12,6 +12,13 @@ data class RenderedRemark(
     val path: String,
     val startLine: Int,
     val endLine: Int,
+    /**
+     * The sub-line selection inside [startLine], or "none" when [endColumn] is 0 — see
+     * `RemarkState` for the same convention on the stored field. `startColumn` is unused when
+     * [endColumn] is 0.
+     */
+    val startColumn: Int = 0,
+    val endColumn: Int = 0,
     /** "bug" | "question" | "refactor" | "note", already lowercase, or null. */
     val tag: String?,
     /** "vibe" | "suggestion" | "should" | "must", already lowercase. Never null: every remark has
@@ -86,6 +93,12 @@ Each remark carries one of four levels, saying how strongly to act on it:
 A remark may also carry "commit <sha>". That is the revision the author was reading when they wrote
 it. For a remark marked orphaned, comparing the file against that revision is the fastest way to
 find where its code went.
+
+Inside a quoted code block, ⟦ and ⟧ mark exactly where a remark was written about only part of a
+line, or about a range that starts or ends partway through a line. Everything between ⟦ and ⟧ is
+the selection; a marker may fall on a different quoted line than its pair when the selection spans
+several lines. Neither character is ever part of the file: they exist only in this prompt to show
+you the selection, and must never appear in any edit you write back.
 """
 
 /**
@@ -116,6 +129,53 @@ private fun escapeMarkdown(text: String): String =
 private val STRUCTURE_LINE = Regex("""^ {0,3}(`{3,}|~{3,}|#{1,6}(\s|$)|[-=]+\s*$)""")
 
 /**
+ * Wrap the exact sub-line selection inside a quoted line, in place. U+27E6/U+27E7 — mathematical
+ * white square brackets — rather than plain "[" and "]" or quotes: both of those turn up in real
+ * code and prose constantly, which would make an escaped ⟦ or ⟧ indistinguishable from a real one
+ * the moment a remark's own line happened to contain either. These two do not occur in ordinary
+ * source or English text, so a model reading the prompt can tell the marker apart from the file's
+ * own content without needing to escape anything — and SEVERITY_SCALE_NOTE tells it, explicitly,
+ * that the markers are prompt furniture and must never be copied into an edit.
+ */
+private const val SELECTION_START = "⟦"
+private const val SELECTION_END = "⟧"
+
+/**
+ * True when [remark]'s columns describe a real, in-bounds sub-line range: a real range (`endColumn
+ * > startColumn`), not orphaned (an orphan's line numbers no longer point at real code, so there
+ * is nothing to mark inside), and both the start line and the end line are present in
+ * [RenderedRemark.code] with the stored columns still inside their current length.
+ *
+ * The column pair is stored once and never refreshed, so it can go as stale as the anchor itself:
+ * the line may have been edited since. Checked here, once, rather than separately in every line
+ * [withSelectionMarkers] touches, so a stale column falls back to plain lines everywhere instead of
+ * marking one boundary and silently dropping the other.
+ */
+private fun markersValid(remark: RenderedRemark): Boolean {
+    if (remark.endColumn <= remark.startColumn || remark.orphaned) return false
+    val startText = remark.code.getOrNull(remark.startLine - remark.codeStartLine) ?: return false
+    val endText = remark.code.getOrNull(remark.endLine - remark.codeStartLine) ?: return false
+    if (remark.startColumn < 0 || remark.startColumn > startText.length) return false
+    if (remark.endColumn < 0 || remark.endColumn > endText.length) return false
+    return true
+}
+
+/**
+ * Inserts ⟦/⟧ into [line] (the quoted text for line [number]) at the stored columns, when [number]
+ * is the selection's start line, end line, or both. Any other line comes back unchanged. Only
+ * called once [markersValid] has confirmed both columns are in bounds for their own line.
+ */
+private fun withSelectionMarkers(remark: RenderedRemark, number: Int, line: String): String = when {
+    number == remark.startLine && number == remark.endLine ->
+        line.substring(0, remark.startColumn) + SELECTION_START +
+            line.substring(remark.startColumn, remark.endColumn) + SELECTION_END +
+            line.substring(remark.endColumn)
+    number == remark.startLine -> line.substring(0, remark.startColumn) + SELECTION_START + line.substring(remark.startColumn)
+    number == remark.endLine -> line.substring(0, remark.endColumn) + SELECTION_END + line.substring(remark.endColumn)
+    else -> line
+}
+
+/**
  * The anchored lines, marked with ">", plus whatever context came with them. The fence is tagged
  * "text" rather than a real language: the line-number gutter breaks syntax highlighting anyway,
  * and a wrong language tag reads worse than none.
@@ -126,10 +186,12 @@ private fun codeBlock(remark: RenderedRemark): String {
     val fence = fenceFor(remark.code)
     val lastNumber = remark.codeStartLine + remark.code.size
     val width = lastNumber.toString().length
+    val markers = markersValid(remark)
     val body = remark.code.mapIndexed { index, line ->
         val number = remark.codeStartLine + index
         val marker = if (number in remark.startLine..remark.endLine) ">" else " "
-        "$marker ${number.plus(1).toString().padStart(width)} | $line"
+        val text = if (markers) withSelectionMarkers(remark, number, line) else line
+        "$marker ${number.plus(1).toString().padStart(width)} | $text"
     }
     return "${fence}text\n" + body.joinToString("\n") + "\n$fence\n"
 }

@@ -38,6 +38,18 @@ class RemarkState : BaseState() {
     var path by string()
     var startLine by property(0)
     var endLine by property(0)
+
+    /**
+     * The sub-line range inside [startLine]/[endLine], or "no sub-line range" when [endColumn] is 0.
+     *
+     * `endColumn == 0` means this remark is about whole lines, not -1 and not null: BaseState omits
+     * a property still at its default when it serializes, so every remark stored before this field
+     * existed has neither column in its XML and loads with both at 0 — which is exactly what it
+     * meant, a whole-line remark, with no migration needed. A real sub-line range always has
+     * `endColumn > startColumn >= 0`.
+     */
+    var startColumn by property(0)
+    var endColumn by property(0)
     var text by string()
     var tag by enum<RemarkTag>()
     var status by enum(RemarkStatus.PENDING)

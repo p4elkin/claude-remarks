@@ -47,6 +47,8 @@ fun addRemark(
     range: IntRange,
     text: String,
     tag: RemarkTag?,
+    startColumn: Int = 0,
+    endColumn: Int = 0,
 ): RemarkState {
     val anchor = captureAnchor(lines, range.first, range.last)
     val remark = RemarkState().apply {
@@ -54,6 +56,8 @@ fun addRemark(
         this.path = path
         this.startLine = anchor.startLine
         this.endLine = anchor.endLine
+        this.startColumn = startColumn
+        this.endColumn = endColumn
         this.text = text
         this.tag = tag
         this.createdAt = System.currentTimeMillis()

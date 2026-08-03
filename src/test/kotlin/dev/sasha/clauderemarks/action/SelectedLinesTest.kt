@@ -37,3 +37,44 @@ class SelectedLinesTest : BasePlatformTestCase() {
         assertEquals(0..2, selectedLines(document, 0, document.textLength))
     }
 }
+
+/**
+ * The column math [selectedColumns] does on the same document and the same line starts (0, 6, 11,
+ * 17) [SelectedLinesTest] documents. "beta" is line 1, at offsets 6("b")-9("a"), 10 the newline.
+ * "gamma" is line 2, at offsets 11("g")-15("a"), 16 the newline.
+ */
+class SelectedColumnsTest : BasePlatformTestCase() {
+
+    private val document by lazy { EditorFactory.getInstance().createDocument("alpha\nbeta\ngamma\n") }
+
+    fun testAPartialSelectionInsideOneLineGivesItsColumns() {
+        // "et" inside "beta": offsets 7-9, line starts at 6, so columns 1 and 3.
+        assertEquals(1 to 3, selectedColumns(document, 7, 9))
+    }
+
+    fun testAWholeLineSelectionGivesNoColumns() {
+        // "beta" selected from its first character to its last, no more: offsets 6-10.
+        assertEquals(0 to 0, selectedColumns(document, 6, 10))
+    }
+
+    /**
+     * "eta" (from "beta", column 1) through "gam" (of "gamma", up to column 3): the start column
+     * belongs to the selection's first line, the end column to its last, same as the IntRange
+     * [selectedLines] returns for the same selection.
+     */
+    fun testAPartialMultiLineSelectionGivesColumnsOnBothEnds() {
+        assertEquals(1 to 3, selectedColumns(document, 7, 14))
+    }
+
+    /**
+     * "beta\ngamma\n" selected whole, gutter-drag style: selectionEnd lands on the first offset of
+     * the following (empty) line, which selectedLines already treats as not part of the selection.
+     */
+    fun testAWholeMultiLineSelectionGivesNoColumns() {
+        assertEquals(0 to 0, selectedColumns(document, 6, 17))
+    }
+
+    fun testAnEmptySelectionGivesNoColumns() {
+        assertEquals(0 to 0, selectedColumns(document, 7, 7))
+    }
+}

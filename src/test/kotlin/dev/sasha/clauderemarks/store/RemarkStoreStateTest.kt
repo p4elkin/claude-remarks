@@ -37,6 +37,8 @@ class RemarkStoreStateTest {
             path = "src/main/kotlin/Foo.kt",
             startLine = 10,
             endLine = 12,
+            startColumn = 5,
+            endColumn = 9,
             text = "why is this synchronized?",
             tag = RemarkTag.QUESTION,
             status = RemarkStatus.SENT,
@@ -254,6 +256,40 @@ class RemarkStoreStateTest {
         assertEquals(RemarkStatus.SENT, restored.status)
     }
 
+    /**
+     * The storage half of "a remark records the selected columns": startColumn/endColumn are
+     * ordinary BaseState int properties, same as startLine/endLine, but this pins that they
+     * actually reach workspace.xml and come back rather than being dropped somewhere in the
+     * XmlSerializer round trip.
+     */
+    @Test
+    fun `startColumn and endColumn survive the round trip`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", startColumn = 3, endColumn = 7))
+
+        val restored = roundTrip(state).remarks.single()
+
+        assertEquals(3, restored.startColumn)
+        assertEquals(7, restored.endColumn)
+    }
+
+    /**
+     * Every remark stored before this feature existed has neither attribute in its XML element at
+     * all: BaseState omits a property still at its default when it serializes. Both must come back
+     * as 0, which is exactly the "no sub-line range, whole lines" meaning the field's KDoc pins —
+     * not a null and not a crash, so an old remark keeps rendering exactly as it did before.
+     */
+    @Test
+    fun `a remark stored before columns existed loads with both at 0`() {
+        val restored = XmlSerializer.deserialize(
+            JDOMUtil.load("""<RemarksState><remarks><RemarkState id="r-1" path="src/Foo.kt" /></remarks></RemarksState>"""),
+            RemarkStore.RemarksState::class.java,
+        )
+
+        assertEquals(0, restored.remarks.single().startColumn)
+        assertEquals(0, restored.remarks.single().endColumn)
+    }
+
     @Test
     fun `severity and bucket survive the round trip`() {
         val state = RemarkStore.RemarksState()
@@ -409,6 +445,8 @@ class RemarkStoreStateTest {
             path = "src/main/kotlin/Foo.kt",
             startLine = 10,
             endLine = 12,
+            startColumn = 5,
+            endColumn = 9,
             text = "why is this synchronized?",
             tag = RemarkTag.QUESTION,
             status = RemarkStatus.SENT,

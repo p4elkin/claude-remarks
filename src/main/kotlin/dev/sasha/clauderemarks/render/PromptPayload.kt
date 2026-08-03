@@ -107,6 +107,8 @@ fun collectForPrompt(
             path = path,
             startLine = start,
             endLine = end,
+            startColumn = row.remark.startColumn,
+            endColumn = row.remark.endColumn,
             tag = row.remark.tag?.label,
             severity = row.remark.severity.label,
             commit = row.remark.commit,

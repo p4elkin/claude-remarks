@@ -27,6 +27,8 @@ internal fun remark(
     path: String = "src/Foo.kt",
     startLine: Int = 0,
     endLine: Int = 0,
+    startColumn: Int = 0,
+    endColumn: Int = 0,
     text: String = "note",
     tag: RemarkTag? = null,
     status: RemarkStatus = RemarkStatus.PENDING,
@@ -42,6 +44,8 @@ internal fun remark(
     it.path = path
     it.startLine = startLine
     it.endLine = endLine
+    it.startColumn = startColumn
+    it.endColumn = endColumn
     it.text = text
     it.tag = tag
     it.status = status
