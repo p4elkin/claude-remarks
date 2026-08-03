@@ -39,6 +39,75 @@ class RemarkHistoryTest {
         assertTrue(out, out.contains("why is this locked?"))
     }
 
+    /**
+     * The heading gains the same shape `ui/RemarksTree.kt`'s `positionLabel` draws for a resolved
+     * row: a sub-line remark inside one line reads "9:12-38", 1-based. Read straight off what was
+     * STORED, not off any resolve — `renderHistory` never resolves anything.
+     */
+    @Test
+    fun `a sub-line remark's heading carries the columns`() {
+        val out = renderHistory(
+            listOf(remark(id = "r-1", startLine = 8, endLine = 8, startColumn = 11, endColumn = 37)),
+            now = 0L,
+        )
+
+        assertTrue(out, out.contains("lines 9:12-38"))
+    }
+
+    /**
+     * Indented the same way the remark text already is: arbitrary source text, so it can hold a
+     * fence or a heading character, and indenting it stops that from restructuring the file.
+     */
+    @Test
+    fun `a sub-line remark's phrase is written indented`() {
+        val out = renderHistory(
+            listOf(
+                remark(
+                    id = "r-1",
+                    startLine = 8,
+                    endLine = 8,
+                    startColumn = 11,
+                    endColumn = 37,
+                    phrase = "the locked value",
+                )
+            ),
+            now = 0L,
+        )
+
+        assertTrue(out, out.contains("\n      the locked value\n"))
+    }
+
+    /**
+     * The path most remarks take. Pinned character for character, not with `contains`, because a
+     * mutation that prints columns for a whole-line remark must be visible here, not only in the
+     * sub-line test above.
+     */
+    @Test
+    fun `a whole-line remark's output is unchanged, character for character`() {
+        val out = renderHistory(
+            listOf(
+                remark(
+                    id = "r-1",
+                    path = "src/Foo.kt",
+                    startLine = 9,
+                    endLine = 11,
+                    text = "why is this locked?",
+                    tag = RemarkTag.QUESTION,
+                    severity = RemarkSeverity.MUST,
+                    bucket = "auth refactor",
+                    commit = "0123456789abcdef0123456789abcdef01234567",
+                )
+            ),
+            now = 0L,
+        )
+
+        assertEquals(
+            "**src/Foo.kt** lines 10-12 — question — must — bucket auth refactor — " +
+                "commit 01234567\n\n      why is this locked?\n",
+            out.substringAfter("\n- "),
+        )
+    }
+
     @Test
     fun `a remark with no tag no bucket and no commit renders without empty separators`() {
         val out = renderHistory(listOf(remark(id = "r-1", tag = null, bucket = null, commit = null)), now = 0L)

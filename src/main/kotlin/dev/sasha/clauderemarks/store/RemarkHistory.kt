@@ -81,7 +81,7 @@ internal fun renderHistory(
     append("\n## cleared ").append(WHEN.format(Instant.ofEpochMilli(now))).append("\n")
     remarks.forEach { remark ->
         append("\n- **").append(remark.path.orEmpty()).append("** lines ")
-            .append(remark.startLine + 1).append("-").append(remark.endLine + 1)
+            .append(positionLabel(remark))
         remark.tag?.let { append(" — ").append(it.label) }
         append(" — ").append(remark.severity.label)
         // Flattened, because the heading is one line and the bucket is the only free-form field on
@@ -93,7 +93,32 @@ internal fun renderHistory(
         append("\n\n")
         // Indented, so a remark holding a markdown heading or a fence cannot restructure the
         // document around it. The same problem the prompt renderer solves with backslash escapes;
-        // here nothing has to survive as prose, so an indent is enough.
+        // here nothing has to survive as prose, so an indent is enough. The phrase, when there is
+        // one, is source text too and gets the same treatment, ahead of the remark text.
+        remark.phrase?.let { phrase -> phrase.lines().forEach { append("      ").append(it).append("\n") } }
         remark.text.orEmpty().lines().forEach { append("      ").append(it).append("\n") }
+    }
+}
+
+/**
+ * The 1-based position, the same shape `ui/RemarksTree.kt`'s own `positionLabel` draws for a
+ * resolved row: a whole-line remark reads "9-9", a sub-line remark inside one line reads "9:12-38",
+ * a sub-line remark across lines reads "9:12-11:5".
+ *
+ * Read straight off what was STORED, not off a resolve: `renderHistory` never resolves anything,
+ * by its own KDoc above, so unlike the tree's version there is no `AnchorResult` and no orphaned
+ * case to skip. A history entry's stored columns are the only columns it has ever had.
+ */
+private fun positionLabel(remark: RemarkState): String {
+    val startLine = remark.startLine + 1
+    val endLine = remark.endLine + 1
+    val sameLine = remark.startLine == remark.endLine
+    val hasColumns = remark.startColumn >= 0 && remark.endColumn >= 0 &&
+        (if (sameLine) remark.endColumn > remark.startColumn else remark.endColumn > 0)
+    if (!hasColumns) return "$startLine-$endLine"
+    return if (sameLine) {
+        "$startLine:${remark.startColumn + 1}-${remark.endColumn + 1}"
+    } else {
+        "$startLine:${remark.startColumn + 1}-$endLine:${remark.endColumn + 1}"
     }
 }

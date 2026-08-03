@@ -1135,16 +1135,35 @@ indented line under the heading, indented like the remark text already is, so a 
 fence or a heading character cannot restructure the document. That is the same argument the file's
 existing comment makes about the remark text.
 
-- [ ] write the failing tests in `RemarkHistoryTest`: a sub-line remark's heading carries the
+- [x] write the failing tests in `RemarkHistoryTest`: a sub-line remark's heading carries the
       columns; its phrase is written indented; a whole-line remark's output is unchanged, character
       for character, from what the existing test asserts.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkHistoryTest"`, expect a
+      **Result: three tests added — `a sub-line remark's heading carries the columns`, `a sub-line
+      remark's phrase is written indented`, `a whole-line remark's output is unchanged, character
+      for character` (the last pinned with `assertEquals` against an exact substring, not
+      `contains`).**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkHistoryTest"`, expect a
       failure, implement, pass
-- [ ] **mutation:** write the phrase unindented; the indent test must fail. Print the columns for a
+      **Result: 2 of 10 tests failed before implementation (the two new sub-line tests; the
+      whole-line pinned test already passed against the unmodified code, confirming it captures the
+      pre-change baseline). Implemented `positionLabel(remark: RemarkState)` in `RemarkHistory.kt`
+      and an indented phrase line ahead of the remark text. All 10 passed after.**
+- [x] **mutation:** write the phrase unindented; the indent test must fail. Print the columns for a
       whole-line remark; the unchanged-output test must fail. Restore both.
-- [ ] update `docs/claude/design.md` and `CLAUDE.md`
-- [ ] `./gradlew test` passes whole and all six guards are empty
-- [ ] commit: `feat: the history file records the sub-line range and the phrase`
+      **Result: both mutations applied and reverted. Unindenting the phrase failed `a sub-line
+      remark's phrase is written indented`. Forcing `hasColumns = true` unconditionally failed `a
+      whole-line remark's output is unchanged, character for character`. Both restored;
+      `./gradlew test --tests "dev.sasha.clauderemarks.store.RemarkHistoryTest"` green again.**
+- [x] update `docs/claude/design.md` and `CLAUDE.md`
+      **Result: `docs/claude/design.md` gained "### The phrase a remark points at" under "The
+      Anchoring Design", covering `phrase`, `phraseAt`, `findPhrase`, `resolveWithPhrase`'s four
+      answers, and where the phrase and the position shape are shown. `CLAUDE.md`'s `anchor/` and
+      `model/` project-structure lines now name the phrase functions/field; the testing paragraph
+      now names `AnchoringTest` (with its phase 9 phrase functions), notes `RemarkHistoryTest`'s new
+      sub-line coverage, and notes `ResolveAllTest`'s phrase-column-refresh test.**
+- [x] `./gradlew test` passes whole and all six guards are empty
+      **Result: `BUILD SUCCESSFUL`, whole suite green. All six `CLAUDE.md` guards ran empty.**
+- [x] commit: `feat: the history file records the sub-line range and the phrase`
 
 ### Group three: a remark that belongs to no file
 

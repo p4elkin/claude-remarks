@@ -334,6 +334,60 @@ Lines are trimmed before hashing so that reformatting that only changes indentat
 
 The plain hash alone can miss edits. If you mark lines 5-7 and someone edits them, the hash no longer matches. The second pass then looks at what is above and below. If the surrounding lines stayed the same, the remark likely still points at the right block, just with different content. Context matching finds it.
 
+### The phrase a remark points at
+
+A remark can point at part of one line, or at a range across a few lines, not only at whole lines.
+`RemarkState.startColumn` and `endColumn` hold that sub-line range. Phase 9 added a third field next
+to them, `phrase`: the exact text between the two columns, joined with newlines when the range spans
+more than one line. Null for a whole-line remark, and null for every remark stored before this field
+existed, because `BaseState` omits a property still at its default.
+
+**Why the text is stored, not a hash of it.** A hash can only confirm a guess: given a candidate
+position, it says whether that position is right. It cannot produce the candidate in the first
+place. Finding a phrase that moved needs something to search *for*, and for a sub-line range the
+candidates are every substring of every line near where the remark used to be. With the phrase
+stored as real text, finding it again is one `indexOf` per candidate line. The cost is a slightly
+bigger `workspace.xml`. That cost was already being paid: `contextBefore` and `contextAfter` store
+six lines of real source per remark. A phrase is short by definition, since a long selection is
+rare, so it adds little next to that.
+
+**Two pure functions in `anchor/Anchoring.kt`, next to `hashLines` and `captureAnchor`, and neither
+one touches them.**
+
+- `phraseAt(lines, startLine, endLine, startColumn, endColumn)` reads the phrase out of the file at
+  write time. Inside one line it is the plain substring. Across lines it is the tail of the first
+  line, the whole lines between, and the head of the last, joined with newlines — the same shape
+  `withSelectionMarkers` in `render/PromptRenderer.kt` already assumes when it draws the two
+  `⟦`/`⟧` markers on separate quoted lines. Returns null for anything that is not a real sub-line
+  range, so a whole-line remark never gets a phrase.
+- `findPhrase(lines, phrase, origin, radius)` is the reverse: given a phrase, find where it sits now.
+  Nearest-first outward from `origin`, the same search order `resolveAnchor` already uses, because a
+  short phrase often repeats in a file and the occurrence the remark meant is the one closest to
+  where it used to be.
+
+**`resolveWithPhrase` composes `resolveAnchor` and `findPhrase`, and changes neither.** It is the one
+new function in `store/RemarkResolver.kt`'s call path, and it answers one of four ways:
+
+- No stored phrase: `resolveAnchor`'s own answer, with the stored columns. Every remark written
+  before this field existed, and every whole-line remark, takes this path and it must be identical
+  to the line-only resolve, not merely close to it.
+- A phrase, and the lines were found (`Exact` or `Relocated`): look for the phrase on the resolved
+  line. Found: the same line result, with the columns where the phrase actually sits now — this is
+  what keeps the tree row and the prompt markers on the right words after the line was reindented.
+  Not found: the same result, with the stored columns, and `markersValid` in the renderer then
+  decides on its own whether those stale columns are still in bounds.
+- A phrase, and the lines orphaned: search for the phrase near the stored line, inside the same
+  search radius the line search uses. Found: `Relocated` onto it. This is the one case the anchor
+  could not resolve on its own before this field existed — a paragraph that reflowed has no line left
+  that hashes or context-matches, but the words themselves are still in the file, findable by text.
+  Not found: orphaned, exactly as before.
+
+**Where the phrase shows up.** `ui/RemarksTree.kt`'s tree row and `store/RemarkHistory.kt`'s archive
+heading both print the resolved position in the same shape: `9-9` for a whole-line remark, `9:12-38`
+for a sub-line remark inside one line, `9:12-11:5` for one that crosses lines, columns shown 1-based.
+The phrase text itself is shown only in the gutter tooltip and, since this task, on its own indented
+line in the history file — never in the tree row, which already crops on the right and has no room.
+
 ## From Stored Remarks to Tool Window Rows
 
 `RemarkResolver.kt` is the bridge between the store and the screen. `resolveAll(project)` is the

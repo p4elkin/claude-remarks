@@ -236,8 +236,11 @@ Every command above must come back empty.
 
 ```
 src/main/kotlin/dev/sasha/clauderemarks/
-  anchor/Anchoring.kt              hashing, capture, the two-pass resolve. No platform imports.
-  model/RemarkState.kt             the persisted record, RemarkTag (+ its label extension), RemarkStatus
+  anchor/Anchoring.kt              hashing, capture, the two-pass resolve, plus phraseAt/findPhrase/
+                                   resolveWithPhrase for the sub-line phrase (phase 9). No platform
+                                   imports.
+  model/RemarkState.kt             the persisted record, RemarkTag (+ its label extension), RemarkStatus,
+                                   phrase (the sub-line text between startColumn and endColumn, phase 9)
   store/RemarkStore.kt             @Service project component, state in workspace.xml
   store/RemarkEdits.kt             the nine mutation functions, the REMARKS_CHANGED topic
   store/RemarkResolver.kt          projectRoot, resolveAll, and anchorOf
@@ -354,10 +357,12 @@ never exits on its own.
 
 ## Testing
 
-Anchoring, storage round-trips, the resolver helpers, the tree's node-building, the markdown
+Anchoring (`AnchoringTest`, including phase 9's `phraseAt`, `findPhrase` and `resolveWithPhrase`),
+storage round-trips, the resolver helpers, the tree's node-building, the markdown
 renderer, the settings round trip, `GitHeadTest` (reads real `.git` directories built on disk for
 the test, including a worktree, a detached HEAD and packed refs), `RemarkHistoryTest` (the
-archive's markdown rendering, and the write itself against a temp file), `AtomicWriteTest` (the
+archive's markdown rendering, and the write itself against a temp file; since phase 9 also the
+sub-line position shape in the heading and the phrase written indented under it), `AtomicWriteTest` (the
 temp file lands beside the target, not in the system temp directory, and no temp file is left
 behind), `ReviewHandshakeTest` (the name, the rendering, the escaping, and the owner-only
 permissions), `WaitingReviewTest` (the pure `startOrConflict`: accept, honest-retry reuse, a
@@ -369,7 +374,8 @@ need a light IDE fixture
 (`BasePlatformTestCase`, which needs `testFramework(TestFrameworkType.Platform)` in
 `build.gradle.kts`) and are slower, because each goes through a real project service, a real
 `Document`, or a real markup model: `RemarkStoreServiceTest`, `ResolveAllTest` (stored remarks
-resolved against real files, including a path that tries to climb out of the project),
+resolved against real files, including a path that tries to climb out of the project, and, since
+phase 9, that a resolved row carries the phrase's refreshed columns),
 `SelectedLinesTest` (the selection line math against a real `Document`), `RemarkEditsTest` (the
 nine mutation functions publish `REMARKS_CHANGED`), the key-binding half of
 `RemarkInputPanelTest`, `AddRemarkActionTest`, `ActionIdsTest` (pins the two action ids and the
