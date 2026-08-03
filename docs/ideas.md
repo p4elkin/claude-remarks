@@ -1193,3 +1193,115 @@ A character range is more fragile than a line range under editing, and the two-p
 three words is orphaned by an edit to those three words, where the line version survived. That is
 arguably correct — if the words changed, the remark about them is stale — but it will orphan more
 remarks than today, and the orphan path has to stay good enough to be useful when it does.
+
+## Ask the running session a question, instead of leaving it a remark
+
+Sasha's idea, and it is a different thing from every other idea in this file. Every existing feature
+collects something for Claude to read *later*. This one wants an answer *now*, while reading the code.
+
+Select something, press a second control, type a question instead of a remark. The question goes to
+the Claude Code session that is already running. The answer comes back and shows up near the
+selection.
+
+### Why this is the hard one: the arrow points the wrong way
+
+Phases 6 and 7 built one direction only. The IDE is the server, the agent is the client. The agent
+calls the IDE, waits, and reads. The IDE never starts anything.
+
+This idea needs the opposite. The IDE wants to start a conversation with an agent that is busy doing
+something else. Nothing built so far does that, and no amount of extending the endpoint will, because
+the endpoint lives in the IDE and an endpoint cannot call out.
+
+So this feature is not an extension of the review session. It is a second, separate channel, and it
+has to be designed as one.
+
+### `/btw` is a keyboard feature, and that is what makes the idea look harder than it is
+
+`/btw` is Claude Code's side-question panel. A person types it into a running session, gets an answer
+without disturbing the main turn, and browses earlier answers with the arrow keys. There is no
+documented way to invoke it from outside. It is a thing for a human at a keyboard.
+
+But the *behaviour* Sasha wants from `/btw` — ask against everything this session currently knows,
+without disturbing what it is doing — has a plain command-line equivalent:
+
+```sh
+claude -p -r "$session_id" --fork-session "$question"
+```
+
+`-r` resumes the session, so the question is asked against that session's full recorded context.
+`--fork-session` gives the resumed conversation a new session id, so the original transcript is not
+appended to, not locked, and not disturbed. `-p` prints the answer to stdout and exits.
+
+That is the whole transport, in one line, and it needs no agterm, no tmux, no send-keys and no screen
+scraping. Verified present in the installed CLI: `-p/--print`, `-r/--resume`, `--fork-session`.
+
+**So the framing should be dropped.** Do not build this as "drive the `/btw` panel from the IDE."
+Build it as "ask a forked copy of the session a question and read stdout."
+
+### The one real choice: fork the session, or type into it
+
+**Fork it.** The question is answered by a separate process against a copy of the session's context.
+The answer arrives on a pipe, as text.
+
+**Type into it.** The plugin uses agterm to send `/btw <question>` into the pane the session lives in,
+then reads the answer back out of the session's transcript file.
+
+What happens with the fork: the answer is clean text, arriving on stdout, with nothing to parse and
+nothing to race. But the answer exists only in the IDE. Sasha's session never learns the question was
+asked, so it does not appear in his scrollback, and a follow-up question does not build on the
+previous answer unless the plugin keeps its own thread of them.
+
+What happens when typing into it: the question and the answer land in the session Sasha is actually
+watching. Follow-ups work by themselves, because it is one conversation. The cost is everything about
+the I/O. The plugin has to shell out to agterm, know which pane, and type into a live terminal user
+interface — which races with whatever turn is in progress. Getting the answer text back means reading
+the session's JSONL transcript, whose format is not a promise to anyone.
+
+The property being traded: the fork buys clean, robust plumbing and gives up shared conversation
+state. Typing in keeps shared state and pays for it with fragile plumbing.
+
+**The fork is the one to build.** Not because shared state is worthless — it is the nicer end state —
+but because the fork can be built and tested, and the typing version cannot be tested at all without
+a live terminal and a running session. If shared state turns out to matter, the fork is the thing that
+proves the feature is worth the harder version.
+
+### Three problems the fork still has to answer
+
+- **Which session.** The plugin needs a session id. Transcripts live at
+  `<config dir>/projects/<the working directory with slashes turned into dashes>/<session id>.jsonl`,
+  so the newest transcript for this project's own directory is a cheap and usually correct guess. The
+  wrinkle is the config directory: this machine has `~/.claude`, `~/.claude-work` and
+  `~/.claude-personal`, chosen by `CLAUDE_CONFIG_DIR`. A guess has to search all of them, or the
+  person configures the session in settings. Offer both, guess first.
+- **What a question costs.** A fork replays the transcript as a prompt. On a session with a very long
+  history that is a large prompt for one short question. It probably hits the prompt cache, because
+  the prefix is identical — but that is a belief, not a measurement, and it should be measured before
+  the feature is called cheap.
+- **A question asked mid-turn.** `-r` reads the transcript from disk, and the turn in progress is not
+  in it yet. So a question asked while the session is working is answered against the state before
+  that work. Usually harmless, occasionally confusing, and worth saying out loud in the UI rather than
+  hiding.
+
+### Where the answer goes on screen
+
+A question is a remark with two differences: a different kind, and a field for the answer. Everything
+else already exists and should be reused — the anchoring in `anchor/`, the store, the gutter service,
+the tool window tree. That is what keeps this small.
+
+- **The gutter says where.** A different icon on the line the question starts on, and it means "there
+  is an answer here." Reuse `editor/RemarkGutterIcon.kt`. Do not put the answer in the tooltip: an
+  answer is markdown and can be long, and a tooltip is neither scrollable nor selectable.
+- **The tool window says what.** The answer belongs in the existing tree, as a child row under the
+  question, or in a second tab beside the remarks. Clicking the gutter icon jumps there. This is the
+  cheap option and it is also the consistent one.
+- **Block inlays are the tempting wrong first step.** IntelliJ can render a multi-line block inlay
+  under the line, and that is what most AI plugins do. It looks best and it is the most work by a wide
+  margin: markdown rendering, a width that reflows, and a surface that fights the editor for space.
+  Build it later, if the tool window turns out to be too far from the code to be useful.
+
+### What is given up by starting here
+
+The forked answer is a dead end conversationally — one question, one answer, no thread. If the feature
+gets used the way remarks get used, the next thing wanted will be "ask again about the same thing,"
+and that means the plugin holding a real thread of its own. That is a bigger design than this, and it
+should not be guessed at until the one-shot version has been used.
