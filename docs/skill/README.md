@@ -17,8 +17,10 @@ It is kept in this repository, not only under `~/.claude/skills`, because the sk
 endpoint it talks to are one protocol, and three separate pairs of halves have to agree:
 
 - the request shape in `review/ReviewRestService.kt` and the `curl` calls in `SKILL.md`;
-- `REJECTED_MARKER` in `review/SendReview.kt` and the `grep -q '^<!-- claude-remarks: rejected -->'`
-  in `SKILL.md`, character for character, anchor included;
+- `REJECTED_MARKER` in `review/SendReview.kt` and the `head -1 "$handoff"` comparison against the
+  same literal in `SKILL.md`, character for character. It checks only the first line, not any line
+  with `grep`, because a remark's own text can start a line with the same marker, and matching any
+  line would misread a real review as a rejection;
 - the five values the `ack` action answers — `ok`, `no-review`, `not-sent`, `unknown-project`,
   `bad-request` — and the branch in `SKILL.md` that reads them.
 

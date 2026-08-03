@@ -1170,9 +1170,11 @@ timeout. The link is now called Reject, because "Cancel" reads as "close this ba
 exactly the wrong behaviour that produced the defect. `REJECTION_BODY`'s first line,
 `<!-- claude-remarks: rejected -->`, is a wire format shared with
 `docs/skill/claude-remarks-review/SKILL.md` — an HTML comment, so it reads as invisible prose to a
-model and as a `grep -q` match to the skill's shell loop. It is spelled out as a literal in both
-places, in the plugin's test and in the skill, rather than the test reading the constant, so a rename
-that broke the skill would also break the test.
+model and as a first-line match in the skill's shell loop. The skill checks `head -1 "$handoff"`,
+not `grep`, because a remark's own text can start a line with the same marker, and matching any line
+would misread a real review as a rejection. It is spelled out as a literal in both places, in the
+plugin's test and in the skill, rather than the test reading the constant, so a rename that broke the
+skill would also break the test.
 
 **Reject in the `Sent` phase writes nothing.** Once a send has happened the handoff file already
 holds the rendered remarks, and the agent may already be reading them. Overwriting it with a
@@ -1361,11 +1363,14 @@ field is matched against the IDE machine's own open project paths, and two machi
 same repository checked out at two different paths. The fourth value defaults to the agent's own
 `git rev-parse --show-toplevel`, so the common case, where both machines agree, needs nothing extra.
 
-**The handshake file did not change.** It already carries the host, the port and the token, so it
-stays the way the person reads those three values, from the IDE machine, by hand. Nothing that could
-be added to it would help the agent. The agent cannot read a file on the other machine no matter what
-is in it, and a field describing a tunnel would be state the plugin does not manage, does not detect
-and does not report on.
+**The handshake file did not change.** `renderHandshake` writes three fields: the project path, the
+port and the token. The path only feeds the filename hash that names the file; the person reads the
+port and the token off it by hand. Host is not one of the three fields. It never lived in the
+handshake, because the file already tells the person which machine wrote it. Host is a skill
+argument instead, with a default the person can override. Nothing that could be added to the
+handshake would help the agent on a different machine. The agent cannot read this file at all, no
+matter what is in it, and a field describing a tunnel would be state the plugin does not manage,
+does not detect and does not report on.
 
 **The skill keeps one wait loop, with a small switch inside it.** `handoff_ready()` is the one thing
 that differs between the two transports: the local case checks whether the file exists, the remote

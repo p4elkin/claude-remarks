@@ -2,8 +2,9 @@
 
 **Sending remarks to a remote agent session over SSH.**
 
-**Status: planned, nothing built.** Branch `claude-remarks-phase1-2`, working tree clean at `bae4a13`,
-version `0.4.1`. There is no git remote.
+**Status: built.** Branch `claude-remarks-phase1-2`, version `0.5.0`. There is no git remote. The
+working tree was clean at `bae4a13` when this plan started; that is a starting point, not the
+current state.
 
 **The design is decided, not open.** `docs/ideas.md`, "Sending remarks to a remote agent session",
 names the three parts: a fetch action on the existing endpoint that returns the handoff file's
