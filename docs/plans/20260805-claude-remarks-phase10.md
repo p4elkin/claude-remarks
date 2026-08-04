@@ -879,16 +879,16 @@ command. Say so in the step, since the old number was a claim nothing enforced.
 it, including the remote branch's "the file is at `$output` on the IDE machine" sentence, which
 becomes the published file's path on the IDE machine.
 
-- [ ] rewrite step 6 against the watcher, keeping the rejection check but reading it from the
+- [x] rewrite step 6 against the watcher, keeping the rejection check but reading it from the
       header's `rejected:` field instead of the body's first line, and keeping `ack read` exactly as
       it is
-- [ ] remove `failed` from step 5 and from the error list, since `start` no longer does any
+- [x] remove `failed` from step 5 and from the error list, since `start` no longer does any
       filesystem work and cannot answer it
-- [ ] check by hand that the shell in step 6 parses: `sh -n` on the block extracted to a file
-- [ ] read the whole file once and fix anything the change made untrue, especially step 3's paragraph
+- [x] check by hand that the shell in step 6 parses: `sh -n` on the block extracted to a file
+- [x] read the whole file once and fix anything the change made untrue, especially step 3's paragraph
       about running steps 1 to 6 in one Bash call, which is now steps 1 to 5 plus a launch
-- [ ] the six guards print nothing
-- [ ] commit: `feat: the review waits with the shared watcher, and its deadline is finally honest`
+- [x] the six guards print nothing
+- [x] commit: `feat: the review waits with the shared watcher, and its deadline is finally honest`
 
 ### Task 11: The one-shot read, and listen mode
 

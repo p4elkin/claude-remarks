@@ -284,17 +284,18 @@ exit path.
    what creates this file. In the remote case there is no handshake file to read on this machine
    at all — see "Over SSH" above for where the person reads the port and the token.
 
-3. **POST to the start endpoint.** **Run steps 1 to 6 as one Bash call, in one shell** — every step,
-   from `git rev-parse` onwards, not just this one and the ones after it. `root` and `ide_project`
-   are set in step 1, and `base_url`, `port` and `token` in step 2, and this step needs `base_url`,
-   `token` and `ide_project`. Split them off and this step posts to an empty string in place of a
-   URL, with an empty token and an empty project. The Bash tool starts a new shell for every call,
-   and nothing crosses that boundary: no variables and no shell functions. Steps 4 and 5 are
-   decisions about the answer this step writes to a file, so they cost nothing extra inside the
-   same shell, and step 6 needs `$session`, `$base_url`, `$token`, `$ide_project`, `$remote` and
-   `deadline_seconds` — all set here or in step 1 or 2 — plus `$output`, which step 6 reads out of
-   the response body this step saved. Split across calls, step 6 posts to that same empty URL with
-   an empty token and waits for a file called `""`.
+3. **POST to the start endpoint.** **Run steps 1 to 5, plus the launch at the top of step 6, as one
+   Bash call, in one shell** — every step, from `git rev-parse` onwards, not just this one and the
+   ones after it. `root` and `ide_project` are set in step 1, and `base_url`, `port` and `token` in
+   step 2, and this step needs `base_url`, `token` and `ide_project`. Split them off and this step
+   posts to an empty string in place of a URL, with an empty token and an empty project. The Bash
+   tool starts a new shell for every call, and nothing crosses that boundary: no variables and no
+   shell functions. Steps 4 and 5 are decisions about the answer this step writes to a file, so
+   they cost nothing extra inside the same shell, and the launch at the top of step 6 needs
+   `$session`, `$base_url`, `$token`, `$ide_project`, `$remote`, `$name` (same-machine case only)
+   and `deadline_seconds` — all set here or in step 1 or 2. Split across calls, this step posts to
+   an empty URL with an empty token and an empty project, and step 6's launch line names a watcher
+   that has nothing to watch.
 
    **Work out the file list before you POST, and check it is not empty.** The IDE opens the paths
    this request names. An empty list opens nothing at all, silently: the endpoint still answers
@@ -388,7 +389,7 @@ exit path.
    session=$(uuidgen)
    deadline_seconds=1800
    label="what is being reviewed, in a few words"   # replace this with the real thing
-   start_resp=$(mktemp) ; ack_resp=$(mktemp) ; fetch_resp=$(mktemp)
+   start_resp=$(mktemp)
    body=$(jq -n --arg session "$session" --arg label "$label" --arg project "$ide_project" \
      --argjson files "$files_json" --argjson deadline "$deadline_seconds" \
      '{session:$session, label:$label, project:$project, files:$files, deadlineSeconds:$deadline}')
@@ -420,16 +421,16 @@ exit path.
    ```
 
    **`mktemp`, not a fixed path in `/tmp`.** Two review sessions running at once would otherwise
-   overwrite each other's response file, and one could read the other's `output` path and wait on the
-   wrong review. A predictable name in a shared temp directory can also be pre-created as a symlink by
-   another local user. The plugin refuses predictable paths for the handoff file for exactly these two
-   reasons; the skill side has to hold the same line.
+   overwrite each other's response file, and one could read the other's `status` and believe its own
+   review had started when it had not. A predictable name in a shared temp directory can also be
+   pre-created as a symlink by another local user. The plugin refuses predictable paths for the
+   published file for exactly these two reasons; the skill side has to hold the same line.
 
    **The `http_code` and `status` check is code, not prose, for the same reason the file-list guard
    is.** Steps 4 and 5 below say what each outcome means and what to tell the person — they are for
-   *reporting*, and they cannot gate anything, because the whole flow is one shell. Without this
-   check a `conflict` or a 403 would fall straight through to the wait loop and the only thing you
-   would see is "the waiting response carried no output path".
+   *reporting*, and they cannot gate anything, because steps 1 to 5 are one shell. Without this
+   check a `conflict` or a 403 would fall straight through to step 6's launch, and the watcher would
+   be started for a review that was never accepted.
 
    `$label` is a short description of what is being reviewed — shown to the person in the IDE
    banner. `$session` is invented once per run of this skill, so a retry of the same run reuses
@@ -472,9 +473,10 @@ exit path.
    - anything else, or a 200 whose body does not parse as JSON — report the HTTP status and the
      raw body verbatim and stop. Do not guess what it means.
 
-5. **On a 200 with parseable JSON, read `status`.** It is exactly one of five values:
+5. **On a 200 with parseable JSON, read `status`.** It is exactly one of four values:
 
-   - `"waiting"` — accepted. Read `output` from the body; that is the path to wait for in step 6.
+   - `"waiting"` — accepted. There is nothing else to read from the body: step 6 works out what to
+     watch on its own, from `$ide_project` and, in the same-machine case, `$name` from step 2.
    - `"conflict"` — another review is already waiting in that IDE. The body carries `label` and
      `startedAt` for the one already there. Report it and stop; do not retry and do not wait.
    - `"unknown-project"` — the IDE does not have this repository open under the path this skill
@@ -483,174 +485,139 @@ exit path.
    - `"bad-request"` — the body carries `detail`. This means this skill and the plugin disagree
      about the shape of the request, which is a bug in one of them, not a transient failure.
      Report the detail and stop; do not retry.
-   - `"failed"` — the IDE accepted the request and then could not set the review up, almost always
-     because it could not create its temp directory. The body carries `detail`. Report it and stop;
-     no review is waiting and nothing will be written.
 
-6. **Wait for the handoff file, tell a rejection from remarks, then acknowledge.** The first line
-   below is what puts `output` in hand: it is the path from the `waiting` response of step 3, read
-   back out of the file `curl` saved it to. In the same-machine case it is also the path the loop
-   waits on. In the remote case it is a path on the IDE machine, printed for the person but never
-   tested with `-e` on this machine — see the comment above `handoff_ready` for why. Either way an
-   empty `$output` fails right below, before either branch runs.
+   There is no `"failed"` any more: `start`'s handler no longer touches the filesystem at all, so
+   `WaitingReviewService.start` only ever answers `Accepted` or `Conflict`, and there is nothing
+   left for it to fail at.
+
+6. **Launch the watcher, then act on what it prints when it exits.** The nonce already on the
+   published file, if any, is read here — before this review's own answer can possibly have
+   landed — so the watcher does not mistake something already sitting there for a new batch. This
+   step ends by printing the exact `watch-remarks.sh` line to run next. Nothing in this shell waits
+   for a batch, and this shell exits as soon as that line is printed.
 
    ```sh
-   output=$(jq -r .output "$start_resp")
-   [ -n "$output" ] && [ "$output" != null ] \
-     || { echo "the waiting response carried no output path"; exit 1; }
-
-   # Where the remarks will be readable on THIS machine, and how often to look.
-   # Same machine: the file the IDE wrote. Remote: a local copy the fetch writes into.
-   # In the remote case $output is a path on the IDE MACHINE, so it is only ever printed, never
-   # tested with -e. Five seconds, not one: the IDE's built-in server allows 30 requests a minute
-   # from one address, shared with everything else talking to it, and a 429 is not something to
-   # hit on purpose.
-   if [ -n "$remote" ]; then handoff=$(mktemp); poll_seconds=5; else handoff=$output; poll_seconds=1; fi
-
-   ack() {
-     jq -n --arg session "$session" --arg project "$ide_project" --arg event "$1" \
-       '{session:$session, project:$project, event:$event}' \
-     | curl -s -o "$ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
-         -X POST "$base_url/ack" \
-         -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-
-   }
-   trap 'ack abandoned >/dev/null' EXIT
-   trap 'ack abandoned >/dev/null; trap - EXIT; exit 130' INT TERM
-
-   # 0 = the remarks are now in $handoff. 1 = not yet, keep waiting. 2 = stop, the reason is printed.
-   # A 429 sets backoff_seconds so the loop below sleeps 20 seconds instead of poll_seconds for that
-   # one iteration only; it must not also sleep here, or the real wait becomes poll_seconds longer
-   # than the 20 seconds this file and design.md both document.
-   handoff_ready() {
-     if [ -z "$remote" ]; then
-       [ -e "$handoff" ] || return 1
-       return 0
+   if [ -z "$remote" ]; then
+     # The same file "Read remarks the person already published" above reads, named by $name from
+     # step 2.
+     published_file="$HOME/.claude-remarks/$name.md"
+     seen_nonce=
+     if [ -f "$published_file" ]; then
+       seen_line=$(sed -n '2p' "$published_file")
+       case "$seen_line" in "nonce: "*) seen_nonce=${seen_line#"nonce: "} ;; esac
      fi
-     fetch_code=$(jq -n --arg session "$session" --arg project "$ide_project" \
-         '{session:$session, project:$project}' \
-       | curl -s -o "$fetch_resp" -w '%{http_code}' --connect-timeout 5 --max-time 30 \
-           -X POST "$base_url/fetch" \
-           -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-)
-     if [ "$fetch_code" = 429 ]; then
-       echo "the IDE is rate limiting (30 requests a minute from one address); backing off"
-       backoff_seconds=20
-       return 1
-     fi
-     if [ "$fetch_code" != 200 ]; then
-       echo "fetch: http $fetch_code"; cat "$fetch_resp"; echo
-       echo "see step 4 for what this HTTP status means"
-       return 2
-     fi
-     fetch_answer=$(jq -r '.status // empty' "$fetch_resp" 2>/dev/null)
-     case $fetch_answer in
-       ready)
-         # -j so jq adds no trailing newline: the copy is then byte-identical to the file the IDE wrote.
-         jq -j -r .content "$fetch_resp" > "$handoff" \
-           || { echo "the fetched body could not be read as JSON — it was probably cut off"; return 2; }
-         return 0 ;;
-       waiting) return 1 ;;
-       too-large)
-         echo "the review is too big to send through the tunnel: $(jq -r '"\(.bytes) bytes, limit \(.limit)"' "$fetch_resp")"
-         echo "the remarks are still pending in the IDE. The file is at $output on the IDE machine."
-         echo "Ask the person to read it there, or to send fewer remarks."
-         return 2 ;;
-       *)
-         echo "fetch answered '$fetch_answer'"; cat "$fetch_resp"; echo
-         return 2 ;;
-     esac
-   }
-
-   deadline=$(( $(date +%s) + ${deadline_seconds:-1800} ))
-   while :; do
-     handoff_ready && break
-     ready_status=$?
-     [ "$ready_status" -eq 2 ] && exit 1
-     [ "$(date +%s)" -ge "$deadline" ] && { echo "timed out waiting for the IDE"; exit 1; }
-     sleep "${backoff_seconds:-$poll_seconds}"
-     backoff_seconds=
-   done
-   cat "$handoff" || { echo "the handoff file could not be read"; exit 1; }
-   trap - EXIT INT TERM
-
-   if [ "$(head -1 "$handoff")" = '<!-- claude-remarks: rejected -->' ]; then
-     echo "the person rejected this review; no remarks were sent"
-     exit 0
+     echo "session=$session"
+     echo "published_file=$published_file"
+     echo "seen_nonce=$seen_nonce"
+     echo "run this next, as its own Bash call, marked background:"
+     printf "  watch-remarks.sh --file '%s' --seen '%s' --require-review '%s' --deadline '%s'\n" \
+       "$published_file" "$seen_nonce" "$session" "$deadline_seconds"
+   else
+     echo "session=$session"
+     echo "base_url=$base_url"
+     echo "ide_project=$ide_project"
+     echo "run this next, as its own Bash call, marked background, with CLAUDE_REMARKS_TOKEN set in"
+     echo "its environment to the token read in step 2 — do not echo the token itself"
+     printf "  watch-remarks.sh --fetch '%s' --session '%s' --project '%s' --deadline '%s'\n" \
+       "$base_url" "$session" "$ide_project" "$deadline_seconds"
    fi
-   ack_code=$(ack read)
-   ack_answer=$(jq -r .status "$ack_resp" 2>/dev/null)
-   echo "ack read: http $ack_code, status $ack_answer"
    ```
 
-   **`while :; do handoff_ready && break; ready_status=$?` and never `while ! handoff_ready`.**
-   `!` collapses every non-zero status to 1, so the three-way answer above would become two-way
-   and a hard stop (`too-large`, a bad HTTP status, a body that will not parse) would be read as
-   "keep waiting" until the deadline instead of stopping now. With `&& break` the compound
-   command's own status is `handoff_ready`'s own status, not a flattened one.
+   `--require-review` is file-mode only. Task 9 built `--fetch` to refuse it outright: the fetch
+   endpoint already answers `ready` only for the session named in the request, so there is nothing
+   left for the flag to filter, and `--seen` is left at its default there for the same reason — a
+   session invented moments ago in step 3 cannot already have been answered.
 
-   Checking existence is enough for the same-machine branch: the plugin writes the file's full
-   content to a temp file beside it and renames the temp file onto this path, and a
-   same-filesystem rename is atomic on POSIX. So there is no partial state to observe — the file
-   is either absent or complete, never half-written. Do not "improve" this into a size check or a
-   lock file; the atomic rename is what makes the plain existence check correct. The remote branch
-   has a different guarantee for the same problem: JSON is self-delimiting, so a response cut off
-   by a dead tunnel makes `jq -j -r .content` fail rather than write a half prompt, which is what
-   turns a truncated fetch into "the fetched body could not be read as JSON" instead of a silent
-   partial copy.
+   **Stop the foreground call there.** Launch the printed line as its own Bash call, marked
+   background — the distinction "The watcher script" section above draws: a foreground call is
+   capped at ten minutes, a background one is not, and it is what re-invokes this session when it
+   **exits**. Do not run `watch-remarks.sh` inside this shell, and do not add a wait loop after the
+   block above; there is nothing left in this shell to wait with.
 
-   Six things about this block are load-bearing, and each one is a decision somebody will
-   otherwise undo:
+   **`$deadline_seconds` is now the truth, not a claim.** It reaches the watcher unchanged through
+   `--deadline`, so it is what the watcher actually waits, with no ten-minute cap silently cutting
+   it short the way a foreground call would have. The 1800-second default in step 3, and the
+   timeout sentence in "What to say if something goes wrong" below, both describe what really
+   happens now.
 
-   - **`ack read` captures the answer; the trap's `ack abandoned` throws it away on purpose.** The
-     read acknowledgement is the one request whose answer changes what to report — it is what marks
-     the remarks sent in the IDE — so its HTTP code and its `status` field are both kept, in
-     variables named `ack_code` and `ack_answer`. The trap runs while the shell is already leaving,
-     with nowhere left to report to, so it discards its output instead.
+   **When the watcher exits, what it printed and its exit code are the whole answer** — there is
+   nothing on disk to go read separately for the same-machine case, and the remote case's own copy
+   lives only in that call's own output too. What to do next depends on which of three exit codes
+   it used, and each is its own short foreground Bash call, built with `$session`, `$base_url`,
+   `$token` and `$ide_project` typed again exactly as they were before the launch — nothing carries
+   a shell across two Bash calls, so nothing here is read back from a variable that no longer
+   exists:
 
-   - **The trap is set only after a `waiting` response.** Before that there is no review to
-     abandon, and an acknowledgement for a review that does not exist just gets `no-review`.
-   - **The trap is cleared after `cat` succeeds and before `ack read`, and `cat` is checked so that
-     "succeeds" is a fact rather than a hope.** Once the content is read, the read really has
-     happened — even if the acknowledgement request then fails. Clearing the trap first means a
-     failing `ack read` leaves the IDE to its own deadline, which keeps the remarks pending. The
-     other order would tell the IDE the agent left after it had already read them. Without the `||`
-     on `cat` the sentence above was a claim nothing enforced: an unreadable file would fall
-     through to `ack read`, and the IDE would mark the remarks sent to an agent that never saw a
-     byte of them.
-   - **The `INT`/`TERM` handler ends with `exit 130`; the `EXIT` one must not.** A trap handler that
-     returns without exiting hands control back to the interrupted command, so an interrupted wait
-     would carry on polling, then read the file and send `ack read` — after having already told the
-     IDE the agent abandoned the review. The handler also clears the `EXIT` trap before exiting, or
-     leaving the shell would send a second `ack abandoned`. `EXIT` is separate because it fires on
-     every exit path, including the clean ones, and must not itself exit.
-   - **`trap - EXIT INT TERM` restores the default; it does not run the handler.** Writing
-     `trap "" EXIT` instead would also work but reads as "run nothing", which is easy to misread
-     as "run the old thing".
-   - **The trap covers this one shell, which is why steps 1 to 6 belong in one Bash call.** It
-     catches a timeout inside this loop and an interrupt of this command. An agent process killed
-     between two Bash calls sends nothing at all, and the IDE's own deadline is what covers that
-     case instead. `${deadline_seconds:-1800}` is a seatbelt for exactly that mistake: split across
-     calls, the bare arithmetic would leave `deadline` empty, `[ "$(date +%s)" -ge "" ]` would never
-     fire, and the loop would poll silently until the Bash tool's own timeout.
-   - **The rejection check comes before the acknowledgement, and it compares the file's FIRST line,
-     not any line.** `[ "$(head -1 "$handoff")" = '<!-- claude-remarks: rejected -->' ]`. This was
-     `grep -q '^<!-- … -->'` and that was wrong: `^` anchors to the start of *a* line, and a remark's
-     own text starts lines too. The prompt renderer escapes fences and heading characters but not
-     `<!--`, so a remark that quotes the marker — writing about this protocol is enough — was read as
-     a rejection, and a real review was thrown away with "the person rejected this review". The
-     plugin's contract has always been first-line-only, so match that. There is nothing to
-     acknowledge on a rejection: the IDE cleared the review as it wrote the file, so an `ack read`
-     would only be answered `no-review`. The trap is cleared before this branch, so a rejection does
-     not also report the agent as having left.
+   - **Exit 0.** What the watcher printed is the whole published file, header included. Its eighth
+     line is `rejected: yes` or `rejected: no` — read it directly out of what the watcher printed.
+     This is the header's own field now, checked by line number, not the body's first line the way
+     it used to be compared against a marker of its own.
 
-   **A rejection is a finished review, not a failure.** `exit 0`, and report it plainly to the
-   person the way any other answer is reported. Do not retry, do not start a second review, and do
-   not treat the body as remarks.
+     `rejected: yes` — the person rejected this review. No remarks were sent and there is nothing
+     to acknowledge — the IDE cleared the review as it wrote the file, so an `ack read` would only
+     be answered `no-review`. Report it plainly and stop; do not retry and do not start a second
+     review.
 
-   If waiting times out: nothing is lost. The remarks are still sitting in the IDE's tool window,
-   marked pending — they were never marked sent, because sending only writes the file, and marking
-   sent waits for this step's `ack read` — and the person can send them again or copy them by
-   hand. The `trap` above already sent `ack abandoned` on the way out, so the IDE's banner clears
-   itself; there is nothing left to do by hand from the banner's Reject link for this run.
+     `rejected: no` — real remarks arrived. Acknowledge with `ack read`, the same request this step
+     has always sent, run as its own foreground Bash call — it needs only `$session`, `$base_url`,
+     `$token` and `$ide_project`, not the published file's content:
+
+     ```sh
+     ack_resp=$(mktemp)
+     ack_code=$(jq -n --arg session "$session" --arg project "$ide_project" --arg event read \
+         '{session:$session, project:$project, event:$event}' \
+       | curl -s -o "$ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+           -X POST "$base_url/ack" \
+           -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-)
+     ack_answer=$(jq -r .status "$ack_resp" 2>/dev/null)
+     echo "ack read: http $ack_code, status $ack_answer"
+     ```
+
+     then go on to step 7, with what the watcher printed as the file to act on.
+
+   - **Exit 1.** The deadline passed with nothing new. There is no trap to send it now — see
+     below — so send `ack abandoned` yourself, report the timeout, and stop:
+
+     ```sh
+     curl -s -o /dev/null -w 'ack abandoned: http %{http_code}\n' --connect-timeout 5 --max-time 20 \
+       -X POST "$base_url/ack" -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" \
+       -d "$(jq -n --arg session "$session" --arg project "$ide_project" --arg event abandoned \
+              '{session:$session, project:$project, event:$event}')"
+     ```
+
+   - **Exit 2.** Something the watcher could not get past: a file it could not read, a header older
+     than this skill, an HTTP status other than 200, or a `too-large` answer. Report what it
+     printed verbatim and stop. Do not send `ack abandoned` here — nothing here has actually given
+     up on the review, and it may still be genuinely waiting for a batch that has not arrived yet.
+     The IDE's own scheduled deadline is what eventually clears the banner if nothing else does.
+
+   **The trap goes, and nothing replaces it in the same shell.** The old code kept
+   `trap 'ack abandoned' EXIT` in the same shell as the wait loop. With the wait moved to a
+   background command, the foreground call that launches it returns at once — and its own `EXIT`
+   trap would have fired immediately, abandoning the review before the watcher had even started. So
+   there is no trap anywhere in this flow any more. The session itself sends `ack abandoned`, in
+   the foreground, in exactly the one case above (the watcher's own deadline passing) plus one more
+   that no exit code covers: the person says to stop waiting. Do that by killing the watcher first,
+   so it cannot go on to report the same batch a second time, then acknowledging the same way exit
+   1 does:
+
+   ```sh
+   watch_hash=$(printf '%s' "$ide_project" | shasum -a 256 | cut -c1-16)
+   kill "$(cat "$HOME/.claude-remarks/$watch_hash.watch" 2>/dev/null)" 2>/dev/null
+   ```
+
+   **What this gives up, written down here so nobody re-adds the trap:** a session killed
+   outright — between two Bash calls, or while the background call is still running — sends
+   nothing at all, and the IDE's own scheduled deadline is what covers that, which is what phase 7
+   built it for. A killed session leaves the banner up until the deadline instead of clearing it at
+   once. That was already true for a session killed between two Bash calls; it is now also true for
+   one killed while the watcher itself is running.
+
+   If waiting times out: nothing is lost. The remarks, if the person ever wrote any, are still
+   sitting in the IDE's tool window, marked pending — they were never marked sent, because sending
+   only writes the file, and marking sent waits for `ack read` — and the person can send them again
+   or copy them by hand. The `ack abandoned` sent above clears the IDE's banner; there is nothing
+   left to do by hand from the banner's Reject link for this run.
 
    **What the acknowledgement answers:** `ok`, `no-review` (nothing is waiting under that session
    — the review was cancelled, expired, or already finished), `not-sent` (a read acknowledgement
@@ -675,17 +642,17 @@ exit path.
   IntelliJ (or another JetBrains IDE with the Claude Remarks plugin) and try again."
 - 403: "The IDE at this port answered with a stale token — re-open the project in the IDE, which
   writes a fresh handshake, then try again."
-- Timeout waiting for the handoff file: "No remarks arrived within the declared deadline
-  (`deadline_seconds`, 1800 by default). Nothing is lost — they
+- Timeout waiting for a new batch: "No remarks arrived within the declared deadline
+  (`deadline_seconds`, 1800 seconds by default). That is now the real wait: the watcher runs in the
+  background with no ten-minute cap, so 1800 seconds means 1800 seconds. Nothing is lost — they
   are still pending in the IDE, never marked sent. Send to Claude Code again when ready, or paste
-  them here."
+  them here." Send `ack abandoned` yourself before saying this — see step 6; there is no trap to do
+  it automatically any more.
 - The person rejected the review: "The review was rejected in the IDE. No remarks were sent."
   Stop; do not retry and do not start a second review for the same request.
 - An acknowledgement answers anything other than `ok`: report the outcome (`no-review`,
   `not-sent`, `unknown-project`, `bad-request`) and the body verbatim, and add that the remarks were
   read here but stay marked pending in the IDE, so the person can send them again.
-- `start` answers `failed`: "The IDE could not open a review session: <detail>." No review is
-  waiting, so there is nothing to wait for and nothing to reject.
 - No tunnel in the remote case (connection refused): "There is no tunnel reaching the IDE machine
   at this host and port. On the IDE machine, start one with
   `ssh -o ExitOnForwardFailure=yes -R <port>:127.0.0.1:<the IDE's port> <this machine>`, then try
