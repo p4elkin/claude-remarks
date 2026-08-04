@@ -218,9 +218,14 @@ class RemarksPanel(
                 "<html>Claude Code is waiting: " +
                     StringUtil.escapeXmlEntities(waiting.label.take(120)) +
                     "<br>Publish to answer, or</html>"
+            // "Publish again to add more." stood here until the final phase 10 review, and it
+            // invited the one thing that does not work: the agent's watcher exits on the first
+            // batch that answers this review and nothing re-arms it, so a second publish never
+            // reaches it. See markSent in review/WaitingReview.kt. The answer has gone; the only
+            // thing left to wait for is the agent confirming it read it.
             is ReviewPhase.Sent ->
                 "Published ${phase.ids.size} remark${plural(phase.ids.size)} for Claude Code. " +
-                    "Waiting for it to read them. Publish again to add more."
+                    "Waiting for it to read them. A further publish will not go to this review."
         }
         banner.isVisible = true
     }

@@ -659,15 +659,19 @@ phase 10, the `published-read` action's five answers, mirroring `PublishedAckTes
 filter: absolute paths and `..` segments are dropped, plus a fixture-backed class for the
 diff-or-editor decision, since a light fixture project has no VCS root and every file takes the
 plain-editor branch), `ReviewLifecycleTest` (since phase 10: `answerWaitingReview` records what was
-published and replaces the ids on a second answer rather than refusing it, and says so instead of
-claiming a handover once the review already ended; `rejectWaitingReview` writes a rejection batch
+published, and a second answer keeps the first batch's ids and says in the balloon that it did not go
+to the waiting session — the review's ids must be the ids the agent really got, since the watcher
+exits on the first batch and nothing re-arms it; it also says so instead of
+claiming a handover once the review already ended, and one test drives the whole chain, two answers
+then an `ack read`, asserting only the first batch is READ; `rejectWaitingReview` writes a rejection batch
 into the published file rather than into a directory of its own, and a rejection after a publish
 still writes nothing and only clears the review; nothing is marked read until the read
 acknowledgement, and an abandoned acknowledgement or the deadline both leave the remarks pending),
 `PreviewSelectionServiceTest` (since phase 9, fixture-backed for the same
 reason: `remember`, `forget` and `current` on the project-level service that holds the preview's last
 selection), and `WaitingReviewServiceTest` (fixture-backed, because a
-project-level service needs a project: `markSent` and the session it names, `acknowledge`,
+project-level service needs a project: `markSent`, the session it names and its refusal to re-stamp a
+review already `Sent`, `acknowledge`,
 `expireIfStale`, and that `clear` cancels the deadline task and a stale review is not `current()`;
 phase 8's `endedOutputPath` tests were removed in phase 10 along with the field itself, once a fetch
 or a published-read started resolving the one predictable published-file path instead of a path the

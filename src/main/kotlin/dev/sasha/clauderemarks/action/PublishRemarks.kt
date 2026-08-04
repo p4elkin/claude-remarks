@@ -74,6 +74,11 @@ internal data class Prepared(
  * [dev.sasha.clauderemarks.review.answerWaitingReview]. There is no separate Send action any more —
  * publishing is the only way a waiting review is handed anything.
  *
+ * A review can only be answered once. If it is already `Sent`, this is an ordinary publish: the file
+ * is written and the remarks are marked published, but the review keeps the ids of the batch that
+ * actually reached the agent, and the balloon says the batch did not go to the waiting session. See
+ * [dev.sasha.clauderemarks.review.WaitingReviewService.markSent] for why.
+ *
  * [ids] null means every remark that is not yet `READ`. A non-null list is used as given, published
  * ones included, so publishing again after a paste went to the wrong place works.
  *
@@ -155,7 +160,12 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
                 // write below then fails, the catch drops the batch again.
                 val nonce = PublishedBatchService.getInstance(project)
                     .record(prepared.ids, waiting?.sessionId)
-                try {
+                // The try covers the write and nothing after it. answerWaitingReview runs below,
+                // outside it, because it only runs once the write has already succeeded: inside,
+                // a throw from it would reach the catch and call forget(nonce), dropping a batch
+                // whose file exists — and the agent's own acknowledgement of that file would then
+                // be answered unknown-batch.
+                val failure = try {
                     val header = PublishedHeader(
                         nonce = nonce,
                         publishedAt = System.currentTimeMillis(),
@@ -171,13 +181,7 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
                     // escape every try in this function — the same trap
                     // store/RemarkEdits.kt's clearHandedOverRemarks names and rejects.
                     writePublished(prepared.root, header + "\n" + prepared.markdown, handshakeDir())
-                    // Only stamped once the write actually succeeded: nothing was handed over on
-                    // the path that throws below, so nothing here should claim a review was
-                    // answered. waitingReviewForPublish's own snapshot can still have gone stale in
-                    // the meantime — rejected, acknowledged, or past its deadline — and
-                    // answerWaitingReview's markSent call catches that on its own, atomically.
-                    val answer = waiting?.let { answerWaitingReview(project, it.sessionId, prepared.ids) }
-                    null to answer
+                    null
                 } catch (e: ProcessCanceledException) {
                     // Never swallowed. The platform throws it to unwind, not to report a failure,
                     // and turning it into "the published file was not updated" would hide it.
@@ -200,8 +204,17 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
                     // would burn one of the sixteen remembered slots for good, and enough failed
                     // publishes would push a real, readable batch out of them into unknown-batch.
                     PublishedBatchService.getInstance(project).forget(nonce)
-                    (e.message ?: e.toString()) to null
+                    e.message ?: e.toString()
                 }
+                // Only stamped once the write actually succeeded: nothing was handed over on the
+                // path that threw above, so nothing here should claim a review was answered.
+                // waitingReviewForPublish's own snapshot can still have gone stale in the meantime —
+                // rejected, acknowledged, or past its deadline — and it can equally have been
+                // answered by an earlier publish already. answerWaitingReview's markSent call catches
+                // both on its own, atomically, and gives each its own sentence.
+                val answer = if (failure != null) null
+                else waiting?.let { answerWaitingReview(project, it.sessionId, prepared.ids) }
+                failure to answer
             }
 
             markRemarksPublished(project, prepared.ids)

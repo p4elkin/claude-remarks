@@ -75,20 +75,48 @@ class ReviewLifecycleTest : BasePlatformTestCase() {
     }
 
     /**
-     * Phase 7's "already sent" refusal forbade a second send while the first was still unread. That
-     * refusal is gone: publishing again while a review is still Sent is now the normal way to add
-     * more to it, and the second answer simply replaces the first's recorded ids.
+     * Phase 10 let a second answer replace the first's recorded ids, on the reasoning that the
+     * waiting session would simply wake again. It does not — `watch-remarks.sh` exits on the first
+     * batch that answers this review and nothing re-arms it. So the review keeps the batch the agent
+     * really got, and the balloon says the second one did not go to it.
      */
-    fun testAnsweringAReviewASecondTimeReplacesTheRecordedIds() {
+    fun testAnsweringAReviewASecondTimeKeepsTheFirstBatchsIdsAndSaysSo() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         answerWaitingReview(project, "s1", listOf("a"))
 
         val sentence = answerWaitingReview(project, "s1", listOf("a", "b"))
 
-        assertNull(sentence)
+        assertNotNull(sentence)
+        assertTrue(sentence!!, sentence.contains("did not go to it"))
         val phase = WaitingReviewService.getInstance(project).current()!!.phase
         assertTrue(phase is ReviewPhase.Sent)
-        assertEquals(listOf("a", "b"), (phase as ReviewPhase.Sent).ids)
+        assertEquals(listOf("a"), (phase as ReviewPhase.Sent).ids)
+    }
+
+    /**
+     * The whole chain the second publish used to break, end to end: two publishes against one
+     * waiting review, then the `ack read` the agent sends about the only batch it ever received.
+     * Only the first batch's remark may be READ. The second is left where it was — the real publish
+     * pipeline would have marked it PUBLISHED, which is true, but no agent ever saw it, so nothing
+     * may call it READ. This test drives `answerWaitingReview` directly, the same as every other test
+     * in this class, so "not READ" reads as PENDING here.
+     *
+     * Remove the `Sent` check from `WaitingReviewService.markSent` and this fails: the review then
+     * records the second batch's ids, and `reportReviewEnd` marks a remark READ that was never
+     * delivered.
+     */
+    fun testASecondPublishBeforeTheAcknowledgementIsNotMarkedRead() {
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
+        val delivered = addRemark(project, "A.kt", LINES, 0..0, "the batch the agent got", null)
+        val neverDelivered = addRemark(project, "B.kt", LINES, 0..0, "published after", null)
+
+        answerWaitingReview(project, "s1", listOf(delivered.id!!))
+        answerWaitingReview(project, "s1", listOf(neverDelivered.id!!))
+        finishReview(project, "s1", ReviewEnd.READ)
+        settleInvocationQueue()
+
+        assertEquals(RemarkStatus.READ, statusOf(delivered.id!!))
+        assertEquals(RemarkStatus.PENDING, statusOf(neverDelivered.id!!))
     }
 
     /** The phase's central decision, on the new path: only a `read` acknowledgement marks anything. */

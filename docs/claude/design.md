@@ -1259,10 +1259,13 @@ the write, the header's `reviewSession` and `reviewLabel` fields are filled from
 the two never disagree about what this batch answers. There is now exactly one route a remark's
 handover can be confirmed through, however it got published: the header names the review it answers
 if there is one, and the same nonce that lets a plain publish be acknowledged is what lets a review's
-answer be acknowledged too. `markSent` can return `false` if the review ended in the gap between the
-check and the write — see "Three signals that the remarks arrived" below — and `answerWaitingReview`
-turns that into the balloon's "the review ended first" sentence instead of silently claiming a
-handover that did not land on a live review.
+answer be acknowledged too. `markSent` answers with a `StampOutcome` rather than a plain boolean,
+because two different things can stop a stamp and each needs its own sentence in the balloon. It
+answers `NO_REVIEW` if the review ended in the gap between the check and the write — see "Three
+signals that the remarks arrived" below — and `ALREADY_SENT` if an earlier publish already answered
+it — see "A review is answered once, and the ids it records are the ids the agent got" below.
+`answerWaitingReview` turns each into its own sentence instead of silently claiming a handover that
+did not land on a live review.
 
 **How the skill reads it.** `docs/skill/claude-remarks-review/SKILL.md` has three modes that all
 read this one file, sharing the repository root, the project hash and the "act on the markdown" step
@@ -1909,12 +1912,45 @@ action, calls `markRemarksRead(project, ids)`, moving them to `READ`. This is al
 function marks a remark pending again: nothing is ever marked handed over early, so there is nothing
 to undo when a review is abandoned or rejected after a publish.
 
+**A review is answered once, and the ids it records are the ids the agent got.** This is the
+invariant `ReviewPhase.Sent(ids)` exists to carry, and it decides what a second publish does. The
+agent waits with `watch-remarks.sh`, which exits 0 as soon as it sees a batch whose header line 6
+names its own review, and nothing re-arms it. So a second publish, made while the review is still
+`Sent`, reaches nobody at all. `markSent` therefore refuses to re-stamp a review already in `Sent`,
+answers `StampOutcome.ALREADY_SENT`, and leaves the first batch's ids in place. The `ack read` that
+follows then marks exactly the batch the agent really received.
+
+Phase 10 built this the other way round. It deleted two phase 7 guards — `sendToWaitingReview`'s
+"already sent" refusal and a mid-render re-check — on the reasoning that the waiting session would
+simply wake again. In the system phase 10 actually built, it does not. With the overwrite in place,
+the second batch's ids replaced the first's, and the agent's `ack read` marked remarks READ that no
+agent had ever been handed: with Publish Unread the second batch is a superset of the first, so
+everything added since went READ unseen; with two Publish Selected batches the two sets can be
+disjoint, and then every remark marked read was undelivered. Taking a union of the two id lists is no
+better, for the same reason — the agent did not receive the second batch either way.
+
+The second publish is still a real publish: the file is written, the batch is recorded with its own
+nonce, and the remarks move to `PUBLISHED`, which is true. A later one-shot read can still pick them
+up by that nonce. Two things say so out loud rather than leaving the person to guess. The balloon
+gains `answerWaitingReview`'s `ALREADY_SENT` sentence, which states plainly that the batch did not go
+to the waiting session. And the banner, in the `Sent` phase, says "A further publish will not go to
+this review" — it read "Publish again to add more" until this was found, which invited exactly the
+broken case.
+
+One residual case is accepted rather than solved. If the person publishes twice inside one of the
+watcher's poll intervals, the watcher can see only the second batch, since the file is overwritten,
+and the review still records the first. The `ack read` then marks the first batch, and any remark in
+it that is not in the second is marked read without having been delivered. The header of the second
+batch deliberately still names the review, so that batch is delivered rather than the wait hanging to
+its deadline with the first batch already gone from the file. Delivering something beats delivering
+nothing. This needs two publishes within a couple of seconds and is recorded in Known Issues below.
+
 **One gap in that handover stays open, and the balloon is what makes it honest.** The publish checks
 whether a review is still live (`waitingReviewForPublish`) before it writes the file, then writes,
 then calls `answerWaitingReview` to stamp the phase. Between the check and the stamp the deadline task
-can still end the review — `markSent` returns `false` when it finds no review left to stamp, and
-`answerWaitingReview` turns that into the sentence "the review ended first" rather than the usual
-"Waiting for it to read them," added to the balloon `publishMessage` already builds. The file still
+can still end the review — `markSent` answers `StampOutcome.NO_REVIEW` when it finds no review left to
+stamp, and `answerWaitingReview` turns that into the sentence "the review ended first" rather than the
+usual "Waiting for it to read them," added to the balloon `publishMessage` already builds. The file still
 exists and still holds the remarks, so the skill can still read them; its `ack read` is then answered
 `no-review` and the review's phase never reaches `Sent`, which is the direction where nothing is
 lost. Closing the gap for real would mean holding a lock across the file write, and that trade is
@@ -2405,6 +2441,16 @@ lost; the relief valves are Clear Handed Over and a narrower Publish Selected ba
 still in the store, and the next Publish Unread carries them again. The one case that does not
 recover by itself is two Publish Selected batches with different rows: the first batch's rows come
 back only through a later Publish Unread or by selecting them again.
+
+**RARE, MODERATE: two publishes inside one watcher poll interval can mark the wrong batch read.** A
+waiting review records the ids of the batch that answered it and refuses to re-stamp — see "A review
+is answered once" above. If a second publish lands before the watcher's next poll, the watcher sees
+only the second batch, because the file was overwritten, while the review still records the first.
+The `ack read` then marks the first batch, and any remark in it that is not in the second is marked
+READ without having reached the agent. It needs two publishes within a couple of seconds. The fix
+would be to key the acknowledgement to the nonce the agent actually read instead of to the review's
+recorded ids, which is the `published-read` route the other two skill modes already use; folding
+review mode onto it too is the direction, not another guard here.
 
 **OCCASIONAL, MINOR: a rejection erases the last published batch from the file.** Same recovery as
 the overwrite above — the remarks stay in the store and a later publish carries them again.

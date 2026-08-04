@@ -499,7 +499,8 @@ marker, or whose second line does not start with `nonce: `, or — under `--requ
 sixth line does not start with `review: ` (all three mean the plugin that wrote it is older than
 this skill),
 an HTTP status other than 200, or one of the fetch answers that no amount of polling can fix —
-`too-large`, `failed` (the IDE reached the published file and could not use it: an IOException, a
+`too-large` (whose sentence on stderr carries the file's size and the limit, both read out of the
+response), `failed` (the IDE reached the published file and could not use it: an IOException, a
 header it could not parse, or a project directory that no longer resolves), `bad-request` and
 `unknown-project`.
 
@@ -1055,7 +1056,8 @@ lapsing under a nonsense name.
   `ssh` connect anyway with no forwarding, and every request after that answers connection refused
   for a reason that looks nothing like the real cause.
 - `fetch` answers `too-large`: "The review is too big to send through the tunnel (`<bytes>` bytes,
-  limit `<limit>`). The remarks are still pending in the IDE, in the published file under
+  limit `<limit>`)." Take both numbers from the watcher's own stderr line, which reads them out of
+  the response and prints them in brackets. Then: "The remarks are still pending in the IDE, in the published file under
   `~/.claude-remarks/` on the IDE machine. Ask the person to read them there, or to send fewer
   remarks." Not a failure to retry — the review cannot be re-sent from the IDE either, so this
   stops here.

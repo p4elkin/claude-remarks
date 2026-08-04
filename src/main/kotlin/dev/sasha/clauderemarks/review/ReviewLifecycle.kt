@@ -31,17 +31,28 @@ internal fun waitingReviewForPublish(project: Project): WaitingReviewState? =
 
 /**
  * Records that this publish answered [session]'s review with [ids], and says what to add to the
- * publish's own balloon: null when the stamp succeeded and the review is simply waiting to read
- * them, or a sentence saying the review had already ended when [WaitingReviewService.markSent]
- * found nothing to stamp — the review it was meant to answer was rejected, acknowledged, or ran
- * past its deadline in the gap between the publish snapshotting it and this call. The remarks are
- * still published either way; only whether a review is left waiting for them differs.
+ * publish's own balloon. Null when the stamp succeeded and the review is simply waiting to read
+ * them — the ordinary case needs no extra words. Otherwise a sentence, and which one depends on what
+ * [WaitingReviewService.markSent] found:
+ *
+ *  - the review had already ended — rejected, acknowledged, or past its deadline in the gap between
+ *    the publish snapshotting it and this call;
+ *  - the review had already been answered by an earlier publish, so this batch did not go to the
+ *    waiting session at all. Saying so plainly is the whole point: the agent's watcher exits on the
+ *    first batch and is never re-armed, so nobody must be left believing a second publish added to
+ *    what the agent is reading.
+ *
+ * The remarks are still published either way; only whether a review is left waiting for them differs.
  */
-internal fun answerWaitingReview(project: Project, session: String, ids: List<String>): String? {
-    val stamped = WaitingReviewService.getInstance(project).markSent(session, ids)
-    return if (stamped) null
-    else "The review it was meant to answer had already ended, so it is not waiting for these."
-}
+internal fun answerWaitingReview(project: Project, session: String, ids: List<String>): String? =
+    when (WaitingReviewService.getInstance(project).markSent(session, ids)) {
+        StampOutcome.STAMPED -> null
+        StampOutcome.ALREADY_SENT ->
+            "Claude Code was already sent an earlier batch for this review and has not read it yet, " +
+                "so these did not go to it. Ask Claude Code to read the published file for them."
+        StampOutcome.NO_REVIEW ->
+            "The review it was meant to answer had already ended, so it is not waiting for these."
+    }
 
 /**
  * The body of a rejection batch, once the header above it already says `rejected: yes` — that field

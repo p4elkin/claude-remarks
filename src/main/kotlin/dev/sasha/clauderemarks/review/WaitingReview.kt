@@ -14,6 +14,20 @@ import java.util.concurrent.TimeUnit
 enum class AckOutcome { OK, NO_REVIEW, NOT_SENT }
 
 /**
+ * What a publish's attempt to stamp a waiting review did.
+ *
+ * STAMPED is the ordinary case: the review was waiting, and it now records this publish's ids.
+ * ALREADY_SENT means an earlier publish already answered it and this one changed nothing — see
+ * [WaitingReviewService.markSent] for why that is the only safe answer. NO_REVIEW means there was
+ * no live review of that session left to stamp at all.
+ *
+ * An enum rather than the `Boolean` this used to be, because the two failing answers need different
+ * sentences in the balloon: "it ended first" and "it already had its answer" are different things to
+ * tell a person, and a `false` covering both told them neither.
+ */
+enum class StampOutcome { STAMPED, ALREADY_SENT, NO_REVIEW }
+
+/**
  * What ended a review. STALE is the deadline; the other two come from the skill.
  *
  * STALE carries no behaviour of its own: `reportReviewEnd` in review/ReviewLifecycle.kt shows it exactly
@@ -180,20 +194,38 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * review it snapshotted can end and a different one start while it works; marking that new
      * review Sent would claim ids written into a file whose header names the old review.
      *
-     * **Returns false when there was nothing left to stamp**, and the caller has to say so rather
-     * than claim a handover. The write itself cannot be done under this lock — it is a filesystem
-     * call and [current] must never block the EDT behind one — so the deadline task can end the
-     * review in the gap between the publish's liveness check and this call. Then the file exists but
-     * no `Sent` phase does, the later `ack read` is answered `no-review`, and the remarks stay
-     * pending. That is the safe direction; a balloon saying the remarks were handed over is not.
+     * **Answers [StampOutcome.NO_REVIEW] when there was nothing left to stamp**, and the caller has
+     * to say so rather than claim a handover. The write itself cannot be done under this lock — it is
+     * a filesystem call and [current] must never block the EDT behind one — so the deadline task can
+     * end the review in the gap between the publish's liveness check and this call. Then the file
+     * exists but no `Sent` phase does, the later `ack read` is answered `no-review`, and the remarks
+     * stay pending. That is the safe direction; a balloon saying the remarks were handed over is not.
+     *
+     * **A review already in [ReviewPhase.Sent] is left exactly as it is, and answered
+     * [StampOutcome.ALREADY_SENT].** This is the invariant the phase exists for: the ids a review
+     * records must be the ids that actually reached the agent. The agent waits with
+     * `watch-remarks.sh`, which exits as soon as it sees the first batch that answers its review and
+     * is never re-armed, so a second publish reaches nobody. Overwriting the ids here would then make
+     * the agent's `ack read` — sent about the first batch, the only one it ever saw — mark the second
+     * batch `READ` as well. With Publish Unread the second batch is a superset of the first, so that
+     * marks everything the person added since; with two Publish Selected batches the two sets can be
+     * disjoint, and then every remark marked read was never delivered at all. Phase 10 removed the two
+     * guards that used to stand here, on the reasoning that the waiting session would simply wake
+     * again. It does not: nothing re-arms the watcher. Taking a union of the two id lists is no better
+     * — the agent did not receive the second batch either way.
+     *
+     * The second publish is still an ordinary publish. It writes the published file and marks its
+     * remarks `PUBLISHED`, which is true, and a later one-shot read can still pick them up by nonce.
+     * Only the review's recorded ids are left alone.
      */
     @Synchronized
-    internal fun markSent(session: String, ids: List<String>): Boolean {
-        val acting = state ?: return false
-        if (acting.sessionId != session) return false
+    internal fun markSent(session: String, ids: List<String>): StampOutcome {
+        val acting = state ?: return StampOutcome.NO_REVIEW
+        if (acting.sessionId != session) return StampOutcome.NO_REVIEW
+        if (acting.phase is ReviewPhase.Sent) return StampOutcome.ALREADY_SENT
         state = acting.copy(phase = ReviewPhase.Sent(ids))
         notifyPanel()
-        return true
+        return StampOutcome.STAMPED
     }
 
     /**

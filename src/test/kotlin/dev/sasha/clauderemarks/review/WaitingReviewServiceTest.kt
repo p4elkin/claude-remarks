@@ -33,7 +33,7 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
     fun testMarkingSentMovesThePhaseAndKeepsTheReview() {
         val service = startedReview()
 
-        assertTrue(service.markSent("s1", listOf("a", "b")))
+        assertEquals(StampOutcome.STAMPED, service.markSent("s1", listOf("a", "b")))
 
         val current = service.current()
         assertNotNull(current)
@@ -96,21 +96,38 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
 
         // What a publish whose review ended mid-render would otherwise do to the review that
         // replaced it.
-        assertFalse(service.markSent("s0", listOf("a", "b")))
+        assertEquals(StampOutcome.NO_REVIEW, service.markSent("s0", listOf("a", "b")))
 
         assertEquals(ReviewPhase.Waiting, service.current()!!.phase)
     }
 
     /**
+     * The invariant the phase carries: a review records the ids that actually reached the agent.
+     * The watcher exits on the first batch that answers this review and nothing re-arms it, so a
+     * second publish reaches nobody — and overwriting the ids here would make the agent's `ack read`
+     * mark a batch it never saw. Delete the `Sent` check in `markSent` and the second assertion
+     * below fails with ["c"].
+     */
+    fun testMarkingSentASecondTimeKeepsTheFirstBatchsIds() {
+        val service = startedReview()
+        service.markSent("s1", listOf("a", "b"))
+
+        assertEquals(StampOutcome.ALREADY_SENT, service.markSent("s1", listOf("c")))
+
+        val phase = service.current()!!.phase
+        assertEquals(listOf("a", "b"), (phase as ReviewPhase.Sent).ids)
+    }
+
+    /**
      * The window the publish cannot close: it writes the published file outside the service's lock,
-     * so the deadline task can end the review before the stamp lands. `false` is what tells the
-     * publish to report that instead of claiming the remarks were handed over.
+     * so the deadline task can end the review before the stamp lands. [StampOutcome.NO_REVIEW] is
+     * what tells the publish to report that instead of claiming the remarks were handed over.
      */
     fun testMarkingSentAfterTheReviewEndedReportsThatNothingWasStamped() {
         val service = startedReview()
         service.clear("s1")
 
-        assertFalse(service.markSent("s1", listOf("a", "b")))
+        assertEquals(StampOutcome.NO_REVIEW, service.markSent("s1", listOf("a", "b")))
         assertNull(service.current())
     }
 

@@ -369,6 +369,10 @@ class RemarksPanelTest : BasePlatformTestCase() {
         val text = panel.banner.text.orEmpty()
         assertTrue(text, text.contains("Published 1 remark for Claude Code"))
         assertTrue(text, text.contains("Waiting for it to read them"))
+        // "Publish again to add more." stood here and invited the one thing that does not work: the
+        // agent's watcher has already exited with the first batch and nothing re-arms it.
+        assertFalse(text, text.contains("add more"))
+        assertTrue(text, text.contains("A further publish will not go to this review"))
     }
 
     /**

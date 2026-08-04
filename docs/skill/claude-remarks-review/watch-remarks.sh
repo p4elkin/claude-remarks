@@ -385,7 +385,12 @@ while :; do
       fi
       ;;
     too-large)
-      echo "watch-remarks.sh: the published file is over the fetch size limit" >&2
+      # The two numbers are carried out, not just the fact: SKILL.md's message for this answer quotes
+      # both back to the person, and the response already has them — handleFetch writes `bytes` and
+      # `limit` beside the status. Without this line the skill has two placeholders it can never fill.
+      echo "watch-remarks.sh: the published file is over the fetch size limit ($(
+        jq -r '"\(.bytes // "unknown") bytes, limit \(.limit // "unknown")"' "$resp"
+      ))" >&2
       rm -f "$resp"
       exit 2
       ;;
