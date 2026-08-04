@@ -16,16 +16,20 @@ import java.nio.file.Path
 import org.jetbrains.ide.RestService
 
 /**
- * `POST /api/claude-remarks/start`, `POST /api/claude-remarks/ack` and `POST /api/claude-remarks/fetch`.
- * The skill asks this IDE to hold a review open for a repository and gets back the path it should
- * watch for the handover file, then later tells the IDE whether it read that file or gave up
- * waiting. `fetch` is a third moment: it hands the handoff file's content back in the response
- * body itself, for an agent with no filesystem access to that path.
+ * `POST /api/claude-remarks/start`, `POST /api/claude-remarks/ack`, `POST /api/claude-remarks/fetch`
+ * and `POST /api/claude-remarks/published-read`. The skill asks this IDE to hold a review open for a
+ * repository and gets back the path it should watch for the handover file, then later tells the IDE
+ * whether it read that file or gave up waiting. `fetch` is a third moment: it hands the handoff
+ * file's content back in the response body itself, for an agent with no filesystem access to that
+ * path. `published-read` is a fourth, and independent of the other three: it acknowledges a batch a
+ * publish wrote to the merged file, keyed to the nonce that batch's header carries rather than to a
+ * review session, since a publish can happen with no review waiting at all.
  *
  * The answer is always HTTP 200 with a `status` field. `start` answers one of `waiting`,
  * `conflict`, `unknown-project`, `bad-request`, `failed`; `ack` answers one of `ok`, `no-review`,
  * `not-sent`, `unknown-project`, `bad-request`; `fetch` answers one of `ready`, `waiting`,
- * `no-review`, `too-large`, `unknown-project`, `bad-request`, `failed`. Real status codes stay
+ * `no-review`, `too-large`, `unknown-project`, `bad-request`, `failed`; `published-read` answers one
+ * of `ok`, `already-read`, `unknown-batch`, `unknown-project`, `bad-request`. Real status codes stay
  * reserved for what `RestService.process` produces above this class — 403, 429, and 400 or 500
  * from its catch — so a plumbing failure never looks like an application answer to the shell
  * script reading it.
@@ -125,6 +129,17 @@ private class FetchRequest(
 )
 
 /**
+ * Gson fills these by reflection too. [nonce] identifies the batch a publish recorded; [session] is
+ * a name the calling session invents for itself. The endpoint never hands one out and never checks
+ * it, only reports it back, which is what lets a second session be told who got there first.
+ */
+private class PublishedReadRequest(
+    val session: String? = null,
+    val project: String? = null,
+    val nonce: String? = null,
+)
+
+/**
  * The default the skill's own `deadline_seconds` carries in
  * `docs/skill/claude-remarks-review/SKILL.md` step 3, and the bounds it is corrected to. Named
  * rather than inlined so that the number is greppable from the skill's side: the two documents have
@@ -203,6 +218,7 @@ class ReviewRestService : RestService() {
             "start" -> handleStart(request, writer)
             "ack" -> handleAck(request, writer)
             "fetch" -> handleFetch(request, writer)
+            "published-read" -> handlePublishedRead(request, writer)
             // A behaviour change worth naming: before this, any sub-path started a review because
             // execute never looked at it at all.
             else -> badRequest(writer, cause = null, fallbackDetail = "unknown action: $action")
@@ -365,6 +381,51 @@ class ReviewRestService : RestService() {
                 writer.name("content").value(read.text)
                 writer.name("bytes").value(read.bytes)
             }
+        }
+    }
+
+    /**
+     * `POST /api/claude-remarks/published-read`. Acknowledges a batch a publish wrote to the merged
+     * file, keyed to the nonce that batch's header carries rather than to a review session, since a
+     * publish can happen with no review waiting at all. `session` is a name the calling session
+     * invents for itself; the endpoint never hands one out and never checks it, only reports it back
+     * on `already-read`, so a second session can be told who got there first.
+     *
+     * This handler does nothing but parse, call [matchProject] and [reportPublishedRead], and write
+     * fields. Every consequence — marking the batch's remarks read, the balloon — lives in
+     * review/PublishedAck.kt, for the same reason the ack action's consequences live in
+     * review/SendReview.kt rather than here.
+     */
+    private fun handlePublishedRead(request: FullHttpRequest, writer: JsonWriter) {
+        val body = runCatching {
+            gson.fromJson<PublishedReadRequest?>(createJsonReader(request), PublishedReadRequest::class.java)
+        }
+        val parsed = body.getOrNull()
+        val session = parsed?.session
+        val wanted = parsed?.project
+        val nonce = parsed?.nonce
+        if (session.isNullOrBlank() || wanted.isNullOrBlank() || nonce.isNullOrBlank()) {
+            badRequest(
+                writer,
+                body.exceptionOrNull(),
+                "expected a JSON object with session, project and nonce",
+            )
+            return
+        }
+        val project = matchProject(wanted, writer) ?: return
+        val answer = reportPublishedRead(project, nonce, session)
+        when (answer.outcome) {
+            PublishedAckOutcome.OK -> {
+                writer.name("status").value("ok")
+                writer.name("remarks").value(answer.remarks)
+            }
+            PublishedAckOutcome.ALREADY_READ -> {
+                writer.name("status").value("already-read")
+                writer.name("remarks").value(answer.remarks)
+                writer.name("session").value(answer.readBy)
+                writer.name("readAt").value(answer.readAt)
+            }
+            PublishedAckOutcome.UNKNOWN_BATCH -> writer.name("status").value("unknown-batch")
         }
     }
 

@@ -37,11 +37,14 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         // The light fixture project is shared across test classes.
         RemarkStore.getInstance(project).clear()
         WaitingReviewService.getInstance(project).clear()
+        PublishedBatchService.getInstance(project).clear()
     }
 
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         WaitingReviewService.getInstance(project).clear()
+        PublishedBatchService.getInstance(project).clear()
+        UIUtil.dispatchAllInvocationEvents()
         temp.deleteAll()
         super.tearDown()
     }
@@ -251,6 +254,75 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         assertTrue(sent, sent.contains("\"too-large\""))
         assertTrue(sent, sent.contains("\"limit\""))
         assertFalse(sent, sent.contains(marker))
+    }
+
+    /**
+     * The ordinary case: a batch recorded through PublishedBatchService, then acknowledged over the
+     * endpoint, answers ok and marks its remarks read. reportPublishedRead's consequences run inside
+     * invokeLater, the same as the ack action's.
+     */
+    fun testAPublishedReadForARecordedBatchAnswersOkAndMarksTheRemarksRead() {
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
+        PublishedBatchService.getInstance(project).record("n1", listOf(remark.id!!))
+
+        val sent = post(
+            "/api/claude-remarks/published-read",
+            """{"session":"s1","project":"${projectPath()}","nonce":"n1"}""",
+        )
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertTrue(sent, sent.contains("\"ok\""))
+        assertEquals(RemarkStatus.READ, RemarkStore.getInstance(project).all().single { it.id == remark.id }.status)
+    }
+
+    /**
+     * A second published-read for the same batch, from a different session, does not mark anything
+     * twice: it is told already-read and who got there first.
+     */
+    fun testASecondPublishedReadForTheSameBatchAnswersAlreadyReadAndNamesTheFirstSession() {
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
+        PublishedBatchService.getInstance(project).record("n1", listOf(remark.id!!))
+        post(
+            "/api/claude-remarks/published-read",
+            """{"session":"s1","project":"${projectPath()}","nonce":"n1"}""",
+        )
+        UIUtil.dispatchAllInvocationEvents()
+
+        val sent = post(
+            "/api/claude-remarks/published-read",
+            """{"session":"s2","project":"${projectPath()}","nonce":"n1"}""",
+        )
+
+        assertTrue(sent, sent.contains("\"already-read\""))
+        assertTrue(sent, sent.contains("\"s1\""))
+    }
+
+    /** A nonce this plugin never recorded, or one that fell off the remembered sixteen. */
+    fun testAPublishedReadForANonceNothingRecordedAnswersUnknownBatch() {
+        val sent = post(
+            "/api/claude-remarks/published-read",
+            """{"session":"s1","project":"${projectPath()}","nonce":"does-not-exist"}""",
+        )
+
+        assertTrue(sent, sent.contains("\"unknown-batch\""))
+    }
+
+    fun testAPublishedReadWithNoNonceAnswersBadRequest() {
+        val sent = post(
+            "/api/claude-remarks/published-read",
+            """{"session":"s1","project":"${projectPath()}"}""",
+        )
+
+        assertTrue(sent, sent.contains("\"bad-request\""))
+    }
+
+    fun testAPublishedReadForAProjectNothingHasOpenAnswersUnknownProject() {
+        val sent = post(
+            "/api/claude-remarks/published-read",
+            """{"session":"s1","project":"/nope","nonce":"n1"}""",
+        )
+
+        assertTrue(sent, sent.contains("\"unknown-project\""))
     }
 
     /**

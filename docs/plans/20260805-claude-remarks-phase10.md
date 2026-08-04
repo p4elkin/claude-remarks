@@ -466,22 +466,22 @@ Answers: `ok` with `remarks`; `already-read` with `remarks`, `session` and `read
 `matchProject`, call `reportPublishedRead` and write fields. Every consequence lives in
 `review/PublishedAck.kt`, for guard 5.
 
-- [ ] write the failing tests in `ReviewEndpointSmokeTest`:
+- [x] write the failing tests in `ReviewEndpointSmokeTest`:
   - `a published-read for a recorded batch answers ok and marks the remarks read`. Record through
     `PublishedBatchService`, post, `UIUtil.dispatchAllInvocationEvents()`, assert `READ`.
   - `a second published-read for the same batch answers already-read and names the first session`.
   - `a published-read for a nonce nothing recorded answers unknown-batch`.
   - `a published-read with no nonce answers bad-request`.
   - `a published-read for a project nothing has open answers unknown-project`.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"` and expect
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"` and expect
       a compile failure
-- [ ] implement, then the narrow command passes
-- [ ] **mutation:** remove the `"published-read"` branch from `execute`'s `when`; every new test must
+- [x] implement, then the narrow command passes
+- [x] **mutation:** remove the `"published-read"` branch from `execute`'s `when`; every new test must
       fail with `bad-request` from the unknown-action branch. Make `handlePublishedRead` accept a
       blank nonce; the bad-request test must fail. Restore both.
-- [ ] all six guards print nothing. Guard 5 matters most here: nothing added to this file may name
+- [x] all six guards print nothing. Guard 5 matters most here: nothing added to this file may name
       the VFS, Swing or `invokeAndWait`, in code or in a comment.
-- [ ] commit: `feat: an agent can tell the IDE it read a published batch`
+- [x] commit: `feat: an agent can tell the IDE it read a published batch`
 
 ### Task 5: Publish records its batch, and Publish Unread replaces Publish All Pending
 
