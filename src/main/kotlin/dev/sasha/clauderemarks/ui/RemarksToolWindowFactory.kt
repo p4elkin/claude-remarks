@@ -448,9 +448,9 @@ class RemarksPanel(
             openGeneralRemarkInput(project, tree)
         },
         ToolbarAction(
-            "Publish All Pending",
+            "Publish Unread",
             AllIcons.Actions.Copy,
-            { remarks().any { it.status == RemarkStatus.PENDING } },
+            { remarks().any { it.status != RemarkStatus.READ } },
         ) { publishRemarks(project, null) },
         ToolbarAction(
             "Publish Selected",

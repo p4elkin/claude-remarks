@@ -517,21 +517,24 @@ Three changes, and they belong together because the third is only safe once the 
 because "Publish Unread Claude Remarks" still starts with Publish. Run it anyway, in the narrow
 command, so that is a fact rather than an assumption.
 
-- [ ] write the failing tests in `PublishRemarksTest`:
+- [x] write the failing tests in `PublishRemarksTest`:
   - `a publish with no ids takes every remark that is not read`. Three remarks, one `PENDING`, one
     `PUBLISHED`, one `READ`. `prepare(project, null)` returns the first two.
   - `a publish with ids takes exactly those, read ones included`.
-- [ ] update the toolbar test in `RemarksPanelTest` to the new label, and add
+- [x] update the toolbar test in `RemarksPanelTest` to the new label, and add
       `the publish button is offered while any remark is not read` if no test covers the enablement.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.action.PublishRemarksTest" --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest" --tests "dev.sasha.clauderemarks.action.ActionIdsTest"`
+      (No test in `RemarksPanelTest` named the toolbar button by its old label — grep confirmed no
+      occurrence of "Publish All Pending" there — so nothing needed updating in that file for this
+      task.)
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.action.PublishRemarksTest" --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest" --tests "dev.sasha.clauderemarks.action.ActionIdsTest"`
       and expect a failure
-- [ ] implement all three changes, then the narrow command passes
-- [ ] **mutation:** put the filter back to `== RemarkStatus.PENDING`; the first new test must fail.
+- [x] implement all three changes, then the narrow command passes
+- [x] **mutation:** put the filter back to `== RemarkStatus.PENDING`; the first new test must fail.
       Move the batch recording to after the file write; no test catches it, because the publish
       pipeline is asynchronous and is not driven from a test, so say that plainly in the report and
       leave the ordering comment in the code as the only guard. Restore both.
-- [ ] all six guards print nothing
-- [ ] commit: `feat: Publish Unread carries everything an agent has not read, and names its batch`
+- [x] all six guards print nothing
+- [x] commit: `feat: Publish Unread carries everything an agent has not read, and names its batch`
 
 ### Group two: the review moves onto the same file
 

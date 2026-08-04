@@ -5,6 +5,7 @@ import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addGeneralRemark
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.markRemarksPublished
+import dev.sasha.clauderemarks.store.markRemarksRead
 import java.nio.file.Path
 
 /**
@@ -25,12 +26,29 @@ class PublishRemarksTest : BasePlatformTestCase() {
         RemarkStore.getInstance(project).clear()
     }
 
-    fun testPublishAllLeavesOutRemarksThatWereAlreadyPublished() {
-        val published = addRemark(project, "Foo.kt", LINES, 0..0, "already handed over", null)
-        val pending = addRemark(project, "Foo.kt", LINES, 1..1, "still waiting", null)
+    /**
+     * Publish Unread's whole point: a remark already handed over through the clipboard or the
+     * published file, but never acknowledged as read, is still unread, and a publish with no ids
+     * takes it again. Only a remark a review has actually acknowledged is left out.
+     */
+    fun testAPublishWithNoIdsTakesEveryRemarkThatIsNotRead() {
+        val pending = addRemark(project, "Foo.kt", LINES, 0..0, "still pending", null)
+        val published = addRemark(project, "Foo.kt", LINES, 1..1, "published but not read", null)
         markRemarksPublished(project, listOf(published.id!!))
+        val read = addRemark(project, "Foo.kt", LINES, 2..2, "already read", null)
+        markRemarksPublished(project, listOf(read.id!!))
+        markRemarksRead(project, listOf(read.id!!))
 
-        assertEquals(listOf(pending.id), prepare(project, null).ids)
+        assertEquals(setOf(pending.id, published.id), prepare(project, null).ids.toSet())
+    }
+
+    fun testAPublishWithIdsTakesExactlyThoseReadOnesIncluded() {
+        val read = addRemark(project, "Foo.kt", LINES, 0..0, "already read", null)
+        markRemarksPublished(project, listOf(read.id!!))
+        markRemarksRead(project, listOf(read.id!!))
+        addRemark(project, "Foo.kt", LINES, 1..1, "not selected", null)
+
+        assertEquals(listOf(read.id), prepare(project, listOf(read.id!!)).ids)
     }
 
     fun testPublishSelectedTakesTheIdsItWasGivenEvenWhenTheyArePublished() {

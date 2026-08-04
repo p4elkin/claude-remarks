@@ -16,6 +16,7 @@ import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.render.clipboardPayload
 import dev.sasha.clauderemarks.render.collectForPrompt
 import dev.sasha.clauderemarks.render.renderPrompt
+import dev.sasha.clauderemarks.review.PublishedBatchService
 import dev.sasha.clauderemarks.review.PublishedHeader
 import dev.sasha.clauderemarks.review.handshakeDir
 import dev.sasha.clauderemarks.review.projectIdentity
@@ -132,12 +133,21 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
             val writeFailure = if (prepared.root == null) {
                 "the project root did not resolve"
             } else {
+                // The nonce is minted here, before the write, so the batch can be recorded before
+                // the file is written. A fast agent can read the file and acknowledge within
+                // milliseconds, and a batch recorded after the write would answer unknown-batch to
+                // an acknowledgement that was actually correct. record() runs on the EDT, which is
+                // exactly what it is meant to be called from — see PublishedAck.kt's KDoc. If the
+                // write below then fails, the recorded batch is simply unreachable, which costs
+                // nothing: nothing was published for it to answer.
+                //
+                // The review fields stay null/false here: nothing in this task answers a waiting
+                // review yet, that is task 6's job.
+                val nonce = UUID.randomUUID().toString()
+                PublishedBatchService.getInstance(project).record(nonce, prepared.ids)
                 try {
-                    // No batch is recorded yet: that is task 5's job, once PublishedBatchService
-                    // exists. The review fields stay null/false here for the same reason — nothing
-                    // in this task answers a waiting review yet.
                     val header = PublishedHeader(
-                        nonce = UUID.randomUUID().toString(),
+                        nonce = nonce,
                         publishedAt = System.currentTimeMillis(),
                         commit = prepared.commit,
                         remarks = prepared.ids.size,
@@ -211,7 +221,7 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
 internal fun prepare(project: Project, ids: Collection<String>?): Prepared {
     val wanted = ids?.toSet()
     val rows = resolveAll(project).filter { row ->
-        if (wanted == null) row.remark.status == RemarkStatus.PENDING else row.remark.id in wanted
+        if (wanted == null) row.remark.status != RemarkStatus.READ else row.remark.id in wanted
     }
     if (rows.isEmpty()) return Prepared("", emptyList(), 0, null, null)
 
@@ -300,7 +310,7 @@ class PublishAllRemarksAction : AnAction() {
     override fun update(e: AnActionEvent) {
         val project = e.project
         e.presentation.isEnabled = project != null &&
-            RemarkStore.getInstance(project).all().any { it.status == RemarkStatus.PENDING }
+            RemarkStore.getInstance(project).all().any { it.status != RemarkStatus.READ }
     }
 
     override fun actionPerformed(e: AnActionEvent) {

@@ -61,8 +61,8 @@
              not here, so nothing in this project would ever notice. -->
         <action id="ClaudeRemarks.CopyAll"
                 class="dev.sasha.clauderemarks.action.PublishAllRemarksAction"
-                text="Publish All Pending Claude Remarks"
-                description="Render every pending remark into one markdown prompt and put it on the clipboard">
+                text="Publish Unread Claude Remarks"
+                description="Render every remark that has not been read into one markdown prompt and put it on the clipboard">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         <!-- Same reachability as ClaudeRemarks.CopyAll, and the same reason for no default
