@@ -424,20 +424,37 @@ own `ack read` still knows what to mark. Everything else about publish is unchan
 tells a person how to reply. A passive banner means the banner text has to carry that, and weak
 wording makes the whole feature invisible.
 
-Proposed wording for the waiting phase, with the fixed instruction first, so a long label cannot
-push it out of the visible width:
+**The wording, decided.** Two lines, for the waiting phase:
 
-> Claude Code is waiting. Press Publish Unread to answer, or Publish Selected for some of them.
-> Reviewing: *&lt;label&gt;*
+> Claude Code is waiting: *&lt;label&gt;*
+> Publish to answer, or Reject.
+
+Reject is the link. Two reasons, and both are the reason it is two lines rather than one.
+
+- **The label is variable length and the panel is narrow.** A one-line version puts the instruction
+  after the label, so the longer the label, the more likely the instruction is pushed off the end.
+  That is backwards: a long label is exactly when a person needs the instruction most. On its own
+  line the instruction is always visible.
+- **Plain "Publish", with no qualifier.** Both controls start with that verb, Publish Unread and
+  Publish Selected. Naming one of them would suggest the other does not answer the review, and both
+  do.
 
 And for the phase after a publish has answered it:
 
 > Published 7 remarks for Claude Code. Waiting for it to read them. Publish again to add more.
 
 The last sentence is deliberate. It is where a person learns that a second publish is normal rather
-than an error, which is exactly what change four makes true. See
-[open questions](#16-open-questions): the wording is a recommendation, not a settled decision, and
-it is one of the things that has to be looked at in a running IDE.
+than an error, which is exactly what change four makes true.
+
+**One fact about the panel that the wording has to live with.** `EditorNotificationPanel` puts its
+text in a plain `JLabel` at `BorderLayout.CENTER` and its action links in a separate panel at
+`BorderLayout.EAST`. Read from the SDK checkout, `platform/platform-api/src/com/intellij/ui/EditorNotificationPanel.java`.
+So two lines of text are written as one `<html>` string with a `<br>` in it, with the label escaped
+inside it exactly as it is escaped today, and the Reject link sits at the right edge of the panel
+rather than inline at the end of the second line. That is how the panel already draws its links
+today. If the second line then reads badly at a real tool window width, the fallback is to drop the
+trailing "or" and let the line read "Publish to answer." with Reject still the link on the right.
+The hand check in [section 15](#15-what-needs-a-hand-check) is what decides that.
 
 ## 9. Change five: one watcher, shared by both modes
 
@@ -802,7 +819,10 @@ paths and reason about which is newer.
 No automated test in this project reaches any of these. Every one needs a sandbox IDE, and several
 need a real Claude Code session beside it.
 
-- The banner's new wording fits the tool window at an ordinary width, with a 120 character label.
+- The banner's two lines fit the tool window at an ordinary width, with a 120 character label, and
+  the Reject link at the right edge reads as the end of the second line rather than as something
+  unrelated. This is the check that decides whether the fallback wording in
+  [change four](#8-change-four-the-banner-is-information-plus-reject) is needed.
 - Pressing Publish Unread while a review is waiting really stamps the review, and the waiting session
   really wakes on that batch.
 - Pressing Publish a second time while the same review is waiting is accepted and wakes the session
@@ -840,14 +860,19 @@ and in section 12 of the phase 9 plan. Phase 10 adds the checks above to what is
   narrow panel next to a variable-length label. Two alternatives worth trying in front of a real
   IDE: "Claude Code is waiting: *&lt;label&gt;*. Publish to answer." and a two-line panel with the
   instruction on the second line. Decide by looking, not by argument.
+**Nothing is left open.** The banner wording was the last one, and section 8 now carries the
+decision and its two reasons. What is left below is a thing to watch in use, not a question blocking
+any work.
+
 - **How the person asks a session to listen.** The rule is settled: only when asked, in words. The
   wording that makes a session read that as a rule rather than as a suggestion is not, and it is the
   kind of thing that only shows itself in use. Watch for a session that starts listening off its own
   bat and tighten the skill's wording when it happens.
 
-Four questions that were open in the first draft are now decided and have moved into the design: the
-watcher lives in a script file beside `SKILL.md`, listen mode's deadline is twelve hours, the plugin
-remembers sixteen batches, and `already-read` names the session that acknowledged first.
+Five questions that were open in the first draft are now decided and have moved into the design: the
+banner's wording, the watcher living in a script file beside `SKILL.md`, listen mode's twelve hour
+deadline, the sixteen remembered batches, and `already-read` naming the session that acknowledged
+first.
 
 ## 17. Out of scope, and what it would take later
 
