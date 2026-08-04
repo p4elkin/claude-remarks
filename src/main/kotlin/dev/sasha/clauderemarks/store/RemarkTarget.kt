@@ -54,10 +54,41 @@ private fun targetFiles(editor: Editor, dataContext: DataContext?): List<Virtual
  * list, and because the refusal itself is the part `docs/ideas.md` records as overrulable. What
  * DiffRemarkTargetTest pins about it is that shared internal detail, not a route a remark can take.
  */
-fun relativePathOf(project: Project, editor: Editor, dataContext: DataContext? = null): String? {
+fun relativePathOf(project: Project, editor: Editor, dataContext: DataContext? = null): String? =
+    targetFiles(editor, dataContext).firstNotNullOfOrNull { relativePathOf(project, it) }
+
+/**
+ * Where a remark on this file would be stored, or null when it cannot be stored at all.
+ *
+ * Split out of the Editor version so the markdown preview can ask the same question: it holds a
+ * VirtualFile and no Editor at all. The Editor version is now written in terms of this one, over its
+ * own candidate list, so the two can never answer differently for the same file — which matters,
+ * because a remark written from the preview and a remark written from the editor half of the same
+ * split have to carry the same path.
+ */
+fun relativePathOf(project: Project, file: VirtualFile?): String? {
     val root = projectRoot(project) ?: return null
-    return targetFiles(editor, dataContext)
-        .firstNotNullOfOrNull { VfsUtilCore.getRelativePath(it, root) }
+    return file?.let { VfsUtilCore.getRelativePath(it, root) }
+}
+
+/**
+ * Why a remark on this file cannot be stored, in words a person can read, or null when it can.
+ *
+ * Split out of [remarkTargetProblem] for the same reason as above: the markdown preview holds a
+ * file and no editor. [remarkTargetProblem] keeps both of its diff sentences and calls this for
+ * everything else, so there is still one place that decides whether a file can carry a remark.
+ *
+ * The first sentence says "here" rather than "this editor", which is what it said while an editor
+ * was the only thing that could ask. The preview is not an editor, and a sentence that says it is
+ * would send the person looking for a problem in the wrong window.
+ */
+fun fileTargetProblem(project: Project, file: VirtualFile?): String? {
+    val name = file?.name
+        ?: return "There is no file on disk here, so a remark could not be pointed back at it."
+    projectRoot(project)
+        ?: return "The project directory could not be resolved, so remarks cannot be stored."
+    if (relativePathOf(project, file) != null) return null
+    return "$name is outside the project directory, so a remark on it could not be found again."
 }
 
 /**
@@ -69,18 +100,19 @@ fun relativePathOf(project: Project, editor: Editor, dataContext: DataContext? =
  *
  * The diff case gets its own sentence. The name in the message is the revision's name, which is the
  * name of a file the user can see in the project, so the plain "outside the project directory"
- * wording reads as nonsense there.
+ * wording reads as nonsense there. Those two sentences are the whole of what this adds to
+ * [fileTargetProblem]: everything else is that function's answer, passed through unchanged.
  */
 fun remarkTargetProblem(project: Project, editor: Editor, dataContext: DataContext? = null): String? {
     val candidates = targetFiles(editor, dataContext)
     val own = candidates.firstOrNull()
-    val name = own?.name
-        ?: return "This editor has no file on disk, so a remark could not be pointed back at it."
-    val root = projectRoot(project)
-        ?: return "The project directory could not be resolved, so remarks cannot be stored."
     // The ordinary editor, and the working-copy side of a diff: the document being read IS the file
     // the remark will be stored against, so the line numbers describe it.
-    if (VfsUtilCore.getRelativePath(own, root) != null) return null
+    val problem = fileTargetProblem(project, own) ?: return null
+    // The two refusals that are about neither a file nor a diff — no file at all, and no project
+    // root — have nothing a diff sentence could improve on, so they stand as they are.
+    val name = own?.name ?: return problem
+    val root = projectRoot(project) ?: return problem
     // Only a later candidate resolved, which means this pane holds a revision and the file was found
     // through DocumentContent.getHighlightFile. Right file, wrong line numbers. drop(1), not the
     // whole list: the first candidate was just refused one line above.
@@ -93,11 +125,12 @@ fun remarkTargetProblem(project: Project, editor: Editor, dataContext: DataConte
             "not describe the file on disk. Add it on the working copy — the working-tree side of " +
             "this diff, or the file itself."
     }
-    // Nothing resolved at all: the two messages that were already there, unchanged.
+    // Nothing resolved at all: the two messages that were already there, unchanged. The diff one is
+    // this function's own; the other is what fileTargetProblem already said.
     return if (editor.editorKind == EditorKind.DIFF) {
         "$name in this diff is a revision with no matching file under the project directory, " +
             "so a remark on it could not be found again."
     } else {
-        "$name is outside the project directory, so a remark on it could not be found again."
+        problem
     }
 }

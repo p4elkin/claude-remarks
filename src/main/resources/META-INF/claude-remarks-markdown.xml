@@ -13,4 +13,18 @@
         <browserPreviewExtensionProvider
                 implementation="dev.sasha.clauderemarks.preview.PreviewRemarkExtension$Provider"/>
     </extensions>
+
+    <actions>
+        <!-- Markdown.PreviewGroup is the group the markdown plugin's own MarkdownPreviewFileEditor
+             opens on a right click inside the preview. The id is not pinned by ActionIdsTest,
+             deliberately: this action does not exist unless the markdown plugin is loaded, and the
+             test fixture does not load it, so pinning it would fail a correct build. README.md names
+             it beside the three ids that are pinned. -->
+        <action id="ClaudeRemarks.AddPreviewRemark"
+                class="dev.sasha.clauderemarks.action.AddPreviewRemarkAction"
+                text="Add Claude Remark"
+                description="Attach a remark to the words selected in the rendered preview">
+            <add-to-group group-id="Markdown.PreviewGroup" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

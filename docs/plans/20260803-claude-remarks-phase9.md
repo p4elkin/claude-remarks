@@ -2088,31 +2088,79 @@ load it. Putting it in `ActionIdsTest` would make that test fail on a correct bu
 `README.md` beside the other three instead, with one sentence saying it only appears where the
 markdown preview is available.
 
-- [ ] write the failing tests in `FileTargetTest`: a file inside the project root gives null; a file
+- [x] write the failing tests in `FileTargetTest`: a file inside the project root gives null; a file
       outside it gives the sentence that names the file; a null file gives the "no file on disk"
       sentence; and the file-taking `relativePathOf` returns the same string the editor version
       returns for the same file.
-- [ ] write the failing tests in `PreviewRemarkProblemTest`: nothing stored gives the "select
+      **Result: four tests, fixture-backed, because both functions need a real project root and real
+      `VirtualFile`s. The outside-the-root case is a file added to the fixture's in-memory file
+      system, the same trick `DiffRemarkTargetTest` already uses. The last test opens the file in an
+      editor as well and asserts the two `relativePathOf` overloads answer the same string, not only
+      that each answers something.**
+- [x] write the failing tests in `PreviewRemarkProblemTest`: nothing stored gives the "select
       something in the preview first" sentence; a stored selection whose file url matches the action's
       file is accepted; a stored selection whose url is a different file is refused, with a sentence
       saying another preview holds the selection; a stored selection with no file in the data context
       is accepted, because the stored url is then the only thing that names a file.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` and
+      **Result: four tests, pure JUnit with no fixture, because `previewRemarkProblem` takes a
+      `StoredSelection` and a `String?` and touches no platform class. The exact "nothing stored"
+      sentence is pinned; the other-preview one is pinned only on the words "another preview", so
+      rewording the rest of that sentence does not break the test.**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.store.*"` and
       `--tests "dev.sasha.clauderemarks.action.*"`, and expect compile failures
-- [ ] extract `fileTargetProblem`, then both commands pass **including `DiffRemarkTargetTest` with no
+      **Result: confirmed — `:compileTestKotlin` failed on unresolved `fileTargetProblem`,
+      unresolved `previewRemarkProblem`, and the file-taking `relativePathOf` overload not existing
+      (`actual type is 'VirtualFile', but 'Editor' was expected`).**
+- [x] extract `fileTargetProblem`, then both commands pass **including `DiffRemarkTargetTest` with no
       edit to it**, which is what proves the extraction changed no behaviour
-- [ ] write the action, register it in the config file with
+      **Result: both pass. `DiffRemarkTargetTest` ran all 7 of its tests with 0 failures and was not
+      edited at all. The editor version now calls the file version for everything except its two
+      diff sentences, and `relativePathOf(project, editor)` is written over the file-taking
+      overload, so the two can no longer answer differently for the same file.**
+- [x] write the action, register it in the config file with
       `<add-to-group group-id="Markdown.PreviewGroup" anchor="last"/>`, and wire it to `addRemark`
-- [ ] `./gradlew test` passes whole, `./gradlew verifyPluginProjectConfiguration` passes, and all six
+      **Result: `action/AddPreviewRemarkAction.kt` holds the action and the pure
+      `previewRemarkProblem`. It reads the last selection out of `PreviewSelectionService`, resolves
+      the file from the stored url rather than from the data context, gates it through
+      `fileTargetProblem`, converts the two offsets with `selectedLines` and `selectedColumns`
+      unchanged, and calls `addRemark` with the `.md` file's own relative path and text — so a
+      preview remark is an ordinary remark and reaches the store only through `store/RemarkEdits.kt`.
+      The popup comes from `buildInputPopup`, which changed from `private` to `internal` so this
+      third caller with no editor can centre it over the preview component. Two additions beyond the
+      task text, both logged as decisions: a refusal is a warning dialog, because there is no editor
+      to put a hint in, and an offset past the end of the document is refused before `selectedLines`
+      is asked, because that function throws rather than refuses.**
+- [x] `./gradlew test` passes whole, `./gradlew verifyPluginProjectConfiguration` passes, and all six
       guards are empty
-- [ ] **mutation:** make `fileTargetProblem` skip the project root check; the outside-the-root test
+      **Result: 436 tests across 42 classes, all green, against task 21's 428 across 40 — the
+      difference is exactly this task's eight new tests.
+      `verifyPluginProjectConfiguration` passes. All six guards print nothing. `verifyPlugin` was run
+      too, since this task adds platform-facing code: still "Compatible. 3 usages of experimental
+      API. 1 usage of internal API", the same three `MarkdownHtmlPanel` getters and the same
+      `SegmentedButton.component` as task 21, so the new action adds no new reported usage.**
+- [x] **mutation:** make `fileTargetProblem` skip the project root check; the outside-the-root test
       must fail. Make it return null for a null file; the null-file test must fail. Make
       `previewRemarkProblem` accept a stored selection whose url is a different file; that test must
       fail. Restore all three.
-- [ ] **the action itself cannot be tested here.** It needs a JCEF panel, a rendered page and a real
+      **Result: all three kill their own test, applied and run one at a time so each failure is
+      attributable. Skipping the root check failed
+      `testAFileOutsideTheProjectRootIsRefusedInASentenceThatNamesIt` and nothing else in the class.
+      Returning null for a null file failed `testANullFileIsRefusedWithTheNoFileOnDiskSentence` and
+      nothing else. Accepting a mismatched url failed
+      `a stored selection from another preview is refused`. All three restored, and the whole suite
+      re-run with `--rerun` afterwards: 436 tests green.**
+- [x] **the action itself cannot be tested here.** It needs a JCEF panel, a rendered page and a real
       browser selection, none of which a light fixture has. Its checks are in
       [section 12](#12-hand-checks). Say so in the report rather than implying it is covered.
-- [ ] commit: `feat: a remark can be written on the rendered markdown preview`
+      **Result: said plainly. What is covered automatically is `previewRemarkProblem` (four tests)
+      and `fileTargetProblem` with the file-taking `relativePathOf` (four tests). What is NOT
+      covered by any test in this project: that the action appears in the preview's right-click menu
+      at all, that `Markdown.PreviewGroup` is the right group id, that the data context there
+      carries `VIRTUAL_FILE` and `CONTEXT_COMPONENT`, that the popup lands over the preview, that
+      the offsets from a real browser selection turn into the right line and column pair, and every
+      refusal path as a person actually sees it. Those are the eight group-five hand checks in
+      section 12, none of which has been run.**
+- [x] commit: `feat: a remark can be written on the rendered markdown preview`
 
 ### Task 23: Group five documentation
 

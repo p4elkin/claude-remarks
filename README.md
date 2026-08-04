@@ -111,6 +111,11 @@ renamed:
 | `ClaudeRemarks.CopyAll` | Publish every pending remark into one prompt on the clipboard |
 | `ActivateClaudeRemarksToolWindow` | Open and focus the Claude Remarks tool window |
 
+There is a fourth id, `ClaudeRemarks.AddPreviewRemark`, which opens the remark box on the words
+selected in a rendered markdown preview. It is not in the table above because it is not part of that
+promise: it is registered only where the markdown preview is available, so it does not exist at all
+when the Markdown plugin is turned off, and a `:action` mapping to it would then do nothing.
+
 `ClaudeRemarks.CopyAll` keeps the word CopyAll on purpose: the button and menu entry it drives are
 now labelled Publish, but the id is the part of the interface promised above, so it stays exactly
 as it is — renaming it would break every `.ideavimrc` mapping to it without any error.

@@ -125,6 +125,8 @@ fun openGeneralRemarkInput(project: Project, component: Component) {
  * setCancelKeyEnabled(true) is what gives Esc for free. Positioning is the caller's job:
  * showRemarkInput puts it at the caret with showInBestPositionFor(editor), the only placement an
  * editor allows; openGeneralRemarkInput, which has no editor, centres it over a component instead.
+ * Internal rather than private because AddPreviewRemarkAction is the third caller with no editor to
+ * position against: the preview is a browser component, and it centres the popup over that.
  *
  * setCancelOnWindowDeactivation(false) is there because the class-name chooser is a second JBPopup
  * opened from inside this one. Deactivating this popup's window must not throw away a half-typed
@@ -132,7 +134,7 @@ fun openGeneralRemarkInput(project: Project, component: Component) {
  * default true, and it is safe to leave there, because StackingPopupDispatcherImpl only ever cancels
  * the TOP of the popup stack — which while the chooser is up is the chooser, not this popup.
  */
-private fun buildInputPopup(
+internal fun buildInputPopup(
     project: Project,
     title: String,
     text: String,
