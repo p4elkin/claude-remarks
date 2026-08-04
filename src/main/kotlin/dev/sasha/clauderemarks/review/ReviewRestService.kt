@@ -18,10 +18,11 @@ import org.jetbrains.ide.RestService
 /**
  * `POST /api/claude-remarks/start`, `POST /api/claude-remarks/ack`, `POST /api/claude-remarks/fetch`
  * and `POST /api/claude-remarks/published-read`. The skill asks this IDE to hold a review open for a
- * repository and gets back the path it should watch for the handover file, then later tells the IDE
- * whether it read that file or gave up waiting. `fetch` is a third moment: it hands the handoff
- * file's content back in the response body itself, for an agent with no filesystem access to that
- * path. `published-read` is a fourth, and independent of the other three: it acknowledges a batch a
+ * repository, then later tells the IDE whether it read the remarks or gave up waiting. Where those
+ * remarks land is not part of the answer since phase 10: both sides compute the one published file's
+ * path from the repository path itself. `fetch` is a third moment: it hands that file's content back
+ * in the response body itself, for an agent with no filesystem access to it. `published-read` is a
+ * fourth, and independent of the other three: it acknowledges a batch a
  * publish wrote to the merged file, keyed to the nonce that batch's header carries rather than to a
  * review session, since a publish can happen with no review waiting at all.
  *
@@ -188,7 +189,7 @@ class ReviewRestService : RestService() {
      * so this method must not touch the VFS, must not touch Swing, and must not wait on the EDT.
      * `CLAUDE.md` greps this whole file for the names that would do any of those, which is why they
      * are not spelled out here either — the guard cannot tell a comment from code. The filesystem
-     * calls this reaches — reading the handoff file, and working out which repository each open
+     * calls this reaches — reading the published file, and working out which repository each open
      * project belongs to — are plain java.nio and are deliberately fine; anything that hands back a
      * `VirtualFile` would not be, so opening files lives in its own file.
      */
@@ -241,6 +242,15 @@ class ReviewRestService : RestService() {
                 body.exceptionOrNull(),
                 "expected a JSON object with session, label and project",
             )
+            return
+        }
+        // The session id is written into the published file's header, on a line a reader finds by
+        // line number, and it is the one field there that is not rewritten before it goes in — it has
+        // to come back out byte for byte, because the fetch matches it against what the skill sends.
+        // So a control character in it is refused here instead, at the edge, rather than quietly
+        // changed. A session like "x\nrejected: yes" would otherwise move every header line after it.
+        if (session.any { it < ' ' }) {
+            badRequest(writer, cause = null, fallbackDetail = "session must not contain control characters")
             return
         }
         val project = matchProject(wanted, writer) ?: return
@@ -337,7 +347,12 @@ class ReviewRestService : RestService() {
         // never a VFS one, the same reason toRealPath() is allowed in this file elsewhere.
         val identity = projectIdentity(project)
         if (identity == null) {
-            writer.name("status").value("no-review")
+            // Not `no-review`: that reads as "nothing is waiting, poll again", and the session would
+            // then spend its whole deadline on what is really a failure it can do nothing about. The
+            // project matched a moment ago, so its directory has gone since — a checkout deleted or
+            // unmounted under the open project.
+            writer.name("status").value("failed")
+            writer.name("detail").value("the project's own directory could not be resolved")
             return
         }
         val file = handshakeDir().resolve(publishedName(identity.toString()))

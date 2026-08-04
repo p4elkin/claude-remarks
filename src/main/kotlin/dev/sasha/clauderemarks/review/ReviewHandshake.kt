@@ -86,10 +86,18 @@ fun handshakeName(realPath: String): String = projectHash(realPath) + ".json"
  * into the developer's own `~/.claude-remarks`. `ReviewHandshakeService.start()` already returns
  * early in test mode for exactly this reason, so both the motivation and the mechanism have a
  * precedent in this file.
+ *
+ * That branch creates its directory rather than naming a fixed one under the system temp directory.
+ * A fixed name there is a path any other local user can guess and pre-create — as a directory they
+ * own, or as a symlink pointing somewhere else — which would make the suite fail, or write through
+ * the link. `createTempDirectory` picks an unguessable name and creates it owner-only in one step,
+ * which is the same argument the skill makes for its own temp files. One directory per JVM run,
+ * through a lazy delegate, so every call inside one test run still answers the same path.
  */
+private val TEST_HANDSHAKE_DIR: Path by lazy { Files.createTempDirectory("claude-remarks-test") }
+
 fun handshakeDir(): Path =
-    if (ApplicationManager.getApplication()?.isUnitTestMode == true)
-        Path.of(System.getProperty("java.io.tmpdir"), "claude-remarks-test")
+    if (ApplicationManager.getApplication()?.isUnitTestMode == true) TEST_HANDSHAKE_DIR
     else Path.of(System.getProperty("user.home"), ".claude-remarks")
 
 /**

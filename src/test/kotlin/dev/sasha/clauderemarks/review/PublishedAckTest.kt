@@ -1,5 +1,7 @@
 package dev.sasha.clauderemarks.review
 
+import com.intellij.notification.Notification
+import com.intellij.notification.Notifications
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.model.RemarkStatus
@@ -20,11 +22,13 @@ class PublishedAckTest : BasePlatformTestCase() {
         // The light fixture project is shared across test methods and test classes.
         RemarkStore.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
+        WaitingReviewService.getInstance(project).clear()
     }
 
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
+        WaitingReviewService.getInstance(project).clear()
         UIUtil.dispatchAllInvocationEvents()
         super.tearDown()
     }
@@ -32,9 +36,9 @@ class PublishedAckTest : BasePlatformTestCase() {
     fun testAnAcknowledgementOfARecordedBatchAnswersOkAndMarksItsRemarksRead() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
         val b = addRemark(project, "B.kt", LINES, 0..0, "another note", null)
-        PublishedBatchService.getInstance(project).record("n1", listOf(a.id!!, b.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!, b.id!!))
 
-        val answer = reportPublishedRead(project, "n1", "s1")
+        val answer = reportPublishedRead(project, nonce, "s1")
         UIUtil.dispatchAllInvocationEvents()
 
         assertEquals(PublishedAckOutcome.OK, answer.outcome)
@@ -45,11 +49,11 @@ class PublishedAckTest : BasePlatformTestCase() {
 
     fun testASecondSessionAcknowledgingTheSameBatchIsToldWhoWasFirst() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
-        PublishedBatchService.getInstance(project).record("n1", listOf(a.id!!))
-        reportPublishedRead(project, "n1", "s1")
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
+        reportPublishedRead(project, nonce, "s1")
         UIUtil.dispatchAllInvocationEvents()
 
-        val answer = reportPublishedRead(project, "n1", "s2")
+        val answer = reportPublishedRead(project, nonce, "s2")
 
         assertEquals(PublishedAckOutcome.ALREADY_READ, answer.outcome)
         assertEquals("s1", answer.readBy)
@@ -57,11 +61,11 @@ class PublishedAckTest : BasePlatformTestCase() {
 
     fun testTheSameSessionAcknowledgingTwiceIsToldItWasItself() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
-        PublishedBatchService.getInstance(project).record("n1", listOf(a.id!!))
-        reportPublishedRead(project, "n1", "s1")
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
+        reportPublishedRead(project, nonce, "s1")
         UIUtil.dispatchAllInvocationEvents()
 
-        val answer = reportPublishedRead(project, "n1", "s1")
+        val answer = reportPublishedRead(project, nonce, "s1")
 
         assertEquals(PublishedAckOutcome.ALREADY_READ, answer.outcome)
         assertEquals("s1", answer.readBy)
@@ -79,10 +83,10 @@ class PublishedAckTest : BasePlatformTestCase() {
 
     fun testOnlyTheLastSixteenBatchesAreRemembered() {
         val service = PublishedBatchService.getInstance(project)
-        for (i in 0 until 17) service.record("n$i", emptyList())
+        val nonces = (0 until 17).map { service.record(emptyList()) }
 
-        val first = reportPublishedRead(project, "n0", "s1")
-        val second = reportPublishedRead(project, "n1", "s1")
+        val first = reportPublishedRead(project, nonces.first(), "s1")
+        val second = reportPublishedRead(project, nonces[1], "s1")
 
         assertEquals(PublishedAckOutcome.UNKNOWN_BATCH, first.outcome)
         assertEquals(PublishedAckOutcome.OK, second.outcome)
@@ -92,14 +96,114 @@ class PublishedAckTest : BasePlatformTestCase() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "an older note", null)
         val b = addRemark(project, "B.kt", LINES, 0..0, "a newer note", null)
         markRemarksPublished(project, listOf(a.id!!, b.id!!))
-        PublishedBatchService.getInstance(project).record("n1", listOf(a.id!!))
-        PublishedBatchService.getInstance(project).record("n2", listOf(b.id!!))
+        val first = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
+        PublishedBatchService.getInstance(project).record(listOf(b.id!!))
 
-        reportPublishedRead(project, "n1", "s1")
+        reportPublishedRead(project, first, "s1")
         UIUtil.dispatchAllInvocationEvents()
 
         assertEquals(RemarkStatus.READ, statusOf(a.id!!))
         assertEquals(RemarkStatus.PUBLISHED, statusOf(b.id!!))
+    }
+
+    /**
+     * Every batch gets its own nonce from `record`, so two batches recorded in a row can never be
+     * acknowledged by naming the same one. The nonce used to be minted by each caller and passed in,
+     * which is what made "record it before you write it" a rule a third caller could break.
+     */
+    fun testEachRecordedBatchGetsItsOwnNonce() {
+        val service = PublishedBatchService.getInstance(project)
+
+        assertFalse(service.record(emptyList()) == service.record(emptyList()))
+    }
+
+    /**
+     * The other half of recording before the write: a publish whose write then failed drops its
+     * batch again. Without this the failed batch would sit in the remembered sixteen for good, and
+     * enough failed publishes would push a real, readable batch out into unknown-batch.
+     */
+    fun testAForgottenBatchIsUnknownAgain() {
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val service = PublishedBatchService.getInstance(project)
+        val nonce = service.record(listOf(a.id!!))
+
+        service.forget(nonce)
+        val answer = reportPublishedRead(project, nonce, "s1")
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertEquals(PublishedAckOutcome.UNKNOWN_BATCH, answer.outcome)
+        assertEquals(RemarkStatus.PENDING, statusOf(a.id!!))
+    }
+
+    /**
+     * A batch that answered a waiting review ends that review too. Without it the remarks would be
+     * READ while the review stayed in its Sent phase, and the review's own expiry would then tell the
+     * person the agent left without reading remarks the store already says were read.
+     */
+    fun testAcknowledgingABatchThatAnsweredAReviewEndsThatReviewToo() {
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        WaitingReviewService.getInstance(project).start("review-1", "a label", 1800)
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!), "review-1")
+        WaitingReviewService.getInstance(project).markSent("review-1", listOf(a.id!!))
+
+        val answer = reportPublishedRead(project, nonce, "s1")
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertEquals(PublishedAckOutcome.OK, answer.outcome)
+        assertEquals(RemarkStatus.READ, statusOf(a.id!!))
+        assertNull(WaitingReviewService.getInstance(project).current())
+    }
+
+    /**
+     * A publish with no review waiting leaves any later review alone: the batch carries no session,
+     * so there is nothing for it to end.
+     */
+    fun testAcknowledgingABatchWithNoReviewLeavesALiveReviewAlone() {
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
+        WaitingReviewService.getInstance(project).start("review-1", "a label", 1800)
+
+        reportPublishedRead(project, nonce, "s1")
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertNotNull(WaitingReviewService.getInstance(project).current())
+    }
+
+    /**
+     * A rejection is recorded as a batch with no ids, so acknowledging one must not show a balloon
+     * saying Claude Code read zero remarks. The answer is still ok: the batch is real and this
+     * session is the first to name it.
+     *
+     * Both halves in one test on purpose. The ordinary batch afterwards is what proves the listener
+     * really does see this plugin's balloons, so the empty case's assertion cannot pass by seeing
+     * nothing at all.
+     */
+    fun testABatchWithNoRemarksShowsNoBalloonWhileAnOrdinaryOneDoes() {
+        val shown = mutableListOf<String>()
+        project.messageBus.connect(testRootDisposable).subscribe(
+            Notifications.TOPIC,
+            object : Notifications {
+                override fun notify(notification: Notification) {
+                    shown += notification.content
+                }
+            },
+        )
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val service = PublishedBatchService.getInstance(project)
+        val empty = service.record(emptyList(), "review-1")
+        val ordinary = service.record(listOf(a.id!!))
+
+        val answer = reportPublishedRead(project, empty, "s1")
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertEquals(PublishedAckOutcome.OK, answer.outcome)
+        assertEquals(0, answer.remarks)
+        assertEquals(shown.toString(), 0, shown.size)
+
+        reportPublishedRead(project, ordinary, "s2")
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertEquals(shown.toString(), 1, shown.size)
     }
 
     private fun statusOf(id: String) = RemarkStore.getInstance(project).all().single { it.id == id }.status

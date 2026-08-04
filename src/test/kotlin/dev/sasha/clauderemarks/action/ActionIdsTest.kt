@@ -21,6 +21,18 @@ class ActionIdsTest : BasePlatformTestCase() {
     }
 
     /**
+     * The third control that used to answer a waiting review. Phase 10 deleted the action class and
+     * its registration, because publishing is now the only way to answer one. Nothing else notices a
+     * dead registration coming back: an action nobody can reach still loads without complaint.
+     */
+    fun testTheSendToWaitingActionIsGone() {
+        assertNull(
+            "ClaudeRemarks.SendToWaiting was removed in phase 10: a publish answers a waiting review",
+            ActionManager.getInstance().getAction("ClaudeRemarks.SendToWaiting"),
+        )
+    }
+
+    /**
      * The id ClaudeRemarks.CopyAll cannot show the rename from Copy to Publish — renaming the id
      * would break every .ideavimrc mapping to it silently — so this pins the rename the id itself
      * cannot show: the label the person sees starts with "Publish".

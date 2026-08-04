@@ -1,6 +1,10 @@
 package dev.sasha.clauderemarks.action
 
+import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import dev.sasha.clauderemarks.review.PublishedBatchService
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addGeneralRemark
 import dev.sasha.clauderemarks.store.addRemark
@@ -23,7 +27,16 @@ class PublishRemarksTest : BasePlatformTestCase() {
     override fun setUp() {
         super.setUp()
         // The light fixture project is shared across test classes, so the store is cleared here.
+        // PublishedBatchService is shared the same way, and this file's own enablement test would
+        // otherwise depend on what an earlier class left in it.
         RemarkStore.getInstance(project).clear()
+        PublishedBatchService.getInstance(project).clear()
+    }
+
+    override fun tearDown() {
+        RemarkStore.getInstance(project).clear()
+        PublishedBatchService.getInstance(project).clear()
+        super.tearDown()
     }
 
     /**
@@ -118,6 +131,69 @@ class PublishRemarksTest : BasePlatformTestCase() {
                 writeFailure = "/Users/x/.claude-remarks: Permission denied",
             ),
         )
+    }
+
+    /**
+     * What answerWaitingReview had to say gets its own sentence after the count. The publish itself
+     * succeeded, so the two facts are told in order rather than one replacing the other.
+     */
+    fun testMessageAddsWhatTheWaitingReviewAnswerHadToSay() {
+        assertEquals(
+            "Published 1 remark across 1 file. The review it was meant to answer had already ended.",
+            publishMessage(
+                count = 1,
+                files = 1,
+                clipboardFile = null,
+                writeFailure = null,
+                reviewAnswer = "The review it was meant to answer had already ended.",
+            ),
+        )
+    }
+
+    /** A failed write and a review answer can both be true at once, and both have to be said. */
+    fun testMessageCarriesTheWriteFailureAndTheReviewAnswerTogether() {
+        val message = publishMessage(
+            count = 1,
+            files = 1,
+            clipboardFile = null,
+            writeFailure = "disk full",
+            reviewAnswer = "The review had already ended.",
+        )
+
+        assertTrue(message, message.contains("disk full"))
+        assertTrue(message, message.endsWith("The review had already ended."))
+    }
+
+    /**
+     * Publish Unread's enablement, on the Tools-menu action. The predicate is "not yet READ", not
+     * "still PENDING": a remark published but never acknowledged is exactly what this action exists
+     * to hand over again, and gating on PENDING would grey the action out for it.
+     */
+    fun testTheToolsMenuPublishStaysEnabledForAPublishedButUnreadRemark() {
+        val published = addRemark(project, "Foo.kt", LINES, 0..0, "published but not read", null)
+        markRemarksPublished(project, listOf(published.id!!))
+
+        assertTrue(updatedPresentation().isEnabled)
+    }
+
+    /** The other side of the same predicate: with everything read there is nothing to publish. */
+    fun testTheToolsMenuPublishIsDisabledOnceEveryRemarkIsRead() {
+        val read = addRemark(project, "Foo.kt", LINES, 0..0, "already read", null)
+        markRemarksPublished(project, listOf(read.id!!))
+        markRemarksRead(project, listOf(read.id!!))
+
+        assertFalse(updatedPresentation().isEnabled)
+    }
+
+    /** The Tools-menu action's own update(), run against a data context that names this project. */
+    private fun updatedPresentation(): Presentation {
+        val action = PublishAllRemarksAction()
+        val event = TestActionEvent.createTestEvent(
+            action,
+            SimpleDataContext.getProjectContext(project),
+        )
+        action.update(event)
+        return event.presentation
     }
 
     private companion object {

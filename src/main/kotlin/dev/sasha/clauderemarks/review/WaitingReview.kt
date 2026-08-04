@@ -24,9 +24,10 @@ enum class AckOutcome { OK, NO_REVIEW, NOT_SENT }
 enum class ReviewEnd { READ, ABANDONED, STALE }
 
 /**
- * How far a review has got. A review in [Sent] has had its handoff file written and carries the ids
- * that were written, so the read acknowledgement knows what to mark read. A sealed pair rather than
- * a nullable id list, so "ids exist only after a send" is not a rule a caller can forget.
+ * How far a review has got. A review in [Sent] has been answered by a publish and carries the ids
+ * that publish wrote, so the read acknowledgement knows what to mark read. A sealed pair rather than
+ * a nullable id list, so "ids exist only after a publish answered it" is not a rule a caller can
+ * forget.
  */
 sealed interface ReviewPhase {
     // data object, not object: a failing assertEquals in WaitingReviewServiceTest then prints
@@ -35,7 +36,7 @@ sealed interface ReviewPhase {
     data class Sent(val ids: List<String>) : ReviewPhase
 }
 
-/** One waiting review: the skill's session id, the label it sent, and where the handoff file will land. */
+/** One waiting review: the skill's session id, the label it sent, when it started and when it dies. */
 data class WaitingReviewState(
     val sessionId: String,
     val label: String,
@@ -79,11 +80,11 @@ internal fun startOrConflict(
     fun accept() = StartResult.Accepted(WaitingReviewState(session, label, now, deadlineAt))
     return when {
         current == null -> accept()
-        // Same-session retry is checked first: a retry keeps its own output path, even a late one, so
-        // a slow skill never starts polling a directory the plugin has just replaced. The deadline
-        // moves forward with it — handing back a deadline already in the past would answer "waiting"
-        // for a review the scheduled expiry kills in the same millisecond, which is the kind of lie
-        // this phase exists to remove.
+        // Same-session retry is checked first: a retry keeps the review it already has, even a late
+        // one, rather than being answered "conflict" by itself. The deadline moves forward with it —
+        // handing back a deadline already in the past would answer "waiting" for a review the
+        // scheduled expiry kills in the same millisecond, which is the kind of lie this phase exists
+        // to remove.
         current.sessionId == session ->
             StartResult.Accepted(current.copy(deadlineAt = deadlineAt), fresh = false)
         // A different session gets in only when the current review is really dead.
@@ -97,15 +98,16 @@ internal fun startOrConflict(
  * is no persisted field and no migration.
  *
  * [state] is @Volatile because it is written from a netty IO thread (the endpoint's start()) and
- * read from the EDT (the toolbar's update(), through [current]). @Synchronized on [start] and
- * [clear] guards the whole read-decide-create-write sequence as one unit. An AtomicReference was
- * rejected on purpose: its updateAndGet re-runs the update lambda on contention, and that lambda
- * creates a temp directory, so a retried compare-and-set would create two.
+ * read from the EDT (the banner, through [current]). @Synchronized on [start] and [clear] guards the
+ * whole read-decide-write sequence as one unit, so two start requests arriving together cannot both
+ * decide there is no review and both install one.
  *
- * [current] is deliberately left unsynchronized. [start] holds the lock across
- * Files.createTempDirectory, and current() must never block the EDT on that filesystem call. A
- * stale read here is harmless — the toolbar redraws again on the next REMARKS_CHANGED regardless —
- * so this is a written-down, accepted bend of "guard every mutable field", not an oversight.
+ * [current] is deliberately left unsynchronized, and that is the point of the lock rather than an
+ * exception to it: every other method here holds the lock while a netty IO thread runs it, and the
+ * EDT reads this field on every repaint. A blocking read would put the screen behind whatever a
+ * request is doing. A stale read is harmless instead — the banner redraws again on the next
+ * REMARKS_CHANGED regardless — so this is a written-down, accepted bend of "guard every mutable
+ * field", not an oversight.
  *
  * **Three things here exist for the tests and for nothing else**, listed together so a fourth is not
  * added without noticing how much of this service's surface they already are: the `now` parameter on
@@ -129,8 +131,8 @@ class WaitingReviewService(private val project: Project) : Disposable {
     private var expiry: ScheduledFuture<*>? = null
 
     /**
-     * Masks a stale review everywhere at once: the Send button, the banner, and a second start
-     * request all read this. One comparison of two longs — no lock, no IO, so the EDT never
+     * Masks a stale review everywhere at once: the banner, the publish that answers it, and a second
+     * start request all read this. One comparison of two longs — no lock, no IO, so the EDT never
      * blocks on it.
      */
     fun current(): WaitingReviewState? = state?.takeIf { !it.isStale() }
@@ -169,19 +171,19 @@ class WaitingReviewService(private val project: Project) : Disposable {
     }
 
     /**
-     * Records that the handoff file was written and what it carries, without deciding anything
-     * about the store. Uses [state] rather than [current]: the send already checked the review was
+     * Records that a publish answered this review and what it carried, without deciding anything
+     * about the store. Uses [state] rather than [current]: the publish already checked the review was
      * live before it wrote, and a review that turned stale in the millisecond since still has to
      * record what was written, so an abandoned acknowledgement afterwards can name the count.
      *
-     * [session] is what stops it stamping the wrong review. The send renders off the EDT, so the
+     * [session] is what stops it stamping the wrong review. The publish renders off the EDT, so the
      * review it snapshotted can end and a different one start while it works; marking that new
-     * review Sent would claim ids whose file was written into the old review's directory.
+     * review Sent would claim ids written into a file whose header names the old review.
      *
      * **Returns false when there was nothing left to stamp**, and the caller has to say so rather
-     * than claim a handoff. The write itself cannot be done under this lock — it is a filesystem
+     * than claim a handover. The write itself cannot be done under this lock — it is a filesystem
      * call and [current] must never block the EDT behind one — so the deadline task can end the
-     * review in the gap between the send's liveness check and this call. Then the file exists but
+     * review in the gap between the publish's liveness check and this call. Then the file exists but
      * no `Sent` phase does, the later `ack read` is answered `no-review`, and the remarks stay
      * pending. That is the safe direction; a balloon saying the remarks were handed over is not.
      */

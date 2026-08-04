@@ -6,7 +6,6 @@ import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermissions
 import kotlin.io.path.name
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -92,28 +91,58 @@ class PublishedRemarksTest {
         val lines = header.render().trimEnd('\n').split("\n")
 
         assertEquals(lines.toString(), 8, lines.size)
-        val labelLine = lines[6]
-        assertTrue(labelLine, labelLine.startsWith("label: "))
-        assertTrue(labelLine, labelLine.removePrefix("label: ").length <= 120)
-        assertFalse(labelLine, labelLine.contains('\n'))
+        // The whole line, not its shape. The newline is a space now and the rest is cut at 120, so
+        // the 50 x's, one space and 69 y's are exactly what is left.
+        assertEquals("label: " + "x".repeat(50) + " " + "y".repeat(69), lines[6])
     }
 
+    /**
+     * The session id gets the same treatment as the label, and for a worse reason. Both the skill and
+     * watch-remarks.sh read this header by line number, so a session id holding a newline moves every
+     * line after it: "s\nrejected: yes" would make line 8 say a batch was rejected when it was not,
+     * and a real batch of remarks would be thrown away by the agent reading it.
+     */
     @Test
-    fun `a rendered header reads back as the same fields`() {
+    fun `a session id with a newline stays on one line`() {
+        val header = PublishedHeader(
+            nonce = "n-3b",
+            publishedAt = FIXED_PUBLISHED_AT,
+            commit = null,
+            remarks = 2,
+            reviewSession = "s1\nrejected: yes\nlabel: ",
+            reviewLabel = "a label",
+            rejected = false,
+        )
+        val lines = header.render().trimEnd('\n').split("\n")
+
+        assertEquals(lines.toString(), 8, lines.size)
+        assertEquals("review: s1 rejected: yes label: ", lines[5])
+        assertEquals("label: a label", lines[6])
+        assertEquals("rejected: no", lines[7])
+    }
+
+    /**
+     * Both fields render() changes on the way out are named in the expected value: the commit is cut
+     * to eight characters and the label loses its newline. Neither is written back the way it went
+     * in, so a round trip that used a plain commit and a plain label would look like it accounted for
+     * that while accounting for nothing.
+     */
+    @Test
+    fun `a rendered header reads back as the same fields, once render's own changes are counted`() {
         val header = PublishedHeader(
             nonce = "n-4",
             publishedAt = FIXED_PUBLISHED_AT,
             commit = "0123456789abcdef0123456789abcdef01234567",
             remarks = 5,
             reviewSession = "session-2",
-            reviewLabel = "a label",
+            reviewLabel = "a\nlabel",
             rejected = true,
         )
 
         val readBack = publishedHeaderOf(header.render())
 
         assertEquals(
-            header.copy(commit = header.commit?.take(8), reviewLabel = "a label"),
+            header.copy(commit = "01234567", reviewLabel = "a label"),
             readBack,
         )
     }
@@ -168,6 +197,39 @@ class PublishedRemarksTest {
 
         assertNull(publishedHeaderOf(broken))
     }
+
+    /**
+     * The `published:` line is parsed back, not merely copied, and that parse is what validates the
+     * line. Without the catch around it a date this plugin did not write would throw out of the fetch
+     * handler, on a netty IO thread, instead of answering `failed`.
+     */
+    @Test
+    fun `a header whose published date will not parse reads back as null`() {
+        val rendered = header().render()
+        val dateLine = rendered.split("\n")[2]
+        val broken = rendered.replace(dateLine, "published: not-a-date")
+
+        assertNull(publishedHeaderOf(broken))
+    }
+
+    /** Neither yes nor no: a lie about a rejection is worse than an error, so it reads back as null. */
+    @Test
+    fun `a header whose rejected value is neither yes nor no reads back as null`() {
+        val broken = header().render().replace("rejected: no", "rejected: maybe")
+
+        assertNull(publishedHeaderOf(broken))
+    }
+
+    /** The plain header the malformed-input tests break one line of. */
+    private fun header() = PublishedHeader(
+        nonce = "n",
+        publishedAt = FIXED_PUBLISHED_AT,
+        commit = null,
+        remarks = 0,
+        reviewSession = null,
+        reviewLabel = null,
+        rejected = false,
+    )
 
     /**
      * A temp directory, then list it and assert exactly one file: atomicWriteString's own temp file

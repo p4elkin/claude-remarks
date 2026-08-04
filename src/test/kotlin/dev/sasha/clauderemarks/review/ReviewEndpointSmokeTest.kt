@@ -56,7 +56,10 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     private fun deletePublishedFile() {
         val root = projectIdentity(project) ?: return
-        Files.deleteIfExists(handshakeDir().resolve(publishedName(root.toString())))
+        val file = handshakeDir().resolve(publishedName(root.toString()))
+        // deleteIfExists, not delete: one test replaces this file with a directory, to make the read
+        // itself fail, and an empty directory is removed by the same call.
+        Files.deleteIfExists(file)
     }
 
     /**
@@ -170,6 +173,10 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      * response body carries the whole file itself, not a path. No live review is needed at all — the
      * fetch reads straight off the merged file, the same way a remote agent with no review running
      * would.
+     *
+     * The `nonce` and `bytes` fields are asserted here because the remote loop is built on them:
+     * `watch-remarks.sh` reads `.nonce` off exactly this response to decide whether a batch is new,
+     * and the skill sends the same value back as the published-read key.
      */
     fun testAFetchAfterThePublishCarriesTheWholePromptInTheBody() {
         writePublished(identity(), publishedBody(reviewSession = "s1"))
@@ -178,10 +185,17 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
         assertTrue(sent, sent.contains("\"ready\""))
         assertTrue(sent, sent.contains("a note about A"))
+        assertTrue(sent, sent.contains("\"nonce\""))
+        assertTrue(sent, sent.contains("\"n1\""))
+        assertTrue(sent, sent.contains("\"bytes\""))
     }
 
     /**
      * Fetching is not reading: it must not mark anything read or touch the review's phase at all.
+     *
+     * It still has to answer `ready`. This is the only test that sets up a live review in the Sent
+     * phase with a published file beside it, so it is the only place where "a live review that has
+     * been answered reads the file rather than being told to keep polling" can be pinned at all.
      */
     fun testAFetchMarksNothingReadAndLeavesTheReviewAlone() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
@@ -189,8 +203,10 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
 
-        post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
 
+        assertTrue(sent, sent.contains("\"ready\""))
+        assertFalse(sent, sent.contains("\"waiting\""))
         assertEquals(RemarkStatus.PENDING, RemarkStore.getInstance(project).all().single { it.id == remark.id }.status)
         val current = WaitingReviewService.getInstance(project).current()
         assertNotNull(current)
@@ -273,6 +289,37 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         assertTrue(sent, sent.contains("\"failed\""))
     }
 
+    /**
+     * The read itself failing, rather than the header not parsing: a directory sits where the
+     * published file should be, so the file exists and has a size but cannot be read as text. The
+     * answer has to carry the reason with it — `no-review` would send the watcher back to polling for
+     * something that will never arrive.
+     */
+    fun testAFetchThatCannotReadTheFileAnswersFailedWithADetail() {
+        Files.createDirectories(handshakeDir().resolve(publishedName(identity().toString())))
+
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"failed\""))
+        assertTrue(sent, sent.contains("\"detail\""))
+    }
+
+    /**
+     * The session id goes into the published file's header on a line the reader finds by number, and
+     * it is the one header field written back out unchanged, since the fetch matches it. So a control
+     * character in it is refused at the edge. Without this, a session like "x\nrejected: yes" would
+     * move every header line after it and make a reader see a rejection that never happened.
+     */
+    fun testAStartWithAControlCharacterInTheSessionAnswersBadRequestAndStartsNothing() {
+        val sent = post(
+            "/api/claude-remarks/start",
+            """{"session":"s1\nrejected: yes","label":"t","project":"${projectPath()}"}""",
+        )
+
+        assertTrue(sent, sent.contains("\"bad-request\""))
+        assertNull(WaitingReviewService.getInstance(project).current())
+    }
+
     /** A published batch naming [reviewSession], for the fetch tests that only need the header shape. */
     private fun publishedBody(reviewSession: String?): String {
         val header = PublishedHeader(
@@ -294,15 +341,18 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testAPublishedReadForARecordedBatchAnswersOkAndMarksTheRemarksRead() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
-        PublishedBatchService.getInstance(project).record("n1", listOf(remark.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
 
         val sent = post(
             "/api/claude-remarks/published-read",
-            """{"session":"s1","project":"${projectPath()}","nonce":"n1"}""",
+            """{"session":"s1","project":"${projectPath()}","nonce":"$nonce"}""",
         )
         UIUtil.dispatchAllInvocationEvents()
 
         assertTrue(sent, sent.contains("\"ok\""))
+        // The count, not only the status: the skill prints it back to the person. Whitespace is
+        // taken out first, because the platform's own JSON writer indents what it writes.
+        assertTrue(sent, sent.filterNot { it.isWhitespace() }.contains("\"remarks\":1"))
         assertEquals(RemarkStatus.READ, RemarkStore.getInstance(project).all().single { it.id == remark.id }.status)
     }
 
@@ -312,20 +362,23 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testASecondPublishedReadForTheSameBatchAnswersAlreadyReadAndNamesTheFirstSession() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
-        PublishedBatchService.getInstance(project).record("n1", listOf(remark.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
         post(
             "/api/claude-remarks/published-read",
-            """{"session":"s1","project":"${projectPath()}","nonce":"n1"}""",
+            """{"session":"s1","project":"${projectPath()}","nonce":"$nonce"}""",
         )
         UIUtil.dispatchAllInvocationEvents()
 
         val sent = post(
             "/api/claude-remarks/published-read",
-            """{"session":"s2","project":"${projectPath()}","nonce":"n1"}""",
+            """{"session":"s2","project":"${projectPath()}","nonce":"$nonce"}""",
         )
 
         assertTrue(sent, sent.contains("\"already-read\""))
         assertTrue(sent, sent.contains("\"s1\""))
+        // Both counters the answer carries, so a rename or a removal of either is caught here.
+        assertTrue(sent, sent.contains("\"remarks\""))
+        assertTrue(sent, sent.contains("\"readAt\""))
     }
 
     /** A nonce this plugin never recorded, or one that fell off the remembered sixteen. */

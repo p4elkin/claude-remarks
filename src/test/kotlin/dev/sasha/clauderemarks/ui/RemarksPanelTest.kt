@@ -16,6 +16,8 @@ import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.review.WaitingReviewService
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
+import dev.sasha.clauderemarks.store.markRemarksPublished
+import dev.sasha.clauderemarks.store.markRemarksRead
 import dev.sasha.clauderemarks.store.setRemarkBucket
 import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.io.File
@@ -288,6 +290,37 @@ class RemarksPanelTest : BasePlatformTestCase() {
         assertTrue(event.presentation.isEnabled)
     }
 
+    /**
+     * Publish Unread's enablement is "not yet READ", not "still PENDING". A remark published but
+     * never acknowledged is exactly the case this button exists for, and gating it on PENDING would
+     * grey the button out just when a person wants to hand the remarks over again.
+     */
+    fun testPublishUnreadStaysEnabledForAPublishedButUnreadRemark() {
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        markRemarksPublished(project, listOf(remark.id!!))
+        val panel = panel()
+
+        assertTrue(publishUnreadIsEnabled(panel))
+    }
+
+    /** The other side of the same predicate: with everything read there is nothing left to publish. */
+    fun testPublishUnreadIsDisabledOnceEveryRemarkIsRead() {
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        markRemarksPublished(project, listOf(remark.id!!))
+        markRemarksRead(project, listOf(remark.id!!))
+        val panel = panel()
+
+        assertFalse(publishUnreadIsEnabled(panel))
+    }
+
+    private fun publishUnreadIsEnabled(panel: RemarksPanel): Boolean {
+        val action = panel.toolbarActions().getChildren(null)
+            .single { it.templatePresentation.text == "Publish Unread" }
+        val event = TestActionEvent.createTestEvent(action)
+        action.update(event)
+        return event.presentation.isEnabled
+    }
+
     fun testTheBannerIsHiddenWhenNoReviewIsWaiting() {
         val panel = panel()
 
@@ -305,6 +338,23 @@ class RemarksPanelTest : BasePlatformTestCase() {
         val text = panel.banner.text.orEmpty()
         assertTrue(text, text.contains("Claude Code is waiting: a review label"))
         assertTrue(text, text.contains("Publish to answer"))
+    }
+
+    /**
+     * The label is caller-supplied text that arrived over HTTP, and updateBanner now wraps the whole
+     * banner string in `<html>` so it can hold two lines. Swing renders that as markup, so a label
+     * carrying tags of its own has to reach the screen escaped, as the characters the person typed.
+     */
+    fun testTheBannerEscapesMarkupInTheWaitingLabel() {
+        val panel = panel()
+        WaitingReviewService.getInstance(project).start("s1", "<b>bold</b>", 1800)
+
+        panel.refresh()
+        settleInvocationQueue()
+
+        val text = panel.banner.text.orEmpty()
+        assertTrue(text, text.contains("&lt;b&gt;bold&lt;/b&gt;"))
+        assertFalse(text, text.contains("<b>"))
     }
 
     fun testTheBannerSaysTheRemarksAreWaitingToBeReadAfterASend() {

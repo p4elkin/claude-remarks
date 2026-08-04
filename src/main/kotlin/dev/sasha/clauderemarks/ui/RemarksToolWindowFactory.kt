@@ -110,7 +110,7 @@ class RemarksPanel(
      */
     internal val banner = EditorNotificationPanel().apply {
         text = "Claude Code is waiting"
-        // Reject, not Cancel: this writes the decision to the handoff file so the waiting session
+        // Reject, not Cancel: this writes the decision into the published file so the waiting session
         // stops at once. "Cancel" read as "close this banner", which is exactly the behaviour that
         // was wrong. It is the only link the banner offers now: there is no separate Send action —
         // publishing is how a waiting review is answered.
@@ -420,7 +420,7 @@ class RemarksPanel(
      * One snapshot per change, not three per toolbar tick.
      *
      * `all()` is a deep copy — a fresh RemarkState per remark, taken under the store's lock — and
-     * ToolbarAction.update runs on the EDT for every button on every tick, so Publish All Pending,
+     * ToolbarAction.update runs on the EDT for every button on every tick, so Publish Unread,
      * Clear Handed Over and Clear All each took their own copy of the whole store several times a
      * second.
      *

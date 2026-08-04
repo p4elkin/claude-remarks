@@ -28,14 +28,18 @@ class SendReviewTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        // The light fixture project is shared across test classes.
+        // The light fixture project is shared across test classes. PublishedBatchService is cleared
+        // here for the same reason the store and the review service are: the rejection tests below
+        // record batches into it, and it is shared state like the other two.
         RemarkStore.getInstance(project).clear()
         WaitingReviewService.getInstance(project).clear()
+        PublishedBatchService.getInstance(project).clear()
     }
 
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         WaitingReviewService.getInstance(project).clear()
+        PublishedBatchService.getInstance(project).clear()
         temp.deleteAll()
         super.tearDown()
     }
@@ -111,6 +115,25 @@ class SendReviewTest : BasePlatformTestCase() {
         assertEquals(0, header.remarks)
         assertEquals("s1", header.reviewSession)
         assertNull(WaitingReviewService.getInstance(project).current())
+    }
+
+    /**
+     * A rejection records its batch like any other write to the published file, so a skill that
+     * acknowledges whatever it read is answered `ok` rather than `unknown-batch` — an answer that
+     * would read as an anomaly worth acting on. Nothing is marked read: the batch carries no ids.
+     */
+    fun testARejectionsOwnNonceCanBeAcknowledged() {
+        val dir = temp.dir("send-review-test")
+        val root = identity()
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
+
+        rejectWaitingReview(project, dir)
+
+        val content = Files.readString(dir.resolve(publishedName(root.toString())))
+        val nonce = publishedHeaderOf(content)!!.nonce
+        val answer = reportPublishedRead(project, nonce, "reader-1")
+        assertEquals(PublishedAckOutcome.OK, answer.outcome)
+        assertEquals(0, answer.remarks)
     }
 
     fun testRejectingLeavesEveryRemarkPending() {
@@ -211,6 +234,28 @@ class SendReviewTest : BasePlatformTestCase() {
 
         assertNull(WaitingReviewService.getInstance(project).current())
         assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
+    }
+
+    /**
+     * A rejection whose write failed drops its own batch again, and this is what that is worth. The
+     * batch is recorded before the write, on purpose, so a fast agent cannot beat it. The cost of
+     * that order is a batch no file carries whenever the write then fails, and only sixteen batches
+     * are remembered at a time. Fifteen real batches, then a failed rejection, then one more real
+     * one: with the failed batch dropped that is sixteen and the oldest survives, and without it that
+     * is seventeen and a batch an agent can still read is answered unknown-batch.
+     */
+    fun testAFailedRejectionWriteDoesNotCostARealBatchItsPlace() {
+        val badDir = temp.file("reject-review-slot", ".txt").resolve("subdir")
+        identity() // forces the project root to resolve, so the failure below is genuinely badDir's
+        val service = PublishedBatchService.getInstance(project)
+        val oldest = service.record(emptyList())
+        repeat(14) { service.record(emptyList()) }
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
+
+        rejectWaitingReview(project, badDir)
+        service.record(emptyList())
+
+        assertEquals(PublishedAckOutcome.OK, reportPublishedRead(project, oldest, "reader-1").outcome)
     }
 
     private fun statusOf(id: String) = RemarkStore.getInstance(project).all().single { it.id == id }.status

@@ -30,15 +30,14 @@ import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.resolveAll
 import java.io.IOException
 import java.nio.file.Path
-import java.util.UUID
 import java.util.concurrent.CancellationException
 
 private val LOG = Logger.getInstance("dev.sasha.clauderemarks.action.PublishRemarks")
 
 private const val NOTIFICATION_GROUP = "Claude Remarks"
 
-/** The coalesce key standing in for "every pending remark", since null cannot be one. */
-private const val ALL_PENDING = "all-pending"
+/** The coalesce key standing in for "every remark that is not READ", since null cannot be one. */
+private const val ALL_UNREAD = "all-unread"
 
 /**
  * What the read action produced: the finished markdown, which remarks went into it, how many real
@@ -104,10 +103,10 @@ internal data class Prepared(
 fun publishRemarks(project: Project, ids: Collection<String>?) {
     ReadAction.nonBlocking<Prepared> { prepare(project, ids) }
         .expireWith(project)
-        // The id set is part of the key. Without it Publish All Pending and Publish Selected
+        // The id set is part of the key. Without it Publish Unread and Publish Selected
         // coalesce against each other, so pressing the second one while the first is still
         // running throws the first publish away with nothing to show for it.
-        .coalesceBy(::publishRemarks, project, ids?.toSet() ?: ALL_PENDING)
+        .coalesceBy(::publishRemarks, project, ids?.toSet() ?: ALL_UNREAD)
         .finishOnUiThread(ModalityState.defaultModalityState()) { prepared ->
             if (prepared.ids.isEmpty()) {
                 notifyRemarks(project, "No remarks to publish.")
@@ -144,18 +143,18 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
             val (writeFailure, reviewAnswer) = if (prepared.root == null) {
                 "the project root did not resolve" to null
             } else {
-                // The nonce is minted here, before the write, so the batch can be recorded before
-                // the file is written. A fast agent can read the file and acknowledge within
+                // Read before the batch is recorded and before the header is built, on the EDT this
+                // whole block already runs on, so the recorded batch, the header's review fields and
+                // the answer below all name the same snapshot.
+                val waiting = waitingReviewForPublish(project)
+                // The batch is recorded before the write, and record() hands back the nonce the
+                // header then carries. A fast agent can read the file and acknowledge within
                 // milliseconds, and a batch recorded after the write would answer unknown-batch to
                 // an acknowledgement that was actually correct. record() runs on the EDT, which is
                 // exactly what it is meant to be called from — see PublishedAck.kt's KDoc. If the
-                // write below then fails, the recorded batch is simply unreachable, which costs
-                // nothing: nothing was published for it to answer.
-                val nonce = UUID.randomUUID().toString()
-                PublishedBatchService.getInstance(project).record(nonce, prepared.ids)
-                // Read before the header is built, on the EDT this whole block already runs on, so
-                // the header's review fields and the answer below name the same snapshot.
-                val waiting = waitingReviewForPublish(project)
+                // write below then fails, the catch drops the batch again.
+                val nonce = PublishedBatchService.getInstance(project)
+                    .record(prepared.ids, waiting?.sessionId)
                 try {
                     val header = PublishedHeader(
                         nonce = nonce,
@@ -197,6 +196,10 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
                     // to act on — store/RemarkEdits.kt's archive() reports its own write failure the
                     // same way, with the message in the balloon.
                     LOG.warn("the published file could not be written", e)
+                    // The batch recorded above names a file that does not exist. Left in place it
+                    // would burn one of the sixteen remembered slots for good, and enough failed
+                    // publishes would push a real, readable batch out of them into unknown-batch.
+                    PublishedBatchService.getInstance(project).forget(nonce)
                     (e.message ?: e.toString()) to null
                 }
             }
@@ -231,9 +234,9 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
  * Runs inside a read action, off the EDT, and does everything expensive: resolve, read the files
  * and render. It does no IO of its own, so a cancelled retry costs only the work, not a file.
  *
- * The [ids] branch here is the whole publish lifecycle. Null means pending only, which is what
- * Publish All does. A list means exactly those ids, published ones included, which is what
- * Publish Selected does.
+ * The [ids] branch here is the whole publish lifecycle. Null means every remark that is not yet
+ * `READ`, which is what Publish Unread does. A list means exactly those ids, published ones
+ * included, which is what Publish Selected does.
  */
 internal fun prepare(project: Project, ids: Collection<String>?): Prepared {
     val wanted = ids?.toSet()

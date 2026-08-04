@@ -8,7 +8,6 @@ import dev.sasha.clauderemarks.action.plural
 import dev.sasha.clauderemarks.store.markRemarksRead
 import java.io.IOException
 import java.nio.file.Path
-import java.util.UUID
 
 /**
  * What a publish does about a waiting review. Null when none is waiting.
@@ -53,6 +52,8 @@ internal val REJECTION_BODY = """
  * the same file a publish writes and the same file the fetch action reads. [PublishedBatchService]
  * records it with an empty id list too, so that "every write to the published file records a batch"
  * holds without exception, even though there is nothing here for an acknowledgement to mark read.
+ * That is why [reportPublishedRead] answers `ok` to this nonce and marks nothing: the batch is real,
+ * it simply carries no remarks.
  *
  * [dir] is a parameter, not a default argument resolving [handshakeDir]. Kotlin evaluates a default
  * argument in the synthetic bridge, before this function's body runs, so anything it throws would
@@ -82,11 +83,11 @@ fun rejectWaitingReview(project: Project, dir: Path? = null) {
         WaitingReviewService.getInstance(project).clear(waiting.sessionId)
         return
     }
+    // Recorded before the write, same reason a publish's batch is: a fast acknowledgement must
+    // never race a batch this service does not know about yet. The nonce comes back from record()
+    // rather than being minted here, so a recorded batch and the header's nonce cannot drift apart.
+    val nonce = PublishedBatchService.getInstance(project).record(emptyList(), waiting.sessionId)
     try {
-        val nonce = UUID.randomUUID().toString()
-        // Recorded before the write, same reason a publish's batch is: a fast acknowledgement must
-        // never race a batch this service does not know about yet.
-        PublishedBatchService.getInstance(project).record(nonce, emptyList())
         val header = PublishedHeader(
             nonce = nonce,
             publishedAt = System.currentTimeMillis(),
@@ -99,6 +100,9 @@ fun rejectWaitingReview(project: Project, dir: Path? = null) {
         writePublished(root, header + "\n" + REJECTION_BODY, dir ?: handshakeDir())
         notifyRemarks(project, "Rejected the review. Claude Code will stop waiting.")
     } catch (e: IOException) {
+        // The batch above names a file that does not exist, so it is dropped again. Left in place it
+        // would burn one of the sixteen remembered slots and could push a real, readable batch out.
+        PublishedBatchService.getInstance(project).forget(nonce)
         notifyRemarks(
             project,
             "The rejection could not be written: ${e.message}. " +

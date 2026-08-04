@@ -7,13 +7,17 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * The published file: what Publish All Pending and Publish Selected write to disk, under
- * handshakeDir(), so a Claude Code skill can read published remarks whenever it likes, with no
- * review ever having been started. See docs/claude/design.md, "The published file".
+ * The published file: what Publish Unread and Publish Selected write to disk, under handshakeDir(),
+ * so a Claude Code skill can read published remarks whenever it likes, with no review ever having
+ * been started. Since phase 10 a review's answer and a rejection land in this same file.
+ * See docs/claude/design.md, "The published file".
  */
 
-/** The first line, so a reader can tell this file from a handoff file or a rejection before it hands
- *  the body to a model. A wire format shared with SKILL.md: not reworded without editing it too. */
+/** The first line, so a reader can tell this file from anything else in that directory before it
+ *  hands the body to a model. It says nothing about what the batch is: a plain publish, a review's
+ *  answer and a rejection all carry this same marker, and the header's own `review:` and `rejected:`
+ *  fields are what tell them apart. A wire format shared with SKILL.md: not reworded without editing
+ *  it too. */
 const val PUBLISHED_MARKER = "<!-- claude-remarks: published -->"
 
 private val PUBLISHED_WHEN =
@@ -26,15 +30,27 @@ private val PUBLISHED_WHEN =
 fun publishedName(realPath: String): String = projectHash(realPath) + ".md"
 
 /**
- * Every character below U+0020 becomes a space, then the result is cut to 120 characters. The
- * label arrives over HTTP from the skill, and one newline in it would split the header and move
- * every line after it. 120 is the same cut ui/RemarksToolWindowFactory.kt's updateBanner already
- * makes on the same label.
+ * Every character below U+0020 becomes a space. Both fields this runs on — the label and the
+ * session id — arrive over HTTP from the skill, and one newline in either would split the header and
+ * move every line after it. The reader on the other side goes by line number, so a shifted header is
+ * not a cosmetic problem: a session id holding "\nrejected: yes" would make line 8 say a batch was
+ * rejected when it was not.
  */
-private fun sanitizeLabel(label: String): String =
-    buildString(label.length) {
-        for (c in label) append(if (c < ' ') ' ' else c)
-    }.take(120)
+private fun sanitizeControls(value: String): String =
+    buildString(value.length) {
+        for (c in value) append(if (c < ' ') ' ' else c)
+    }
+
+/**
+ * The label, with its control characters gone and cut to 120 characters. 120 is the same cut
+ * ui/RemarksToolWindowFactory.kt's updateBanner already makes on the same label.
+ *
+ * The session id is deliberately NOT cut the same way: it is compared for equality against what the
+ * skill sends back, in ReviewRestService.handleFetch, so a truncated one would stop matching the
+ * review it names. It only has its control characters replaced. The first line of defence for it is
+ * at the edge anyway: handleStart refuses a session id with a control character in it.
+ */
+private fun sanitizeLabel(label: String): String = sanitizeControls(label).take(120)
 
 /**
  * What sits above the prompt in the published file: what batch it is (the nonce, for an
@@ -66,7 +82,7 @@ data class PublishedHeader(
         appendLine("published: ${PUBLISHED_WHEN.format(Instant.ofEpochMilli(publishedAt))}")
         appendLine("commit: ${commit?.take(8) ?: "none"}")
         appendLine("remarks: $remarks")
-        appendLine("review: ${reviewSession ?: "none"}")
+        appendLine("review: ${reviewSession?.let { sanitizeControls(it) } ?: "none"}")
         appendLine("label: ${reviewLabel?.let { sanitizeLabel(it) } ?: "none"}")
         appendLine("rejected: ${if (rejected) "yes" else "no"}")
     }
