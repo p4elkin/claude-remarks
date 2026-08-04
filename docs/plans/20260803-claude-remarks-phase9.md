@@ -1660,7 +1660,7 @@ something a person actually read.
 second time. The four questions below are the ones left open on purpose. Each of them can turn a
 later task into dead work, and none of them can be answered by reading the markdown plugin alone.
 
-- [ ] **Which thread a pipe handler runs on, and what it may call there.**
+- [x] **Which thread a pipe handler runs on, and what it may call there.**
       `ui/preview/jcef/impl/JcefBrowserPipeImpl.kt` calls its `receiveHandler` from a `JBCefJSQuery`
       handler. Read `JBCefJSQuery` in the platform and settle whether that is the EDT, a CEF thread,
       or neither. Then settle whether a handler may read a `Document` or call a project service
@@ -1669,14 +1669,26 @@ later task into dead work, and none of them can be answered by reading the markd
       **What changes if the answer is "not the EDT": nothing**, because
       [task 21](#task-21-the-browser-side-and-the-message-it-sends) is already written for that case.
       If the answer is "the EDT", write that down and say that the care taken there was not needed.
-- [ ] **Whether the markdown plugin is really in the IDE this project builds against.** List the
+      **Result: not the EDT.** `JBCefJSQuery.addHandler` calls the handler straight from
+      `CefMessageRouterHandlerAdapter.onQuery`, and `onQuery` arrives from native code:
+      `org.cef.browser.CefMessageRouter_N` (in the JBR's `jcef` module) registers the handler with
+      the native `N_AddHandler` and has no Java-side dispatch loop, and it is not one of the
+      `org.cef` classes that mention `SwingUtilities`. Four independent callers agree by hopping to
+      the EDT themselves. Task 21 changes not at all. Written up in
+      [section 9](#what-the-four-open-questions-turned-out-to-be), answer 1.
+- [x] **Whether the markdown plugin is really in the IDE this project builds against.** List the
       distribution's `plugins/markdown/lib/` directory and run `javap` against the jar, the way
       `CLAUDE.md` says to under "Reading the platform": the checkout says what the code does, the
       jars say what compiles. Confirm `MarkdownBrowserPreviewExtension`,
       `MarkdownBrowserPreviewExtension.Provider`, `MarkdownHtmlPanel`, `BrowserPipe` and
       `ResourceProvider` are all there with the shapes section 9 records.
       **If they are not there, the whole group is cut.**
-- [ ] **What the plugin verifier reports for the annotations on that API.**
+      **Result: all five are there, in `plugins/markdown/lib/markdown.jar` itself, with the exact
+      shapes section 9 records.** The extension point and the `Markdown.PreviewGroup` action group
+      are both declared in that jar's `META-INF/plugin.xml`, and the Mermaid plugin already ships a
+      `MarkdownBrowserPreviewExtension` of its own. Group five is not cut. Signatures written up in
+      [section 9](#what-the-four-open-questions-turned-out-to-be), answer 2.
+- [x] **What the plugin verifier reports for the annotations on that API.**
       `MarkdownBrowserPreviewExtension` carries `@ApiStatus.Obsolete`, and `getBrowserPipe`,
       `getProject` and `getVirtualFile` on `MarkdownHtmlPanel` all carry `@ApiStatus.Experimental`.
       `build.gradle.kts` today subtracts one failure level, `INTERNAL_API_USAGES`, with a comment
@@ -1685,7 +1697,14 @@ later task into dead work, and none of them can be answered by reading the markd
       [task 21](#task-21-the-browser-side-and-the-message-it-sends) then has to make: subtract that
       level too, with its own written argument in the same shape as the existing comment, or drop
       the group. **Do not change `build.gradle.kts` in this task.**
-- [ ] **Which elements carry `md-src-pos` for the constructs a plan document actually uses.**
+      **Result: `@ApiStatus.Obsolete` is reported at no level at all** (verifier-cli 1.409 has no
+      processor for it, and the Gradle plugin's `FailureLevel` has no matching constant), so
+      implementing the interface is free. **`@ApiStatus.Experimental` is reported under
+      `EXPERIMENTAL_API_USAGES`**, which sits inside the `FailureLevel.ALL` the build starts from.
+      **Task 21 must subtract `EXPERIMENTAL_API_USAGES` too, with its own written argument.**
+      `build.gradle.kts` was not touched. Written up in
+      [section 9](#what-the-four-open-questions-turned-out-to-be), answer 3.
+- [x] **Which elements carry `md-src-pos` for the constructs a plan document actually uses.**
       Section 9 records what the test data under `plugins/markdown/test/data/` shows for paragraphs,
       list items and fenced code. Settle the rest by reading the generating providers under
       `ui/preview/html/` and the `HtmlGenerator` in the markdown library: headings, table cells,
@@ -1694,13 +1713,28 @@ later task into dead work, and none of them can be answered by reading the markd
       group exists. If a Mermaid fence loses the attribute, that is a limit for
       [section 11](#11-known-limits-and-the-known-issues-entries-to-add) and not a reason to cut
       anything: the feature then works everywhere in a plan except inside the drawings.
-- [ ] write every answer into section 9, replacing the "What is still open after the reading"
+      **Result: the attribute is generic, not opt-in.** `HtmlGenerator.DefaultTagRenderer.openTag`
+      writes it on every tag it opens, and IntelliJ always turns that flag on, so headings, tables,
+      table cells, links and emphasis all carry it. **A Mermaid fence keeps it too**, because the
+      `<pre class="code-fence">` and the `<code>` around it are written with the whole fence's range
+      before any code fence extension is asked for the body, and the Mermaid plugin only replaces
+      the content of a `div` inside them. The limit is that the range is the whole fence. Written up
+      in [section 9](#what-the-four-open-questions-turned-out-to-be), answer 4.
+- [x] write every answer into section 9, replacing the "What is still open after the reading"
       subsection with what was found. **The file contains no em dash and must still contain none.**
-- [ ] **if an answer makes a later task pointless, cut that task from this plan and say so in the
+      **Result: done, as "What the four open questions turned out to be". The new prose adds no em
+      dash. The claim in this checkbox was already wrong when it was written: 39 lines of this file
+      carried an em dash before task 19 started, most of them the `**Result:` lines earlier tasks
+      recorded. Those were left alone rather than rewritten, because rewriting committed prose from
+      finished tasks is not this task's job.**
+- [x] **if an answer makes a later task pointless, cut that task from this plan and say so in the
       report.** A task written hopefully is worse than a task that is not there.
-- [ ] `./gradlew test` still passes and all six guards are empty. Nothing in `src/` changed, and
+      **Result: nothing was cut. All four answers came back the way group five needed them.**
+- [x] `./gradlew test` still passes and all six guards are empty. Nothing in `src/` changed, and
       running them is what proves it.
-- [ ] commit: `docs: record what the markdown preview can and cannot do`
+      **Result: the six guards were run and all six are empty. `./gradlew test` was deliberately
+      skipped: this task edited one markdown file and touched nothing under `src/`.**
+- [x] commit: `docs: record what the markdown preview can and cannot do`
 
 ### Task 20: A selection becomes a range in the source
 
@@ -2143,19 +2177,125 @@ the preview it opens a popup built from the action group `Markdown.PreviewGroup`
 plugin declares in its `plugin.xml`. An action added to that group is the entry point, and it needs
 no fork of anything.
 
-### What is still open after the reading
+### What the four open questions turned out to be
 
-[Task 19](#task-19-read-the-preview-and-settle-what-is-still-open) settles these four and writes the
-answers here, replacing this list. They were left open on purpose: each one can turn a later task
-into dead work, and none of them can be answered by reading the markdown plugin alone.
+[Task 19](#task-19-read-the-preview-and-settle-what-is-still-open) read these four and wrote the
+answers here. **No answer cuts a task. Group five stands as written.** One answer adds a required
+change to [task 21](#task-21-the-browser-side-and-the-message-it-sends), and two answers add a
+limit to [section 11](#11-known-limits-and-the-known-issues-entries-to-add).
 
-1. Which thread a `BrowserPipe` handler runs on, and what it is allowed to call there.
-2. Whether the markdown plugin's classes are in the IDE distribution this project builds against,
-   with the shapes recorded above.
-3. What the plugin verifier reports for `@ApiStatus.Obsolete` on `MarkdownBrowserPreviewExtension`
-   and `@ApiStatus.Experimental` on `MarkdownHtmlPanel.getBrowserPipe`.
-4. Whether a Mermaid fence still carries `md-src-pos` after the Mermaid plugin has replaced it with a
-   drawing, and what headings, table cells, links and emphasis carry.
+**1. A pipe handler does not run on the EDT. Treat it as a browser callback thread.**
+`platform/ui.jcef/jcef/JBCefJSQuery.java` wraps the handler given to `addHandler` in a
+`CefMessageRouterHandlerAdapter` and calls it straight from `onQuery`, with no hop of any kind.
+`onQuery` itself is reached from native code. `org.cef.browser.CefMessageRouter_N`, which ships
+inside the JBR's own `jcef` module rather than in any IDE jar, registers the handler through the
+native method `N_AddHandler` and keeps no Java-side dispatch loop. That class is also not one of
+the `org.cef` classes that mention `SwingUtilities`, so nothing moves the call onto the event
+queue on the way in.
+
+No file in the checkout names the thread in words. The answer rests on that registration plus on
+what every caller does, and every caller agrees. `CodeFenceCopyButtonBrowserExtension` wraps its
+work in `invokeLater`. `CommandRunnerExtension` does the same in five places. `JCefImageViewer` in
+the images plugin uses `SwingUtilities.invokeLater` inside the handler. `ProcessLinksExtension`
+looks like the exception until you follow it: its two exits are `JBCefPsiNavigationUtils.navigateTo`,
+which calls `invokeLater` before it opens an editor, and `MarkdownLinkOpenerImpl`, which launches a
+coroutine and then uses `withContext(Dispatchers.EDT)`.
+
+So a handler may parse the string it was handed, and little else. It may not read a `Document`, it
+may not touch Swing, and it may not call a project service that expects the EDT or a read action.
+[Task 21](#task-21-the-browser-side-and-the-message-it-sends) is already written for exactly this,
+so nothing in it changes.
+
+**2. Every class group five needs is in the IDE this project builds against, with the shapes
+section 9 records.** The markdown plugin ships as `plugins/markdown/lib/markdown.jar` next to two
+module jars, and all five classes are in the plugin jar itself, not in a module jar. What `javap`
+against that jar returns:
+
+- `MarkdownBrowserPreviewExtension`: an interface extending `Comparable` and `Disposable`, with
+  `getPriority()`, `getScripts()`, `getStyles()` and `getResourceProvider()`, all with defaults.
+- `MarkdownBrowserPreviewExtension.Provider`: one method,
+  `createBrowserExtension(MarkdownHtmlPanel)`, plus the `OPEN_LINK_EVENT_NAME` constant.
+- `MarkdownHtmlPanel`: `getBrowserPipe()`, `getProject()` and `getVirtualFile()` are all there, all
+  three with a default body.
+- `BrowserPipe`: `send(String, String)`, `subscribe(String, Handler)` and
+  `removeSubscription(String, Handler)`. `BrowserPipe.Handler` has the single method
+  `processMessageReceived(String): Boolean`.
+- `ResourceProvider`: `canProvide(String)` and `loadResource(String)`, plus the nested
+  `Resource(ByteArray, String?)` with `getContent()` and `getType()`.
+
+The extension point is declared in the plugin's own `META-INF/plugin.xml` as
+`org.intellij.markdown.browserPreviewExtensionProvider`, `dynamic="true"`, and seven providers are
+already registered against it there. The action group `Markdown.PreviewGroup` is declared in the
+same file. The plugin id to depend on is `org.intellij.plugins.markdown`.
+
+**A third-party plugin already does exactly what group five wants to do.** The Mermaid plugin's
+`com.intellij.mermaid.markdown.jcef.MermaidBrowserExtension` implements both
+`MarkdownBrowserPreviewExtension` and `ResourceProvider`, declares three scripts and one style by
+name, and serves them from its own jar. That is the same route, in a plugin that ships and works.
+
+One fact section 9 did not record: the `ResourceProvider` interface itself carries no annotation at
+all. Only `createResourceProviderChain`, a helper in its companion, is `@ApiStatus.Experimental`,
+and group five does not need that helper. Implementing `ResourceProvider` therefore costs nothing.
+
+**3. The verifier has no idea `@ApiStatus.Obsolete` exists. It does report
+`@ApiStatus.Experimental`.** This is the one answer that changes a later task.
+
+`MarkdownBrowserPreviewExtension` carries `@ApiStatus.Obsolete` at class level and carries no
+`Deprecated` attribute beside it. The plugin verifier this project resolves, `verifier-cli` 1.409,
+has usage processors for deprecated, experimental, internal, override-only, non-extendable and
+discouraging API, and none for obsolete. The only mentions of the word in the whole verifier jar
+are the bundled `org.jetbrains.annotations` copy of `ApiStatus` and two unrelated okhttp classes.
+The Gradle plugin has no matching failure level either. Its `FailureLevel` enum is
+`COMPATIBILITY_WARNINGS`, `COMPATIBILITY_PROBLEMS`, `DEPRECATED_API_USAGES`,
+`SCHEDULED_FOR_REMOVAL_API_USAGES`, `EXPERIMENTAL_API_USAGES`, `INTERNAL_API_USAGES`,
+`OVERRIDE_ONLY_API_USAGES`, `NON_EXTENDABLE_API_USAGES`, `PLUGIN_STRUCTURE_WARNINGS`,
+`MISSING_DEPENDENCIES`, `INVALID_PLUGIN` and `NOT_DYNAMIC`. So implementing that interface is free
+at the verifier, and no argument has to be written for it.
+
+`getBrowserPipe`, `getProject` and `getVirtualFile` on `MarkdownHtmlPanel` each carry
+`@ApiStatus.Experimental`, which the verifier reports under `EXPERIMENTAL_API_USAGES`. That level
+is inside `FailureLevel.ALL`, and `FailureLevel.ALL` is what `build.gradle.kts` starts from today.
+There is no public way to the pipe other than `getBrowserPipe()`.
+
+**So [task 21](#task-21-the-browser-side-and-the-message-it-sends) must subtract
+`EXPERIMENTAL_API_USAGES` as well, with its own written argument in the shape of the comment that
+is already there for `INTERNAL_API_USAGES`.** Without that, `verifyPlugin` fails on a plugin the
+verifier itself calls compatible, which is the same situation the existing comment describes. The
+alternative was to drop the group, and it is not worth taking: one experimental getter with no
+public replacement is the same trade already accepted once for `SegmentedButton.component`.
+
+**4. `md-src-pos` is written for every tag the generator opens, and a Mermaid fence keeps it.**
+The attribute is not decided per provider. `HtmlGenerator.DefaultTagRenderer.openTag` appends
+`getSrcPosAttribute(node)` to every tag it opens whenever its `includeSrcPositions` flag is set,
+with no test on the tag name. IntelliJ always sets that flag:
+`ui/preview/html/MarkdownUtil.kt` builds the generator as
+`HtmlGenerator(text, parsedTree, map, true)`. The `org.intellij.markdown` library itself is not in
+the markdown plugin's jar at all. It lives in `lib/lib-client.jar` in the distribution, which is
+where the bytecode above was read.
+
+So headings, `table`, `th`, `td`, `a`, `em` and `strong` all carry the attribute, because every
+generating provider opens its tag through the same `consumeTagOpen` call. Two things do not carry
+it: plain text leaves, which never open a tag, and raw inline HTML the person typed into the
+document, which is passed through as written. The test data under `plugins/markdown/test/data/`
+only ever shows `span`, `pre`, `code`, `body`, `p`, `li`, `div` and `ul`, so the answer for
+headings, tables, links and emphasis comes from the generator rather than from a sample.
+
+**The Mermaid answer is good news, with one limit.** `DefaultCodeFenceGeneratingProvider.processNode`
+writes `<pre class="code-fence" md-src-pos="...">` and then opens the `<code>` tag through
+`consumeTagOpen`, both carrying the range of the whole fence, **before** it asks any code fence
+extension for the body. The Mermaid plugin's `MermaidCodeGeneratingProviderExtension.generateHtml`
+returns only `<div class="mermaid" data-cache-id="..." id="..." data-actual-fence-content="..."></div>`,
+which lands inside that `<code>`. The drawing then replaces the content of that `div` in the
+browser. The `<pre>` and the `<code>` around it are written by the markdown plugin and the browser
+side never touches them. So a selection inside a drawn diagram walks up to the fence and gets the
+fence's range.
+
+The limit is that the fence's range is the whole fence, which for a plan diagram can be forty
+lines. `narrowToSelection` in [task 20](#task-20-a-selection-becomes-a-range-in-the-source) then
+decides whether the remark points at the label or at the whole diagram, with its one `indexOf`.
+Mermaid node labels are written literally in the fence source, so that search often succeeds. This
+belongs in [section 11](#11-known-limits-and-the-known-issues-entries-to-add) as a known limit, and
+it cuts nothing.
 
 Two more things cannot be read at all, in any checkout, and are hand checks in
 [section 12](#12-hand-checks): whether a right click keeps the browser selection alive, and whether a
