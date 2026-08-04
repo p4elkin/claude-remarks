@@ -43,17 +43,22 @@ class FileTargetTest : BasePlatformTestCase() {
     }
 
     /**
-     * The two [relativePathOf] overloads have to agree, because the preview stores a remark through
-     * the file-taking one against a path the editor entry point would have produced through the
-     * other. A remark whose path depends on which entry point wrote it is a defect nothing else
-     * would catch.
+     * The preview stores a remark through the file-taking [relativePathOf] against a path the editor
+     * entry point would have produced through the other one, so both have to give the same answer.
+     *
+     * Both are pinned against the literal path rather than against each other. The editor overload
+     * is written in terms of the file one, so comparing the two only ever compares a value with
+     * itself, and would pass on any answer they were both wrong about.
+     *
+     * The file sits in a subdirectory, so the answer is a real project-relative path with a
+     * separator in it, which a broken version reading `file.name` could not produce.
      */
-    fun testBothRelativePathOverloadsAnswerTheSameForTheSameFile() {
-        val inside = fileUnderProjectRoot(project, "Inside.kt", TEXT)
+    fun testBothRelativePathOverloadsGiveTheProjectRelativePath() {
+        val inside = fileUnderProjectRoot(project, "sub/Inside.kt", TEXT)
         myFixture.openFileInEditor(inside)
 
-        assertEquals("Inside.kt", relativePathOf(project, inside))
-        assertEquals(relativePathOf(project, myFixture.editor), relativePathOf(project, inside))
+        assertEquals("sub/Inside.kt", relativePathOf(project, inside))
+        assertEquals("sub/Inside.kt", relativePathOf(project, myFixture.editor))
     }
 
     private companion object {

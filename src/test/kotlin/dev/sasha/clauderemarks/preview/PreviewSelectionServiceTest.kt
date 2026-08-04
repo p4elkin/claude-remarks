@@ -20,23 +20,14 @@ class PreviewSelectionServiceTest : BasePlatformTestCase() {
         super.tearDown()
     }
 
-    fun testAStoredSelectionReadsBack() {
+    fun testAStoredSelectionReadsBackWithBothItsFields() {
         val service = PreviewSelectionService.getInstance(project)
 
         service.remember("file:///Users/sasha/dev/claude-remarks/docs/plans/a-plan.md", SourceRange(10, 18))
 
-        assertEquals(SourceRange(10, 18), service.current()!!.range)
-    }
-
-    fun testASecondStoreReplacesTheFirst() {
-        val service = PreviewSelectionService.getInstance(project)
-
-        service.remember("file:///a.md", SourceRange(10, 18))
-        service.remember("file:///b.md", SourceRange(200, 240))
-
         val stored = service.current()!!
-        assertEquals("file:///b.md", stored.fileUrl)
-        assertEquals(SourceRange(200, 240), stored.range)
+        assertEquals("file:///Users/sasha/dev/claude-remarks/docs/plans/a-plan.md", stored.fileUrl)
+        assertEquals(SourceRange(10, 18), stored.range)
     }
 
     fun testAfterForgetThereIsNothing() {
@@ -48,11 +39,15 @@ class PreviewSelectionServiceTest : BasePlatformTestCase() {
         assertNull(service.current())
     }
 
-    fun testTheStoredFileUrlIsTheOneThatWasPassedIn() {
-        val service = PreviewSelectionService.getInstance(project)
+    /**
+     * One holder per project, which is the whole reason this is a service at all. The browser's
+     * callback thread stores through its own [PreviewSelectionService.getInstance] call and
+     * `action/AddPreviewRemarkAction.kt` reads through a separate one on the EDT, so a lookup that
+     * handed back a fresh instance would leave the action seeing nothing, every time.
+     */
+    fun testASelectionStoredThroughOneLookupIsReadBackThroughAnother() {
+        PreviewSelectionService.getInstance(project).remember("file:///a.md", SourceRange(10, 18))
 
-        service.remember("file:///Users/sasha/dev/claude-remarks/README.md", SourceRange(0, 5))
-
-        assertEquals("file:///Users/sasha/dev/claude-remarks/README.md", service.current()!!.fileUrl)
+        assertEquals(SourceRange(10, 18), PreviewSelectionService.getInstance(project).current()?.range)
     }
 }

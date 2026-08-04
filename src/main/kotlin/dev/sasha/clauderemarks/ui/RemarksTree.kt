@@ -6,6 +6,7 @@ import dev.sasha.clauderemarks.anchor.AnchorResult
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.ResolvedRemark
+import dev.sasha.clauderemarks.store.isAboutNoFile
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 
@@ -155,8 +156,10 @@ private fun leavesOf(node: DefaultMutableTreeNode): List<RemarkNode> =
  * order, and buckets in name order with the unbucketed ones first — those are the remarks just
  * written, and the ones about to be moved.
  *
- * A remark about no file (`path.isEmpty()`, from [remarkNode]) goes into its own group first,
- * keyed [GENERAL_KEY] and labelled "General", above the bucket and file groups. Its own bucket is
+ * A remark about no file goes into its own group first, keyed [GENERAL_KEY] and labelled "General",
+ * above the bucket and file groups. Which remarks those are is asked of `isAboutNoFile` in
+ * `store/RemarkResolver.kt`, the one place that decides it, rather than re-read off [RemarkNode]'s
+ * flattened path here. Its own bucket is
  * ignored for this: a general remark is about the whole change, so the top of the tree is where it
  * belongs, whatever bucket it also carries. That is a real cost, not an oversight — put a general
  * remark in a bucket and the bucket does not gather it — accepted because a remark reachable from
@@ -172,11 +175,15 @@ private fun leavesOf(node: DefaultMutableTreeNode): List<RemarkNode> =
  */
 fun buildTreeRoot(rows: List<ResolvedRemark>): DefaultMutableTreeNode {
     val root = DefaultMutableTreeNode("remarks")
-    val nodes = rows.filter { it.remark.id != null }
-        .map(::remarkNode)
-        .sortedWith(compareBy({ it.bucket ?: "" }, { it.path }, { it.startLine }))
+    // Split on the stored remark, then map and sort each side, rather than mapping first and asking
+    // the node. Same rows in the same order either way — partition keeps order and the sort is
+    // stable — but this way the question "is this about no file" is asked of isAboutNoFile once.
+    val (generalRows, fileRows) = rows.filter { it.remark.id != null }
+        .partition { isAboutNoFile(it.remark) }
+    val order = compareBy<RemarkNode>({ it.bucket ?: "" }, { it.path }, { it.startLine })
+    val general = generalRows.map(::remarkNode).sortedWith(order)
+    val aboutAFile = fileRows.map(::remarkNode).sortedWith(order)
 
-    val (general, aboutAFile) = nodes.partition { it.path.isEmpty() }
     if (general.isNotEmpty()) {
         val generalNode = DefaultMutableTreeNode(GroupNode(GENERAL_KEY, "General"))
         general.forEach { generalNode.add(DefaultMutableTreeNode(it)) }

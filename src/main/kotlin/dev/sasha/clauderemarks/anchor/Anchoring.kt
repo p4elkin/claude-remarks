@@ -237,9 +237,15 @@ private fun phraseAtLine(lines: List<String>, parts: List<String>, start: Int): 
  * - **No stored phrase.** Whatever [resolveAnchor] said, with the stored columns. This is every
  *   remark written before the phrase was stored at all, and every whole-line remark ever, so it has
  *   to be identical to the line-only resolve rather than merely equivalent to it.
- * - **A phrase, and the lines were found.** The phrase is looked for on the resolved start line
- *   only, with a radius of 0. A sub-line remark's phrase spans exactly its stored lines, so a match
- *   starting anywhere else could not be described by one column pair anyway.
+ * - **A phrase, and the lines were found.** The stored columns are checked first, with [phraseAt]:
+ *   when the phrase is still exactly there, they are kept and nothing is searched for. That is what
+ *   keeps the occurrence the person selected. A line often holds the same short phrase twice —
+ *   `total = total + delta` — and [findPhrase] answers with the first one, so searching a line that
+ *   did not change at all would quietly move the remark onto the wrong words, with no orphan flag
+ *   and nothing to see in the tree. Only when the stored columns no longer hold the phrase is it
+ *   looked for on the resolved start line, with a radius of 0. A sub-line remark's phrase spans
+ *   exactly its stored lines, so a match starting anywhere else could not be described by one column
+ *   pair anyway.
  * - **A phrase, the lines were found, and the phrase is not in them.** The same result with the
  *   stored columns. The line is right and the words inside it changed, so a whole-line quote is the
  *   honest fallback: `markersValid` in `render/PromptRenderer.kt` then decides on its own whether
@@ -270,6 +276,14 @@ fun resolveWithPhrase(
             moved.endColumn,
         )
     }
+
+    // The stored columns win whenever they still hold the phrase. Read across the resolved lines,
+    // not the stored ones: the block may have moved, and the columns are offsets inside whichever
+    // lines it moved to. Only when this fails is the phrase looked for, which is what keeps a remark
+    // written on the second occurrence of a repeated phrase from jumping to the first.
+    val atStoredColumns =
+        phraseAt(lines, lineResult.startLine, lineResult.endLine, startColumn, endColumn)
+    if (atStoredColumns == phrase) return stored
 
     val here = findPhrase(lines, phrase, lineResult.startLine, radius = 0) ?: return stored
     return ResolvedAnchor(lineResult, here.startColumn, here.endColumn)

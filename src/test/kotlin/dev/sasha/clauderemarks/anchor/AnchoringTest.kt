@@ -365,6 +365,44 @@ class AnchoringTest {
         assertEquals(15, resolved.endColumn)
     }
 
+    /**
+     * The occurrence the person actually selected, not the first one on the line. `total` sits
+     * twice on the same line, the remark was written on the second, and nothing about the file
+     * changed — so the stored columns are still right and nothing may look the words up again.
+     *
+     * Searching unconditionally moves the remark to the first `total` with no orphan flag and no
+     * error, and the `⟦`/`⟧` markers in the published prompt then bracket the wrong words. It needs
+     * no edit and no time to pass, only a phrase that repeats earlier on its own line.
+     */
+    @Test
+    fun `a phrase that repeats on its line keeps the occurrence it was written on`() {
+        val lines = listOf("fun add() {", "    total = total + delta", "}")
+        val anchor = captureAnchor(lines, 1, 1)
+        // The second "total" on that line is columns 12..17.
+        assertEquals("total", phraseAt(lines, 1, 1, 12, 17))
+
+        val resolved = resolveWithPhrase(anchor, lines, "total", startColumn = 12, endColumn = 17)
+
+        assertEquals(AnchorResult.Exact(1, 1), resolved.result)
+        assertEquals(12, resolved.startColumn)
+        assertEquals(17, resolved.endColumn)
+    }
+
+    /** The same repeated phrase after the block moved down. The line resolve found it, the stored
+     *  columns still hold the phrase on the line it moved to, so they are kept as they are. */
+    @Test
+    fun `a repeated phrase keeps its columns when the block only moved`() {
+        val lines = listOf("fun add() {", "    total = total + delta", "}")
+        val anchor = captureAnchor(lines, 1, 1)
+        val edited = listOf("// new header", "// another") + lines
+
+        val resolved = resolveWithPhrase(anchor, edited, "total", startColumn = 12, endColumn = 17)
+
+        assertEquals(AnchorResult.Relocated(3, 3), resolved.result)
+        assertEquals(12, resolved.startColumn)
+        assertEquals(17, resolved.endColumn)
+    }
+
     @Test
     fun `a phrase that no longer exists inside its resolved line keeps the stored columns`() {
         val anchor = captureAnchor(file, 3, 3)
@@ -443,6 +481,21 @@ class AnchoringTest {
             AnchorResult.Orphaned(1, 1),
             resolveWithPhrase(anchor, far, "brown fox", 10, 19, radius = 10).result,
         )
+    }
+
+    /**
+     * Nearest first is the documented reason findPhrase exists at all rather than a scan from the
+     * top of the file. The same words sit on two lines well inside the radius, and which one the
+     * search returns depends only on where it was told to start.
+     */
+    @Test
+    fun `findPhrase takes the occurrence nearest the origin, not the first in the file`() {
+        val lines = listOf("brown fox") + filler(1, 6) + listOf("brown fox") + filler(7, 9)
+
+        assertEquals(PhraseMatch(0, 0, 0, 9), findPhrase(lines, "brown fox", origin = 0))
+        assertEquals(PhraseMatch(6, 6, 0, 9), findPhrase(lines, "brown fox", origin = 6))
+        // Two lines above the second one and four below the first: a top-down scan answers 0 here.
+        assertEquals(PhraseMatch(6, 6, 0, 9), findPhrase(lines, "brown fox", origin = 4))
     }
 
     /** A one-line paragraph with a phrase in the middle of it, and the same text rewrapped into

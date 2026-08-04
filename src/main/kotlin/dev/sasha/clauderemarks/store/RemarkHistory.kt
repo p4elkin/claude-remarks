@@ -81,7 +81,7 @@ internal fun renderHistory(
     append("\n## cleared ").append(WHEN.format(Instant.ofEpochMilli(now))).append("\n")
     remarks.forEach { remark ->
         append("\n- ")
-        if (remark.path.isNullOrEmpty()) {
+        if (isAboutNoFile(remark)) {
             // A general remark has no file and no line range, so there is nothing for
             // positionLabel to describe. "(general)" is the same word render/PromptRenderer.kt's
             // "## General" heading and ui/RemarksTree.kt's GENERAL_KEY group use for it.

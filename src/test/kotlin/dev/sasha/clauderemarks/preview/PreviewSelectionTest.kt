@@ -37,8 +37,27 @@ class PreviewSelectionTest {
             parseSelectionMessage("""{"startFrom": 10, "startTo": 40, "endFrom": 60,""")
         )
         assertNull(
-            "a missing field",
+            "a missing endTo",
             parseSelectionMessage("""{"startFrom": 10, "startTo": 40, "endFrom": 60, "text": "the words"}""")
+        )
+        // Every field, not only endTo. A silently defaulted startFrom is zero, and narrowToSelection
+        // reads it as the start of the coarse range, so the remark would run from the top of the
+        // file to wherever the selection ended.
+        assertNull(
+            "a missing startFrom",
+            parseSelectionMessage("""{"startTo": 40, "endFrom": 60, "endTo": 90, "text": "the words"}""")
+        )
+        assertNull(
+            "a missing startTo",
+            parseSelectionMessage("""{"startFrom": 10, "endFrom": 60, "endTo": 90, "text": "the words"}""")
+        )
+        assertNull(
+            "a missing endFrom",
+            parseSelectionMessage("""{"startFrom": 10, "startTo": 40, "endTo": 90, "text": "the words"}""")
+        )
+        assertNull(
+            "a missing text",
+            parseSelectionMessage("""{"startFrom": 10, "startTo": 40, "endFrom": 60, "endTo": 90}""")
         )
         assertNull(
             "a negative offset",
@@ -48,6 +67,32 @@ class PreviewSelectionTest {
             "an end offset before its start",
             parseSelectionMessage("""{"startFrom": 10, "startTo": 40, "endFrom": 90, "endTo": 60, "text": "x"}""")
         )
+    }
+
+    /**
+     * The message the page posts every time a selection is cleared: four well-formed offsets and an
+     * empty text. It is not a rare case — the browser sends one on every clear — and refusing it is
+     * what makes the reader forget the stale selection instead of keeping a zero-width one live.
+     */
+    @Test
+    fun `an empty text is refused, which is what a cleared selection sends`() {
+        assertNull(
+            parseSelectionMessage("""{"startFrom": 10, "startTo": 40, "endFrom": 10, "endTo": 40, "text": ""}""")
+        )
+    }
+
+    /**
+     * [narrowToSelection]'s own guard, asked directly rather than through the parser. The function is
+     * public, so a caller that did not come through [parseSelectionMessage] can hand it an empty
+     * text, and `indexOf("")` is 0 — without the guard the answer is a zero-width range at the very
+     * start of the coarse span.
+     */
+    @Test
+    fun `an empty text never narrows to a zero-width range at the start of the span`() {
+        val source = "A plan is a record of how the work happened.\n"
+        val coarse = PreviewSelection(startFrom = 0, startTo = 43, endFrom = 0, endTo = 43, text = "")
+
+        assertEquals(SourceRange(0, 43), narrowToSelection(source, coarse))
     }
 
     @Test

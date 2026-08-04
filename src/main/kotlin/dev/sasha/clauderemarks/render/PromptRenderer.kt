@@ -14,6 +14,12 @@ data class RenderedRemark(
      * written from the tool window rather than from an editor selection. A nullable path would
      * touch every construction site and every test that builds one, for the same expressiveness a
      * non-null empty string already gives: [renderPrompt] partitions on `path.isEmpty()`.
+     *
+     * `isAboutNoFile` in `store/RemarkResolver.kt` asks the same question everywhere else, and this
+     * file deliberately does not call it. It takes a `RemarkState`, which is a platform class, and
+     * it lives in a file full of platform imports — either one would end this file's independence
+     * from the platform, which is what keeps its tests running without a fixture. The two are kept
+     * in step by naming each other here and there, not by sharing code.
      */
     val path: String,
     val startLine: Int,

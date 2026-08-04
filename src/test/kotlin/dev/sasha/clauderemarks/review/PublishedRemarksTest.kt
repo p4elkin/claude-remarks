@@ -63,6 +63,10 @@ class PublishedRemarksTest {
         val entries = Files.list(dir).use { it.toList() }
         assertEquals(entries.map { it.name }.toString(), 1, entries.size)
         assertEquals(target, entries.single())
+        // The name, not only "some file landed here". The skill finds this file by computing
+        // publishedName itself from the repository path, so a write under any other name — the
+        // handshake name, say — is a file nothing can ever find.
+        assertEquals(publishedName("/some/project"), target.name)
         assertEquals("body text", Files.readString(target))
         assertEquals(PosixFilePermissions.fromString("rw-------"), Files.getPosixFilePermissions(target))
         assertEquals(PosixFilePermissions.fromString("rwx------"), Files.getPosixFilePermissions(dir))

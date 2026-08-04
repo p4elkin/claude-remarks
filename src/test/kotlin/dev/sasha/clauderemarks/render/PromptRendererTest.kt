@@ -394,9 +394,13 @@ class PromptRendererTest {
             listOf(remark(path = "", startLine = 0, tag = "question", severity = "must", commit = "abc123def456")),
         )
 
-        assertTrue(out, out.contains("question"))
-        assertTrue(out, out.contains("must"))
-        assertTrue(out, out.contains("commit abc123de"))
+        // Asserted on the heading line itself, not with contains() over the whole document.
+        // SEVERITY_SCALE_NOTE is appended to every non-empty prompt and spells out all four level
+        // names, so a contains("must") passes whatever level the remark actually carries.
+        assertEquals(
+            "### 1. — question — must — commit abc123de",
+            out.lines().single { it.startsWith("### ") },
+        )
     }
 
     @Test

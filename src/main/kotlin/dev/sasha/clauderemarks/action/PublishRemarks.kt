@@ -67,7 +67,8 @@ internal data class Prepared(
  * arbitrary:
  *  - the clipboard fails: nothing is marked and nothing is written, exactly as before the file
  *    existed. Nothing was handed over, so nothing says it was.
- *  - the file write fails after the clipboard succeeded: the remarks ARE still marked published,
+ *  - the file write fails after the clipboard succeeded, for any reason at all and not only an
+ *    IOException: the remarks ARE still marked published,
  *    because PUBLISHED means "handed to a channel that cannot confirm a read", and the clipboard
  *    handover really happened. Refusing to mark would be a lie in the other direction. The balloon
  *    says so in the same sentence, through [publishMessage].
@@ -130,7 +131,17 @@ fun publishRemarks(project: Project, ids: Collection<String>?, dir: Path = hands
                     )
                     writePublished(prepared.root, header + "\n" + prepared.markdown, dir)
                     false
-                } catch (e: IOException) {
+                } catch (e: ProcessCanceledException) {
+                    // Never swallowed. The platform throws it to unwind, not to report a failure,
+                    // and turning it into "the published file was not updated" would hide it.
+                    throw e
+                } catch (e: Exception) {
+                    // Every failure, not only IOException. writePublished and atomicWriteString also
+                    // throw unchecked ones — a SecurityException from a manager that refuses the
+                    // directory, and whatever a particular filesystem raises for a name or an
+                    // attribute it will not take. Any of those escaping here would skip
+                    // markRemarksPublished and the balloon both: the clipboard handover already
+                    // happened, so the remarks would stay pending and nothing would be said at all.
                     true
                 }
             }
