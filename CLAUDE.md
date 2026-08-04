@@ -49,12 +49,12 @@ publishing a remark that was already read by a review hands it over again the sa
 (Clear Handed Over, Clear All) archives to a history file in the IDE configuration directory before it
 removes anything. If a Claude Code skill has started a review, a banner reads "Claude Code is
 waiting: <label>" above the tree and Send to Claude Code hands every pending remark to it the same
-way Publish All Pending hands them to the clipboard — see "The Shared Review Session" below for how
+way Publish All Pending hands them to the clipboard. See "The Shared Review Session" below for how
 the IDE finds the skill and hands the remarks back.
 
 For the design — how anchoring, the gutter, the change notification, severity and buckets, the
 commit stamp, the history file, the publish pipeline, the published file, the phrase a remark points
-at, a remark about no file, and the shared review session work — see `docs/claude/design.md`.
+at, a remark about no file, and the shared review session work. See `docs/claude/design.md`.
 
 **Phase 5 is built.** It added a severity level and named buckets to a remark, tag chips with Alt
 keys in place of the old tag drop-down, a commit stamp read straight out of `.git`, a history file
@@ -62,7 +62,7 @@ that cleared remarks are archived to instead of deleted, and a keystroke that in
 into the remark text. One specific automated-dispatch idea was dropped before it was built: a
 pluggable `Dispatcher` interface, a tmux pane, a file inside `.idea/`. See `docs/claude/design.md`,
 section "The Publish Pipeline" (called "The Copy Pipeline" until phase 9 renamed it), for why. That
-idea stays dropped — phase 6 below does not revive it.
+idea stays dropped. Phase 6 below does not revive it.
 
 **Phase 6 is built.** It adds a different, simpler automated path next to the clipboard, never
 instead of it: a Claude Code skill can ask a running IDE to hold a review open through the IDE's
@@ -112,10 +112,10 @@ this carries forward.
 
 **Phase 9's group one is built.** A remark now has three states instead of two: `PENDING`,
 `PUBLISHED` and `READ`, not `PENDING` and `SENT`. `PUBLISHED` means handed to a channel that cannot
-confirm a read — the clipboard, or the published file below; `READ` means an agent said, through the
+confirm a read: the clipboard, or the published file below. `READ` means an agent said, through the
 shared review session, that it actually read the remarks. Only the review's own acknowledgement can
 produce `READ`; publishing, however many times, only ever produces `PUBLISHED`. The action people
-press is now called Publish, not Copy — `ClaudeRemarks.CopyAll` keeps its id, because `README.md`
+press is now called Publish, not Copy. `ClaudeRemarks.CopyAll` keeps its id, because `README.md`
 promises that id will not be renamed, but the button, the menu entry and the class are all Publish
 now. Publishing also writes the same rendered prompt, with a small dated header on top, to a file
 under `~/.claude-remarks/<hash of the project path>.md`, overwritten on every publish, so a Claude
@@ -123,7 +123,7 @@ Code skill can read published remarks on its own schedule with no review ever st
 `docs/skill/claude-remarks-review/SKILL.md` gained a second mode that reads it. Two behaviours in the
 publish pipeline have no automated test at all: a failed published-file write after the clipboard
 already succeeded, and a project root that fails to resolve. Both still mark the remarks published,
-correctly, and both are only checkable by hand — see `docs/claude/design.md`'s Known Issues entry "a
+correctly, and both are only checkable by hand. See `docs/claude/design.md`'s Known Issues entry "a
 failed published-file write leaves the previous file in place". See `docs/claude/design.md`, sections
 "The Publish Pipeline", "The three states, and why published is not read" and "The published file",
 for the whole design.
@@ -220,10 +220,10 @@ the markdown plugin disabled, are all still owed as hand checks. See `docs/claud
    what happened here: phase 5 added `setSeverity`/`setBucket`, and the old six-name list never
    saw them. The count moved from eight to nine in phase 9's group one, when `markRemarksSent`
    split into `markRemarksPublished` and `markRemarksRead`, and `clearSentRemarks` was renamed to
-   `clearHandedOverRemarks` — a rename, not a new function, so it did not change the count on its
-   own. Group three's `addGeneralRemark` moved it from nine to ten mutators. The eleventh function
-   in the file, `notifyRemarksChanged`, changes nothing itself — it is what every one of the ten
-   calls to announce the change — and is counted here too, because it is public, it lives in this
+   `clearHandedOverRemarks`. That is a rename, not a new function, so it did not change the count on
+   its own. Group three's `addGeneralRemark` moved it from nine to ten mutators. The eleventh
+   function in the file, `notifyRemarksChanged`, changes nothing itself. It is what every one of the
+   ten calls to announce the change. It is counted here too, because it is public, it lives in this
    file, and this line has to match what a reader finds by opening the file and counting.
 
    ```bash
@@ -233,7 +233,8 @@ the markdown plugin disabled, are all still owed as hand checks. See `docs/claud
 
    The glob has to be quoted. Unquoted, zsh expands `*.kt` itself before `grep` ever runs; with no
    match in the current directory it fails the whole line with "no matches found" before the
-   pipeline starts, and that prints nothing — indistinguishable from an empty, passing result.
+   pipeline starts, and that prints nothing. Nothing printed looks the same as an empty, passing
+   result.
    Checked directly: `zsh -c` with the bare form fails that way, the quoted form runs.
 
    Test code is outside this one on purpose: fixture-backed test classes call
@@ -289,7 +290,7 @@ the markdown plugin disabled, are all still owed as hand checks. See `docs/claud
    explaining.
 
    **Phase 7 hit the same trap and it is still live.** The `ack` action's consequences — marking a
-   remark read, showing a balloon — live in `review/SendReview.kt`, not in `ReviewRestService.kt`,
+   remark read, showing a balloon, live in `review/SendReview.kt`, not in `ReviewRestService.kt`,
    for exactly this rule. The comment in `ReviewRestService.kt` that explains why says "the file that
    owns the editor side" and names `review/SendReview.kt` by path, and does not spell out any of the
    five forbidden symbols, even to say they are absent.
@@ -301,15 +302,22 @@ the markdown plugin disabled, are all still owed as hand checks. See `docs/claud
 
 6. **Only `store/RemarkEdits.kt` and `review/SendReview.kt` may call `markRemarksRead`.** A remark
    reaches `READ` for one reason only: a real `read` acknowledgement over
-   `POST /api/claude-remarks/ack`, handled by `reportReviewEnd` in `review/SendReview.kt`. Publishing
-   — the clipboard, or the published file — can only ever move a remark to `PUBLISHED`. Letting
-   anything else call `markRemarksRead` would let a copy or a publish quietly claim an agent read
-   remarks it never saw.
+   `POST /api/claude-remarks/ack`, handled by `reportReviewEnd` in `review/SendReview.kt`. Publishing,
+   whether through the clipboard or the published file, can only ever move a remark to `PUBLISHED`.
+   Letting anything else call `markRemarksRead` would let a copy or a publish quietly claim an agent
+   read remarks it never saw.
 
    ```bash
    grep -rn "markRemarksRead(" src/main --include='*.kt' \
      | grep -v "store/RemarkEdits.kt" | grep -v "review/SendReview.kt"   # must be empty
    ```
+
+   **One way past it, named rather than patched.** The grep is a line-based text search on the
+   literal substring `markRemarksRead(`. A method reference, `::markRemarksRead`, or an aliased
+   import would reach the function from a third file without ever writing that substring, and the
+   grep would not see it. Nothing exploits this today. Following guard 3's own argument above: the
+   fix, if this is ever found in use, is to keep the two allowed callers as they are, not to grow the
+   pattern chasing every way a call can be spelled.
 
 Every command above must come back empty.
 
@@ -378,7 +386,7 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    @Service PROJECT, in memory only: the last selection any preview
                                    reported, with the file url beside it so a reader can compare
   preview/PreviewRemarkExtension.kt
-                                   the browser half — the MarkdownBrowserPreviewExtension, its
+                                   the browser half: the MarkdownBrowserPreviewExtension, its
                                    Provider and its ResourceProvider. Subscribes to one pipe message,
                                    parses it on the browser's callback thread, then hops to the EDT
                                    to narrow the range against the Document and store it
@@ -386,8 +394,8 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    the per-run ReviewToken, and ReviewHandshakeService (@Service
                                    PROJECT, Disposable) — the file a skill reads to find this IDE
   review/AtomicWrite.kt            atomicWriteString: temp file beside the target, then rename
-  review/PublishedRemarks.kt       publishedName, PUBLISHED_MARKER, publishedHeader, writePublished
-                                   — the published file a publish writes under handshakeDir(), added
+  review/PublishedRemarks.kt       publishedName, PUBLISHED_MARKER, publishedHeader, writePublished:
+                                   the published file a publish writes under handshakeDir(), added
                                    in phase 9
   review/WaitingReview.kt          WaitingReviewState (with its ReviewPhase, deadlineAt and
                                    isStale), StartResult, the pure startOrConflict, and
@@ -412,7 +420,7 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    through ShowDiffAction, and a plain editor for the rest
 src/main/resources/META-INF/plugin.xml           declares two hard dependencies:
                                                   com.intellij.modules.platform and, since phase 7,
-                                                  com.intellij.modules.vcs — for ShowDiffAction, which
+                                                  com.intellij.modules.vcs, for ShowDiffAction, which
                                                   lives in a module jar
                                                   (lib/modules/intellij.platform.vcs.impl.jar), not
                                                   in app.jar. Since phase 9 it also declares one

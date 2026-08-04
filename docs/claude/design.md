@@ -15,12 +15,13 @@
 11. [The Change Notification](#the-change-notification)
 12. [The Publish Pipeline](#the-publish-pipeline)
 13. [A Remark About No File](#a-remark-about-no-file)
-14. [A Remark on the Rendered Preview](#a-remark-on-the-rendered-preview)
-15. [The Shared Review Session](#the-shared-review-session)
-16. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
-17. [Build Choices Worth Remembering](#build-choices-worth-remembering)
-18. [Performance Tuning Knobs](#performance-tuning-knobs)
-19. [Known Issues](#known-issues)
+14. [One Pass Over The Tree](#one-pass-over-the-tree)
+15. [A Remark on the Rendered Preview](#a-remark-on-the-rendered-preview)
+16. [The Shared Review Session](#the-shared-review-session)
+17. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
+18. [Build Choices Worth Remembering](#build-choices-worth-remembering)
+19. [Performance Tuning Knobs](#performance-tuning-knobs)
+20. [Known Issues](#known-issues)
 
 ## Overview
 
@@ -42,7 +43,7 @@ A remark has these fields:
   input popup (`ui/RemarkInputPanel.kt`) when the remark is written or edited.
 - `status`: One of `RemarkStatus.PENDING`, `PUBLISHED` or `READ`. Defaults to `PENDING`. Set to
   `PUBLISHED` by `markRemarksPublished` once a publish reaches the clipboard or the published file,
-  and to `READ` by `markRemarksRead` once a review acknowledgement says an agent read it — see "The
+  and to `READ` by `markRemarksRead` once a review acknowledgement says an agent read it. See "The
   three states, and why published is not read" below. Published and read remarks both stay in the
   list, drawn gray, until Clear Handed Over.
 - `createdAt`: Timestamp when the remark was created.
@@ -359,7 +360,7 @@ one touches them.**
 
 - `phraseAt(lines, startLine, endLine, startColumn, endColumn)` reads the phrase out of the file at
   write time. Inside one line it is the plain substring. Across lines it is the tail of the first
-  line, the whole lines between, and the head of the last, joined with newlines — the same shape
+  line, the whole lines between, and the head of the last, joined with newlines. This is the same shape
   `withSelectionMarkers` in `render/PromptRenderer.kt` already assumes when it draws the two
   `⟦`/`⟧` markers on separate quoted lines. Returns null for anything that is not a real sub-line
   range, so a whole-line remark never gets a phrase.
@@ -375,13 +376,13 @@ new function in `store/RemarkResolver.kt`'s call path, and it answers one of fou
   before this field existed, and every whole-line remark, takes this path and it must be identical
   to the line-only resolve, not merely close to it.
 - A phrase, and the lines were found (`Exact` or `Relocated`): look for the phrase on the resolved
-  line. Found: the same line result, with the columns where the phrase actually sits now — this is
+  line. Found: the same line result, with the columns where the phrase actually sits now. This is
   what keeps the tree row and the prompt markers on the right words after the line was reindented.
   Not found: the same result, with the stored columns, and `markersValid` in the renderer then
   decides on its own whether those stale columns are still in bounds.
 - A phrase, and the lines orphaned: search for the phrase near the stored line, inside the same
   search radius the line search uses. Found: `Relocated` onto it. This is the one case the anchor
-  could not resolve on its own before this field existed — a paragraph that reflowed has no line left
+  could not resolve on its own before this field existed. A paragraph that reflowed has no line left
   that hashes or context-matches, but the words themselves are still in the file, findable by text.
   Not found: orphaned, exactly as before.
 
@@ -389,7 +390,7 @@ new function in `store/RemarkResolver.kt`'s call path, and it answers one of fou
 heading both print the resolved position in the same shape: `9-9` for a whole-line remark, `9:12-38`
 for a sub-line remark inside one line, `9:12-11:5` for one that crosses lines, columns shown 1-based.
 The phrase text itself is shown only in the gutter tooltip and, since this task, on its own indented
-line in the history file — never in the tree row, which already crops on the right and has no room.
+line in the history file. It is never shown in the tree row, which already crops on the right and has no room.
 
 ## From Stored Remarks to Tool Window Rows
 
@@ -511,7 +512,7 @@ Phase 4 is the output side: turning pending remarks into one prompt.
   Sent to: Publish All Pending, Publish Selected, Clear Handed Over, Clear All, Refresh. Both Clear
   buttons ask first and name their count. Publish Selected and Clear Handed Over grey out when
   there is nothing to act on, because a live button that does nothing when pressed is its own kind
-  of silent failure — the same reasoning that keeps `AddRemarkAction` visible above.
+  of silent failure. This is the same reasoning that keeps `AddRemarkAction` visible above.
 
 ### What is still not built
 
@@ -571,7 +572,7 @@ null — `RemarkStoreStateTest` pins that by deserializing a hand-written XML el
 
 Severity is worthless unless the prompt acts on it, so `render/PromptRenderer.kt` carries a second
 piece of text next to the header: `SEVERITY_SCALE_NOTE`, a `const val` appended under the header on
-every copy, spelling out what each level asks of the reader — do a `must` whatever it costs, do a
+every publish, spelling out what each level asks of the reader — do a `must` whatever it costs, do a
 `should` unless there is a concrete reason not to and say why if you skip it, and so on down to
 `vibe`. It is deliberately not folded into `DEFAULT_PROMPT_HEADER`: the header is the one setting
 this plugin lets the user rewrite, and anything living only inside it would vanish the moment
@@ -614,7 +615,7 @@ because `setRemarkBucket` trims it.
 level down the way it used to. That is what makes Publish Selected on a bucket node mean "publish
 this bucket," and it is the entire reason there is no separate Publish Bucket button: select the
 bucket row and press Publish Selected. The one-level walk this replaced would have found file nodes
-under a bucket — not `RemarkNode`s — and silently answered an empty list, so Publish Selected and
+under a bucket rather than `RemarkNode`s, and silently answered an empty list, so Publish Selected and
 Delete on a bucket node would have done nothing at all, with no message saying why.
 
 ### Tag chips, and picking one from the keyboard
@@ -770,7 +771,7 @@ Clearing used to delete outright. Now `clearHandedOverRemarks` and `clearAllRema
 `removeHandedOver()` or `clear()` if that write succeeds: the private `archive(...)` helper returns
 false and shows a red balloon on `IOException`, and nothing is removed when it does. Phase 9 renamed
 this pair from `clearSentRemarks`/`removeSent()`, once "sent" stopped being the only word for
-"handed over" — see "The three states, and why published is not read" below. A single Delete on
+"handed over". See "The three states, and why published is not read" below. A single Delete on
 one row does not archive anything. Picking out one row and deleting it is an explicit "this one was
 a mistake," and archiving every typo along with every real remark would make the history file
 useless to read later.
@@ -790,12 +791,12 @@ today. What is given up: there is no button that restores an archived remark.
 Two details of the write are less obvious than they look. The history file is a **nullable** parameter
 on `clearHandedOverRemarks` and `clearAllRemarks`, not one defaulted to `historyFile(project)`:
 Kotlin evaluates a default argument in the synthetic bridge, before the body runs, so a default
-would resolve the path OUTSIDE `archive`'s try — and anything it threw would leave the function as
+would resolve the path OUTSIDE `archive`'s try. Anything it threw would then leave the function as
 an unhandled exception out of the toolbar action rather than as the balloon written for that case.
 Null means "the real one", resolved inside the try. And Clear Handed Over shows its success balloon
 only when something was actually removed: `clearHandedOverRemarks` returns 0 both for "nothing was
 handed over" and "the archive failed", the handed-over count is already known non-zero by then, so 0
-can only mean failure — and "Removed 0 handed-over remarks." beside a red error balloon was the
+can only mean failure. "Removed 0 handed-over remarks." beside a red error balloon was therefore the
 wrong half of the truth.
 
 `appendToHistory` writes what was STORED about each remark — its stored line numbers, text, tag,
@@ -950,13 +951,13 @@ of the message bus is what lets `RemarkStoreStateTest` stay a plain JUnit test w
 `setRemarkSeverity`, `setRemarkBucket`, `clearHandedOverRemarks`, `clearAllRemarks`, and
 `addGeneralRemark`. Phase 9 grew this list from eight in two steps: group one split
 `markRemarksSent` into `markRemarksPublished` and the new `markRemarksRead`, and renamed
-`clearSentRemarks` to `clearHandedOverRemarks` — see "The three states, and why published is not
-read" below; group three added `addGeneralRemark`, the one entry point for a remark about no file —
-see "A Remark About No File" below. The file's eleventh public function, `notifyRemarksChanged`, is
+`clearSentRemarks` to `clearHandedOverRemarks`. See "The three states, and why published is not
+read" below. Group three added `addGeneralRemark`, the one entry point for a remark about no file.
+See "A Remark About No File" below. The file's eleventh public function, `notifyRemarksChanged`, is
 what every one of the ten calls to publish the topic; it counts too, because `CLAUDE.md` rule 3
 checks the file by counting every public function it finds there, not by naming the mutators by
 hand. Each one mutates through `RemarkStore` and then
-publishes — that pairing is the whole mechanism, there is no separate listener list or observer
+publishes. That pairing is the whole mechanism. There is no separate listener list or observer
 class. `RemarkStore`'s own `add`/`remove`/`edit`/`setSeverity`/`setBucket`/... stay public, and
 nothing in the language stops a caller from reaching past the ten functions and calling them
 directly, so the rule is checked rather than assumed. The check used to list the mutator names by
@@ -972,7 +973,7 @@ grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include='*.kt' \
 
 The glob has to be quoted. Unquoted, zsh expands `*.kt` itself before `grep` ever runs, and if
 nothing in the current directory matches it, zsh fails the whole line with "no matches found"
-before the pipeline starts — which prints nothing, exactly what an empty, passing result also looks
+before the pipeline starts. That prints nothing, exactly what an empty, passing result also looks
 like. Checked directly: `zsh -c` with the bare form fails that way; the quoted form runs. See
 `CLAUDE.md`, rule 3, for the same fix.
 
@@ -996,7 +997,7 @@ wrong place work.
 `RemarkStatus` (`model/RemarkState.kt`) has three values: `PENDING`, `PUBLISHED`, `READ`. A remark
 starts `PENDING`. Publishing it, through either the clipboard or the published file described below,
 moves it to `PUBLISHED`. Only one thing moves it to `READ`: an agent, through the shared review
-session, telling the IDE it actually read the handoff file — `reportReviewEnd`'s `ReviewEnd.READ`
+session, telling the IDE it actually read the handoff file, in `reportReviewEnd`'s `ReviewEnd.READ`
 branch in `review/SendReview.kt`, over `POST /api/claude-remarks/ack`. Sending to a waiting review
 in the first place changes no state at all: the handoff file is written, but the remarks stay
 `PENDING` until that acknowledgement arrives, or forever if it never does. `CLAUDE.md` rule 6 keeps
@@ -1018,19 +1019,19 @@ changed whenever its status is not already `PUBLISHED`, which is what makes that
 and `READ` remarks together, archiving them to the history file first exactly as before.
 
 The tree row and the gutter icon draw three appearances, one per state, all through the same
-`GRAYED_ATTRIBUTES` — the word at the end of the row, "published" or "read", is what actually tells
+`GRAYED_ATTRIBUTES`. The word at the end of the row, "published" or "read", is what actually tells
 the two grey states apart, because a second shade of grey is a distinction a person could not read
 reliably on screen. `PENDING` keeps `AllIcons.General.Note` at full strength and a black row.
 `PUBLISHED` keeps the icon at 45% opacity, exactly what "sent" used before this phase. `READ` is
 fainter still, at 25%, because it is one step further into "already dealt with."
 
 `RemarkStatus` used to be a two-value enum, `PENDING` and `SENT`, and its own KDoc said `SENT` meant
-"a copy reached the clipboard" while the review path wrote the same value for "an agent read it" —
+"a copy reached the clipboard" while the review path wrote the same value for "an agent read it":
 one stored value doing two different jobs. Nothing outside Kotlin ever reads the persisted string
 (only `workspace.xml` does, through the platform's own `BaseState` serializer), so the rename costs
 exactly one thing: a remark a pre-phase-9 build stored as `SENT` does not parse against the new enum
 and loads as `PENDING`. That is accepted. Those remarks had already been handed over once, under the
-old, single meaning, and nothing about them is lost but a colour — see `RemarkStoreStateTest`'s
+old, single meaning, and nothing about them is lost but a colour. See `RemarkStoreStateTest`'s
 `a remark stored as SENT by an older build loads as pending`, which pins the reset as a decision.
 
 Everything expensive runs inside one `ReadAction.nonBlocking` block, off the EDT: resolving
@@ -1060,7 +1061,7 @@ enough for that to be felt, the extra hop is the fix.
 
 The publish has a failure path, and it now has two destinations that can each fail on their own.
 An `IOException` from the temp-file write or an `IllegalStateException` from the clipboard is
-reported through a red balloon, and `markRemarksPublished` is skipped entirely — nothing was handed
+reported through a red balloon, and `markRemarksPublished` is skipped entirely. Nothing was handed
 over, so nothing is marked as handed over. A failure in the published-file write is different: it
 runs after the clipboard already succeeded, so the remarks **are** still marked published, and the
 balloon names the file failure in the same sentence rather than staying silent about it. See "The
@@ -1089,7 +1090,7 @@ was never built, full stop. That specific idea — the `Dispatcher` interface, t
 inside `.idea/` — stays dropped for the reasons above. But phase 6 later built a different
 automated path, over a different transport, that does not go through this pipeline at all: see
 "The Shared Review Session" below. Publish All Pending and Publish Selected still end here,
-unchanged in shape — renamed from Copy All Pending and Copy Selected in phase 9, which also gave
+unchanged in shape. They were renamed from Copy All Pending and Copy Selected in phase 9, which also gave
 them a second destination, the published file, described below in "The published file".
 
 `resolveAll` and `collectForPrompt` never drop a remark. A file that cannot be read, or a remark
@@ -1130,18 +1131,18 @@ prompt, and `writePublished(root, body, dir)` writes it.
 
 **The name and the location.** `~/.claude-remarks/<first 16 hex of sha256 of the real project
 path>.md`. That is the same 16 characters `handshakeName` (`review/ReviewHandshake.kt`) computes for
-the handshake file, with `.md` in place of `.json` — `projectHash` was pulled out of `handshakeName`
+the handshake file, with `.md` in place of `.json`. `projectHash` was pulled out of `handshakeName`
 so both callers share one function rather than two copies of the same hash. A skill running inside
 the repository computes the same name with the one-line `shasum` it already runs for the handshake.
 Permissions are `rw-------`, in a directory already `rwx------`, because the file holds remark text
 and slices of real source.
 
 **One file, overwritten, not a file per publish.** Publishing again replaces what was there. Publish
-three remarks, write a fourth, publish again, and the file then holds the fourth alone — the first
-three are not lost, they are still in the store, still shown in the tree as published, and Publish
+three remarks, write a fourth, publish again, and the file then holds the fourth alone. The first
+three are not lost: they are still in the store, still shown in the tree as published, and Publish
 Selected can hand any of them over again. The alternative, keeping every publish as its own
 timestamped file, would need the skill to list a directory, pick the newest by name or by mtime, and
-something to delete the old ones — and the old ones would stay readable, so an agent could be pointed
+something to delete the old ones. The old ones would also stay readable, so an agent could be pointed
 at yesterday's file and act on it with full confidence. One truth wins here because the store in
 `workspace.xml` is already the durable tier: see "The store stays the durable tier" below, which
 makes the same argument for the review's handoff file.
@@ -1150,7 +1151,7 @@ makes the same argument for the review's handoff file.
 `<!-- claude-remarks: published -->`, the same trick `REJECTION_BODY` uses in the review's handoff
 file, so a reader can tell one kind of file from another before handing anything to a model. Then
 `published:`, `commit:` and `remarks:` lines, then a blank line, then the same markdown the clipboard
-gets. The clipboard never gets this header — a paste is never read later, but a file found on disk
+gets. The clipboard never gets this header. A paste is never read later, but a file found on disk
 might be read hours afterward, or twice, and nothing on this path confirms a read, so the reader
 needs to be able to see how stale it might be. The commit is cut to eight characters, the same way
 the prompt heading and the tree already cut it; a missing commit says `none` rather than leaving the
@@ -1158,7 +1159,7 @@ field blank, so a reader can tell "no git repository" from a header that failed 
 
 **A failed file write still marks the remarks published.** The order inside the publish's UI
 callback is clipboard, then file, then mark, then one balloon. If the clipboard write fails, nothing
-is marked and nothing is written — nothing was handed over, so nothing says it was. If the file write
+is marked and nothing is written. Nothing was handed over, so nothing says it was. If the file write
 fails after the clipboard already succeeded, the remarks are still marked `PUBLISHED`, because that
 state means "handed to a channel that cannot confirm a read," and the clipboard handover really did
 happen. Refusing to mark them would be a lie in the other direction. The balloon says the file was
@@ -1174,8 +1175,8 @@ header still tells the true story.
 
 **A waiting review is left alone.** If a Claude Code skill already has a review open on this project
 when the person presses Publish, the publish still writes both the clipboard and the published file,
-and does nothing to the review. The review is a different contract — a session id, a handoff path
-minted for it, and an acknowledgement that moves remarks to `READ` — and satisfying it from a publish
+and does nothing to the review. The review is a different contract: a session id, a handoff path
+minted for it, and an acknowledgement that moves remarks to `READ`. Satisfying it from a publish
 would hand the same remarks to two channels and let one confirm a read for a paste that may have gone
 somewhere else. See "What this phase deliberately does not build" in the phase 9 plan for the one
 real consequence: publishing everything leaves nothing pending, so Send to Claude Code greys out and
@@ -1187,8 +1188,8 @@ the two modes do not duplicate that shell. It finds the repository root, compute
 the path, stops with a plain sentence if the file is missing or its first line is not the marker,
 reads the `published:` and `commit:` header lines, compares the commit against the repository's
 current HEAD and says plainly when they differ, prints the file, then acts on it. It never deletes
-the file — nothing on this path confirms a read, which is the whole reason `PUBLISHED` is a separate
-state from `READ` — and it never posts anything to the review endpoint, because there is no review
+the file: nothing on this path confirms a read, which is the whole reason `PUBLISHED` is a separate
+state from `READ`. And it never posts anything to the review endpoint, because there is no review
 to answer.
 
 ## A Remark About No File
@@ -1248,6 +1249,104 @@ answered once before, for buckets above files.
 and prints no `lines` part at all, since `positionLabel` has nothing to describe for a remark with no
 line range. This reuses the same word the renderer's `## General` heading and the tree's
 `GENERAL_KEY` group use for the same kind of remark.
+
+## One Pass Over The Tree
+
+Phase 9's group four is two changes, both in `ui/RemarksTree.kt` and `ui/RemarksToolWindowFactory.kt`
+and nowhere else: a file row shows its file name first, and a remark, several remarks, or a whole
+file or bucket group can be dragged onto a bucket row to move them there.
+
+### The file row shows the file name first
+
+A file group used to draw the whole path as its label. On a deep path the row cropped from the
+right, and what got cut off first was the file name itself, the one piece of the row a person
+actually needs to read. Now the row draws the file name in bold, with the directory after it in
+grey. A cropped row now loses a half-visible directory, which is fine to lose. It no longer loses
+the file name.
+
+`GroupNode` gained a second field, `detail: String?`, next to the `key` and `label` it already had.
+`addFileGroups` fills `label` with the file name (`path.substringAfterLast('/')`) and `detail` with
+the shortened directory, through a new pure function, `shortDirectory(path)`. A file sitting in the
+project root has no directory to show, so `shortDirectory` returns null for it, and the renderer
+prints nothing after the name for that row. A deep directory is shortened to its last two segments
+with a leading ellipsis, so `a/b/c/d/e` reads as `…/d/e`.
+
+**The group's key does not change.** It is still the whole path, `"${keyPrefix}file:$path"`, exactly
+as before. Only the label and the new detail field changed. This is what keeps
+`RemarksPanel`'s selection restore working across a tree rebuild: the panel matches a group by its
+key, not by its label, and a rebuild after this change still finds the same key it found before.
+
+**The alternative rejected: a node per directory segment.** Turning
+`src/main/kotlin/dev/sasha/clauderemarks/ui/Foo.kt` into one node per path segment reads well on
+paper, but a chain of nodes with one child each is not useful to look at on its own. Making it
+useful needs single-child chain compression, folding a run of one-child nodes back into a single
+row, and that is real logic with its own tests, not a one-line change to what a row draws. It is
+worth trying only if the file-name-first row, once seen in a real IDE, still reads badly on a
+project with deep paths.
+
+### Dragging a remark onto a bucket
+
+A remark, several selected remarks, or a whole file or bucket group can be dragged onto a bucket row
+to move them there, or onto the `(no bucket)` row to clear their bucket. The move itself is nothing
+new: `setRemarkBucket`, one of the mutation functions in `store/RemarkEdits.kt`, already does it and
+already publishes `REMARKS_CHANGED`, so the tree redraws itself once the drop lands. What phase 9
+adds is the drag and drop machinery around that existing call, and one new pure function that
+decides what a drop means.
+
+**`bucketDropTarget(node)` is pure, and it answers what a drop on a given node means.** Given the
+tree node under the pointer, it decides: a bucket group is a target for its own name; the
+`(no bucket)` group is a target that clears the bucket; a file group or a remark row inside a bucket
+targets that bucket; the General group, the tree root, and a file group with no bucket level above
+it are not drop targets at all.
+
+It returns a wrapper type, `BucketDrop(bucket: String?)`, rather than a bare nullable string. A
+nullable string can only give one of two answers a null value: "this row is not a drop target," or
+"the target is: clear the bucket." Those are two different answers, and a plain `String?` cannot
+tell them apart. `bucketDropTarget` itself returns null for "not a target," and a `BucketDrop`
+wrapping either a bucket name or a null bucket for "this is a target, and here is what it means."
+
+**It walks up to the top-level ancestor and reads that node's key, rather than parsing the key of
+the node under the pointer, because a bucket name containing a slash makes file keys
+unparseable.** A file group's key is built by joining the bucket's own key in front of the file's
+path, so a bucket named `a/b` produces a file key like `bucket:a/b/file:src/Foo.kt`. No string split
+on that key can tell where the bucket name ends and the file path begins. Reading the key of the
+node at the very top of the tree instead sidesteps the whole problem: that node's own key already
+names the bucket in full, whatever characters the bucket name contains. `bucketDropTarget` also
+reads that top node's key, never its label, which is what makes a bucket a person actually named
+`(no bucket)` set that literal name rather than being read as a request to clear the bucket.
+
+**The drag bean is a private type.** `RemarksToolWindowFactory.kt` defines a private data class,
+`DraggedRemarks(ids: List<String>)`, and both the drag's target checker and its drop handler refuse
+anything that is not exactly that type. A drag started in the project view, the commit tool window,
+or anywhere else in the IDE is refused rather than misread as a list of remark ids that happened to
+arrive at the right component.
+
+**Three small decisions, settled rather than left open.** Dropping on the `(no bucket)` row clears
+the bucket, because `setRemarkBucket` already accepts null and clearing is its natural opposite.
+Dragging a file group or a bucket group moves every remark under it, the same subtree walk Publish
+Selected already uses on those groups. The drag image stays the platform default: showing a count of
+remarks being dragged is feedback for a problem nobody has run into yet.
+
+**The "New bucket…" drop target was considered and cut.** Buckets in this plugin are derived, not
+declared: a bucket exists because some remark carries its name, and an empty one vanishes on the
+next tree rebuild. A "New bucket…" row that a person could drop onto would have to be a permanent
+fake row in the node building, sitting there for a gesture nobody has tried yet. `Move to Bucket…`
+in the right-click menu already creates a bucket by typing its name, and that path is unchanged. Not
+building the new-bucket drop target also removes an obligation `docs/ideas.md` names for it: a drop
+target that creates something needs an on-screen tip explaining that, and the tip is not needed once
+the part it would have explained is not there to explain.
+
+**What no test covers, and what is tested instead.** Nothing in the test suite performs a drag: a
+press-and-move gesture, a real drop landing on a real row, and the tree redrawing after it are not
+things `RemarksTreeTest` or `RemarksPanelTest` can drive, and they are an owed hand check instead.
+What is tested is `bucketDropTarget` itself, the pure decision about what a drop on a given node
+means, covering every kind of node the tree can hold, and that `RemarksPanel` still builds with the
+drag-and-drop support installed, since the light test fixture registers a headless `DnDManager`
+whose `registerSource`/`registerTarget` do nothing.
+
+**A `Published` group above the buckets was designed for this same pass and deliberately left
+unbuilt.** See `docs/ideas.md`, "Where published remarks live in the tree," for the condition that
+would make it worth building.
 
 ## A Remark on the Rendered Preview
 
@@ -1447,8 +1546,8 @@ has to remember to check the branch before creating a directory — the function
 mistake impossible to write, rather than merely instructing a caller not to make it. `start()` passes
 `null` in production, which means "create a fresh temp directory," and a caller-supplied path exists
 only for tests: `SendReviewTest` needs a review pointed at a path it controls, once to read the
-handoff file back and once at a path whose parent is a regular file so the write fails — the only
-guard on "nothing is marked sent unless the handover succeeded."
+handoff file back and once at a path whose parent is a regular file so the write fails. That second
+case is the only guard on "nothing moves to the Sent phase unless the handover succeeded."
 
 ### The endpoint stays off the VFS and Swing, and the file opening lives in its own file
 
@@ -1480,8 +1579,8 @@ function and a second, nearly identical scan.
 ### The store stays the durable tier — no second write on handover
 
 Nothing in phase 6 writes to `RemarkHistory.kt`'s archive when a review is sent. Moving the remarks
-to `READ` (`markRemarksRead`, once the skill acknowledges it read them — see "The three states, and
-why published is not read" below) is the only state change: remarks stay in the active list, drawn
+to `READ` (`markRemarksRead`, once the skill acknowledges it read them, as described under "The
+three states, and why published is not read" below) is the only state change: remarks stay in the active list, drawn
 gray, exactly as after a publish, and are only archived later when Clear Handed Over or Clear All
 runs. `docs/ideas.md`'s notes on
 revdiff recommended a second durable copy of the payload alongside the ephemeral handoff file,
@@ -1534,14 +1633,14 @@ rejection body would destroy remarks that were never actually delivered, silentl
 `rejectWaitingReview` checks the phase first: in `Sent`, it only clears the review and tells the
 person the remarks were already written: there is nothing left to reject.
 
-**The send no longer clears the review, and nothing is marked sent until the agent says it read the
+**The send no longer clears the review, and nothing is marked read until the agent says it read the
 file.** This is the phase's whole point. Before phase 7, `sendToWaitingReview` called what was then
-`markRemarksSent` and then `WaitingReviewService.clear()` in the same breath as the write — so by
+`markRemarksSent` and then `WaitingReviewService.clear()` in the same breath as the write. So by
 the time the skill finished reading the file, there was no state left to record a read
 acknowledgement on, and "sent" meant only "written," never "delivered." Now a successful send calls
 `WaitingReviewService.markSent(session, ids)`, which moves the phase to `Sent(ids)` and keeps the
-review current; the remarks stay `PENDING`. Only a `read` acknowledgement — `finishReview` in
-`review/SendReview.kt`, reached through the `ack` endpoint action — calls `markRemarksRead(project,
+review current; the remarks stay `PENDING`. Only a `read` acknowledgement, `finishReview` in
+`review/SendReview.kt`, reached through the `ack` endpoint action, calls `markRemarksRead(project,
 ids)`, moving them to `READ` rather than `PUBLISHED`, because this is the one path phase 9 can
 confirm a read on. This is also why no mutation function marks a remark pending again: nothing is
 ever marked handed over early, so there is nothing to undo when a review is abandoned or rejected
@@ -1554,7 +1653,7 @@ deadline task can end the review in the gap between the check and the stamp. `ma
 `false` when it finds no review to stamp, and the send then says the remarks were written but the
 review ended first and they are still pending, instead of the usual "Waiting for it to read them."
 The file does exist, so the skill still reads the remarks; its `ack read` is answered `no-review` and
-nothing is marked sent, which is the direction where nothing is lost. Closing the gap for real would
+the review's phase never reaches `Sent`, which is the direction where nothing is lost. Closing the gap for real would
 mean holding the lock across the write, and that trade is worse than the message.
 
 **The deadline is declared by the skill, not configured in the plugin, and it is clamped at the
@@ -1885,17 +1984,17 @@ rather than a race, which is why it is the one to fix first if any of these are 
 
 **RARE, MAJOR: a failed published-file write leaves the previous file in place.** `publishRemarks`
 (`action/PublishRemarks.kt`) still marks the remarks `PUBLISHED` when the clipboard succeeded but the
-published-file write failed, and the balloon says the file was not updated — see "The published
+published-file write failed, and the balloon says the file was not updated. See "The published
 file" above for why that is the honest answer rather than a bug. What that leaves unsaid is what is
 still on disk: the file from the last successful publish, untouched, sitting at the same path a skill
 would compute for right now. It looks exactly like a current answer to that skill. The only thing
 that gives it away is the header's `published:` timestamp, which nothing forces a reader to check. It
-needs a real filesystem failure on the second of two writes in the same callback — a full disk, a
-permissions change on `~/.claude-remarks/` mid-session — which is why it is judged rare rather than
+needs a real filesystem failure on the second of two writes in the same callback: a full disk, or a
+permissions change on `~/.claude-remarks/` mid-session. That is why it is judged rare rather than
 occasional. Two behaviours in this publish pipeline have no automated test at all, and this is one of
 them: `publishMessage`'s `count` comes from `prepared.ids.size`, computed before `markRemarksPublished`
-runs, so a unit test that skips that call and checks the balloon text alone cannot tell the difference
-— confirmed by mutating the code this way and watching the whole suite stay green. The other
+runs, so a unit test that skips that call and checks the balloon text alone cannot tell the difference.
+This was confirmed by mutating the code this way and watching the whole suite stay green. The other
 untested behaviour is a null project root reaching the same failed-write branch. Both are catchable
 only by the hand check in section 12 of the phase 9 plan: publish with a filesystem failure forced on
 the published-file write, and confirm the balloon says so while the store still shows the remarks
