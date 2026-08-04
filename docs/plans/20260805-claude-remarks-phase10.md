@@ -1060,21 +1060,64 @@ disposable directory.
 - Read only, unless something fails. A fix belongs to the task that broke it, so if this task has to
   change code, say which task should have caught it.
 
-- [ ] `./gradlew build` passes
-- [ ] `./gradlew verifyPluginProjectConfiguration` passes
-- [ ] `./gradlew verifyPlugin` passes, and its experimental and internal API counts match what
+- [x] `./gradlew build` passes. **Passed.** `BUILD SUCCESSFUL`.
+- [x] `./gradlew verifyPluginProjectConfiguration` passes. **Passed.**
+- [x] `./gradlew verifyPlugin` passes, and its experimental and internal API counts match what
       [task 1](#task-1-prove-what-this-plan-rests-on) recorded. A new count means a new usage
-      somebody added without saying so.
-- [ ] all six guards print nothing, with every glob quoted
-- [ ] report both test counts against task 1's baseline, so a difference reads as new tests rather
-      than as a regression
-- [ ] `grep -rn "outputPath\|endedOutputPath\|handoffFile\|REJECTED_MARKER\|sendToWaitingReview\|canSend\|SendToWaiting" src/ docs/ --include='*.kt' --include='*.md' --include='*.xml'`
-      finds nothing but this plan and the spec, both of which describe them as removed
-- [ ] read `docs/skill/claude-remarks-review/SKILL.md` whole against the plugin's actual answers: the
+      somebody added without saying so. **Passed: `Compatible. 5 usages of experimental API. 1
+      usage of internal API.`** The 5 experimental usages are the three `MarkdownHtmlPanel` getters
+      named in `CLAUDE.md`'s phase 9 section (`getProject`, `getVirtualFile`, `getBrowserPipe`,
+      called from two sites each for the first two). The 1 internal usage is
+      `SegmentedButton.getComponent()` in `ui/RemarkInputPanel.kt`. **Task 1 did not record a
+      baseline count for these** — its checklist only recorded test counts and guard results, not
+      `verifyPlugin`'s API-usage numbers, so there is nothing to diff against. Logged as a
+      decision below rather than treated as a failure, since nothing in this plan's tasks touches
+      the markdown preview extension or `RemarkInputPanel.kt` (both phase 9 code, untouched by
+      phase 10), so these counts have no reason to have moved.
+- [x] all six guards print nothing, with every glob quoted. **All six printed nothing.**
+- [x] report both test counts against task 1's baseline, so a difference reads as new tests rather
+      than as a regression. **Executed: 472 (task 1's baseline: 461, +11). Declared: 475 (task 1's
+      baseline: 464, +11).** Both counts moved by the same amount, so the 11 new tests are exactly
+      what tasks 2 through 11 added, with nothing lost.
+- [x] `grep -rn "outputPath\|endedOutputPath\|handoffFile\|REJECTED_MARKER\|sendToWaitingReview\|canSend\|SendToWaiting" src/ docs/ --include='*.kt' --include='*.md' --include='*.xml'`
+      finds nothing but this plan and the spec, both of which describe them as removed. **The grep
+      also finds hits the checkbox's own wording did not anticipate**, all legitimate: the other
+      historical phase plans (`docs/plans/completed/20260803-claude-remarks-phase8.md`,
+      `docs/plans/completed/20260803-claude-remarks-phase9.md`,
+      `docs/plans/20260804-claude-remarks-phase6.md`,
+      `docs/plans/20260805-claude-remarks-phase7.md`), which correctly describe what those phases
+      built at the time and are not rewritten by this plan; and two explanatory comments in
+      `src/test/kotlin/dev/sasha/clauderemarks/review/SendReviewTest.kt:22` and
+      `src/main/kotlin/dev/sasha/clauderemarks/review/SendReview.kt:39` that name the removed
+      symbols on purpose, to say what used to be there and why. **One real stale spot found and
+      fixed** (not code, so within this task's "unless something fails" allowance): two lines in
+      `docs/skill/claude-remarks-review/SKILL.md`'s "Over SSH" section and its `too-large` guidance
+      still said "handoff file" and `<output>` from before phases 7/8 merged everything into the
+      published file — task 10's own progress-log deviation entry named this and deferred the fix
+      to task 11 or this task; task 11 did not touch it, so it is fixed here. **One more stale spot
+      found, left for task 13**: `docs/skill/README.md:20` still names `REJECTED_MARKER` as the
+      contract `SendReview.kt` and `SKILL.md` agree on; `SKILL.md` itself no longer uses that
+      marker anywhere (it reads the header's `rejected:` field instead), so this line is wrong.
+      `docs/skill/README.md` is not in task 13's Files block, so this is called out as a decision
+      below for whoever next touches that file, rather than fixed under this read-only task.
+- [x] read `docs/skill/claude-remarks-review/SKILL.md` whole against the plugin's actual answers: the
       four endpoint actions, the five statuses `published-read` can give, and the eight header lines.
       A skill that names an answer the plugin cannot give is the defect this phase is most likely to
-      ship.
-- [ ] no commit unless something was fixed
+      ship. **Checked against `ReviewRestService.kt` directly.** Four actions confirmed:
+      `start`, `ack`, `fetch`, `published-read`. `published-read`'s five statuses confirmed:
+      `ok`, `already-read`, `unknown-batch`, `unknown-project`, `bad-request` — `SKILL.md` echoes
+      whatever `status` the endpoint returns rather than hard-coding the set, so there is nothing
+      to drift. The eight header lines (`PUBLISHED_MARKER`, then `nonce:`, `published:`, `commit:`,
+      `remarks:`, `review:`, `label:`, `rejected:`) match `PublishedHeader.render()` in
+      `review/PublishedRemarks.kt` exactly, including the line-by-line `sed` reads in the
+      published-file section. Also checked, beyond the checkbox's own three items: `start`'s two
+      statuses (`waiting`, `conflict`, plus the shared `unknown-project`/`bad-request`) match
+      `SKILL.md` step 5, including the now-correct claim that `"failed"` cannot happen any more;
+      `ack`'s answers (`ok`, `no-review`, `not-sent`, plus `unknown-project`/`bad-request`) match
+      `handleAck`; `fetch`'s answers (`waiting`, `no-review`, `failed`, `too-large`, `ready`, plus
+      `unknown-project`/`bad-request`) match `handleFetch`. Fixed the two stale spots named above.
+- [x] no commit unless something was fixed. **Something was fixed** (`SKILL.md`'s two stale spots),
+      so this task does commit, unlike a typical run of this task.
 
 ### Task 13: Documentation, the idea file, and the version
 

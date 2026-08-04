@@ -304,8 +304,8 @@ Nothing in listen mode ever sends `ack abandoned`: that request belongs to the r
 
 The IDE and this Claude Code session on the same machine is the normal case, reading the
 handshake file directly. When the IDE is on another machine — a laptop reached over SSH — both
-the handshake file and the handoff file are local paths on that other machine, so there is
-nothing on this machine to read directly. The endpoint's `fetch` action carries the handoff
+the handshake file and the published file are local paths on that other machine, so there is
+nothing on this machine to read directly. The endpoint's `fetch` action carries the published
 file's content back in the HTTP response body instead, and an SSH tunnel is what lets this
 machine reach that endpoint at all. Here is what the person needs to do, and what to tell the
 agent:
@@ -868,9 +868,10 @@ exit path.
   `ssh` connect anyway with no forwarding, and every request after that answers connection refused
   for a reason that looks nothing like the real cause.
 - `fetch` answers `too-large`: "The review is too big to send through the tunnel (`<bytes>` bytes,
-  limit `<limit>`). The remarks are still pending in the IDE, at `<output>` on the IDE machine. Ask
-  the person to read them there, or to send fewer remarks." Not a failure to retry — the review
-  cannot be re-sent from the IDE either, so this stops here.
+  limit `<limit>`). The remarks are still pending in the IDE, in the published file under
+  `~/.claude-remarks/` on the IDE machine. Ask the person to read them there, or to send fewer
+  remarks." Not a failure to retry — the review cannot be re-sent from the IDE either, so this
+  stops here.
 - `fetch` answers `unknown-project` in the remote case: "The two machines disagree about where the
   repository lives. The response's `open` list names the paths the IDE has open — pass one of
   those as `ide_project` and try again." This is the normal first failure of the remote case, not
