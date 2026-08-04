@@ -7,6 +7,7 @@ import dev.sasha.clauderemarks.store.TempPaths
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.nio.file.Files
+import java.nio.file.Path
 
 /**
  * `answerWaitingReview` and `markSent` are both synchronous, ordinary calls against a project
@@ -15,12 +16,11 @@ import java.nio.file.Files
  * mutation and their balloon through `invokeLater` (see `reportLater` in this same file), so an
  * assertion made right after calling either would see the state before that finishes.
  *
- * The rejection tests and the three acknowledgement tests below reach the `Sent` phase by calling
- * `atomicWriteString`/`WaitingReviewService.markSent` directly rather than through a send action —
- * there is no send action any more, publishing is how a waiting review is answered, and that
- * pipeline is exercised by `action/PublishRemarksTest` instead, for the same reason
- * `sendToWaitingReview`'s own removed KDoc gave: pumping a read action plus an EDT callback in a
- * light fixture buys a flaky test for very little.
+ * The three acknowledgement tests below, and one rejection test, reach the `Sent` phase by calling
+ * `WaitingReviewService.markSent`/`answerWaitingReview` directly rather than through a publish
+ * action — that whole pipeline is exercised by `action/PublishRemarksTest` instead, for the same
+ * reason `sendToWaitingReview`'s own removed KDoc gave: pumping a read action plus an EDT callback
+ * in a light fixture buys a flaky test for very little.
  */
 class SendReviewTest : BasePlatformTestCase() {
 
@@ -97,44 +97,57 @@ class SendReviewTest : BasePlatformTestCase() {
         assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
     }
 
-    fun testRejectingWritesTheMarkerAndClearsTheReview() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+    /** The header reads back with rejected: yes, remarks: 0 and the review's own session. */
+    fun testRejectingWritesARejectionBatchToThePublishedFile() {
+        val dir = temp.dir("send-review-test")
+        val root = identity()
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test-out"))
 
-        rejectWaitingReview(project)
+        rejectWaitingReview(project, dir)
 
-        val firstLine = Files.readString(handoffFile(outputPath)).lineSequence().first()
-        assertEquals("<!-- claude-remarks: rejected -->", firstLine)
+        val content = Files.readString(dir.resolve(publishedName(root.toString())))
+        val header = publishedHeaderOf(content)!!
+        assertTrue(header.rejected)
+        assertEquals(0, header.remarks)
+        assertEquals("s1", header.reviewSession)
         assertNull(WaitingReviewService.getInstance(project).current())
     }
 
     fun testRejectingLeavesEveryRemarkPending() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test-out"))
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
-        rejectWaitingReview(project)
+        rejectWaitingReview(project, temp.dir("send-review-test"))
 
         assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
     }
 
     /**
-     * Reject after a Sent phase must not touch the handoff file: the phase guard in
-     * rejectWaitingReview only clears the review. `answerWaitingReview` is what reaches Sent now —
-     * there is no send action to write the file, so the file is written by hand here to stand in
-     * for what a publish would have written before answering.
+     * Reject after a Sent phase must not touch the published file: the phase guard in
+     * rejectWaitingReview only clears the review. The batch is written by hand here, through
+     * writePublished, to stand in for what a publish would already have written before answering.
      */
-    fun testRejectingAfterASendDoesNotOverwriteTheHandoffFile() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+    fun testRejectingAfterASendDoesNotOverwriteThePublishedFile() {
+        val dir = temp.dir("send-review-test")
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test-out"))
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note about A", null)
-        atomicWriteString(handoffFile(outputPath), "a note about A")
+        val root = identity()
+        val header = PublishedHeader(
+            nonce = "n1",
+            publishedAt = System.currentTimeMillis(),
+            commit = null,
+            remarks = 1,
+            reviewSession = "s1",
+            reviewLabel = "a label",
+            rejected = false,
+        ).render()
+        writePublished(root, header + "\n" + "a note about A", dir)
         answerWaitingReview(project, "s1", listOf(remark.id!!))
-        val sentContent = Files.readString(handoffFile(outputPath))
+        val publishedContent = Files.readString(dir.resolve(publishedName(root.toString())))
 
-        rejectWaitingReview(project)
+        rejectWaitingReview(project, dir)
 
-        assertEquals(sentContent, Files.readString(handoffFile(outputPath)))
+        assertEquals(publishedContent, Files.readString(dir.resolve(publishedName(root.toString()))))
         assertNull(WaitingReviewService.getInstance(project).current())
     }
 
@@ -188,20 +201,32 @@ class SendReviewTest : BasePlatformTestCase() {
         assertNull(WaitingReviewService.getInstance(project).current())
     }
 
-    fun testAFailedRejectionStillClearsTheReview() {
-        // The parent of outputPath is a regular file, so Files.createDirectories throws when the
-        // write tries to create outputPath itself.
-        val outputPath = temp.file("reject-review-blocked", ".txt").resolve("subdir")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+    /** Pointed at a directory that cannot be created: the write throws, and the review is still cleared. */
+    fun testAFailedRejectionWriteStillClearsTheReview() {
+        // The parent of badDir is a regular file, so Files.createDirectories throws when the write
+        // tries to create badDir itself.
+        val badDir = temp.file("reject-review-blocked", ".txt").resolve("subdir")
+        identity() // forces the project root to resolve, so the failure below is genuinely badDir's
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test-out"))
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
-        rejectWaitingReview(project)
+        rejectWaitingReview(project, badDir)
 
         assertNull(WaitingReviewService.getInstance(project).current())
         assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
     }
 
     private fun statusOf(id: String) = RemarkStore.getInstance(project).all().single { it.id == id }.status
+
+    /**
+     * [projectIdentity] for the fixture project, guaranteed non-null. `projectIdentity` answers null
+     * for a base path that does not exist on disk yet, which the light fixture project does not
+     * guarantee between test methods, so this creates it first.
+     */
+    private fun identity(): Path {
+        Files.createDirectories(Path.of(project.basePath!!))
+        return projectIdentity(project)!!
+    }
 
     private companion object {
         val LINES = listOf("alpha", "beta")

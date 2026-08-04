@@ -88,35 +88,36 @@ class ReviewRequestTest {
         assertEquals(300L, clampDeadlineSeconds(300L))
     }
 
-    private lateinit var handoffDir: Path
+    private lateinit var publishedDir: Path
 
     @After
-    fun cleanUpHandoffDir() {
-        if (::handoffDir.isInitialized) {
-            handoffDir.toFile().deleteRecursively()
+    fun cleanUpPublishedDir() {
+        if (::publishedDir.isInitialized) {
+            publishedDir.toFile().deleteRecursively()
         }
     }
 
     @Test
-    fun `a missing handoff file reads as absent`() {
-        handoffDir = Files.createTempDirectory("readHandoff-test")
-        assertEquals(HandoffRead.Absent, readHandoff(handoffDir, limit = 1_000L))
+    fun `a missing published file reads as absent`() {
+        publishedDir = Files.createTempDirectory("readPublished-test")
+        assertEquals(PublishedRead.Absent, readPublished(publishedDir.resolve("x.md"), limit = 1_000L))
     }
 
     @Test
-    fun `a handoff file under the limit reads back whole`() {
-        handoffDir = Files.createTempDirectory("readHandoff-test")
+    fun `a published file under the limit reads back whole`() {
+        publishedDir = Files.createTempDirectory("readPublished-test")
         // "café — " has a multi-byte accented letter and an em dash, so the UTF-8 byte count is
         // larger than the character count. That gap is exactly what the second assertion below
         // catches if bytes were computed from the string's length instead of the file's size.
         val text = "a remark about café — worth reading twice"
-        Files.writeString(handoffFile(handoffDir), text, StandardCharsets.UTF_8)
+        val file = publishedDir.resolve("x.md")
+        Files.writeString(file, text, StandardCharsets.UTF_8)
         val expectedBytes = text.toByteArray(StandardCharsets.UTF_8).size.toLong()
 
-        val result = readHandoff(handoffDir, limit = 10_000L)
+        val result = readPublished(file, limit = 10_000L)
 
-        assertTrue(result is HandoffRead.Content)
-        val content = result as HandoffRead.Content
+        assertTrue(result is PublishedRead.Content)
+        val content = result as PublishedRead.Content
         assertEquals(text, content.text)
         assertEquals(expectedBytes, content.bytes)
         assertTrue(expectedBytes > text.length)
@@ -124,24 +125,26 @@ class ReviewRequestTest {
 
     @Test
     fun `a file over the limit is refused and its content is not returned`() {
-        handoffDir = Files.createTempDirectory("readHandoff-test")
+        publishedDir = Files.createTempDirectory("readPublished-test")
         val text = "0123456789"
-        Files.writeString(handoffFile(handoffDir), text, StandardCharsets.UTF_8)
+        val file = publishedDir.resolve("x.md")
+        Files.writeString(file, text, StandardCharsets.UTF_8)
 
-        val result = readHandoff(handoffDir, limit = 4L)
+        val result = readPublished(file, limit = 4L)
 
-        assertTrue(result is HandoffRead.TooLarge)
-        assertEquals(10L, (result as HandoffRead.TooLarge).bytes)
+        assertTrue(result is PublishedRead.TooLarge)
+        assertEquals(10L, (result as PublishedRead.TooLarge).bytes)
     }
 
     @Test
     fun `a file exactly at the limit is not refused`() {
-        handoffDir = Files.createTempDirectory("readHandoff-test")
+        publishedDir = Files.createTempDirectory("readPublished-test")
         val text = "0123456789"
-        Files.writeString(handoffFile(handoffDir), text, StandardCharsets.UTF_8)
+        val file = publishedDir.resolve("x.md")
+        Files.writeString(file, text, StandardCharsets.UTF_8)
 
-        val result = readHandoff(handoffDir, limit = 10L)
+        val result = readPublished(file, limit = 10L)
 
-        assertTrue(result is HandoffRead.Content)
+        assertTrue(result is PublishedRead.Content)
     }
 }

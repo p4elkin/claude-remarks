@@ -45,32 +45,31 @@ internal const val TOKEN_HEADER = "X-Claude-Remarks-Token"
  */
 internal fun handoffFile(outputDir: Path): Path = outputDir.resolve("remarks.md")
 
-/** What reading the handoff file produced. [bytes] is the file's size, not the string's length. */
-internal sealed interface HandoffRead {
-    /** No file at that path: the review was cleared before anything was written. */
-    data object Absent : HandoffRead
-    data class TooLarge(val bytes: Long) : HandoffRead
-    data class Content(val text: String, val bytes: Long) : HandoffRead
+/** What reading the published file produced. [bytes] is the file's size, not the string's length. */
+internal sealed interface PublishedRead {
+    /** No file at that path: nothing has been published for this project yet. */
+    data object Absent : PublishedRead
+    data class TooLarge(val bytes: Long) : PublishedRead
+    data class Content(val text: String, val bytes: Long) : PublishedRead
 }
 
 /**
- * The whole handoff file, or a refusal. [limit] is a parameter rather than the constant below so the
- * boundary is testable in milliseconds instead of by writing a megabyte for every case.
+ * The whole published file at [file], or a refusal. [limit] is a parameter rather than the constant
+ * below so the boundary is testable in milliseconds instead of by writing a megabyte for every case.
  *
- * Over the limit the file is not read at all — the size is checked first, so an oversized review
- * never becomes an oversized allocation. Truncating was the alternative and it is worse: a markdown
- * prompt cut in the middle looks complete to a model.
+ * Over the limit the file is not read at all — the size is checked first, so an oversized published
+ * file never becomes an oversized allocation. Truncating was the alternative and it is worse: a
+ * markdown prompt cut in the middle looks complete to a model.
  *
- * The exists-then-size pair is not a race here: the plugin never deletes the handoff file or the
- * directory holding it. An IOException from either call is left to the caller, which turns it into a
- * `failed` answer the same way a start request does.
+ * The exists-then-size pair is not a race here: the plugin never deletes the published file. An
+ * IOException from either call is left to the caller, which turns it into a `failed` answer the same
+ * way a start request does.
  */
-internal fun readHandoff(outputDir: Path, limit: Long): HandoffRead {
-    val file = handoffFile(outputDir)
-    if (!Files.exists(file)) return HandoffRead.Absent
+internal fun readPublished(file: Path, limit: Long): PublishedRead {
+    if (!Files.exists(file)) return PublishedRead.Absent
     val bytes = Files.size(file)
-    if (bytes > limit) return HandoffRead.TooLarge(bytes)
-    return HandoffRead.Content(Files.readString(file, StandardCharsets.UTF_8), bytes)
+    if (bytes > limit) return PublishedRead.TooLarge(bytes)
+    return PublishedRead.Content(Files.readString(file, StandardCharsets.UTF_8), bytes)
 }
 
 /**
@@ -150,12 +149,12 @@ private const val MIN_DEADLINE_SECONDS = 60L
 private const val MAX_DEADLINE_SECONDS = 86_400L
 
 /**
- * The largest handoff file the fetch action will put in a response. A remark with its code context is
- * a few hundred bytes, so this is thousands of remarks — unreachable in ordinary use, and still a
+ * The largest published file the fetch action will put in a response. A remark with its code context
+ * is a few hundred bytes, so this is thousands of remarks — unreachable in ordinary use, and still a
  * bound on what one response allocates. Named rather than inlined because the skill's own message
  * quotes the number back to the person.
  */
-private const val MAX_HANDOFF_BYTES = 1_048_576L
+private const val MAX_PUBLISHED_BYTES = 1_048_576L
 
 /**
  * The skill declares how long it will wait. The number arrives over HTTP, so it is bounded here,
@@ -315,8 +314,8 @@ class ReviewRestService : RestService() {
     }
 
     /**
-     * Hands the waiting review's handoff file back in the response body, so an agent on another machine
-     * can read remarks it has no filesystem access to. Answers `ready`, `waiting`, `no-review`,
+     * Hands the merged published file back in the response body, so an agent on another machine can
+     * read remarks it has no filesystem access to. Answers `ready`, `waiting`, `no-review`,
      * `too-large`, `unknown-project`, `bad-request` or `failed`.
      *
      * **Changes nothing.** Not the store, not the review's phase, not the deadline. Fetching is not
@@ -325,9 +324,14 @@ class ReviewRestService : RestService() {
      * agent never got. It is therefore safe to call as often as the skill likes, which is what a poll
      * needs.
      *
-     * The live review is checked before the one that just ended, so a session id reused by a new review
-     * reads the new review. A review that has ended is still readable because the person's rejection is
-     * written into that same file and then the review is cleared — see review/SendReview.kt.
+     * A live review still in [ReviewPhase.Waiting] for this session answers `waiting` at once: nothing
+     * has been published for it yet, so there is no file worth reading. Every other case — no live
+     * review, or one already [ReviewPhase.Sent] — reads the one published file this project has, the
+     * same file a publish writes and the same file a rejection lands in (`review/SendReview.kt`), so a
+     * fetch after either still finds it. The file's own `review:` header field is what ties a batch to
+     * the session that asked for it, since a publish or a rejection can happen with several sessions
+     * having asked at different times: a file answering a different session, or none at all, is
+     * `no-review`.
      */
     private fun handleFetch(request: FullHttpRequest, writer: JsonWriter) {
         val body = runCatching {
@@ -341,45 +345,56 @@ class ReviewRestService : RestService() {
             return
         }
         val project = matchProject(wanted, writer) ?: return
-        val service = WaitingReviewService.getInstance(project)
-        val live = service.current()?.takeIf { it.sessionId == session }
+        val live = WaitingReviewService.getInstance(project).current()?.takeIf { it.sessionId == session }
         if (live != null && live.phase == ReviewPhase.Waiting) {
-            // Nothing has been written yet. The skill's poll is supposed to come back.
+            // Nothing has been published yet. The skill's poll is supposed to come back.
             writer.name("status").value("waiting")
             return
         }
-        val dir = live?.outputPath ?: service.endedOutputPath(session)
-        if (dir == null) {
+        // projectIdentity is a plain java.nio call (toRealPath plus a walk up the tree for .git),
+        // never a VFS one, the same reason toRealPath() is allowed in this file elsewhere.
+        val identity = projectIdentity(project)
+        if (identity == null) {
             writer.name("status").value("no-review")
             return
         }
+        val file = handshakeDir().resolve(publishedName(identity.toString()))
         val read = try {
-            readHandoff(dir, MAX_HANDOFF_BYTES)
+            readPublished(file, MAX_PUBLISHED_BYTES)
         } catch (e: IOException) {
             writer.name("status").value("failed")
             writer.name("detail").value(e.message ?: e.toString())
             return
         }
         when (read) {
-            is HandoffRead.Absent ->
-                if (live == null) {
-                    // The review ended before anything was written.
-                    writer.name("status").value("no-review")
-                } else {
-                    // The phase says the file was written and it is not there. A lie is not a
-                    // better answer than an error.
-                    writer.name("status").value("failed")
-                    writer.name("detail").value("the handoff file is missing even though the review says it was sent")
-                }
-            is HandoffRead.TooLarge -> {
+            is PublishedRead.Absent ->
+                // Nothing has been published or rejected for this project at all.
+                writer.name("status").value("no-review")
+            is PublishedRead.TooLarge -> {
                 writer.name("status").value("too-large")
                 writer.name("bytes").value(read.bytes)
-                writer.name("limit").value(MAX_HANDOFF_BYTES)
+                writer.name("limit").value(MAX_PUBLISHED_BYTES)
             }
-            is HandoffRead.Content -> {
-                writer.name("status").value("ready")
-                writer.name("content").value(read.text)
-                writer.name("bytes").value(read.bytes)
+            is PublishedRead.Content -> {
+                val header = publishedHeaderOf(read.text)
+                when {
+                    header == null -> {
+                        // A lie is not a better answer than an error: this plugin wrote every
+                        // published file with a parseable header, so one that does not parse means
+                        // something else touched it, or an older plugin's file is still there.
+                        writer.name("status").value("failed")
+                        writer.name("detail").value("the published file's header could not be parsed")
+                    }
+                    header.reviewSession == session -> {
+                        writer.name("status").value("ready")
+                        writer.name("content").value(read.text)
+                        writer.name("nonce").value(header.nonce)
+                        writer.name("bytes").value(read.bytes)
+                    }
+                    // The file exists but answers a different session's review, or none at all —
+                    // a plain publish with no review waiting also reaches this branch.
+                    else -> writer.name("status").value("no-review")
+                }
             }
         }
     }

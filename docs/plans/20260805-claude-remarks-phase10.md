@@ -700,7 +700,7 @@ that has not read it yet, and pressing Reject after publishing does not clearly 
 Reading a file inside `execute` stays allowed. It is plain `java.nio`, the same reason `readHandoff`
 and `toRealPath()` are allowed there today. Guard 5's grep does not change.
 
-- [ ] write the failing tests, updating the existing ones rather than adding beside them:
+- [x] write the failing tests, updating the existing ones rather than adding beside them:
   - in `SendReviewTest`: `rejecting writes a rejection batch to the published file` — the header
     reads back with `rejected: yes`, `remarks: 0` and the review's session.
     `rejecting after a publish writes nothing and clears the review` — the file still holds the
@@ -713,16 +713,16 @@ and `toRealPath()` are allowed there today. Guard 5's grep does not change.
     answers no-review`; `a fetch over the size limit answers too-large and no content`;
     `a fetch of a file with a broken header answers failed`.
   - in `ReviewRequestTest`: the `readPublished` size cap tests, renamed with the function.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest" --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"`
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest" --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"`
       and expect a failure
-- [ ] implement, then that command and
+- [x] implement, then that command and
       `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewRequestTest"` both pass
-- [ ] **mutation:** make the fetch skip the `reviewSession` comparison and answer `ready` for any
+- [x] **mutation:** make the fetch skip the `reviewSession` comparison and answer `ready` for any
       file; the `no-review` test must fail. Make the rejection write leave `rejected` false; the
       first rejection test must fail. Make the reject path write before checking the `Sent` phase;
       the second must fail. Restore all three.
-- [ ] all six guards print nothing
-- [ ] commit: `feat: a rejection lands in the published file and a fetch reads it there`
+- [x] all six guards print nothing
+- [x] commit: `feat: a rejection lands in the published file and a fetch reads it there`
 
 ### Task 8: The review's own directory goes
 
@@ -895,10 +895,19 @@ becomes the published file's path on the IDE machine.
 **Model:** sonnet
 
 **Files:**
+- Create: `docs/skill/claude-remarks-review/remote-config.sh`, committed executable.
 - Modify: `docs/skill/claude-remarks-review/SKILL.md`: the front matter `description`, which now names
   three ways rather than two; the opening two-bullet list under `# Claude Remarks review`; the
   section `## Read remarks the person already published` whole, including its shell block and its
-  three "must not do" rules; and a new section after it for listen mode.
+  three "must not do" rules; a new section after it for listen mode; the block in step 1 of
+  `## Steps` that begins `ide_port=          # the tunnel's local port ON THIS MACHINE`; the `**403**`
+  bullet in step 4; the bullet in `## Over SSH: the IDE on another machine` that begins
+  `**Then tell the agent four values:**`; and the 403 line in `## What to say if something goes
+  wrong`.
+
+**This task carries three things, not two.** The one-shot read, listen mode, and the stored remote
+connection values below. The third was asked for after the plan was written. It sits here because it
+edits the same file and nothing else depends on it.
 
 **Three ways, and listening is opt-in.** The file has to say this plainly, because it is the rule
 that keeps one batch from reaching the wrong session:
@@ -935,16 +944,113 @@ finished.
 - Re-arming is a choice, said out loud, through the same script, so the pid file rule still holds.
 - Say, when listening starts, what is being watched, what the deadline is, and how to stop.
 
+**The four connection values are stored once, not pasted every time.** Today the remote case needs
+four values typed into step 1 by hand on every run: the tunnel's local port on this machine, the
+token, the repository path as the IDE machine sees it, and the host. The skill now stores them the
+first time they are pasted, reads them on every later run, and forgets them when asked.
+
+```
+~/.claude-remarks/remote-<16 hex characters>.env      mode 600
+ide_host=127.0.0.1
+ide_port=8765
+ide_project=/Users/sasha/dev/magnolia/magnolia-content-api
+ide_token=...
+```
+
+**The one thing that is easy to get wrong.** The 16 hex characters are the same sha256 prefix the
+handshake file's name uses, computed over **this** machine's repository root, what
+`git rev-parse --show-toplevel` prints here. `ide_project` inside the file is the repository path
+**as the IDE machine sees it**. Those two are different strings on purpose. The name answers "which
+project am I in right now", and the value answers "what does the other machine call it". They are
+the same string only when both machines happen to check the repository out at the same path, which
+is why the file cannot be keyed on the value it stores. Keying the name on the local root is also
+what lets a person work in three repositories with three different remote IDEs and never think about
+it: two repositories can never share one configuration.
+
+**Where the code lives: a script beside `SKILL.md`, `remote-config.sh`, with `save`, `show` and
+`forget`.** The reason is task 9's reason for the watcher, not a new one: the four rules below are
+rules a retyped block quietly drops. An agent that reformats the write and loses the permission call,
+or that adds the token to an error message, is exactly the failure a script prevents. It is a
+**separate** script from the watcher because the two have nothing in common. The watcher blocks, runs
+in the background and owns a pid file. This one writes a file and exits.
+
+**Reading the file back is inline, and that is not an inconsistency.** A child process cannot set
+variables in the shell that called it, so step 1 has to read the file itself. It reads it by parsing
+`key=value` lines against a list of the four names it accepts, never by sourcing it. Sourcing a file
+runs it. A whitelist parse runs nothing, and a value holding a space or a quote cannot change what
+the rest of the line means. Step 1's four blanks are replaced by that read. Nothing else in the skill
+changes, because step 2 already switches into the remote branch on a non-empty `ide_port`, and
+same-machine work is untouched: no file, no remote branch, nothing to configure.
+
+**The token never appears in an argument.** `save` reads it from `CLAUDE_REMARKS_TOKEN` in the
+environment, the same variable and the same rule the watcher already uses. An argument is
+world-readable through `ps`; a process's environment is not readable by another user on macOS or
+Linux. One rule for the token across the whole skill rather than two.
+
+**Four rules `save` enforces, each with the reason it exists:**
+
+- **It never echoes the token.** Not when writing, not from `show`, not inside an error message. The
+  error message is the one people forget, and it is the one that ends up pasted into a chat log.
+- **It refuses to write unless `~/.claude-remarks/` is owner-only, and it writes the file `600`.**
+  `writeHandshake` in `review/ReviewHandshake.kt` holds itself to exactly that standard, for a file
+  holding the same token.
+- **It validates before it stores.** `ide_port` must be all digits and `ide_project` must be
+  absolute. A bad value that is stored fails later and further away, inside a `curl` whose error says
+  nothing about where the value came from.
+- **It is keyed by this machine's repository root**, so two repositories can never share one
+  configuration.
+
+**The failure that will actually happen.** The IDE mints a fresh token on every run, so a stored
+token goes stale every time the IDE restarts and the endpoint answers 403. That is not a rare case.
+It is what a person meets most mornings. So the 403 branch has to say the stored token is stale, name
+the file it is stored in, and say where a fresh one comes from: the helper the person runs on the IDE
+machine, `crtunnel`, prints it, and `## Over SSH: the IDE on another machine` is the by-hand route
+when that helper is not there. A generic failure message is not acceptable here. In practice a
+re-save of the port and the token is what gets used, not `forget`, because the project path does not
+change when the IDE restarts.
+
+**The trade-off, recorded rather than left unsaid.** This puts the IDE's token on the agent machine's
+disk, where today it lives only on the IDE machine and only in the terminal the person read it in.
+That is a real widening of exposure. It is accepted because it removes retyping four values every
+session, and it is bounded two ways: the file is `600` inside a directory that must already be
+`rwx------` before anything is written, and the token is minted per IDE run, so it stops working when
+the IDE restarts rather than being a permanent secret.
+
+**How this is checked.** This repository's suite is Kotlin and runs no shell, so `remote-config.sh`
+is checked the way task 9 checks the watcher: by hand, in the scratchpad directory, each check its
+own run. The script reads `HOME` rather than a hardcoded path, precisely so a check can point it at a
+disposable directory.
+
 - [ ] rewrite the published-read section: the new header line numbers, the nonce, the
       acknowledgement, and the two corrected rules
 - [ ] add the listen mode section, with its launch line, its rules, and the sentence it prints when
       it starts
 - [ ] update the front matter description and the opening list to three ways, with the opt-in rule in
       the description itself, since that is the text a session reads before it decides anything
+- [ ] write `remote-config.sh` with its three subcommands, reading `HOME` for the directory and
+      taking the token only from `CLAUDE_REMARKS_TOKEN`
+- [ ] check `remote-config.sh` by hand with `HOME` pointed at a temporary directory. Each of these is
+      its own run:
+  - `save` writes the file with the four keys and nothing else, and the file is mode 600.
+  - the whole output of `save` does not contain the token. Grep it for the token string and find
+    nothing.
+  - `show` prints host, port and project, and does not contain the token.
+  - `save` refuses when `~/.claude-remarks` is 755, says why, and writes nothing.
+  - `save` refuses a port with a letter in it, and refuses a relative `ide_project`, and writes
+    nothing in either case.
+  - `forget` deletes the file. `forget` with no file says so and exits 0.
+  - run from two different repository roots: two different file names.
+- [ ] replace step 1's four blanks with the whitelist parse, then check both directions by hand: a
+      saved file produces the four variables, and a missing file leaves them empty so the
+      same-machine branch still runs
+- [ ] make the 403 branch name the stored file and say where a fresh token comes from, in step 4 and
+      in `## What to say if something goes wrong`
+- [ ] document `save`, `show` and `forget` in `## Over SSH: the IDE on another machine`, beside the
+      four values that section already tells the person to collect
 - [ ] check by hand that every shell block parses with `sh -n`, and that the published file's header
       is read by line number rather than by grep
 - [ ] the six guards print nothing
-- [ ] commit: `feat: the skill reads a batch once, or listens for the next one when asked`
+- [ ] commit: `feat: the skill reads a batch once, listens when asked, and remembers a remote IDE`
 
 ### Task 12: Verify the whole phase
 

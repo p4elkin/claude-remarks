@@ -38,15 +38,29 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         RemarkStore.getInstance(project).clear()
         WaitingReviewService.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
+        deletePublishedFile()
     }
 
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         WaitingReviewService.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
+        deletePublishedFile()
         UIUtil.dispatchAllInvocationEvents()
         temp.deleteAll()
         super.tearDown()
+    }
+
+    /**
+     * The fetch tests below write straight to `handshakeDir()` — the real project-identity-keyed
+     * published file, not one of `temp`'s own directories — because `handleFetch` resolves that path
+     * itself and cannot be pointed at a test directory. `handshakeDir()`'s unit-test branch already
+     * keeps that off the developer's real `~/.claude-remarks`, but the file it does write persists
+     * across test methods and across gradle runs unless removed here.
+     */
+    private fun deletePublishedFile() {
+        val root = projectIdentity(project) ?: return
+        Files.deleteIfExists(handshakeDir().resolve(publishedName(root.toString())))
     }
 
     /**
@@ -143,10 +157,10 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
-     * A fetch before the send has written anything answers `waiting`, with no `content` field — the
-     * skill's poll is supposed to come back.
+     * A fetch before anything is published answers `waiting`, with no `content` field — the skill's
+     * poll is supposed to come back.
      */
-    fun testAFetchBeforeTheSendAnswersWaiting() {
+    fun testAFetchBeforeAnythingIsPublishedAnswersWaiting() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("fetch-waiting"))
 
         val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
@@ -156,14 +170,13 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
-     * The transport fact as a test: after the send has written the file and marked it sent, a
-     * fetch's response body carries the remark text itself, not a path.
+     * The transport fact as a test: once the published file names this session's review, a fetch's
+     * response body carries the whole file itself, not a path. No live review is needed at all — the
+     * fetch reads straight off the merged file, the same way a remote agent with no review running
+     * would.
      */
-    fun testAFetchAfterTheSendCarriesTheWholePromptInTheBody() {
-        val dir = temp.dir("fetch-ready")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, dir)
-        atomicWriteString(handoffFile(dir), "a note about A")
-        WaitingReviewService.getInstance(project).markSent("s1", listOf("r1"))
+    fun testAFetchAfterThePublishCarriesTheWholePromptInTheBody() {
+        writePublished(identity(), publishedBody(reviewSession = "s1"))
 
         val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
 
@@ -172,13 +185,12 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
-     * Fetching is not reading: it must not mark anything sent or touch the review's phase at all.
+     * Fetching is not reading: it must not mark anything read or touch the review's phase at all.
      */
-    fun testAFetchMarksNothingSentAndLeavesTheReviewAlone() {
+    fun testAFetchMarksNothingReadAndLeavesTheReviewAlone() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
-        val dir = temp.dir("fetch-no-mutate")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, dir)
-        atomicWriteString(handoffFile(dir), "a note about A")
+        writePublished(identity(), publishedBody(reviewSession = "s1"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("fetch-no-mutate"))
         WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
 
         post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
@@ -190,31 +202,29 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
-     * The rejection body is written into the handoff file and then the review is cleared, in that
-     * order (review/SendReview.kt). A fetch after that still has to hand the rejection back — the
-     * whole reason WaitingReviewService remembers the ended review's path.
+     * A rejection is a batch like any other, written into the same published file
+     * (`review/SendReview.kt`'s `rejectWaitingReview`), and the review is then cleared. A fetch after
+     * that still has to hand the rejection back — the whole point of moving it onto the one file.
      */
-    fun testAFetchOfARejectedReviewStillCarriesTheRejectionBody() {
-        val dir = temp.dir("fetch-rejected")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, dir)
-        atomicWriteString(handoffFile(dir), REJECTION_BODY)
-        WaitingReviewService.getInstance(project).clear("s1")
+    fun testAFetchStillCarriesARejection() {
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("fetch-rejected"))
+
+        rejectWaitingReview(project)
 
         val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"ready\""))
-        assertTrue(sent, sent.contains("<!-- claude-remarks: rejected -->"))
+        // A single line: the JSON encoding escapes REJECTION_BODY's real newlines to \n, so a
+        // substring check has to stay on one line to match the encoded response.
+        assertTrue(sent, sent.contains(REJECTION_BODY.lines().first()))
     }
 
     /**
-     * A session id nothing knows about, while a different review is waiting, must not answer with
-     * that other review's content — the session comparison in handleFetch, as a test.
+     * A batch that answers a different session, or none at all, must not answer with that batch's
+     * content — the header's `review:` comparison in handleFetch, as a test.
      */
-    fun testAFetchForASessionNothingKnowsAboutAnswersNoReview() {
-        val dir = temp.dir("fetch-other-session")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, dir)
-        atomicWriteString(handoffFile(dir), "a note about A")
-        WaitingReviewService.getInstance(project).markSent("s1", listOf("r1"))
+    fun testAFetchForABatchThatAnswersAnotherSessionAnswersNoReview() {
+        writePublished(identity(), publishedBody(reviewSession = "s1"))
 
         val sent = post("/api/claude-remarks/fetch", """{"session":"s2","project":"${projectPath()}"}""")
 
@@ -239,21 +249,46 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
-     * The one test that exercises the real MAX_HANDOFF_BYTES; the boundary itself is task 3's job.
+     * The one test that exercises the real MAX_PUBLISHED_BYTES; the boundary itself is
+     * ReviewRequestTest's job. No header is needed: the size check runs before the header is parsed.
      */
     fun testAFetchOverTheSizeLimitAnswersTooLargeAndNoContent() {
-        val dir = temp.dir("fetch-too-large")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, dir)
         val marker = "MARKER-END-OF-FILE"
         val body = "x".repeat(1_100_000) + "\n" + marker
-        atomicWriteString(handoffFile(dir), body)
-        WaitingReviewService.getInstance(project).markSent("s1", listOf("r1"))
+        writePublished(identity(), body)
 
         val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"too-large\""))
         assertTrue(sent, sent.contains("\"limit\""))
         assertFalse(sent, sent.contains(marker))
+    }
+
+    /**
+     * A file this plugin did not write — or one an older plugin version wrote before this header
+     * shape existed — must not be handed to a model as though it parsed. A lie is not a better
+     * answer than an error.
+     */
+    fun testAFetchOfAFileWithABrokenHeaderAnswersFailed() {
+        writePublished(identity(), "not a published file at all")
+
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"failed\""))
+    }
+
+    /** A published batch naming [reviewSession], for the fetch tests that only need the header shape. */
+    private fun publishedBody(reviewSession: String?): String {
+        val header = PublishedHeader(
+            nonce = "n1",
+            publishedAt = System.currentTimeMillis(),
+            commit = null,
+            remarks = 1,
+            reviewSession = reviewSession,
+            reviewLabel = "a label",
+            rejected = false,
+        ).render()
+        return header + "\n" + "a note about A"
     }
 
     /**
@@ -339,6 +374,16 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         val base = Path.of(project.basePath!!)
         Files.createDirectories(base)
         return base.toRealPath().toString()
+    }
+
+    /**
+     * [projectIdentity] for the fixture project, guaranteed non-null. `projectIdentity` answers null
+     * for a base path that does not exist on disk yet, the same reason [projectPath] above has to
+     * create the directory before calling `toRealPath()` on it — so this does the same before asking.
+     */
+    private fun identity(): Path {
+        Files.createDirectories(Path.of(project.basePath!!))
+        return projectIdentity(project)!!
     }
 
     /** One no-op handler, not a bare `EmbeddedChannel()`: `firstContext()` returns null when the

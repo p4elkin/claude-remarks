@@ -7,6 +7,8 @@ import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.action.plural
 import dev.sasha.clauderemarks.store.markRemarksRead
 import java.io.IOException
+import java.nio.file.Path
+import java.util.UUID
 
 /**
  * What a publish does about a waiting review. Null when none is waiting.
@@ -32,15 +34,12 @@ internal fun answerWaitingReview(project: Project, session: String, ids: List<St
 }
 
 /**
- * The skill matches this as the file's first line to tell a rejection from a set of remarks before it
- * hands the body to a model. It is a wire format shared with a shell script, so it is not reworded
- * without changing `docs/skill/claude-remarks-review/SKILL.md` in the same commit.
+ * The body of a rejection batch, once the header above it already says `rejected: yes` — that field
+ * is what a reader matches now, not a marker line of its own. Before phase 10 this began with its own
+ * `REJECTED_MARKER` line; the header's `rejected:` field replaced it, so the marker and the constant
+ * that held it are gone.
  */
-internal const val REJECTED_MARKER = "<!-- claude-remarks: rejected -->"
-
 internal val REJECTION_BODY = """
-    $REJECTED_MARKER
-
     The person rejected this review in the IDE. No remarks were sent and none are coming.
     Stop waiting for this file and do not start another review unless you are asked to.
 """.trimIndent()
@@ -48,19 +47,56 @@ internal val REJECTION_BODY = """
 /**
  * The person answering "not now". `clear()` alone was the bug: it ended the review inside the IDE and
  * left the waiting session polling a path nothing would ever write, for its whole timeout.
+ *
+ * A rejection is now a batch like any other: a fresh nonce, `rejected = true`, `remarks = 0`, and the
+ * waiting review's session and label, written to the one published file through [writePublished] —
+ * the same file a publish writes and the same file the fetch action reads. [PublishedBatchService]
+ * records it with an empty id list too, so that "every write to the published file records a batch"
+ * holds without exception, even though there is nothing here for an acknowledgement to mark read.
+ *
+ * [dir] is a parameter, not a default argument resolving [handshakeDir]. Kotlin evaluates a default
+ * argument in the synthetic bridge, before this function's body runs, so anything it throws would
+ * escape the try below — the same trap `store/RemarkEdits.kt`'s `clearHandedOverRemarks` already
+ * names. Null means the real directory, resolved inside the try. Only the tests pass a path.
  */
-fun rejectWaitingReview(project: Project) {
+fun rejectWaitingReview(project: Project, dir: Path? = null) {
     val waiting = WaitingReviewService.getInstance(project).current() ?: return
     if (waiting.phase is ReviewPhase.Sent) {
-        // The handoff file already holds the remarks and the agent may already have read them.
-        // Overwriting it with the rejection body would destroy remarks that were never delivered,
-        // silently, and the agent would read a rejection instead of the review it was handed.
-        notifyRemarks(project, "The remarks were already written. There is nothing left to reject.")
+        // The published file already holds this batch and the agent may already have read it.
+        // Overwriting it with the rejection would take that batch away from any session that has
+        // not read it yet, and pressing Reject after publishing does not clearly mean "take it back".
+        notifyRemarks(project, "The remarks were already published. There is nothing left to reject.")
+        WaitingReviewService.getInstance(project).clear(waiting.sessionId)
+        return
+    }
+    val root = projectIdentity(project)
+    if (root == null) {
+        // Same shape as a publish whose project root does not resolve: nothing is written, and the
+        // review is still cleared rather than left as a banner the person cannot dismiss.
+        notifyRemarks(
+            project,
+            "The rejection could not be written: the project root did not resolve. " +
+                "The Claude Code session will wait for its own timeout instead.",
+            NotificationType.ERROR,
+        )
         WaitingReviewService.getInstance(project).clear(waiting.sessionId)
         return
     }
     try {
-        atomicWriteString(handoffFile(waiting.outputPath), REJECTION_BODY)
+        val nonce = UUID.randomUUID().toString()
+        // Recorded before the write, same reason a publish's batch is: a fast acknowledgement must
+        // never race a batch this service does not know about yet.
+        PublishedBatchService.getInstance(project).record(nonce, emptyList())
+        val header = PublishedHeader(
+            nonce = nonce,
+            publishedAt = System.currentTimeMillis(),
+            commit = null,
+            remarks = 0,
+            reviewSession = waiting.sessionId,
+            reviewLabel = waiting.label,
+            rejected = true,
+        ).render()
+        writePublished(root, header + "\n" + REJECTION_BODY, dir ?: handshakeDir())
         notifyRemarks(project, "Rejected the review. Claude Code will stop waiting.")
     } catch (e: IOException) {
         notifyRemarks(
@@ -72,7 +108,7 @@ fun rejectWaitingReview(project: Project) {
     }
     // Cleared either way. The person asked for this review to end, and a banner they cannot dismiss
     // is worse than a session that waits for its own deadline. Named by session: the rejection above
-    // was written to this review's path, so it must not close a different one that started since.
+    // was written for this review, so it must not close a different one that started since.
     WaitingReviewService.getInstance(project).clear(waiting.sessionId)
 }
 
