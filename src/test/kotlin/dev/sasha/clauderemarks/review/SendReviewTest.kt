@@ -42,7 +42,7 @@ class SendReviewTest : BasePlatformTestCase() {
 
     /** The header carries the review it answers, per PublishRemarks.kt — this is the stamp itself. */
     fun testAnsweringAWaitingReviewRecordsWhatWasPublished() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         val sentence = answerWaitingReview(project, "s1", listOf(remark.id!!))
@@ -62,7 +62,7 @@ class SendReviewTest : BasePlatformTestCase() {
      * rather than claim a handover that did not happen.
      */
     fun testAnsweringAReviewThatAlreadyEndedSaysSoInsteadOfClaimingAHandover() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         WaitingReviewService.getInstance(project).clear("s1")
 
         val sentence = answerWaitingReview(project, "s1", listOf("a"))
@@ -76,7 +76,7 @@ class SendReviewTest : BasePlatformTestCase() {
      * more to it, and the second answer simply replaces the first's recorded ids.
      */
     fun testAnsweringAReviewASecondTimeReplacesTheRecordedIds() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         answerWaitingReview(project, "s1", listOf("a"))
 
         val sentence = answerWaitingReview(project, "s1", listOf("a", "b"))
@@ -89,7 +89,7 @@ class SendReviewTest : BasePlatformTestCase() {
 
     /** The phase's central decision, on the new path: only a `read` acknowledgement marks anything. */
     fun testNothingIsMarkedReadUntilTheAcknowledgement() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         answerWaitingReview(project, "s1", listOf(remark.id!!))
@@ -101,7 +101,7 @@ class SendReviewTest : BasePlatformTestCase() {
     fun testRejectingWritesARejectionBatchToThePublishedFile() {
         val dir = temp.dir("send-review-test")
         val root = identity()
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test-out"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
 
         rejectWaitingReview(project, dir)
 
@@ -114,7 +114,7 @@ class SendReviewTest : BasePlatformTestCase() {
     }
 
     fun testRejectingLeavesEveryRemarkPending() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test-out"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         rejectWaitingReview(project, temp.dir("send-review-test"))
@@ -129,7 +129,7 @@ class SendReviewTest : BasePlatformTestCase() {
      */
     fun testRejectingAfterASendDoesNotOverwriteThePublishedFile() {
         val dir = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test-out"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note about A", null)
         val root = identity()
         val header = PublishedHeader(
@@ -154,8 +154,7 @@ class SendReviewTest : BasePlatformTestCase() {
     /** An ack leaves the remarks READ, not PUBLISHED: only a real `read` acknowledgement over
      *  POST /api/claude-remarks/ack may reach READ, per CLAUDE.md's guard on markRemarksRead. */
     fun testAReadAcknowledgementAfterASendMarksTheRemarksRead() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         answerWaitingReview(project, "s1", listOf(remark.id!!))
@@ -173,8 +172,7 @@ class SendReviewTest : BasePlatformTestCase() {
      * anything sent. An agent that gave up after the file was written leaves every remark pending.
      */
     fun testAnAbandonedAcknowledgementAfterASendLeavesTheRemarksPending() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
         answerWaitingReview(project, "s1", listOf(remark.id!!))
 
@@ -188,9 +186,8 @@ class SendReviewTest : BasePlatformTestCase() {
 
     /** The deadline path, the one that runs with nobody watching, marks nothing sent either. */
     fun testTheDeadlinePassingAfterASendLeavesTheRemarksPending() {
-        val outputPath = temp.dir("send-review-test")
         val started = System.currentTimeMillis()
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
         answerWaitingReview(project, "s1", listOf(remark.id!!))
 
@@ -207,7 +204,7 @@ class SendReviewTest : BasePlatformTestCase() {
         // tries to create badDir itself.
         val badDir = temp.file("reject-review-blocked", ".txt").resolve("subdir")
         identity() // forces the project root to resolve, so the failure below is genuinely badDir's
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test-out"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
         rejectWaitingReview(project, badDir)

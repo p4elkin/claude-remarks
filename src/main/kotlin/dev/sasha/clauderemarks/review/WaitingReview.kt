@@ -7,8 +7,6 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
-import java.nio.file.Files
-import java.nio.file.Path
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
@@ -41,7 +39,6 @@ sealed interface ReviewPhase {
 data class WaitingReviewState(
     val sessionId: String,
     val label: String,
-    val outputPath: Path,
     val startedAt: Long,
     val deadlineAt: Long,
     val phase: ReviewPhase = ReviewPhase.Waiting,
@@ -52,9 +49,8 @@ data class WaitingReviewState(
 
 /**
  * What a start request produces. Accepted also covers an honest retry of the same session id, which
- * keeps the output path it was already given and only has its deadline moved forward. The endpoint
- * turns both branches straight into a response: "waiting" with the output path for Accepted,
- * "conflict" with the other label and start time for Conflict.
+ * only has its deadline moved forward. The endpoint turns both branches straight into a response:
+ * "waiting" for Accepted, "conflict" with the other label and start time for Conflict.
  *
  * [Accepted.fresh] is false for that retry, and it exists for one caller: the endpoint opens the
  * files a review names, and a retry must not open a second diff window over the same changes on top
@@ -66,10 +62,7 @@ sealed class StartResult {
 }
 
 /**
- * Pure decision over plain data, no filesystem and no service involved. [outputPath] is a supplier
- * rather than a plain value so that the expensive call it wraps — Files.createTempDirectory in
- * production — runs only on the branch that actually accepts. The reuse and conflict branches
- * below never call it, which is what stops a retried or refused request from leaking a directory.
+ * Pure decision over plain data, no filesystem and no service involved.
  */
 internal fun startOrConflict(
     current: WaitingReviewState?,
@@ -80,11 +73,10 @@ internal fun startOrConflict(
     // value nobody chose — the exact thing a required parameter exists to prevent.
     deadlineSeconds: Long,
     now: Long = System.currentTimeMillis(),
-    outputPath: () -> Path,
 ): StartResult {
     // Hoisted, so the two branches that need it cannot drift apart and the bare 1000 is written once.
     val deadlineAt = now + deadlineSeconds * 1000
-    fun accept() = StartResult.Accepted(WaitingReviewState(session, label, outputPath(), now, deadlineAt))
+    fun accept() = StartResult.Accepted(WaitingReviewState(session, label, now, deadlineAt))
     return when {
         current == null -> accept()
         // Same-session retry is checked first: a retry keeps its own output path, even a late one, so
@@ -101,18 +93,6 @@ internal fun startOrConflict(
 }
 
 /**
- * The session id and output path of the review that ended most recently. It exists for one caller:
- * the endpoint's fetch action, which has to be able to hand a rejection body to a remote agent. The
- * rejection is written to the handoff file and then the review is cleared, so a fetch that could only
- * see a live review would answer "nothing is waiting" and the agent could not tell a rejection from a
- * timeout.
- *
- * One review, not a map: at most one review per project is ever waiting, so at most one has just
- * ended. An older one could only serve an agent that is already past its own deadline.
- */
-private data class EndedReview(val sessionId: String, val outputPath: Path)
-
-/**
  * At most one waiting review per project, held in memory only: an IDE restart clears it, so there
  * is no persisted field and no migration.
  *
@@ -127,12 +107,11 @@ private data class EndedReview(val sessionId: String, val outputPath: Path)
  * stale read here is harmless — the toolbar redraws again on the next REMARKS_CHANGED regardless —
  * so this is a written-down, accepted bend of "guard every mutable field", not an oversight.
  *
- * **Four things here exist for the tests and for nothing else**, listed together so a fifth is not
- * added without noticing how much of this service's surface they already are: the [start] parameter
- * that supplies an output path, the `now` parameter on [expireIfStale], `clear()` called with no
- * session (both production callers name one, in review/SendReview.kt), and [expiryIsLive]. Each
- * says at its own declaration why it is there. Anything new of this shape belongs in this list — or
- * better, does not get added.
+ * **Three things here exist for the tests and for nothing else**, listed together so a fourth is not
+ * added without noticing how much of this service's surface they already are: the `now` parameter on
+ * [expireIfStale], `clear()` called with no session (both production callers name one, in
+ * review/SendReview.kt), and [expiryIsLive]. Each says at its own declaration why it is there.
+ * Anything new of this shape belongs in this list — or better, does not get added.
  *
  * Everything but [current] and [getInstance] is `internal`: every caller is in `review/` or `ui/`
  * in this same module, and a plugin has no outside consumer to keep a wider surface for.
@@ -149,20 +128,6 @@ class WaitingReviewService(private val project: Project) : Disposable {
     @Volatile
     private var expiry: ScheduledFuture<*>? = null
 
-    @Volatile
-    private var lastEnded: EndedReview? = null
-
-    /**
-     * Where the review [session] wrote its handoff file, if that review has ended and was the most
-     * recent one to end. Null for any other session, which is what keeps one agent from reading
-     * another agent's remarks.
-     *
-     * Unsynchronized for the same reason [current] is: it reads one volatile field, does no IO, and a
-     * stale read cannot produce a wrong answer for a session that does not match.
-     */
-    internal fun endedOutputPath(session: String): Path? =
-        lastEnded?.takeIf { it.sessionId == session }?.outputPath
-
     /**
      * Masks a stale review everywhere at once: the Send button, the banner, and a second start
      * request all read this. One comparison of two longs — no lock, no IO, so the EDT never
@@ -171,14 +136,6 @@ class WaitingReviewService(private val project: Project) : Disposable {
     fun current(): WaitingReviewState? = state?.takeIf { !it.isStale() }
 
     /**
-     * [outputPath] is null in production: the directory is created only after the decision below
-     * accepts, never before, so a conflict or a retry of the same session never leaks one.
-     *
-     * A caller-supplied [outputPath] exists for the tests: task 6 needs a review pointed at a path
-     * it controls, once to read the written file back and once at a path whose parent is a regular
-     * file so the write throws. Without this parameter that failure-path test — the only guard on
-     * "nothing is marked sent unless the handover succeeded" — would be impossible to write.
-     *
      * [deadlineSeconds] has no default: every existing caller has to say how long it is willing to
      * wait, rather than silently inheriting a number nobody chose for that call site.
      */
@@ -187,20 +144,15 @@ class WaitingReviewService(private val project: Project) : Disposable {
         session: String,
         label: String,
         deadlineSeconds: Long,
-        outputPath: Path? = null,
     ): StartResult {
         val previous = state
-        val result = startOrConflict(previous, session, label, deadlineSeconds) {
-            outputPath ?: Files.createTempDirectory("claude-remarks-review-")
-        }
+        val result = startOrConflict(previous, session, label, deadlineSeconds)
         if (result is StartResult.Accepted) {
             // A different session only reaches this branch when startOrConflict found the current
             // review stale (see the branch order there). That review is being replaced, not
             // continued, so it has to go through the same teardown every other ending does —
-            // endReview() records it as lastEnded and cancels its own scheduled task — before the
-            // new state and the new scheduleExpiry below take its place. Without this, the old
-            // review's own expiry task, cancelled a few lines down, never gets to run and set
-            // lastEnded itself, so its output path would be lost for good.
+            // endReview() cancels its own scheduled task — before the new state and the new
+            // scheduleExpiry below take its place.
             //
             // endReview() sets state to null right here; state = result.state below does not run
             // until a few lines down, in this same @Synchronized block. current() reads state
@@ -327,7 +279,6 @@ class WaitingReviewService(private val project: Project) : Disposable {
      */
     private fun endReview(): WaitingReviewState? {
         val acting = state
-        lastEnded = acting?.let { EndedReview(it.sessionId, it.outputPath) }
         state = null
         expiry?.cancel(false)
         expiry = null

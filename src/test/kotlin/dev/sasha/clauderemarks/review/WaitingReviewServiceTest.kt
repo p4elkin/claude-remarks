@@ -2,7 +2,6 @@ package dev.sasha.clauderemarks.review
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.ui.UIUtil
-import dev.sasha.clauderemarks.store.TempPaths
 
 /**
  * The service's transitions: current() masking a stale review, markSent, acknowledge, and
@@ -10,8 +9,6 @@ import dev.sasha.clauderemarks.store.TempPaths
  * itself is covered without one, in WaitingReviewTest.
  */
 class WaitingReviewServiceTest : BasePlatformTestCase() {
-
-    private val temp = TempPaths()
 
     override fun setUp() {
         super.setUp()
@@ -21,7 +18,6 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
 
     override fun tearDown() {
         WaitingReviewService.getInstance(project).clear()
-        temp.deleteAll()
         // Every transition queues a notifyPanel, and the stale path queues a balloon. Draining them
         // here keeps them out of whichever test class runs next in this shared fixture.
         UIUtil.dispatchAllInvocationEvents()
@@ -158,57 +154,6 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
         assertNotNull(service.current())
     }
 
-    fun testAnEndedReviewsOutputPathIsStillFindableByItsSession() {
-        val service = WaitingReviewService.getInstance(project)
-        val dir = temp.dir("ended-review-test")
-        service.start("s1", "a label", 1800L, dir)
-
-        service.clear("s1")
-
-        assertEquals(dir, service.endedOutputPath("s1"))
-    }
-
-    fun testADifferentSessionCannotFindTheEndedReviewsPath() {
-        val service = WaitingReviewService.getInstance(project)
-        val dir = temp.dir("ended-review-test")
-        service.start("s1", "a label", 1800L, dir)
-
-        service.clear("s1")
-
-        assertNull(service.endedOutputPath("s2"))
-    }
-
-    /**
-     * `start`'s stale-replacement branch (a different session arriving after the current review
-     * went stale, but before the scheduled expiry task fires) has to tear down the old review the
-     * same way every other ending does, or the old session's output path is lost for good, not just
-     * for the short window the scheduled task normally covers.
-     */
-    fun testAReviewSupersededWhileStaleIsStillFindableByItsSession() {
-        val service = WaitingReviewService.getInstance(project)
-        val firstDir = temp.dir("superseded-while-stale-first")
-        service.start("s1", "a label", 0L, firstDir)
-
-        val secondDir = temp.dir("superseded-while-stale-second")
-        service.start("s2", "a label", 60L, secondDir)
-
-        assertEquals(firstDir, service.endedOutputPath("s1"))
-    }
-
-    fun testOnlyTheMostRecentlyEndedReviewIsRemembered() {
-        val service = WaitingReviewService.getInstance(project)
-        val firstDir = temp.dir("ended-review-test-first")
-        service.start("s1", "a label", 1800L, firstDir)
-        service.clear("s1")
-
-        val secondDir = temp.dir("ended-review-test-second")
-        service.start("s2", "a label", 1800L, secondDir)
-        service.clear("s2")
-
-        assertNull(service.endedOutputPath("s1"))
-        assertEquals(secondDir, service.endedOutputPath("s2"))
-    }
-
     /**
      * The three lines almost every test above opened with. Session "s1" and the label are the same
      * everywhere, because no test here asserts on either; what varies is the deadline, and the two
@@ -216,6 +161,6 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
      */
     private fun startedReview(deadlineSeconds: Long = 1800L): WaitingReviewService =
         WaitingReviewService.getInstance(project).also {
-            it.start("s1", "a label", deadlineSeconds, temp.dir("waiting-review-service-test"))
+            it.start("s1", "a label", deadlineSeconds)
         }
 }

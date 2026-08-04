@@ -15,7 +15,6 @@ import dev.sasha.clauderemarks.editor.RemarkGutter
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.review.WaitingReviewService
 import dev.sasha.clauderemarks.store.RemarkStore
-import dev.sasha.clauderemarks.store.TempPaths
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.setRemarkBucket
 import dev.sasha.clauderemarks.store.settleInvocationQueue
@@ -27,8 +26,6 @@ import java.io.File
  * and every rebuild threw the selection away under the user.
  */
 class RemarksPanelTest : BasePlatformTestCase() {
-
-    private val temp = TempPaths()
 
     override fun setUp() {
         super.setUp()
@@ -43,7 +40,6 @@ class RemarksPanelTest : BasePlatformTestCase() {
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         WaitingReviewService.getInstance(project).clear()
-        temp.deleteAll()
         super.tearDown()
     }
 
@@ -300,8 +296,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
     fun testTheBannerShowsTheWaitingLabel() {
         val panel = panel()
-        val outputPath = temp.dir("remarks-panel-test")
-        WaitingReviewService.getInstance(project).start("s1", "a review label", 1800, outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a review label", 1800)
 
         panel.refresh()
         settleInvocationQueue()
@@ -314,8 +309,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
     fun testTheBannerSaysTheRemarksAreWaitingToBeReadAfterASend() {
         val panel = panel()
-        val outputPath = temp.dir("remarks-panel-test")
-        WaitingReviewService.getInstance(project).start("s1", "a review label", 1800, outputPath)
+        WaitingReviewService.getInstance(project).start("s1", "a review label", 1800)
         WaitingReviewService.getInstance(project).markSent("s1", listOf("a"))
 
         panel.refresh()
@@ -334,7 +328,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
     fun testTheBannerOffersRejectAndNothingElse() {
         val panel = panel()
         WaitingReviewService.getInstance(project)
-            .start("s1", "a review label", 1800, temp.dir("remarks-panel-test"))
+            .start("s1", "a review label", 1800)
 
         panel.refresh()
         settleInvocationQueue()
@@ -352,14 +346,14 @@ class RemarksPanelTest : BasePlatformTestCase() {
     fun testTheBannerIsHiddenForAReviewPastItsDeadline() {
         val panel = panel()
         WaitingReviewService.getInstance(project)
-            .start("s1", "a review label", 1800, temp.dir("remarks-panel-test"))
+            .start("s1", "a review label", 1800)
         panel.refresh()
         settleInvocationQueue()
         assertTrue(panel.banner.isVisible)
 
         WaitingReviewService.getInstance(project).clear()
         WaitingReviewService.getInstance(project)
-            .start("s2", "a stale label", 0, temp.dir("remarks-panel-test"))
+            .start("s2", "a stale label", 0)
         panel.refresh()
         settleInvocationQueue()
 

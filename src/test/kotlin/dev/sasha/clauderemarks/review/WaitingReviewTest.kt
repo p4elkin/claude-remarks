@@ -1,17 +1,12 @@
 package dev.sasha.clauderemarks.review
 
-import java.nio.file.Path
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Plain JUnit: startOrConflict is pure data in, data out, no fixture needed. */
 class WaitingReviewTest {
-
-    private val somePath = Path.of("/tmp/claude-remarks-review-a")
-    private val otherPath = Path.of("/tmp/claude-remarks-review-b")
 
     @Test
     fun `a start with nothing waiting is accepted`() {
@@ -21,22 +16,21 @@ class WaitingReviewTest {
             label = "review one",
             deadlineSeconds = 1800,
             now = 1000L,
-        ) { somePath }
+        )
 
         assertEquals(
             StartResult.Accepted(
-                WaitingReviewState("s1", "review one", somePath, startedAt = 1000L, deadlineAt = 1_801_000L),
+                WaitingReviewState("s1", "review one", startedAt = 1000L, deadlineAt = 1_801_000L),
             ),
             result,
         )
     }
 
     @Test
-    fun `the same session starting again gets the same output path back`() {
+    fun `a same-session retry keeps the review's identity and moves its deadline forward`() {
         val waiting = WaitingReviewState(
             "s1",
             "review one",
-            somePath,
             startedAt = 1000L,
             deadlineAt = Long.MAX_VALUE,
         )
@@ -47,9 +41,7 @@ class WaitingReviewTest {
             label = "a different label",
             deadlineSeconds = 1800,
             now = 2000L,
-        ) {
-            error("must not create a new output path when the same session retries")
-        }
+        )
 
         assertEquals(
             StartResult.Accepted(waiting.copy(deadlineAt = 1_802_000L), fresh = false),
@@ -65,7 +57,7 @@ class WaitingReviewTest {
             label = "review one",
             deadlineSeconds = 1800,
             now = 1000L,
-        ) { somePath }
+        )
 
         assertTrue((result as StartResult.Accepted).fresh)
     }
@@ -75,7 +67,6 @@ class WaitingReviewTest {
         val waiting = WaitingReviewState(
             "s1",
             "review one",
-            somePath,
             startedAt = 1000L,
             deadlineAt = Long.MAX_VALUE,
         )
@@ -85,9 +76,7 @@ class WaitingReviewTest {
             session = "s2",
             label = "review two",
             deadlineSeconds = 1800,
-        ) {
-            error("must not create an output path on a conflict")
-        }
+        )
 
         assertEquals(StartResult.Conflict(waiting), result)
         assertEquals("review one", (result as StartResult.Conflict).waiting.label)
@@ -103,20 +92,19 @@ class WaitingReviewTest {
             label = "review two",
             deadlineSeconds = 1800,
             now = 2000L,
-        ) { otherPath }
+        )
 
         assertEquals(
             StartResult.Accepted(
-                WaitingReviewState("s2", "review two", otherPath, startedAt = 2000L, deadlineAt = 1_802_000L),
+                WaitingReviewState("s2", "review two", startedAt = 2000L, deadlineAt = 1_802_000L),
             ),
             result,
         )
-        assertSame(otherPath, (result as StartResult.Accepted).state.outputPath)
     }
 
     @Test
     fun `a review is stale once its deadline has passed`() {
-        val state = WaitingReviewState("s1", "review one", somePath, startedAt = 0L, deadlineAt = 1000L)
+        val state = WaitingReviewState("s1", "review one", startedAt = 0L, deadlineAt = 1000L)
 
         assertFalse(state.isStale(999L))
         assertTrue(state.isStale(1000L))
@@ -125,7 +113,7 @@ class WaitingReviewTest {
 
     @Test
     fun `a stale review does not block a different session`() {
-        val stale = WaitingReviewState("s1", "review one", somePath, startedAt = 0L, deadlineAt = 1000L)
+        val stale = WaitingReviewState("s1", "review one", startedAt = 0L, deadlineAt = 1000L)
 
         val result = startOrConflict(
             current = stale,
@@ -133,19 +121,19 @@ class WaitingReviewTest {
             label = "review two",
             deadlineSeconds = 60,
             now = 2000L,
-        ) { otherPath }
+        )
 
         assertEquals(
             StartResult.Accepted(
-                WaitingReviewState("s2", "review two", otherPath, startedAt = 2000L, deadlineAt = 62_000L),
+                WaitingReviewState("s2", "review two", startedAt = 2000L, deadlineAt = 62_000L),
             ),
             result,
         )
     }
 
     @Test
-    fun `a retry of the same session after the deadline keeps its path and gets a live deadline`() {
-        val stale = WaitingReviewState("s1", "review one", somePath, startedAt = 0L, deadlineAt = 1000L)
+    fun `a retry of the same session after the deadline is accepted with a live deadline`() {
+        val stale = WaitingReviewState("s1", "review one", startedAt = 0L, deadlineAt = 1000L)
 
         val result = startOrConflict(
             current = stale,
@@ -153,14 +141,11 @@ class WaitingReviewTest {
             label = "a different label",
             deadlineSeconds = 1800,
             now = 2000L,
-        ) {
-            error("must not create a new output path when the same session retries, even a late one")
-        }
+        )
 
         val state = (result as StartResult.Accepted).state
-        assertSame(somePath, state.outputPath)
         // Handing the old deadline back would answer "waiting" for a review the expiry task kills at
-        // once: the skill would poll a path nothing can write to for its whole second deadline.
+        // once: the skill would poll a review already gone for its whole second deadline.
         assertEquals(1_802_000L, state.deadlineAt)
         assertFalse(state.isStale(2000L))
         assertFalse(result.fresh)
@@ -174,7 +159,7 @@ class WaitingReviewTest {
             label = "review one",
             deadlineSeconds = 60,
             now = 5000L,
-        ) { somePath }
+        )
 
         val state = (result as StartResult.Accepted).state
         assertEquals(5000L, state.startedAt)

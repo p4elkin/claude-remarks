@@ -759,16 +759,16 @@ still reach a rejection after the review was cleared, and
 [task 7](#task-7-a-rejection-and-a-fetch-use-the-one-file) covers the same behaviour end to end
 through the published file, which is now where a rejection lives.
 
-- [ ] delete the four `endedOutputPath` tests, and update every remaining `start` and
+- [x] delete the four `endedOutputPath` tests, and update every remaining `start` and
       `startOrConflict` call in the four test classes
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewTest" --tests "dev.sasha.clauderemarks.review.WaitingReviewServiceTest" --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"`
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.WaitingReviewTest" --tests "dev.sasha.clauderemarks.review.WaitingReviewServiceTest" --tests "dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest"`
       and expect a compile failure
-- [ ] implement the deletions, then that command passes and `./gradlew test` passes whole
-- [ ] **mutation:** none for a deletion. Instead, confirm by grep that nothing still names the removed
+- [x] implement the deletions, then that command passes and `./gradlew test` passes whole
+- [x] **mutation:** none for a deletion. Instead, confirm by grep that nothing still names the removed
       symbols: `grep -rn "outputPath\|endedOutputPath\|handoffFile\|lastEnded" src/ --include='*.kt'`
       must print nothing.
-- [ ] all six guards print nothing
-- [ ] commit: `refactor: one handover file, so the review keeps no directory of its own`
+- [x] all six guards print nothing
+- [x] commit: `refactor: one handover file, so the review keeps no directory of its own`
 
 ### Group three: the skill
 

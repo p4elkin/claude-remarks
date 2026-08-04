@@ -26,7 +26,7 @@ import org.jetbrains.ide.RestService
  * review session, since a publish can happen with no review waiting at all.
  *
  * The answer is always HTTP 200 with a `status` field. `start` answers one of `waiting`,
- * `conflict`, `unknown-project`, `bad-request`, `failed`; `ack` answers one of `ok`, `no-review`,
+ * `conflict`, `unknown-project`, `bad-request`; `ack` answers one of `ok`, `no-review`,
  * `not-sent`, `unknown-project`, `bad-request`; `fetch` answers one of `ready`, `waiting`,
  * `no-review`, `too-large`, `unknown-project`, `bad-request`, `failed`; `published-read` answers one
  * of `ok`, `already-read`, `unknown-batch`, `unknown-project`, `bad-request`. Real status codes stay
@@ -37,13 +37,6 @@ import org.jetbrains.ide.RestService
 
 /** The header the skill puts this IDE run's token in. */
 internal const val TOKEN_HEADER = "X-Claude-Remarks-Token"
-
-/**
- * The waiting review's output path is a directory; this is the file inside it. Named here rather
- * than spelled out twice, because the endpoint promises this path in the response and the send
- * action has to write that same one.
- */
-internal fun handoffFile(outputDir: Path): Path = outputDir.resolve("remarks.md")
 
 /** What reading the published file produced. [bytes] is the file's size, not the string's length. */
 internal sealed interface PublishedRead {
@@ -62,8 +55,8 @@ internal sealed interface PublishedRead {
  * markdown prompt cut in the middle looks complete to a model.
  *
  * The exists-then-size pair is not a race here: the plugin never deletes the published file. An
- * IOException from either call is left to the caller, which turns it into a `failed` answer the same
- * way a start request does.
+ * IOException from either call is left to the caller, which turns it into a `failed` answer, the
+ * same way `handleFetch` below does with it.
  */
 internal fun readPublished(file: Path, limit: Long): PublishedRead {
     if (!Files.exists(file)) return PublishedRead.Absent
@@ -252,21 +245,10 @@ class ReviewRestService : RestService() {
         }
         val project = matchProject(wanted, writer) ?: return
         val deadline = clampDeadlineSeconds(parsed.deadlineSeconds)
-        // Accepting creates the review's temp directory, so an unwritable or full TMPDIR fails here.
-        // Answered as a status field, not left to escape: RestService.process catches it above this
-        // class, calls LOG.error — which raises the IDE's fatal-error notification — and answers 500
-        // with the stack trace as the body, which no shell script can read.
-        val result = try {
-            WaitingReviewService.getInstance(project).start(session, label, deadline)
-        } catch (e: IOException) {
-            writer.name("status").value("failed")
-            writer.name("detail").value(e.message ?: e.toString())
-            return
-        }
+        val result = WaitingReviewService.getInstance(project).start(session, label, deadline)
         when (result) {
             is StartResult.Accepted -> {
                 writer.name("status").value("waiting")
-                writer.name("output").value(handoffFile(result.state.outputPath).toString())
                 writer.name("project").value(project.name)
                 // The one call into the file that owns the VFS and the editor. See
                 // review/OpenReviewFiles.kt for why it lives there and not here. Only on a first

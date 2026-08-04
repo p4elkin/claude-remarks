@@ -4,7 +4,6 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.RemarkStore
-import dev.sasha.clauderemarks.store.TempPaths
 import dev.sasha.clauderemarks.store.addRemark
 import io.netty.buffer.ByteBufHolder
 import io.netty.buffer.Unpooled
@@ -30,8 +29,6 @@ import java.nio.file.Path
  */
 class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
-    private val temp = TempPaths()
-
     override fun setUp() {
         super.setUp()
         // The light fixture project is shared across test classes.
@@ -47,7 +44,6 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         PublishedBatchService.getInstance(project).clear()
         deletePublishedFile()
         UIUtil.dispatchAllInvocationEvents()
-        temp.deleteAll()
         super.tearDown()
     }
 
@@ -89,7 +85,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
     fun testAnAcknowledgementOfASentReviewAnswersOk() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("ack-smoke"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
 
         val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"read"}""")
@@ -112,7 +108,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     fun testAReadAcknowledgementForAReviewThatWasNeverSentAnswersNotSent() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("ack-smoke"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
 
         val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"read"}""")
 
@@ -127,7 +123,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     fun testAnAcknowledgementWithAnEventNobodyRecognizesAnswersBadRequest() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("ack-smoke"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
 
         val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"nonsense"}""")
 
@@ -161,7 +157,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      * poll is supposed to come back.
      */
     fun testAFetchBeforeAnythingIsPublishedAnswersWaiting() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("fetch-waiting"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
 
         val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
 
@@ -190,7 +186,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     fun testAFetchMarksNothingReadAndLeavesTheReviewAlone() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
         writePublished(identity(), publishedBody(reviewSession = "s1"))
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("fetch-no-mutate"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
 
         post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
@@ -207,7 +203,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      * that still has to hand the rejection back — the whole point of moving it onto the one file.
      */
     fun testAFetchStillCarriesARejection() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("fetch-rejected"))
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
 
         rejectWaitingReview(project)
 
