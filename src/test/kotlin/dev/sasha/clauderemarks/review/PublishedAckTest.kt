@@ -156,6 +156,28 @@ class PublishedAckTest : BasePlatformTestCase() {
     }
 
     /**
+     * The same thing one step earlier in a publish: the acknowledgement lands after the file was
+     * written, while the publish has not yet stamped the review `Sent`. Ending the review from the
+     * calling thread answered NOT_SENT there and left the review alive to expire later. Queued on
+     * the EDT instead, it runs behind the publish that is still finishing, so it sees the `Sent`
+     * phase and ends the review. markSent standing between the acknowledgement and the drained
+     * queue is what puts the test inside that window.
+     */
+    fun testAnAcknowledgementLandingBeforeTheReviewIsStampedSentStillEndsIt() {
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        WaitingReviewService.getInstance(project).start("review-1", "a label", 1800)
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!), "review-1")
+
+        val answer = reportPublishedRead(project, nonce, "s1")
+        WaitingReviewService.getInstance(project).markSent("review-1", listOf(a.id!!))
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertEquals(PublishedAckOutcome.OK, answer.outcome)
+        assertEquals(RemarkStatus.READ, statusOf(a.id!!))
+        assertNull(WaitingReviewService.getInstance(project).current())
+    }
+
+    /**
      * A publish with no review waiting leaves any later review alone: the batch carries no session,
      * so there is nothing for it to end.
      */

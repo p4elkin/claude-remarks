@@ -82,25 +82,6 @@ case "$poll" in
 esac
 [ "$poll" -gt 0 ] || { echo "watch-remarks.sh: --poll must be greater than zero" >&2; exit 2; }
 
-# stat's flags differ by platform and the two forms cannot be chained: on GNU coreutils `-f` means
-# --file-system, takes no format argument, prints a filesystem block to stdout and exits non-zero,
-# so `stat -f ... || stat -c ...` concatenates that block with the real answer. Decide once instead,
-# by asking BSD stat for a format it understands and seeing whether it is understood at all.
-if stat -f '%m' . >/dev/null 2>&1; then
-  stat_flavor=bsd
-else
-  stat_flavor=gnu
-fi
-
-# Modification time and size, one line, or nothing at all when neither form works.
-file_stamp() {
-  if [ "$stat_flavor" = bsd ]; then
-    stat -f '%m %z' "$1" 2>/dev/null
-  else
-    stat -c '%Y %s' "$1" 2>/dev/null
-  fi
-}
-
 # The pid file's name: the same 16 hex characters review/ReviewHandshake.kt's projectHash uses
 # (sha256 of the project's real path, first 16 hex characters), so the pid file sits beside the
 # handshake and published files the plugin already writes for this project. In --file mode the
@@ -137,6 +118,32 @@ if [ ! -d "$remarks_dir" ]; then
   mkdir -m 700 "$remarks_dir"
 fi
 
+# The claim on the pid file below is read-then-kill-then-write, which is three steps, and two
+# watchers launched for the same project in the same moment would otherwise both walk through them:
+# both find no pid file (or both find the same old one), both write, and both run. `mkdir` is what
+# makes the claim one step — creating a directory is atomic on every POSIX filesystem, and creating
+# one that already exists fails rather than quietly succeeding. It is held only for the takeover and
+# the pid write, and released before the poll loop starts, so it is never held for hours.
+lockdir="$remarks_dir/$project_hash.watch.lock"
+lock_waited=0
+# Longer than the five seconds the takeover below spends waiting for the old watcher to die, so a
+# watcher doing that legitimately is never treated as a stale lock.
+lock_wait_limit=10
+while ! mkdir "$lockdir" 2>/dev/null; do
+  if [ "$lock_waited" -ge "$lock_wait_limit" ]; then
+    # A watcher killed before it could release the lock leaves the directory behind. Waiting for it
+    # for ever would mean no watcher can ever start for this project again, which is far worse than
+    # the race the lock closes — so the lock is broken and taken instead. The worst this can cost is
+    # one extra watcher; it can never cost the only one. It also costs the wait once and not again:
+    # whoever breaks the lock replaces it with a live one.
+    rm -rf "$lockdir"
+    mkdir "$lockdir" 2>/dev/null || true
+    break
+  fi
+  sleep 1
+  lock_waited=$((lock_waited + 1))
+done
+
 # One watcher per project on this machine. Before writing our own pid, kill whichever one is
 # already there — but only after confirming the pid still belongs to a watch-remarks.sh process
 # watching this same thing. A pid alone is not enough: pids are recycled, and a recycled one can
@@ -168,6 +175,13 @@ fi
 # Two lines: our pid, then what we are watching. Anything reading this file for a pid to kill must
 # read the first line alone.
 { echo $$; echo "$watch_identity"; } > "$pidfile"
+
+# Released here, before the traps below are installed rather than after: a signal arriving in the
+# gap kills this shell with the lock still held, and the stale-lock break above is what clears that.
+# Installing the traps first would mean the cleanup trap had to know about the lock as well, and
+# releasing a lock from a trap that also runs on the takeover path is how a live watcher's lock ends
+# up removed by a dying one.
+rm -rf "$lockdir"
 
 cleanup() {
   # Remove the pid file only if it is still ours: a later watcher for the same project may have
@@ -225,7 +239,7 @@ timed_out_fetch() {
 
 if [ "$mode" = file ]; then
   tmpcopy=
-  last_stamp=
+  last_probe=
   while :; do
     now=$(date +%s)
     if [ "$now" -ge "$deadline_ts" ]; then
@@ -237,17 +251,28 @@ if [ "$mode" = file ]; then
       continue
     fi
 
-    # Modification time and size first, and copy nothing when neither has moved since the last
-    # poll. At the 2-second default over listen mode's twelve hours the loop runs about 21,600
-    # times; without this every one of them creates, copies and deletes the whole file. The
-    # copy-for-atomicity argument below still holds for the polls that do copy. A stamp this
-    # platform cannot produce is left empty, which never matches and so always copies.
-    stamp=$(file_stamp "$file")
-    if [ -n "$stamp" ] && [ "$stamp" = "$last_stamp" ]; then
+    # Line 2 of the header first — the nonce — and copy nothing when it has not moved since the
+    # last poll. At the 2-second default over listen mode's twelve hours the loop runs about 21,600
+    # times; without this every one of them creates, copies and deletes the whole file. This reads
+    # two lines instead, and the copy below is taken only when the file really did change.
+    #
+    # The nonce rather than a modification time and a size, which is what this was first written
+    # with. Both of those are coarse — the time is whole seconds, and two batches carrying the same
+    # remarks differ by no bytes at all — so a batch replacing one of the same length inside the
+    # same second read as unchanged, and, because the stamp was then recorded as seen, was never
+    # looked at again until the deadline. The nonce is a fresh UUID on every write, so it moves
+    # whenever the file does, and there is no such blind spot. A rename does not truncate the inode
+    # behind it, so this read returns one whole line belonging to one batch, never a mix of two.
+    #
+    # It decides nothing on its own: once it says the file moved, everything below is read again out
+    # of the copy, this line included. An unreadable or empty line 2 is left empty, which never
+    # matches and so always copies — the copy is then what reports the malformed file.
+    probe=$(sed -n '2{p;q;}' "$file" 2>/dev/null)
+    if [ -n "$probe" ] && [ "$probe" = "$last_probe" ]; then
       sleep_capped || timed_out_file
       continue
     fi
-    last_stamp=$stamp
+    last_probe=$probe
 
     # Copy once, then read everything — the nonce and the body both — out of the copy. cp opens
     # an inode, and a rename does not truncate the inode it replaces, so the copy is always one

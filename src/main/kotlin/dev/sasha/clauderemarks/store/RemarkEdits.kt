@@ -114,9 +114,13 @@ fun markRemarksPublished(project: Project, ids: Collection<String>) {
 }
 
 /**
- * Only the review path may call this: a real `read` acknowledgement over
- * POST /api/claude-remarks/ack, in `review/ReviewLifecycle.kt`'s `reportReviewEnd`. CLAUDE.md's guard
- * keeps every other call site out.
+ * Only an agent's own acknowledgement may call this, and there are two routes that can be one:
+ * a `read` acknowledgement over POST /api/claude-remarks/ack, keyed to a review session, in
+ * `review/ReviewLifecycle.kt`'s `reportReviewEnd`; and a `published-read` acknowledgement over
+ * POST /api/claude-remarks/published-read, keyed to a published batch's nonce, in
+ * `review/PublishedAck.kt`'s `reportPublishedRead`. A publish is neither of them, however many times
+ * it runs. So three files may call this — those two and this one — and CLAUDE.md's guard 6 keeps
+ * every other call site out.
  */
 fun markRemarksRead(project: Project, ids: Collection<String>) {
     if (RemarkStore.getInstance(project).markRead(ids.toSet()) > 0) notifyRemarksChanged(project)

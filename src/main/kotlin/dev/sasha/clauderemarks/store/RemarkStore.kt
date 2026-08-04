@@ -114,8 +114,9 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
             return changed.size
         }
 
-        /** Returns how many actually changed, the same shape as markPublished. Only the review
-         *  path's `read` acknowledgement produces READ; see CLAUDE.md's guard on this. */
+        /** Returns how many actually changed, the same shape as markPublished. Only an agent's own
+         *  acknowledgement produces READ — either of the two routes, never a publish; see
+         *  CLAUDE.md's guard 6 on this. */
         @Synchronized
         fun markRead(ids: Set<String>): Int {
             val changed = remarks.filter { it.id in ids && it.status != RemarkStatus.READ }

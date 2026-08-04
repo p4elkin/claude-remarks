@@ -119,11 +119,11 @@ case "$cmd" in
       # review/ReviewHandshake.kt holds itself to exactly that standard for a file holding the
       # same token.
       #
-      # The two stat forms cannot be chained with `||`. watch-remarks.sh's stat_flavor probe carries
-      # the full explanation of why; the short version is that GNU's `-f` is a different flag
-      # entirely and still prints something. This script cannot probe once the way that one does,
-      # because it needs the answer itself rather than only a yes or no, so the BSD form's own
-      # output is thrown away unless it is octal digits and nothing else, and only then is it used.
+      # The two stat forms cannot be chained with a plain `||`: on GNU coreutils `-f` means
+      # --file-system, takes no format argument, prints a filesystem block and exits non-zero, so
+      # `stat -f ... || stat -c ...` would concatenate that block with the real answer. The BSD
+      # form's own output is therefore thrown away unless it is octal digits and nothing else, and
+      # only then is it used.
       mode=$(stat -f '%Lp' "$remarks_dir" 2>/dev/null) || mode=
       case "$mode" in
         '' | *[!0-7]*) mode=$(stat -c '%a' "$remarks_dir" 2>/dev/null) || mode= ;;
@@ -150,15 +150,36 @@ case "$cmd" in
     # Temp file beside the target, then rename, the same shape review/AtomicWrite.kt uses: a
     # reader never sees a partially written file, and chmod runs before the rename so the file is
     # never briefly world-readable under its final name.
-    tmp=$(mktemp "$remarks_dir/.remote-config.XXXXXX")
-    {
-      printf 'ide_host=%s\n' "$host"
-      printf 'ide_port=%s\n' "$port"
-      printf 'ide_project=%s\n' "$project"
-      printf 'ide_token=%s\n' "$token"
-    } > "$tmp"
-    chmod 600 "$tmp"
-    mv "$tmp" "$target"
+    #
+    # Every one of the four steps is checked, and none of them used to be. "saved" printed and an
+    # exit 0 followed whatever happened, so an unwritable directory or a full disk left a person
+    # believing the configuration was stored and finding out on the next run, far from here. One
+    # printf writes all four lines rather than four in a row, so one status covers the whole write:
+    # with four, only the last one's status would be seen.
+    tmp=$(mktemp "$remarks_dir/.remote-config.XXXXXX") || tmp=
+    if [ -z "$tmp" ]; then
+      echo "remote-config.sh: could not create a temporary file in $remarks_dir — check that the" >&2
+      echo "directory is writable and that the disk is not full." >&2
+      exit 2
+    fi
+    if ! printf 'ide_host=%s\nide_port=%s\nide_project=%s\nide_token=%s\n' \
+      "$host" "$port" "$project" "$token" > "$tmp"; then
+      echo "remote-config.sh: could not write $tmp — nothing was stored." >&2
+      rm -f "$tmp"
+      exit 2
+    fi
+    if ! chmod 600 "$tmp"; then
+      # The token is already in that file, so it is removed rather than left behind under whatever
+      # permissions it was created with.
+      echo "remote-config.sh: could not make $tmp owner-only — nothing was stored." >&2
+      rm -f "$tmp"
+      exit 2
+    fi
+    if ! mv "$tmp" "$target"; then
+      echo "remote-config.sh: could not move $tmp into place at $target — nothing was stored." >&2
+      rm -f "$tmp"
+      exit 2
+    fi
     echo "saved: $target"
     echo "host=$host port=$port project=$project"   # never the token
     ;;

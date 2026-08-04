@@ -13,8 +13,11 @@ val RemarkTag.label: String get() = name.lowercase()
  *
  * PENDING is written, handed nowhere. PUBLISHED means handed to a channel that cannot confirm a
  * read: the clipboard is one, the published file is another. READ means an agent said it read them,
- * over POST /api/claude-remarks/ack. Only the review path can produce READ, which is the whole
- * reason there are two words for "handed over" rather than one.
+ * over one of the two acknowledgement routes: POST /api/claude-remarks/ack, keyed to a review's own
+ * session, or POST /api/claude-remarks/published-read, keyed to a published batch's nonce. Only an
+ * agent's own acknowledgement produces READ — a publish, however many times it runs, only ever
+ * produces PUBLISHED. That is the whole reason there are two words for "handed over" rather than
+ * one.
  *
  * PENDING stays the first value and the default, so BaseState keeps omitting it and nothing has to
  * migrate. A remark stored by an older build as "SENT" does not parse and loads as PENDING. That is

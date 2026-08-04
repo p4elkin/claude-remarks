@@ -518,6 +518,13 @@ halves matter: a pid on its own gets recycled, and a recycled one can belong to 
 watcher, which is still a `watch-remarks.sh`. It removes its own pid file when it exits, on every
 exit path, signals included.
 
+Reading that file, killing the old watcher and writing the new pid are three steps, so the whole
+claim is made under a lock: a directory beside the pid file, `<the same 16 hex
+characters>.watch.lock`, created with `mkdir`, which is atomic. That is the only reason a
+`.watch.lock` directory ever appears in `~/.claude-remarks`, and it is held for a moment, not for
+the wait. One left behind by a watcher killed mid-claim is broken by the next watcher after ten
+seconds, so a stale one delays a start once and never blocks it.
+
 The 16 hex characters come straight off the `--file` path's own basename when that basename really
 is 16 hex characters, which is what every path this file prints looks like. A `--file` pointed
 anywhere else is hashed instead, so the one-watcher rule still holds for it rather than quietly

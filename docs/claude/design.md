@@ -1643,9 +1643,19 @@ published file with `cp` and reads the header and the body out of the copy. `cp`
 the plugin's atomic rename replaces the directory entry without truncating the inode behind it, so
 the copy is always one whole batch — the old one or the new one, never a mix. Reading the header in
 one call and the body in another, straight off the target path, could straddle a rename. The copy is
-skipped entirely when the file's modification time and size are both unchanged since the last poll,
-which is most polls: at the 2-second default over listen mode's twelve hours the loop runs about
-21,600 times.
+skipped entirely when line 2 of the header — the nonce — is unchanged since the last poll, which is
+most polls: at the 2-second default over listen mode's twelve hours the loop runs about 21,600
+times, and all but a handful of them now read two lines instead of copying the whole file.
+
+**Why the skip reads the nonce and not the file's modification time and size.** Those two were what
+the skip was first written with, and they share a blind spot. A modification time is whole seconds,
+and two batches carrying the same remarks differ by no bytes at all — the header's nonce and
+timestamp are both fixed-width — so a batch replacing one of the same length inside the same second
+read as unchanged. Worse, the stamp was then recorded as the one already seen, so that batch was
+never looked at again and the watcher ran its whole deadline out on remarks that had arrived. The
+nonce is a fresh UUID on every write, so it moves whenever the file does. It also decides nothing on
+its own: once it says the file moved, the copy is taken and every field is read again out of the
+copy, that line included.
 
 **One watcher per project, through a pid file.** On start the watcher writes two lines to
 `~/.claude-remarks/<16 hex characters>.watch` — its own pid, then the path it was launched on
@@ -1663,6 +1673,19 @@ killed, since a recycled pid can belong to another project's watcher, which is s
 pid, so a watcher that has already been replaced cannot delete the live one's file — and it traps
 `INT`, `TERM` and `HUP` as well as `EXIT`, because a shell killed by a signal never runs an `EXIT`
 trap, and a signal is exactly how a takeover ends the previous watcher.
+
+**The claim on that pid file is made under a lock, because reading it and writing it are separate
+steps.** Read the pid, kill the old watcher, write ours: two watchers launched for the same project
+in the same moment both walk through all three, both write, and both run, which is exactly what the
+one-watcher rule is there to stop. The lock is a directory beside the pid file,
+`~/.claude-remarks/<16 hex characters>.watch.lock`, taken with `mkdir` — atomic on every POSIX
+filesystem, and it fails rather than quietly succeeding when the directory is already there. It is
+held for the takeover and the pid write only, and released before the poll loop starts. A watcher
+killed before it can release it leaves the directory behind, so the wait for it is bounded: after
+ten seconds the next watcher breaks the lock and takes it. Ten rather than five, so a watcher
+legitimately waiting for the old one to die is never mistaken for a stale lock. The direction of
+that fallback is deliberate — the worst it can cost is one extra watcher, and it can never leave a
+project where no watcher can start at all.
 
 **The token for `--fetch` never appears in an argument.** It is read from `CLAUDE_REMARKS_TOKEN` in
 the environment, and it reaches `curl` through a config file on stdin rather than through a `-H`
@@ -1897,6 +1920,21 @@ exists and still holds the remarks, so the skill can still read them; its `ack r
 lost. Closing the gap for real would mean holding a lock across the file write, and that trade is
 worse than the message.
 
+**A `published-read` acknowledgement does both of its jobs on the EDT, and that is what keeps it out
+of the publish's own window.** `reportPublishedRead` (`review/PublishedAck.kt`) runs on a netty IO
+thread, and a publish's last few steps — the file write, `markRemarksPublished`, `answerWaitingReview`
+— run on the EDT. A batch is recorded before the file is written and the file carries that batch's
+nonce, so a fast agent can be acknowledging while the publish that wrote the file is still finishing.
+Both halves of what the acknowledgement causes are therefore queued with one `invokeLater`, and both
+need it for the same reason. Marking the remarks read needs it because a mutation landing before
+`markRemarksPublished` would be overwritten straight back to `PUBLISHED`. Ending the review needs it
+because one landing before `answerWaitingReview` finds the review still in its `Waiting` phase, is
+answered `NOT_SENT`, and leaves the review alive — so the remarks would be `READ` while the review sat
+waiting to expire, and its expiry would then tell the person the agent left without reading remarks
+the store already says were read. Queued, both run behind the publish whichever order the two threads
+arrived in. The review acknowledgement's own outcome is ignored on purpose: `NO_REVIEW` is the
+ordinary answer for a rejection's batch, whose review the rejection itself already cleared.
+
 **The deadline is declared by the skill, not configured in the plugin, and it is clamped at the
 endpoint.** The skill already had the number as a literal in its own wait loop; a plugin setting
 would be a second source of truth for the same value, and the two drifting apart is bad in both
@@ -2102,7 +2140,12 @@ directory other accounts can read — `writeHandshake` (`review/ReviewHandshake.
 demand for the same token. If the directory does not exist, it is created `700`. The file itself is
 written to a temp file beside the target, `chmod 600`, then renamed: the same temp-then-rename shape
 `AtomicWrite.kt` uses, with the permission set *before* the rename so the file never exists briefly
-world-readable under its final name.
+world-readable under its final name. Each of those four steps is checked and each failure is its own
+sentence, because the alternative is worse than a shell error: `save` used to print "saved" and exit
+0 whatever happened, so an unwritable directory or a full disk left a person believing four values
+were stored and finding out on the next run, far from the command that lied. The four lines are
+written by one `printf` rather than four in a row, so one status covers the whole write instead of
+only the last line's.
 
 **The skill parses the file with a whitelist loop, never `.` (source).** Sourcing runs the file as
 shell. A value holding a space, a quote or a backtick would then change what a later line means, and
