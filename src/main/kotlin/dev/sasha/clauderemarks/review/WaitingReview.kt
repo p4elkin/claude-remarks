@@ -16,7 +16,7 @@ enum class AckOutcome { OK, NO_REVIEW, NOT_SENT }
 /**
  * What ended a review. STALE is the deadline; the other two come from the skill.
  *
- * STALE carries no behaviour of its own: `reportReviewEnd` in review/SendReview.kt shows it exactly
+ * STALE carries no behaviour of its own: `reportReviewEnd` in review/ReviewLifecycle.kt shows it exactly
  * the same balloon as ABANDONED, because from the person's side both mean the agent is gone. It
  * exists to name the caller, so the one place that could ever want to tell them apart — a log line,
  * or a future message — has the distinction available rather than having to reconstruct it.
@@ -112,7 +112,7 @@ internal fun startOrConflict(
  * **Three things here exist for the tests and for nothing else**, listed together so a fourth is not
  * added without noticing how much of this service's surface they already are: the `now` parameter on
  * [expireIfStale], `clear()` called with no session (both production callers name one, in
- * review/SendReview.kt), and [expiryIsLive]. Each says at its own declaration why it is there.
+ * review/ReviewLifecycle.kt), and [expiryIsLive]. Each says at its own declaration why it is there.
  * Anything new of this shape belongs in this list — or better, does not get added.
  *
  * Everything but [current] and [getInstance] is `internal`: every caller is in `review/` or `ui/`
@@ -198,7 +198,7 @@ class WaitingReviewService(private val project: Project) : Disposable {
 
     /**
      * Ends the review the skill is asking about, if there is one. Returns the state it acted on,
-     * because the caller (review/SendReview.kt) needs the ids and the count for the store mutation
+     * because the caller (review/ReviewLifecycle.kt) needs the ids and the count for the store mutation
      * and the balloon.
      *
      * **The pair's halves are coupled, and this is the invariant: the state is non-null exactly
@@ -241,7 +241,7 @@ class WaitingReviewService(private val project: Project) : Disposable {
      * first means re-scheduling the same deadline on a same-session retry is harmless, with no
      * branch to get wrong.
      *
-     * The scheduled body calls `expireStaleReview(project)` (review/SendReview.kt), which is
+     * The scheduled body calls `expireStaleReview(project)` (review/ReviewLifecycle.kt), which is
      * [expireIfStale] plus the balloon a person left to read.
      */
     private fun scheduleExpiry(accepted: WaitingReviewState) {

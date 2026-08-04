@@ -66,7 +66,7 @@ private fun sanitizeLabel(label: String): String = sanitizeControls(label).take(
  * lines matter: the skill reads them by line number, and grepping for them is unsafe because a
  * remark's own text can start a line with, say, "commit:".
  */
-data class PublishedHeader(
+internal data class PublishedHeader(
     val nonce: String,
     val publishedAt: Long,
     val commit: String?,
@@ -97,7 +97,7 @@ private fun fieldOrNull(line: String, prefix: String): String? =
  * `rejected:` value that is neither `yes` nor `no`, returns null. A lie is not a better answer
  * than an error: the fetch turns this null into `failed` with a detail rather than guessing.
  */
-fun publishedHeaderOf(text: String): PublishedHeader? {
+internal fun publishedHeaderOf(text: String): PublishedHeader? {
     val lines = text.split("\n")
     if (lines.size < 8 || lines[0] != PUBLISHED_MARKER) return null
 

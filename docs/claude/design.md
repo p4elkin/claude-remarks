@@ -1027,7 +1027,7 @@ starts `PENDING`. Publishing it, through either the clipboard or the published f
 moves it to `PUBLISHED`. Since phase 10, two things can move it to `READ`, and both are answers to
 something the IDE itself minted rather than a side effect of a handover: an agent telling the IDE it
 read a waiting review's answer, in `reportReviewEnd`'s `ReviewEnd.READ` branch in
-`review/SendReview.kt`, over `POST /api/claude-remarks/ack`, keyed to the session id the review
+`review/ReviewLifecycle.kt`, over `POST /api/claude-remarks/ack`, keyed to the session id the review
 handed out when it started; or an agent telling the IDE it read a published batch, in
 `reportPublishedRead` in `review/PublishedAck.kt`, over `POST /api/claude-remarks/published-read`,
 keyed to the nonce that batch's own header carries. Before phase 10 only the first of these existed,
@@ -1035,7 +1035,7 @@ and answering a waiting review was the only way to ever confirm a read; a plain 
 review open could only ever reach `PUBLISHED`, with no way out of it. Writing the file in the first
 place changes no state at all, on either route: the file is written, but the remarks stay whatever
 they already were until one of the two acknowledgements arrives, or forever if neither does.
-`CLAUDE.md` rule 6 keeps this true by grep: only `store/RemarkEdits.kt`, `review/SendReview.kt` and
+`CLAUDE.md` rule 6 keeps this true by grep: only `store/RemarkEdits.kt`, `review/ReviewLifecycle.kt` and
 `review/PublishedAck.kt` may call `markRemarksRead`.
 
 The reason for two separate words, `PUBLISHED` and `READ`, rather than one, is that a status only
@@ -1568,7 +1568,7 @@ Phase 6 lets a Claude Code skill start a review inside a running IDE, wait while
 it in the tool window, then read back what they wrote — with no server the plugin manages beyond
 the one the platform already runs, and no state that survives an IDE restart. The pieces live in
 `review/`: `ReviewHandshake.kt`, `AtomicWrite.kt`, `WaitingReview.kt`, `ReviewRestService.kt`,
-`SendReview.kt`, `OpenReviewFiles.kt`, and, since phase 9 and phase 10 respectively,
+`ReviewLifecycle.kt`, `OpenReviewFiles.kt`, and, since phase 9 and phase 10 respectively,
 `PublishedRemarks.kt` and `PublishedAck.kt` — the file both a plain publish and a review's answer now
 write, and its second acknowledgement route. The skill side is
 `docs/skill/claude-remarks-review/SKILL.md`, outside the plugin proper.
@@ -1676,7 +1676,7 @@ the command line, which is what leaves stdin free for the config.
 Before phase 10, `WaitingReviewState.outputPath` was a fresh
 `Files.createTempDirectory("claude-remarks-review-")` per accepted review, with the handoff file
 named inside it — `<that directory>/remarks.md` — by a `handoffFile(outputPath)` function the
-endpoint's response and `SendReview.kt`'s write both went through, so the two sides could never drift
+endpoint's response and `ReviewLifecycle.kt`'s write both went through, so the two sides could never drift
 into naming the file differently. The reason the path was unpredictable in the first place,
 `docs/ideas.md`'s own argument at the time: the system temp directory is shared and world-writable,
 so a fixed, predictable name there can be pre-created as a symlink by another local user, and the
@@ -1847,7 +1847,7 @@ saw the remarks, gave up, or was killed outright. `WaitingReviewState` now carri
 gained `markSent`, `acknowledge` and `expireIfStale` to move between them.
 
 **Rejecting writes into the published file, then clears — it does not just close the banner.** Before
-phase 10, `rejectWaitingReview` (`review/SendReview.kt`) wrote `REJECTION_BODY` through
+phase 10, `rejectWaitingReview` (`review/ReviewLifecycle.kt`) wrote `REJECTION_BODY` through
 `atomicWriteString` onto the review's own handoff path, with a first line,
 `<!-- claude-remarks: rejected -->`, that both the plugin's test and `SKILL.md` spelled out as a
 literal — an HTML comment, so it read as invisible prose to a model and as a first-line match in the
@@ -1881,7 +1881,7 @@ calls `WaitingReviewService.markSent(session, ids)` through `answerWaitingReview
 old `sendToWaitingReview` in phase 10, called from inside the publish pipeline rather than from a
 separate action — moving the phase to `Sent(ids)` and keeping the review current; the remarks
 themselves move only to `PUBLISHED`, the same as any other publish, not straight to `READ`. Only a
-`read` acknowledgement, `finishReview` in `review/SendReview.kt`, reached through the `ack` endpoint
+`read` acknowledgement, `finishReview` in `review/ReviewLifecycle.kt`, reached through the `ack` endpoint
 action, calls `markRemarksRead(project, ids)`, moving them to `READ`. This is also why no mutation
 function marks a remark pending again: nothing is ever marked handed over early, so there is nothing
 to undo when a review is abandoned or rejected after a publish.
@@ -2257,7 +2257,7 @@ only `endReview()` and the state assignment below it do apart.
 
 **OCCASIONAL, MINOR: a superseded review's balloon never fires.** In `WaitingReview.kt`, `start()`'s stale-replacement
 branch calls `endReview()` but discards the return value. `endReview()` returns the state it removed,
-and that is what `acknowledge()` and `expireIfStale()` pass to `reportReviewEnd` in `SendReview.kt`,
+and that is what `acknowledge()` and `expireIfStale()` pass to `reportReviewEnd` in `ReviewLifecycle.kt`,
 the function that shows the balloon. Here nothing passes that value on, so `reportReviewEnd` never
 runs for the review that got replaced. If that review was in `Sent` phase, the person never sees
 "Claude Code left without reading the N remarks you sent." This is not a regression from phase 8. The

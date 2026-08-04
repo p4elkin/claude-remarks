@@ -357,7 +357,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
         assertFalse(text, text.contains("<b>"))
     }
 
-    fun testTheBannerSaysTheRemarksAreWaitingToBeReadAfterASend() {
+    fun testTheBannerSaysTheRemarksAreWaitingToBeReadAfterAPublish() {
         val panel = panel()
         WaitingReviewService.getInstance(project).start("s1", "a review label", 1800)
         WaitingReviewService.getInstance(project).markSent("s1", listOf("a"))

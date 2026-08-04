@@ -2,12 +2,23 @@ package dev.sasha.clauderemarks.review
 
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.action.plural
 import dev.sasha.clauderemarks.store.markRemarksRead
-import java.io.IOException
 import java.nio.file.Path
+
+// A review's whole life outside the endpoint: a publish answering it, a rejection, what the read
+// acknowledgement causes, and the deadline that ends an abandoned one. This file was SendReview.kt
+// until phase 10 deleted sendToWaitingReview, canSend and SendReviewAction — nothing in it sends any
+// more, so the name follows what is left. Rule 5 in CLAUDE.md is why the acknowledgement's
+// consequences live here rather than in ReviewRestService.kt.
+//
+// Written as a line comment rather than a KDoc block on purpose: a KDoc here would attach itself to
+// the LOG below instead of to the file.
+private val LOG = Logger.getInstance("dev.sasha.clauderemarks.review.ReviewLifecycle")
 
 /**
  * What a publish does about a waiting review. Null when none is waiting.
@@ -60,7 +71,7 @@ internal val REJECTION_BODY = """
  * escape the try below — the same trap `store/RemarkEdits.kt`'s `clearHandedOverRemarks` already
  * names. Null means the real directory, resolved inside the try. Only the tests pass a path.
  */
-fun rejectWaitingReview(project: Project, dir: Path? = null) {
+internal fun rejectWaitingReview(project: Project, dir: Path? = null) {
     val waiting = WaitingReviewService.getInstance(project).current() ?: return
     if (waiting.phase is ReviewPhase.Sent) {
         // The published file already holds this batch and the agent may already have read it.
@@ -99,13 +110,26 @@ fun rejectWaitingReview(project: Project, dir: Path? = null) {
         ).render()
         writePublished(root, header + "\n" + REJECTION_BODY, dir ?: handshakeDir())
         notifyRemarks(project, "Rejected the review. Claude Code will stop waiting.")
-    } catch (e: IOException) {
+    } catch (e: ProcessCanceledException) {
+        // Never swallowed. The platform throws it to unwind, not to report a failure, and turning it
+        // into "the rejection could not be written" would hide it.
+        throw e
+    } catch (e: Exception) {
+        // Every failure, not only IOException, for the reason action/PublishRemarks.kt's own write
+        // gives: writePublished and atomicWriteString also throw unchecked ones — a SecurityException
+        // from a manager that refuses the directory, and whatever a particular filesystem raises for
+        // a name or an attribute it will not take. The consequences here are worse than there. An
+        // unchecked throw escaping this function would skip both the forget below and the clear at
+        // the end of it, so the batch would burn one of the sixteen remembered slots and the banner
+        // would stay on screen with no way to dismiss it.
+        //
         // The batch above names a file that does not exist, so it is dropped again. Left in place it
         // would burn one of the sixteen remembered slots and could push a real, readable batch out.
         PublishedBatchService.getInstance(project).forget(nonce)
+        LOG.warn("the rejection could not be written", e)
         notifyRemarks(
             project,
-            "The rejection could not be written: ${e.message}. " +
+            "The rejection could not be written: ${e.message ?: e}. " +
                 "The Claude Code session will wait for its own timeout instead.",
             NotificationType.ERROR,
         )
@@ -121,7 +145,7 @@ fun rejectWaitingReview(project: Project, dir: Path? = null) {
  * netty IO thread, so both the store mutation and the balloon go inside [ApplicationManager]'s
  * `invokeLater`, the same way [WaitingReviewService]'s own `notifyPanel` does.
  */
-fun finishReview(project: Project, session: String, end: ReviewEnd): AckOutcome {
+internal fun finishReview(project: Project, session: String, end: ReviewEnd): AckOutcome {
     val (outcome, acted) = WaitingReviewService.getInstance(project).acknowledge(session, end)
     if (outcome == AckOutcome.OK && acted != null) reportLater(project, acted, end)
     return outcome
@@ -132,7 +156,7 @@ fun finishReview(project: Project, session: String, end: ReviewEnd): AckOutcome 
  * an abandoned acknowledgement, plus the balloon. [now] is a parameter for the tests only, the same
  * reason [WaitingReviewService.expireIfStale] takes one.
  */
-fun expireStaleReview(project: Project, now: Long = System.currentTimeMillis()) {
+internal fun expireStaleReview(project: Project, now: Long = System.currentTimeMillis()) {
     val acted = WaitingReviewService.getInstance(project).expireIfStale(now) ?: return
     reportLater(project, acted, ReviewEnd.STALE)
 }

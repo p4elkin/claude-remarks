@@ -215,7 +215,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
     /**
      * A rejection is a batch like any other, written into the same published file
-     * (`review/SendReview.kt`'s `rejectWaitingReview`), and the review is then cleared. A fetch after
+     * (`review/ReviewLifecycle.kt`'s `rejectWaitingReview`), and the review is then cleared. A fetch after
      * that still has to hand the rejection back — the whole point of moving it onto the one file.
      */
     fun testAFetchStillCarriesARejection() {

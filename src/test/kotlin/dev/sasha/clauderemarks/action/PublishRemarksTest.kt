@@ -187,7 +187,7 @@ class PublishRemarksTest : BasePlatformTestCase() {
 
     /** The Tools-menu action's own update(), run against a data context that names this project. */
     private fun updatedPresentation(): Presentation {
-        val action = PublishAllRemarksAction()
+        val action = PublishUnreadRemarksAction()
         val event = TestActionEvent.createTestEvent(
             action,
             SimpleDataContext.getProjectContext(project),

@@ -31,9 +31,6 @@ class PublishedRemarksTest {
         assertNotEquals(publishedName(realPath), publishedName("/a/c"))
     }
 
-    /** A round minute in millis, so formatting to minute precision and parsing it back round-trips. */
-    private val FIXED_PUBLISHED_AT = 1_700_000_000_000L - (1_700_000_000_000L % 60_000L)
-
     @Test
     fun `the header renders eight lines in a fixed order`() {
         val header = PublishedHeader(
@@ -220,17 +217,6 @@ class PublishedRemarksTest {
         assertNull(publishedHeaderOf(broken))
     }
 
-    /** The plain header the malformed-input tests break one line of. */
-    private fun header() = PublishedHeader(
-        nonce = "n",
-        publishedAt = FIXED_PUBLISHED_AT,
-        commit = null,
-        remarks = 0,
-        reviewSession = null,
-        reviewLabel = null,
-        rejected = false,
-    )
-
     /**
      * A temp directory, then list it and assert exactly one file: atomicWriteString's own temp file
      * is created beside the target and renamed onto it, so a leftover temp file here would mean the
@@ -254,5 +240,21 @@ class PublishedRemarksTest {
         assertEquals("body text", Files.readString(target))
         assertEquals(PosixFilePermissions.fromString("rw-------"), Files.getPosixFilePermissions(target))
         assertEquals(PosixFilePermissions.fromString("rwx------"), Files.getPosixFilePermissions(dir))
+    }
+
+    /** The plain header the malformed-input tests break one line of. */
+    private fun header() = PublishedHeader(
+        nonce = "n",
+        publishedAt = FIXED_PUBLISHED_AT,
+        commit = null,
+        remarks = 0,
+        reviewSession = null,
+        reviewLabel = null,
+        rejected = false,
+    )
+
+    private companion object {
+        /** A round minute in millis, so formatting to minute precision and parsing it back round-trips. */
+        const val FIXED_PUBLISHED_AT = 1_700_000_000_000L - (1_700_000_000_000L % 60_000L)
     }
 }

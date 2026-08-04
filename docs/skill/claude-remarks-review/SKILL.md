@@ -440,6 +440,12 @@ fi
 `~/.claude/skills/claude-remarks-review/remote-config.sh`, which is the install path above; if the
 skill is installed somewhere else, use that directory instead.
 
+**The two scripts share one exit-code scheme.** `0` means the command did what it was asked. `2`
+means a refusal — a bad argument, a value the script will not store, a file it cannot read, or an
+answer no amount of polling can fix. `1` belongs to `watch-remarks.sh` alone and means one thing
+only: the deadline passed with nothing new, which is not a failure. `remote-config.sh` never exits
+`1`, so a caller can read `1` as a deadline wherever it sees it.
+
 ## The watcher script
 
 `watch-remarks.sh`, beside this file, is what both wait loops below use instead of polling inline.
@@ -487,9 +493,11 @@ watch-remarks.sh --fetch <base_url> --session <id> --project <path>
   own argv, where `ps` reads it. Every `curl` in this file does the same.
 
 **Exit codes.** `0`, with the whole published file on stdout (header included), when a new batch
-arrived. `1`, with one sentence, when the deadline passed with nothing new. `2`, with a reason, for
-anything wrong: a file it cannot read, a header whose first line is not the marker or whose second
-line does not start with `nonce: ` (which means the plugin that wrote it is older than this skill),
+arrived. `1`, with one sentence on stderr, when the deadline passed with nothing new. `2`, with a
+reason on stderr, for anything wrong: a file it cannot read, a header whose first line is not the
+marker, or whose second line does not start with `nonce: `, or — under `--require-review` — whose
+sixth line does not start with `review: ` (all three mean the plugin that wrote it is older than
+this skill),
 an HTTP status other than 200, or one of the fetch answers that no amount of polling can fix —
 `too-large`, `failed` (the IDE reached the published file and could not use it: an IOException, a
 header it could not parse, or a project directory that no longer resolves), `bad-request` and

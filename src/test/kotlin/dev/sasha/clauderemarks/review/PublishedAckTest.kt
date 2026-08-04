@@ -8,12 +8,13 @@ import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.markRemarksPublished
+import org.junit.Assert.assertNotEquals
 
 /**
  * PublishedBatchService's transitions, fixture-backed because a project-level @Service needs a
  * project. UIUtil.dispatchAllInvocationEvents() drains reportPublishedRead's invokeLater after every
- * acknowledgement that answers OK, the same reason SendReviewTest calls settleInvocationQueue()
- * after every send.
+ * acknowledgement that answers OK, the same reason ReviewLifecycleTest calls settleInvocationQueue()
+ * after every acknowledgement.
  */
 class PublishedAckTest : BasePlatformTestCase() {
 
@@ -114,7 +115,7 @@ class PublishedAckTest : BasePlatformTestCase() {
     fun testEachRecordedBatchGetsItsOwnNonce() {
         val service = PublishedBatchService.getInstance(project)
 
-        assertFalse(service.record(emptyList()) == service.record(emptyList()))
+        assertNotEquals(service.record(emptyList()), service.record(emptyList()))
     }
 
     /**

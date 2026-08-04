@@ -208,18 +208,32 @@ sleep_capped() {
   return 0
 }
 
+# The one sentence each mode prints when its deadline passes, written once. The top-of-loop check
+# and every `sleep_capped ||` tail below call the same helper, so the wording cannot drift between
+# them. It goes to stderr, not stdout: on success stdout carries the whole batch, and a caller
+# reading stdout as the payload must get a batch or nothing, never a sentence. Exit 1 means the
+# deadline and nothing else — every refusal in this script exits 2.
+timed_out_file() {
+  echo "no new batch appeared in $file within $deadline seconds" >&2
+  exit 1
+}
+
+timed_out_fetch() {
+  echo "no new batch answered session $session_id within $deadline seconds" >&2
+  exit 1
+}
+
 if [ "$mode" = file ]; then
   tmpcopy=
   last_stamp=
   while :; do
     now=$(date +%s)
     if [ "$now" -ge "$deadline_ts" ]; then
-      echo "no new batch appeared in $file within $deadline seconds"
-      exit 1
+      timed_out_file
     fi
 
     if [ ! -f "$file" ]; then
-      sleep_capped || { echo "no new batch appeared in $file within $deadline seconds"; exit 1; }
+      sleep_capped || timed_out_file
       continue
     fi
 
@@ -230,7 +244,7 @@ if [ "$mode" = file ]; then
     # platform cannot produce is left empty, which never matches and so always copies.
     stamp=$(file_stamp "$file")
     if [ -n "$stamp" ] && [ "$stamp" = "$last_stamp" ]; then
-      sleep_capped || { echo "no new batch appeared in $file within $deadline seconds"; exit 1; }
+      sleep_capped || timed_out_file
       continue
     fi
     last_stamp=$stamp
@@ -272,7 +286,18 @@ if [ "$mode" = file ]; then
       # already recorded as seen before the watcher ever runs, and the wait would then run its whole
       # deadline out on a batch that had already arrived.
       review_line=$(sed -n '6p' "$tmpcopy")
-      review_value=${review_line#"review: "}
+      # Checked with a case, the same way lines 1 and 2 are. A bare ${review_line#"review: "} on a
+      # line with no such prefix yields the whole line, which then compares against the session id
+      # as if it were a field — publishedHeaderOf on the Kotlin side refuses the file instead.
+      case "$review_line" in
+        "review: "*) review_value=${review_line#"review: "} ;;
+        *)
+          echo "watch-remarks.sh: $file's line 6 does not start with 'review: ' — the plugin that" >&2
+          echo "wrote it is older than this skill" >&2
+          rm -f "$tmpcopy"
+          exit 2
+          ;;
+      esac
       if [ "$review_value" = "$require_review" ]; then
         cat "$tmpcopy"
         rm -f "$tmpcopy"
@@ -286,7 +311,7 @@ if [ "$mode" = file ]; then
 
     rm -f "$tmpcopy"
     tmpcopy=
-    sleep_capped || { echo "no new batch appeared in $file within $deadline seconds"; exit 1; }
+    sleep_capped || timed_out_file
   done
 fi
 
@@ -300,8 +325,7 @@ resp=
 while :; do
   now=$(date +%s)
   if [ "$now" -ge "$deadline_ts" ]; then
-    echo "no new batch answered session $session_id within $deadline seconds"
-    exit 1
+    timed_out_fetch
   fi
 
   resp=$(mktemp)
@@ -366,5 +390,5 @@ while :; do
   esac
   rm -f "$resp"
   resp=
-  sleep_capped || { echo "no new batch answered session $session_id within $deadline seconds"; exit 1; }
+  sleep_capped || timed_out_fetch
 done

@@ -60,7 +60,7 @@
              mapping to it silently: IdeaVim's ":action" fails on an unknown id inside IdeaVim,
              not here, so nothing in this project would ever notice. -->
         <action id="ClaudeRemarks.CopyAll"
-                class="dev.sasha.clauderemarks.action.PublishAllRemarksAction"
+                class="dev.sasha.clauderemarks.action.PublishUnreadRemarksAction"
                 text="Publish Unread Claude Remarks"
                 description="Render every remark that has not been read into one markdown prompt and put it on the clipboard">
             <add-to-group group-id="ToolsMenu" anchor="last"/>

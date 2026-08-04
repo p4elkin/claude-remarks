@@ -76,6 +76,9 @@ fun projectHash(realPath: String): String {
 /** The handshake file's name: [projectHash] plus ".json". */
 fun handshakeName(realPath: String): String = projectHash(realPath) + ".json"
 
+/** The one directory [handshakeDir] answers with in unit-test mode, created once per JVM run. */
+private val TEST_HANDSHAKE_DIR: Path by lazy { Files.createTempDirectory("claude-remarks-test") }
+
 /**
  * Not the IDE configuration directory: the skill has to find this without knowing which JetBrains
  * product is running, and the configuration directory name carries the product and the version.
@@ -94,8 +97,6 @@ fun handshakeName(realPath: String): String = projectHash(realPath) + ".json"
  * which is the same argument the skill makes for its own temp files. One directory per JVM run,
  * through a lazy delegate, so every call inside one test run still answers the same path.
  */
-private val TEST_HANDSHAKE_DIR: Path by lazy { Files.createTempDirectory("claude-remarks-test") }
-
 fun handshakeDir(): Path =
     if (ApplicationManager.getApplication()?.isUnitTestMode == true) TEST_HANDSHAKE_DIR
     else Path.of(System.getProperty("user.home"), ".claude-remarks")

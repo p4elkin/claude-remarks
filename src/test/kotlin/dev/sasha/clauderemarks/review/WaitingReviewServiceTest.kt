@@ -94,16 +94,17 @@ class WaitingReviewServiceTest : BasePlatformTestCase() {
     fun testMarkingSentForAnotherSessionChangesNothing() {
         val service = startedReview()
 
-        // What a send whose review ended mid-render would otherwise do to the review that replaced it.
+        // What a publish whose review ended mid-render would otherwise do to the review that
+        // replaced it.
         assertFalse(service.markSent("s0", listOf("a", "b")))
 
         assertEquals(ReviewPhase.Waiting, service.current()!!.phase)
     }
 
     /**
-     * The window the send cannot close: it writes the handoff file outside the service's lock, so
-     * the deadline task can end the review before the stamp lands. `false` is what tells the send to
-     * report that instead of claiming the remarks were handed over.
+     * The window the publish cannot close: it writes the published file outside the service's lock,
+     * so the deadline task can end the review before the stamp lands. `false` is what tells the
+     * publish to report that instead of claiming the remarks were handed over.
      */
     fun testMarkingSentAfterTheReviewEndedReportsThatNothingWasStamped() {
         val service = startedReview()

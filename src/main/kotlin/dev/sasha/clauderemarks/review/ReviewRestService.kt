@@ -295,7 +295,7 @@ class ReviewRestService : RestService() {
         }
         val project = matchProject(wanted, writer) ?: return
         // Everything the acknowledgement causes lives in the file that owns the editor side, see
-        // review/SendReview.kt. This file only turns the outcome into a status field.
+        // review/ReviewLifecycle.kt. This file only turns the outcome into a status field.
         writer.name("status").value(
             when (finishReview(project, session, end)) {
                 AckOutcome.OK -> "ok"
@@ -319,7 +319,7 @@ class ReviewRestService : RestService() {
      * A live review still in [ReviewPhase.Waiting] for this session answers `waiting` at once: nothing
      * has been published for it yet, so there is no file worth reading. Every other case — no live
      * review, or one already [ReviewPhase.Sent] — reads the one published file this project has, the
-     * same file a publish writes and the same file a rejection lands in (`review/SendReview.kt`), so a
+     * same file a publish writes and the same file a rejection lands in (`review/ReviewLifecycle.kt`), so a
      * fetch after either still finds it. The file's own `review:` header field is what ties a batch to
      * the session that asked for it, since a publish or a rejection can happen with several sessions
      * having asked at different times: a file answering a different session, or none at all, is
@@ -406,7 +406,7 @@ class ReviewRestService : RestService() {
      * This handler does nothing but parse, call [matchProject] and [reportPublishedRead], and write
      * fields. Every consequence — marking the batch's remarks read, the balloon — lives in
      * review/PublishedAck.kt, for the same reason the ack action's consequences live in
-     * review/SendReview.kt rather than here.
+     * review/ReviewLifecycle.kt rather than here.
      */
     private fun handlePublishedRead(request: FullHttpRequest, writer: JsonWriter) {
         val body = runCatching {

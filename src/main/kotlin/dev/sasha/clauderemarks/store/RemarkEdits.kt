@@ -115,7 +115,7 @@ fun markRemarksPublished(project: Project, ids: Collection<String>) {
 
 /**
  * Only the review path may call this: a real `read` acknowledgement over
- * POST /api/claude-remarks/ack, in `review/SendReview.kt`'s `reportReviewEnd`. CLAUDE.md's guard
+ * POST /api/claude-remarks/ack, in `review/ReviewLifecycle.kt`'s `reportReviewEnd`. CLAUDE.md's guard
  * keeps every other call site out.
  */
 fun markRemarksRead(project: Project, ids: Collection<String>) {

@@ -16,7 +16,7 @@ import java.util.UUID
  * session (a plain retry) or a different one (a real anomaly the skill acts on). UNKNOWN_BATCH
  * covers both a nonce this plugin never recorded and one that fell off the remembered sixteen.
  */
-enum class PublishedAckOutcome { OK, ALREADY_READ, UNKNOWN_BATCH }
+internal enum class PublishedAckOutcome { OK, ALREADY_READ, UNKNOWN_BATCH }
 
 /**
  * One published batch: what it carried, which waiting review it answered if any, and who said they
@@ -31,7 +31,7 @@ enum class PublishedAckOutcome { OK, ALREADY_READ, UNKNOWN_BATCH }
  * There is no "written at" field. Retention is by list position — the oldest of the sixteen is
  * dropped — so an age was written on every batch and read by nothing.
  */
-data class PublishedBatch(
+internal data class PublishedBatch(
     val nonce: String,
     val ids: List<String>,
     val reviewSession: String? = null,
@@ -40,7 +40,7 @@ data class PublishedBatch(
 )
 
 /** What the endpoint needs to write its answer. [readBy] and [readAt] are set for ALREADY_READ. */
-data class PublishedAckAnswer(
+internal data class PublishedAckAnswer(
     val outcome: PublishedAckOutcome,
     val remarks: Int = 0,
     val readBy: String? = null,
@@ -61,7 +61,7 @@ data class PublishedAckAnswer(
  * it.
  */
 @Service(Service.Level.PROJECT)
-class PublishedBatchService {
+internal class PublishedBatchService {
 
     private val batches = mutableListOf<PublishedBatch>()
 
@@ -139,7 +139,7 @@ class PublishedBatchService {
 /**
  * The endpoint's only entry point into what an acknowledgement of a published batch causes. The
  * endpoint runs on a netty IO thread, so both the store mutation and the balloon go inside
- * [ApplicationManager]'s `invokeLater`, the same way `review/SendReview.kt`'s `reportLater` does,
+ * [ApplicationManager]'s `invokeLater`, the same way `review/ReviewLifecycle.kt`'s `reportLater` does,
  * checking `project.isDisposed` inside the queued runnable rather than in front of it, because a
  * project can close in the gap between the two.
  *
@@ -153,15 +153,15 @@ class PublishedBatchService {
  * routes exist at all: they are two ways of saying one thing. Without it the remarks would be `READ`
  * while the review stayed in its `Sent` phase, and the review's own expiry would then tell the person
  * the agent left without reading remarks the store already says were read. The balloon is written
- * here rather than by `review/SendReview.kt`'s `reportReviewEnd`, so an acknowledgement produces one
+ * here rather than by `review/ReviewLifecycle.kt`'s `reportReviewEnd`, so an acknowledgement produces one
  * balloon and one store mutation whichever route it came in by.
  *
  * **An empty batch queues nothing.** A rejection is recorded as a batch with no ids
- * (`review/SendReview.kt`), so acknowledging one would otherwise mark nothing read and still show a
+ * (`review/ReviewLifecycle.kt`), so acknowledging one would otherwise mark nothing read and still show a
  * balloon saying zero remarks were read. The answer is still `ok`: the batch was real and this
  * session is the first to name it.
  */
-fun reportPublishedRead(project: Project, nonce: String, session: String): PublishedAckAnswer {
+internal fun reportPublishedRead(project: Project, nonce: String, session: String): PublishedAckAnswer {
     val (answer, batch) = PublishedBatchService.getInstance(project).acknowledge(nonce, session)
     if (batch != null) {
         // Straight from the calling thread, the same way the ack action's own finishReview reaches

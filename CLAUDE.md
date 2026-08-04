@@ -233,7 +233,7 @@ acknowledgement, or while nothing has ever been acknowledged, is the ordinary ca
 refused one. **Publishing is now how a waiting review gets answered, and the three controls that used
 to do that — the banner's "Send remarks" link, the toolbar's "Send to Claude Code" button, and the
 Tools menu's `ClaudeRemarks.SendToWaiting` action — are gone.** `answerWaitingReview` in
-`review/SendReview.kt` replaces `sendToWaitingReview`, called from inside the publish pipeline right
+`review/ReviewLifecycle.kt` replaces `sendToWaitingReview`, called from inside the publish pipeline right
 after the file write succeeds; `sendToWaitingReview`, `canSend` and `SendReviewAction` are deleted.
 The banner is two lines now: "Claude Code is waiting: <label>" and "Publish to answer, or Reject."
 Rejecting also writes into the merged file — a batch with `remarks: 0` and `rejected: yes` — instead
@@ -348,9 +348,9 @@ published file" and "The Shared Review Session", for the whole design.
    explaining.
 
    **Phase 7 hit the same trap and it is still live.** The `ack` action's consequences — marking a
-   remark read, showing a balloon, live in `review/SendReview.kt`, not in `ReviewRestService.kt`,
+   remark read, showing a balloon, live in `review/ReviewLifecycle.kt`, not in `ReviewRestService.kt`,
    for exactly this rule. The comment in `ReviewRestService.kt` that explains why says "the file that
-   owns the editor side" and names `review/SendReview.kt` by path, and does not spell out any of the
+   owns the editor side" and names `review/ReviewLifecycle.kt` by path, and does not spell out any of the
    five forbidden symbols, even to say they are absent.
 
    The fetch handler, `handleFetch`, also reads a file inside this class, through `readPublished`
@@ -359,11 +359,11 @@ published file" and "The Shared Review Session", for the whole design.
    `toRealPath()` is allowed above. The comment trap is still live: the grep is line-based, so a
    comment naming any of the five forbidden symbols would trip it, even to say they are absent.
 
-6. **Only `store/RemarkEdits.kt`, `review/SendReview.kt` and `review/PublishedAck.kt` may call
+6. **Only `store/RemarkEdits.kt`, `review/ReviewLifecycle.kt` and `review/PublishedAck.kt` may call
    `markRemarksRead`.** `READ` means an agent said it read the remarks. There are, since phase 10,
    two routes that can say so, and both are answers to something the IDE itself minted: a `read`
    acknowledgement over `POST /api/claude-remarks/ack`, keyed to a review session and handled by
-   `reportReviewEnd` in `review/SendReview.kt`; and a `published-read` acknowledgement over
+   `reportReviewEnd` in `review/ReviewLifecycle.kt`; and a `published-read` acknowledgement over
    `POST /api/claude-remarks/published-read`, keyed to a published batch's nonce and handled by
    `reportPublishedRead` in `review/PublishedAck.kt`. The two routes are not independent of each
    other: a batch that answered a waiting review carries that review's session id on the
@@ -378,7 +378,7 @@ published file" and "The Shared Review Session", for the whole design.
 
    ```bash
    grep -rn "markRemarksRead(" src/main --include='*.kt' \
-     | grep -v "store/RemarkEdits.kt" | grep -v "review/SendReview.kt" \
+     | grep -v "store/RemarkEdits.kt" | grep -v "review/ReviewLifecycle.kt" \
      | grep -v "review/PublishedAck.kt"   # must be empty
    ```
 
@@ -447,7 +447,7 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    holds, asks the page nothing, and refuses with a dialog rather
                                    than a hint, since there is no editor here to put a hint in
   action/PublishRemarks.kt         publishRemarks(project, ids), the whole publish pipeline, plus the
-                                   Tools-menu action (PublishAllRemarksAction) that calls it without
+                                   Tools-menu action (PublishUnreadRemarksAction) that calls it without
                                    the tool window; renamed from CopyRemarks.kt/copyRemarks in phase 9
   editor/RemarkGutterIcon.kt       the placement record, the tooltip, the gutter icon renderer
   editor/RemarkGutter.kt           the project service that keeps gutter icons in step
@@ -506,9 +506,11 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    file specifically. handoffFile and handleStart's own filesystem
                                    write are gone in phase 10, since start no longer creates a
                                    directory
-  review/SendReview.kt             answerWaitingReview (replaces sendToWaitingReview, canSend and
-                                   SendReviewAction in phase 10, called from inside the publish
-                                   pipeline once the file write succeeds) and waitingReviewForPublish;
+  review/ReviewLifecycle.kt        named SendReview.kt until phase 10 renamed it, once the last
+                                   thing in it that sent was deleted. answerWaitingReview (replaces
+                                   sendToWaitingReview, canSend and SendReviewAction in phase 10,
+                                   called from inside the publish pipeline once the file write
+                                   succeeds) and waitingReviewForPublish;
                                    rejectWaitingReview (writes into the same merged file through
                                    writePublished since phase 10, no longer its own marker or its own
                                    directory); finishReview and expireStaleReview, the ack's
@@ -656,7 +658,7 @@ phase 10, the `published-read` action's five answers, mirroring `PublishedAckTes
 `OpenReviewFilesTest` (the string-only half of the path
 filter: absolute paths and `..` segments are dropped, plus a fixture-backed class for the
 diff-or-editor decision, since a light fixture project has no VCS root and every file takes the
-plain-editor branch), `SendReviewTest` (since phase 10: `answerWaitingReview` records what was
+plain-editor branch), `ReviewLifecycleTest` (since phase 10: `answerWaitingReview` records what was
 published and replaces the ids on a second answer rather than refusing it, and says so instead of
 claiming a handover once the review already ended; `rejectWaitingReview` writes a rejection batch
 into the published file rather than into a directory of its own, and a rejection after a publish
@@ -683,9 +685,9 @@ different stored files).
 
 Every fixture-backed test class that asserts on the whole store clears it in `setUp`, not only in
 `tearDown`: the light fixture project is shared across test classes, so remarks left behind by an
-earlier class are still there when the next one starts. `SendReviewTest` and `RemarksPanelTest`
+earlier class are still there when the next one starts. `ReviewLifecycleTest` and `RemarksPanelTest`
 both clear `WaitingReviewService` in `setUp` and `tearDown` for the same reason: the fixture
-project is shared between test classes too, and task 6's failure-path test in `SendReviewTest`
+project is shared between test classes too, and task 6's failure-path test in `ReviewLifecycleTest`
 deliberately leaves a review waiting when it finishes, so the next test class to touch the tool
 window must not find it still there.
 

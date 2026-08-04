@@ -22,7 +22,7 @@ import java.nio.file.Path
  * reason `sendToWaitingReview`'s own removed KDoc gave: pumping a read action plus an EDT callback
  * in a light fixture buys a flaky test for very little.
  */
-class SendReviewTest : BasePlatformTestCase() {
+class ReviewLifecycleTest : BasePlatformTestCase() {
 
     private val temp = TempPaths()
 

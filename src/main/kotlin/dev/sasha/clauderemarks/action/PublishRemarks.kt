@@ -74,8 +74,8 @@ internal data class Prepared(
  * [dev.sasha.clauderemarks.review.answerWaitingReview]. There is no separate Send action any more —
  * publishing is the only way a waiting review is handed anything.
  *
- * [ids] null means every pending remark. A non-null list is used as given, published ones
- * included, so publishing again after a paste went to the wrong place works.
+ * [ids] null means every remark that is not yet `READ`. A non-null list is used as given, published
+ * ones included, so publishing again after a paste went to the wrong place works.
  *
  * Published remarks are not deleted. They stay listed in gray until Clear Handed Over.
  *
@@ -88,7 +88,7 @@ internal data class Prepared(
  *    because PUBLISHED means "handed to a channel that cannot confirm a read", and the clipboard
  *    handover really happened. Refusing to mark would be a lie in the other direction. The balloon
  *    says so in the same sentence, through [publishMessage].
- *  - nothing pending: the existing early return below keeps the published file untouched. An empty
+ *  - nothing to publish: the existing early return below keeps the published file untouched. An empty
  *    published file is never written, because a reader could not tell "nothing to say" from
  *    "something went wrong".
  *
@@ -328,10 +328,12 @@ internal fun notifyRemarks(
  * The same publish the tool window's toolbar does, reachable without the tool window: from the
  * Tools menu, from Search Everywhere, and from a keymap entry the user assigns.
  *
- * The class is renamed from CopyAllRemarksAction; the id it is registered under in plugin.xml,
- * ClaudeRemarks.CopyAll, is not — see the comment there for why.
+ * The class was CopyAllRemarksAction in phase 9 and PublishAllRemarksAction until phase 10 renamed
+ * the control itself to Publish Unread; the class name follows the control, because nothing outside
+ * this repository names it. The id it is registered under in plugin.xml, ClaudeRemarks.CopyAll, is
+ * frozen instead — see the comment there for why.
  */
-class PublishAllRemarksAction : AnAction() {
+class PublishUnreadRemarksAction : AnAction() {
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
