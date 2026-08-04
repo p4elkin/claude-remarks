@@ -2,6 +2,7 @@ package dev.sasha.clauderemarks.store
 
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.project.Project
+import dev.sasha.clauderemarks.anchor.positionLabel
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.label
 import java.nio.charset.StandardCharsets
@@ -87,7 +88,19 @@ internal fun renderHistory(
             // "## General" heading and ui/RemarksTree.kt's GENERAL_KEY group use for it.
             append("**(general)**")
         } else {
-            append("**").append(remark.path).append("** lines ").append(positionLabel(remark))
+            // The same positionLabel the tree row draws, shared rather than copied: a history entry
+            // and a tree row describing one remark must read the same way. Read straight off what
+            // was STORED, not off a resolve — renderHistory never resolves anything, by its own
+            // KDoc above — so unlike the tree there is no AnchorResult and no orphaned case to skip.
+            // A history entry's stored columns are the only columns it has ever had.
+            append("**").append(remark.path).append("** lines ").append(
+                positionLabel(
+                    remark.startLine,
+                    remark.endLine,
+                    remark.startColumn,
+                    remark.endColumn,
+                )
+            )
         }
         remark.tag?.let { append(" — ").append(it.label) }
         append(" — ").append(remark.severity.label)
@@ -107,25 +120,3 @@ internal fun renderHistory(
     }
 }
 
-/**
- * The 1-based position, the same shape `ui/RemarksTree.kt`'s own `positionLabel` draws for a
- * resolved row: a whole-line remark reads "9-9", a sub-line remark inside one line reads "9:12-38",
- * a sub-line remark across lines reads "9:12-11:5".
- *
- * Read straight off what was STORED, not off a resolve: `renderHistory` never resolves anything,
- * by its own KDoc above, so unlike the tree's version there is no `AnchorResult` and no orphaned
- * case to skip. A history entry's stored columns are the only columns it has ever had.
- */
-private fun positionLabel(remark: RemarkState): String {
-    val startLine = remark.startLine + 1
-    val endLine = remark.endLine + 1
-    val sameLine = remark.startLine == remark.endLine
-    val hasColumns = remark.startColumn >= 0 && remark.endColumn >= 0 &&
-        (if (sameLine) remark.endColumn > remark.startColumn else remark.endColumn > 0)
-    if (!hasColumns) return "$startLine-$endLine"
-    return if (sameLine) {
-        "$startLine:${remark.startColumn + 1}-${remark.endColumn + 1}"
-    } else {
-        "$startLine:${remark.startColumn + 1}-$endLine:${remark.endColumn + 1}"
-    }
-}

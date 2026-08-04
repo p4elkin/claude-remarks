@@ -363,7 +363,8 @@ one touches them.**
   line, the whole lines between, and the head of the last, joined with newlines. This is the same shape
   `withSelectionMarkers` in `render/PromptRenderer.kt` already assumes when it draws the two
   `⟦`/`⟧` markers on separate quoted lines. Returns null for anything that is not a real sub-line
-  range, so a whole-line remark never gets a phrase.
+  range, so a whole-line remark never gets a phrase. What counts as a real sub-line range is not
+  decided here. It is `hasSubLineRange` in `anchor/SubLineRange.kt`, described below.
 - `findPhrase(lines, phrase, origin, radius)` is the reverse: given a phrase, find where it sits now.
   Nearest-first outward from `origin`, the same search order `resolveAnchor` already uses, because a
   short phrase often repeats in a file and the occurrence the remark meant is the one closest to
@@ -391,6 +392,28 @@ heading both print the resolved position in the same shape: `9-9` for a whole-li
 for a sub-line remark inside one line, `9:12-11:5` for one that crosses lines, columns shown 1-based.
 The phrase text itself is shown only in the gutter tooltip and, since this task, on its own indented
 line in the history file. It is never shown in the tree row, which already crops on the right and has no room.
+
+**One rule, one place: `anchor/SubLineRange.kt`.** Four callers ask the same two questions — is there
+a sub-line range here, and what is it called. `phraseAt` asks it when the remark is written,
+`markersValid` in `render/PromptRenderer.kt` asks it when the prompt is drawn, and the tree row and
+the history heading ask it when a person reads the position. The rule is not a plain comparison of
+the two columns, and that is why it is worth a file of its own:
+
+- Inside one line the two columns bound the same line, so a real range means `endColumn >
+  startColumn`.
+- Across lines they are two independent offsets, each measured from the start of *its own* line, by
+  `selectedColumns` in `action/AddRemarkAction.kt`. A long first line and a short last line then make
+  `endColumn < startColumn` for a perfectly ordinary selection — drag from column 25 of one line down
+  to column 8 of another. Ordering the two columns against each other throws that selection away, so
+  across lines the check is `endColumn > 0`, which asks only whether this is the `0 to 0` sentinel a
+  whole-line remark carries.
+
+Two of the four callers used the ordered check on both shapes until this was shared. The cost was
+real and silent: about half of all partial multi-line selections were stored with no phrase, so they
+never got the reflow rescue above, and their published prompt carried no `⟦`/`⟧` markers at all —
+while the tree row and the history file went on printing the exact columns. The shape itself,
+`positionLabel`, lives in the same file for the same reason, with the tree passing the `0 to 0`
+sentinel for an orphaned row rather than keeping a second copy of the rule.
 
 ## From Stored Remarks to Tool Window Rows
 

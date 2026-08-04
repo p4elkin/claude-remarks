@@ -317,6 +317,26 @@ class AnchoringTest {
         assertEquals("line here\nmiddle\nlast line", phraseAt(lines, 0, 2, 6, 9))
     }
 
+    /**
+     * The two columns are offsets into two different lines, so an end column that comes before the
+     * start column is an ordinary partial selection, not a broken range. Drag from column 25 of a
+     * long line down to column 5 of a short one and the words in between must still be stored.
+     *
+     * An ordered check answers null here. The remark then has no phrase at all, so it never gets
+     * the reflow rescue in resolveWithPhrase and never gets the ⟦/⟧ markers in the published
+     * prompt, while the tree row goes on showing "1:26-3:6".
+     */
+    @Test
+    fun `a phrase across lines survives an end column before its start column`() {
+        val lines = listOf(
+            "val greeting = \"hello there\" + name", // 35 characters, so column 25 is inside it
+            "middle",
+            "short()",
+        )
+
+        assertEquals("re\" + name\nmiddle\nshort", phraseAt(lines, 0, 2, 25, 5))
+    }
+
     @Test
     fun `a whole-line range has no phrase`() {
         assertEquals(null, phraseAt(file, 2, 4, 0, 0))

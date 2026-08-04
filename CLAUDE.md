@@ -329,6 +329,12 @@ src/main/kotlin/dev/sasha/clauderemarks/
   anchor/Anchoring.kt              hashing, capture, the two-pass resolve, plus phraseAt/findPhrase/
                                    resolveWithPhrase for the sub-line phrase (phase 9). No platform
                                    imports.
+  anchor/SubLineRange.kt           hasSubLineRange and positionLabel: the one place that decides
+                                   whether a column pair is a real sub-line range, and the one place
+                                   that writes a position down ("9-9", "9:12-38", "9:12-11:5").
+                                   Asked by phraseAt, by markersValid in render/PromptRenderer.kt,
+                                   by the tree row and by the history heading. Pure Kotlin, so the
+                                   renderer can import it without breaking rule 2 below
   model/RemarkState.kt             the persisted record, RemarkTag (+ its label extension), RemarkStatus,
                                    phrase (the sub-line text between startColumn and endColumn, phase 9)
   store/RemarkStore.kt             @Service project component, state in workspace.xml
@@ -500,6 +506,8 @@ never exits on its own.
 ## Testing
 
 Anchoring (`AnchoringTest`, including phase 9's `phraseAt`, `findPhrase` and `resolveWithPhrase`),
+`SubLineRangeTest` (the shared rule: one line needs the end column after the start, across lines the
+two columns are never ordered against each other, and the three shapes `positionLabel` prints),
 storage round-trips, the resolver helpers (including `isAboutNoFile`), the tree's node-building
 (including the General group), the markdown renderer (including the General section, rendered
 first with no code block), the settings round trip, `GitHeadTest` (reads real `.git` directories built on disk for

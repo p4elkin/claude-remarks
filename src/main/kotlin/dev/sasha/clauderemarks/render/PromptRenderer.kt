@@ -1,10 +1,14 @@
 package dev.sasha.clauderemarks.render
 
+import dev.sasha.clauderemarks.anchor.hasSubLineRange
+
 /**
  * Turns pending remarks into one markdown document.
  *
  * No platform imports, on purpose: this is where the only real logic in phase 4 lives, and
- * keeping it free of the platform is what makes its tests run in milliseconds.
+ * keeping it free of the platform is what makes its tests run in milliseconds. The one import is
+ * `anchor/SubLineRange.kt`, which is pure Kotlin for the same reason, so it costs this file
+ * nothing.
  */
 
 /** One remark, with the code already sliced out of its file. Line numbers are 0-based. */
@@ -72,10 +76,7 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
         general.forEach { remark ->
             number++
             out.append("\n### ").append(number).append(".")
-            remark.tag?.let { out.append(" — ").append(it) }
-            out.append(" — ").append(remark.severity)
-            remark.commit?.let { out.append(" — commit ").append(it.take(8)) }
-            out.append("\n\n").append(escapeMarkdown(remark.text.trim())).append("\n\n")
+            out.appendRemarkTail(remark)
         }
     }
 
@@ -88,16 +89,34 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
                 number++
                 out.append("\n### ").append(number).append(". ")
                     .append("lines ").append(remark.startLine + 1).append("-").append(remark.endLine + 1)
-                remark.tag?.let { out.append(" — ").append(it) }
-                out.append(" — ").append(remark.severity)
-                remark.commit?.let { out.append(" — commit ").append(it.take(8)) }
-                if (remark.orphaned) out.append(" — orphaned, the line numbers are stale")
-                out.append("\n\n").append(escapeMarkdown(remark.text.trim())).append("\n\n")
+                out.appendRemarkTail(
+                    remark,
+                    suffix = if (remark.orphaned) " — orphaned, the line numbers are stale" else "",
+                )
                 out.append(codeBlock(remark)).append("\n")
             }
         }
 
     return out.toString()
+}
+
+/**
+ * The rest of a remark's heading and its text, the part both sections write the same way: the tag,
+ * the severity, the eight-character commit, then the remark text, escaped. Written once so a new
+ * field in a heading is added in one place rather than two.
+ *
+ * What comes before differs and stays at each call site: a general remark's heading names no lines,
+ * because it is about no file. [suffix] is what goes between the commit and the text, and it is a
+ * parameter for the same reason: only a remark about a file can be orphaned, and the General
+ * section deliberately never says that word — a general remark is a considered thought, not a
+ * broken one. The quoted code block a file remark ends with stays at its call site too.
+ */
+private fun StringBuilder.appendRemarkTail(remark: RenderedRemark, suffix: String = "") {
+    remark.tag?.let { append(" — ").append(it) }
+    append(" — ").append(remark.severity)
+    remark.commit?.let { append(" — commit ").append(it.take(8)) }
+    append(suffix)
+    append("\n\n").append(escapeMarkdown(remark.text.trim())).append("\n\n")
 }
 
 /**
@@ -167,10 +186,12 @@ private const val SELECTION_START = "⟦"
 private const val SELECTION_END = "⟧"
 
 /**
- * True when [remark]'s columns describe a real, in-bounds sub-line range: a real range (`endColumn
- * > startColumn`), not orphaned (an orphan's line numbers no longer point at real code, so there
- * is nothing to mark inside), and both the start line and the end line are present in
- * [RenderedRemark.code] with the stored columns still inside their current length.
+ * True when [remark]'s columns describe a real, in-bounds sub-line range: a real range, by
+ * [hasSubLineRange], which is the one place that rule lives — across lines it deliberately does not
+ * order the two columns against each other, since each is an offset into its own line; not orphaned
+ * (an orphan's line numbers no longer point at real code, so there is nothing to mark inside); and
+ * both the start line and the end line are present in [RenderedRemark.code] with the stored columns
+ * still inside their current length.
  *
  * The column pair is stored once and never refreshed, so it can go as stale as the anchor itself:
  * the line may have been edited since. Checked here, once, rather than separately in every line
@@ -178,11 +199,14 @@ private const val SELECTION_END = "⟧"
  * marking one boundary and silently dropping the other.
  */
 private fun markersValid(remark: RenderedRemark): Boolean {
-    if (remark.endColumn <= remark.startColumn || remark.orphaned) return false
+    if (remark.orphaned) return false
+    if (!hasSubLineRange(remark.startLine, remark.endLine, remark.startColumn, remark.endColumn)) {
+        return false
+    }
     val startText = remark.code.getOrNull(remark.startLine - remark.codeStartLine) ?: return false
     val endText = remark.code.getOrNull(remark.endLine - remark.codeStartLine) ?: return false
-    if (remark.startColumn < 0 || remark.startColumn > startText.length) return false
-    if (remark.endColumn < 0 || remark.endColumn > endText.length) return false
+    if (remark.startColumn > startText.length) return false
+    if (remark.endColumn > endText.length) return false
     return true
 }
 

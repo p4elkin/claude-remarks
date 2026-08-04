@@ -117,13 +117,17 @@ fun resolveAnchor(
 /**
  * The exact text a sub-line remark points at, for storing as `RemarkState.phrase`, or null.
  *
- * Uses the same validity rule `markersValid` in `render/PromptRenderer.kt` uses for deciding
- * whether to draw the `⟦`/`⟧` markers, so a stored phrase and the markers drawn over it never
- * disagree about what was selected: null when [endColumn] is not strictly after [startColumn] —
- * which is also how a whole-line remark's `0 to 0` sentinel falls out of this, with no separate
- * check — when [endLine] comes before [startLine], or when either column falls outside its own
- * line. The last two are reachable only from a hand-edited workspace.xml: [selectedColumns] in
- * `action/AddRemarkAction.kt` never produces them.
+ * Asks [hasSubLineRange] whether there is a sub-line range here at all, the one place that rule
+ * lives, so a stored phrase and the `⟦`/`⟧` markers `markersValid` in `render/PromptRenderer.kt`
+ * draws over it never disagree about what was selected. Note what that rule does NOT do across
+ * lines: it does not order the two columns against each other, because they are offsets into two
+ * different lines. A selection running from column 25 of one line to column 8 of another is real
+ * and gets a phrase.
+ *
+ * Null, then, when there is no sub-line range — which is also how a whole-line remark's `0 to 0`
+ * sentinel falls out of this, with no separate check — when [endLine] comes before [startLine], or
+ * when either column falls past the end of its own line. The last two are reachable only from a
+ * hand-edited workspace.xml: [selectedColumns] in `action/AddRemarkAction.kt` never produces them.
  *
  * For a range inside one line: the substring between the two columns. For a range across lines:
  * the tail of [startLine] from [startColumn], every whole line strictly between, and the head of
@@ -137,14 +141,16 @@ fun phraseAt(
     startColumn: Int,
     endColumn: Int,
 ): String? {
-    if (endColumn <= startColumn) return null
+    if (!hasSubLineRange(startLine, endLine, startColumn, endColumn)) return null
     if (endLine < startLine) return null
     if (startLine !in lines.indices || endLine !in lines.indices) return null
 
+    // Each column is checked against its own line's length, never against the other column: the
+    // negative half of that check is already hasSubLineRange's.
     val startText = lines[startLine]
     val endText = lines[endLine]
-    if (startColumn < 0 || startColumn > startText.length) return null
-    if (endColumn < 0 || endColumn > endText.length) return null
+    if (startColumn > startText.length) return null
+    if (endColumn > endText.length) return null
 
     if (startLine == endLine) return startText.substring(startColumn, endColumn)
 

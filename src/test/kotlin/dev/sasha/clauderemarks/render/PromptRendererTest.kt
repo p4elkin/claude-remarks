@@ -313,6 +313,33 @@ class PromptRendererTest {
     }
 
     /**
+     * The same two boundary lines, but the selection ends at a column before the one it starts at.
+     * That is ordinary across lines: each column is measured from the start of its own line, so a
+     * long first line and a short last line produce it — and roughly half of all partial multi-line
+     * drags look like this. The markers must still be drawn.
+     *
+     * An ordered check drops both markers, and the prompt then quotes three whole lines with
+     * nothing saying which part was selected, while the tree row and the history file both promise
+     * the exact columns.
+     */
+    @Test
+    fun `a multi-line selection is marked when its end column comes before its start`() {
+        val out = renderPrompt(
+            "H",
+            listOf(
+                RenderedRemark(
+                    path = "a.kt", startLine = 1, endLine = 2, startColumn = 3, endColumn = 2,
+                    tag = null, severity = "should", text = "why?", orphaned = false,
+                    codeStartLine = 0, code = listOf("alpha", "beta-long", "gamma", "delta"),
+                )
+            ),
+        )
+
+        assertTrue(out, out.contains("bet⟦a-long"))
+        assertTrue(out, out.contains("ga⟧mma"))
+    }
+
+    /**
      * endColumn 0 is the convention for "no sub-line range" (see RemarkState). Byte for byte the
      * same as before this feature existed: no marker anywhere in the document.
      */
