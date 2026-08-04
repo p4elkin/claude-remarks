@@ -2254,14 +2254,26 @@ that were selected**, with the reasoning from
 - Edit: `docs/claude/design.md`, the final read-through
 - Edit: `README.md`, the final read-through
 
-- [ ] bump the version to `0.6.0`
-- [ ] in `docs/ideas.md`, mark five entries as built and say where the design ended up: "Copying is
+- [x] bump the version to `0.6.0`
+      **Result: done, in `build.gradle.kts`.**
+- [x] in `docs/ideas.md`, mark five entries as built and say where the design ended up: "Copying is
       not sending", "A remark should point at the selection", "A remark that belongs to no file",
       "The file rows in the tree show the whole path", "Drag a remark onto a bucket". Correct the
       two things the entries got wrong, listed in
       [section 2](#2-what-contradicts-docsideasmd): the selection entry's list of remaining work,
       and hashing the phrase instead of storing it.
-- [ ] in `docs/ideas.md`, handle "Annotate a selection inside a rendered markdown preview" according
+      **Result: all five marked "Built in phase 9's group N" (or plain "Built" for the selection
+      entry, since it was mostly already built before phase 9). The selection entry's "What has to
+      change" list was rewritten in place: the model and prompt bullets now say they were already
+      done by phase 8's hotfix, the anchor bullet now explains why storing the phrase works and
+      hashing it does not, and the tree/history bullets describe what group two actually shipped.
+      The "belongs to no file" entry's gutter bullet was rewritten to say the gutter needed no
+      change (`placementsFor`'s exact-path filter already skipped a pathless remark, proven by a
+      task 13 test), only the resolver's new `isAboutNoFile` did. The drag entry also got a
+      correction beyond what this checkbox asked for: the "New bucket…" drop target it originally
+      proposed was not built (task 17 and section 10 both say so), only dragging onto an existing
+      bucket or `(no bucket)` was. Logged as a deviation below.**
+- [x] in `docs/ideas.md`, handle "Annotate a selection inside a rendered markdown preview" according
       to what actually happened. **Built:** mark it built, and record the two things the design
       settled that the entry never asked about, both explained in
       [section 9](#9-group-five-what-the-preview-can-do-read-from-the-platform): that a selection is
@@ -2269,17 +2281,53 @@ that were selected**, with the reasoning from
       the markdown plugin is an optional dependency so the plugin still loads without it.
       **Dropped:** leave it open and write in the reason group five was cut, so a later phase does
       not have to derive it again.
-- [ ] fix rule 3's glob in `CLAUDE.md` to the quoted form, with one sentence saying why: in zsh the
+      **Result: group five was built, not dropped (task 19's decision entry: "Group five is NOT
+      cut"), so the Built branch applies. Marked built, pointing at design.md's "A Remark on the
+      Rendered Preview" section, with both settled facts recorded.**
+- [x] fix rule 3's glob in `CLAUDE.md` to the quoted form, with one sentence saying why: in zsh the
       bare form fails before grep runs and prints nothing, which looks exactly like a guard that
       passed
-- [ ] read `docs/claude/design.md` and `README.md` whole and fix anything the phase made untrue
-- [ ] `./gradlew build` and `./gradlew verifyPluginProjectConfiguration` and
+      **Result: already fixed by task 7 and still quoted, `--include='*.kt'`, with the zsh
+      explanation already in place. Checked the whole file for any other unquoted `--include`: only
+      one other occurrence (guard 6), also already quoted. No edit needed.**
+- [x] read `docs/claude/design.md` and `README.md` whole and fix anything the phase made untrue
+      **Result: design.md's Contents list was missing "A Remark on the Rendered Preview" (added in
+      task 23 but never linked from the top) and "Known Issues". Both added. "It needs a ninth
+      mutation function" (written when the file had eight) was updated to say "one more mutation
+      function... past the eleven public functions already there today". Two leftover "copied
+      prompt" mentions were renamed to "published prompt" to match the phase 9 rename. README's
+      phase 9 bullet no longer says task 24 is outstanding, and its sandbox-IDE hand-check paragraph
+      was expanded from group one's three checks to the full set across all five groups, matching
+      what `CLAUDE.md` already says. Four stale plan-path citations (two in `CLAUDE.md`, one each in
+      `README.md` and `design.md`) pointing at `docs/plans/20260803-claude-remarks-phase8.md` and
+      the phase 9 plan's pre-move path were corrected to `docs/plans/completed/...`. The phase 8
+      one was already stale before this task, from when phase 8 was moved to `completed/` without
+      updating its citers; fixed now as the same class of defect this task is already fixing for
+      phase 9's own path. Logged as a deviation below.**
+- [x] `./gradlew build` and `./gradlew verifyPluginProjectConfiguration` and
       `./gradlew verifyPlugin` all pass. Report both test counts against the two numbers task 1
       recorded, so a difference is read as new tests rather than as a regression.
-- [ ] all six guards are empty, with the third one's glob quoted
-- [ ] move this plan to `docs/plans/completed/` only after the hand checks in
+      **Result: `./gradlew build --rerun-tasks` ran BUILD SUCCESSFUL. Executed tests: 436, across 42
+      classes (`build/test-results/test/*.xml`). Test-function-by-name count: 439. Task 1's baseline
+      was 346 executed / 349 by-name, so both numbers grew by 90 over tasks 2-23. That is new
+      tests, not a regression. The two counts still do not agree with each other, for the same
+      reason task 1 recorded (JUnit executions vs. source declarations measure different things).
+      `./gradlew verifyPluginProjectConfiguration` ran BUILD SUCCESSFUL. `./gradlew verifyPlugin`
+      said "Compatible. 3 usages of experimental API. 1 usage of internal API", identical to the run
+      reported at the start of this task, confirming the version bump and the documentation edits
+      introduced no new usages.**
+- [x] all six guards are empty, with the third one's glob quoted
+      **Result: ran all six before and after the gradle commands above. Empty both times.**
+- [x] move this plan to `docs/plans/completed/` only after the hand checks in
       [section 12](#12-hand-checks) have been run or explicitly deferred with a note saying so
-- [ ] commit: `chore: version 0.6.0, and the idea file records what phase 9 built`
+      **Result: explicitly deferred, not run. No agent session in this phase had a real IDE to run
+      `./gradlew runIde` in. `CLAUDE.md`'s opening paragraph and this plan's own section 12 both
+      already say plainly that none of phase 9's hand checks have been run, and that stays true
+      after this task. This task added no claim, implicit or explicit, that any of them were seen
+      in a running IDE. That written record is the deferral note. Moved to `docs/plans/completed/`
+      on that basis, the same way `docs/plans/20260803-claude-remarks-phase8.md` was moved there
+      earlier with its own hand checks still unrun.**
+- [x] commit: `chore: version 0.6.0, and the idea file records what phase 9 built`
 
 ## 9. Group five: what the preview can do, read from the platform
 

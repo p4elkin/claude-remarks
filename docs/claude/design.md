@@ -15,10 +15,12 @@
 11. [The Change Notification](#the-change-notification)
 12. [The Publish Pipeline](#the-publish-pipeline)
 13. [A Remark About No File](#a-remark-about-no-file)
-14. [The Shared Review Session](#the-shared-review-session)
-15. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
-16. [Build Choices Worth Remembering](#build-choices-worth-remembering)
-17. [Performance Tuning Knobs](#performance-tuning-knobs)
+14. [A Remark on the Rendered Preview](#a-remark-on-the-rendered-preview)
+15. [The Shared Review Session](#the-shared-review-session)
+16. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
+17. [Build Choices Worth Remembering](#build-choices-worth-remembering)
+18. [Performance Tuning Knobs](#performance-tuning-knobs)
+19. [Known Issues](#known-issues)
 
 ## Overview
 
@@ -533,16 +535,17 @@ highlighter must still hash to the remark's stored `textHash`.
 ever updates it. Rename a file through Refactor > Rename, drag it in the project view, or move it
 with `git mv`, and every remark in it is orphaned for good: `fileForStoredPath` finds nothing, the
 resolver refuses with "no file under the project root at that path", the gutter drops the icons
-because it matches on the path, and the copied prompt ships those remarks with their text and the
+because it matches on the path, and the published prompt ships those remarks with their text and the
 lines that surrounded them when they were written, but with no code from the file itself. There is
 no way to re-point a remark from the UI, so they become dead records.
 
 The fix is a `BulkFileListener` on `VFS_CHANGES` reading `VFileMoveEvent` and the rename form of
 `VFilePropertyChangeEvent`, rewriting `RemarkState.path` for every remark under the old path —
-including the remarks in every file under a renamed *directory*. It needs a ninth mutation
-function in `store/RemarkEdits.kt`, because that file holds the only route that changes a remark,
-and it needs its own tests. That is a task in its own right rather than a review fix, which is why
-it is written down here instead of being half-built.
+including the remarks in every file under a renamed *directory*. It needs one more mutation
+function in `store/RemarkEdits.kt`, past the eleven public functions already there today, because
+that file holds the only route that changes a remark, and it needs its own tests. That is a task in
+its own right rather than a review fix, which is why it is written down here instead of being
+half-built.
 
 ## What Phase 5 Built
 
@@ -754,7 +757,7 @@ typing speed, so it stays where it is, with the ceiling written down.
 The commit is shown in three places, each treating it differently because of how crowded the row
 already is. The gutter tooltip always has it, cut to eight characters
 (`editor/RemarkGutterIcon.kt`'s `tooltipFor`, fed from `RemarkPlacement.commit`). The
-copied prompt's heading always has it (`— commit <sha, first 8 chars>` in
+published prompt's heading always has it (`— commit <sha, first 8 chars>` in
 `render/PromptRenderer.kt`). The tree row shows it only when the remark is orphaned (`", written at
 <sha>"`, in `ui/RemarksTree.kt`'s `remarkNode`), because everywhere else it would be one more thing
 on a row that already carries a position, a text, a tag and a level — and it matters most exactly
@@ -1251,7 +1254,7 @@ line range. This reuses the same word the renderer's `## General` heading and th
 Phase 9's group five lets a remark be written from IntelliJ's rendered markdown preview, not only
 from the source file. Select words in the preview, right-click, and pick Claude Remarks, and the
 remark points at the exact characters in the `.md` file behind the selection, not at the whole line.
-Section 9 of `docs/plans/20260803-claude-remarks-phase9.md` holds every platform fact this design
+Section 9 of `docs/plans/completed/20260803-claude-remarks-phase9.md` holds every platform fact this design
 rests on, with the file in the IntelliJ checkout each fact came from. This section is the shorter,
 durable record: what a later session needs, without re-reading the checkout to find it again.
 

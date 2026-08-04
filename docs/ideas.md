@@ -706,6 +706,17 @@ need.
 
 ## Drag a remark onto a bucket
 
+**Built in phase 9's group four, with one deliberate cut from the cheap version below.** Drag one or
+more selected rows, or a whole file or bucket group, onto a bucket row to move them there, or onto
+`(no bucket)` to clear it. `ui/RemarksTree.kt`'s `bucketDropTarget` decides the target, and
+`RemarksToolWindowFactory` wires `DnDAwareTree`/`DnDSupport` onto the existing `setRemarkBucket`.
+**The "New bucket…" drop target was not built.** Dragging can only move remarks onto a bucket that
+already exists; creating one by name is still only `Move to Bucket…` in the right-click menu. See
+the phase 9 plan's "What this phase deliberately does not build" for why: an empty bucket has
+nowhere to live in state that does not already exist, since a bucket is derived from its members
+rather than stored on its own, and the drop-target version that shipped does not need that new
+state at all. Only creating one out of thin air would have.
+
 **Decided: build the cheap version.** Drag one or more selected rows in the tool window onto a bucket
 row to move them there. Dropping onto a "New bucket…" row asks for a name and creates the bucket with
 those remarks already in it.
@@ -1017,6 +1028,13 @@ finished, which is when a remark is worth writing.
 
 ## A remark that belongs to no file
 
+**Built in phase 9's group three.** See `docs/claude/design.md`, section "A Remark About No File",
+for the actual shape: `store/RemarkEdits.kt`'s `addGeneralRemark`, the Add General Remark toolbar
+button as the one entry point, the renderer's `## General` section rendered first with no code
+block, the tree's General group at the very top, and `RemarkResolver.kt`'s `isAboutNoFile`. One
+thing below turned out already true rather than something to build. See the correction under
+"Where the work actually is".
+
 Let a remark be written without pointing at any code: "the whole approach to caching here is wrong",
 "this needs a CHANGELOG entry", "answer these before you touch anything". Today every remark starts
 from a selection in an editor, so a thought about the change as a whole has nowhere to live and ends
@@ -1049,9 +1067,11 @@ The entry point, and then every place that assumes a remark has a path.
   numbers, the code moved, search the file for the surrounding lines". A general note rendered through
   that path reads as a broken remark rather than as a deliberate one. These two cases must be told
   apart explicitly, and the test that proves it is the one worth writing first.
-- **Resolve and the gutter must skip it.** `resolveAll` and `RemarkGutter` both exist to map a remark
-  onto lines in a file. A pathless remark has nothing to map, so both need to pass over it rather than
-  treat it as a remark whose file has disappeared.
+- **The resolver needed the change; the gutter did not.** `resolveAll` needed a new check,
+  `isAboutNoFile`, so a pathless remark resolves as itself instead of being refused as an orphan.
+  `RemarkGutter.placementsFor` needed nothing: it already filters on an exact path match against a
+  real document, and a pathless remark never matches that. Task 13 proved this with a test rather
+  than a code change.
 - **The tree needs a real group, not the empty-string one.** A "General" node, and a decision about
   where it sits: above the files reads as more important, which matches what these remarks usually
   are. Buckets already sit above files, so the layered ordering question is one this tree has answered
@@ -1065,6 +1085,11 @@ third, it touches the renderer and the tree rather than the review handoff, and 
 question in it (the orphan case above). It should be its own phase.
 
 ## The file rows in the tree show the whole path, so the file name is what gets cropped
+
+**Built in phase 9's group four.** The first choice below is the one that shipped: a file row now
+reads the file name in bold first, with the directory after it in grey, shortened to its last two
+segments with a leading ellipsis when it would otherwise run long. `ui/RemarksTree.kt`'s
+`shortDirectory` is the shortening function. The tree-levels alternative was not built.
 
 Reported by hand on 2026-08-03. A file group row is labelled with the whole project-relative path,
 so on any real path the row runs out of width and Swing crops the right-hand end — which is exactly
@@ -1093,6 +1118,15 @@ never competes with anything. Reads better on deep paths, and the tree already h
 because buckets sit above files.
 
 ## Annotate a selection inside a rendered markdown preview
+
+**Built in phase 9's group five.** See `docs/claude/design.md`, section "A Remark on the Rendered
+Preview", for the actual shape. Two things the design settled that this entry never asked about: a
+preview selection is narrowed into a source range by searching for the highlighted text inside a
+coarse `md-src-pos` range with one `indexOf`, not by mapping the selection through the markdown
+parse tree. That is the same fallback-to-whole-line answer `markersValid` already gives when a
+phrase no longer matches. And the markdown plugin is declared as an optional dependency, so the plugin still
+loads with the tool window intact when Markdown is turned off; only this one entry point goes
+missing.
 
 Reported by hand on 2026-08-03. Right now a remark can only be anchored to a source file: `anchor/`
 hashes lines of a real `Document` in a real file. The ask is to select text inside a rendered
@@ -1147,6 +1181,14 @@ no change to the tree's shape.
 
 ## A remark should point at the selection, not at the whole line
 
+**Built.** The model, prompt and renderer changes below were already built by phase 8's hotfix
+before phase 9 started: `RemarkState.startColumn`/`endColumn`, and `render/PromptRenderer.kt`'s
+`markersValid`/`withSelectionMarkers` wrapping the exact selection in `⟦` and `⟧`. Phase 9's group
+two then built what was actually still missing: the anchor, the tree's position label, and the
+history file's heading. See `docs/claude/design.md`, section "The phrase a remark points at" (under
+"The Anchoring Design"), for the actual shape, and the corrections below for what this entry got
+wrong about the remaining work.
+
 Noticed by Sasha on 2026-08-03. A remark stores `startLine` and `endLine` and nothing finer, so
 selecting three words gets you the whole line they sit on. In code that is usually tolerable — a line
 is a small enough unit to be a useful pointer. In markdown it is not: a paragraph is one long line,
@@ -1176,19 +1218,26 @@ right here, on purpose, because line numbers were all the model could hold.
 
 ### What has to change
 
-- **The model.** `model/RemarkState.kt` gains a start and an end column, defaulting to 0 and the
-  line's length. `BaseState` omits default values when serializing, so every remark stored before
-  this keeps loading and reads as "the whole line", which is exactly what it meant.
-- **The anchor, and this is the part that gets *better*.** `anchor/Anchoring.kt` hashes whole lines
-  (`hashLines`). Hashing the selected text instead makes the anchor a fingerprint of the phrase, which
-  survives the line being reflowed — and reflowing is precisely what happens to a markdown paragraph.
-  A line-level hash breaks on any edit anywhere in the paragraph; a phrase-level one does not.
-- **The prompt.** `render/PromptRenderer.kt` marks whole lines with `>`. For a sub-line remark the
-  useful output is the quoted phrase itself, not the paragraph containing it. This is the change that
-  decides whether the feature is worth anything: the whole point is that Claude reads the exact words.
-- **The tree's position label.** `ui/RemarksTree.kt` prints `9-9`. A sub-line remark wants something
-  like `9:12-9:38`, or just the quoted phrase, which is more readable than either.
-- **The history file** renders remarks too and has the same assumption.
+- **The model. Already done, by phase 8's hotfix.** `model/RemarkState.kt` already has
+  `startColumn` and `endColumn`, defaulting to 0 and meaning "the whole line". `BaseState` omits
+  default values when serializing, so every remark stored before this keeps loading with that
+  meaning.
+- **The anchor. This is where storing the phrase, not hashing it, does the work.** Hashing the
+  selected text cannot recover a moved phrase. A hash only confirms a guess; producing the guess in
+  the first place means searching every substring of every line, which a hash gives no way to
+  narrow down. Storing the phrase text turns the same search into one `indexOf` per candidate line.
+  `anchor/Anchoring.kt`'s `phraseAt` stores it when the remark is written, and `findPhrase` searches
+  for it starting from the line the plain line resolve landed on, spreading outward when that line
+  orphans. That is exactly what a reflowed markdown paragraph does. `contextBefore` and
+  `contextAfter` already stored six lines of real source in `workspace.xml`, so a stored phrase is
+  not a new kind of data there.
+- **The prompt. Already done, by phase 8's hotfix.** `render/PromptRenderer.kt` already wraps the
+  exact selection in `⟦` and `⟧` through `markersValid`/`withSelectionMarkers`, and
+  `SEVERITY_SCALE_NOTE` already explains the two markers to the model.
+- **The tree's position label.** `ui/RemarksTree.kt` now prints `9:12-38` on one line and
+  `9:12-11:5` across lines, both 1-based, instead of the old `9-9`. The gutter tooltip shows the
+  phrase itself alongside it.
+- **The history file** renders the same sub-line heading and writes the phrase indented under it.
 
 ### What deliberately does not change
 
@@ -1345,6 +1394,15 @@ and that means the plugin holding a real thread of its own. That is a bigger des
 should not be guessed at until the one-shot version has been used.
 
 ## Copying is not sending, and one state is doing two jobs
+
+**Built in phase 9's group one.** See `docs/claude/design.md`, sections "The Publish Pipeline", "The
+three states, and why published is not read", and "The published file", for the actual shape:
+`RemarkStatus` gained `PUBLISHED` and `READ` in place of `SENT`, exactly as the three states below
+describe. The copy action was renamed to Publish; the `ClaudeRemarks.CopyAll` action id keeps its
+old name on purpose, since `README.md` promises it will not be renamed. Publishing also writes the
+same markdown to a file under `~/.claude-remarks/`, so a Claude Code skill can read it on its own
+schedule with no review ever started. The tree question at the end of this entry, where published
+remarks should sit, was decided separately. See "Decided in phase 9: planned, not built" below.
 
 Sasha's complaint: pressing Copy All Pending greys the remarks out as though they had been sent, and
 that is not what happened. Something went to the clipboard. Nobody read anything.

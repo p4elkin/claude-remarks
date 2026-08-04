@@ -3,12 +3,12 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-8 are implemented and covered by unit tests. Phase 9 (tasks 1-23: three remark states in
-place of one and the published file, a sub-line remark that finds the words it points at again after
-they move, a remark about the whole change instead of one file, a tree row that shows the file name
-first with dragging a remark onto a bucket, and a remark written from the rendered markdown preview)
-is implemented and covered by unit tests too; task 24, the version bump and the final sweep, is what
-remains. What has and has not been in front of a real IDE, per phase: **phase 6's seven security
+Phases 1-9 are implemented and covered by unit tests. Phase 9 (three remark states in place of one
+and the published file, a sub-line remark that finds the words it points at again after they move, a
+remark about the whole change instead of one file, a tree row that shows the file name first with
+dragging a remark onto a bucket, and a remark written from the rendered markdown preview) is
+complete, including task 24's version bump to `0.6.0` and this final documentation sweep. What has
+and has not been in front of a real IDE, per phase: **phase 6's seven security
 hand checks were run in a real IDE before 0.3.0 was released**, and phase 5's commit stamp was
 checked in a real IDE too. The `runIde` checks in the phase 1-2, phase 3-4, phase 5, **phase 7**,
 **phase 8** and **phase 9** plans were skipped in the autonomous sessions that did that work, so for
@@ -19,14 +19,14 @@ automated test in this project reaches. See `docs/claude/design.md` for exactly 
 owes hand checks too, and it needs something no earlier phase did: a second machine.** A tunnel, an
 `sshd`, and an agent session on the far side of it are needed to check the remote path at all. One
 machine is enough for the fetch action's own answers, but not for the tunnel. None of phase 8's
-checks have been run. Section 13 of `docs/plans/20260803-claude-remarks-phase8.md` lists all of
+checks have been run. Section 13 of `docs/plans/completed/20260803-claude-remarks-phase8.md` lists all of
 them, split by which group needs the second machine. **None of phase 9's hand checks have been run
 either.** Task 1 of its plan owes three of its own, in its own checkboxes: whether the plugin loads
 at all, whether a sub-line remark's markers land in the right place, and whether the grey row and
 faded gutter icon are visible. Group five owes checks nobody can automate at all: whether the Claude
 Remarks item appears in a running preview's right-click menu, whether a real browser selection
 reaches Kotlin as the right character range, and whether the plugin still loads cleanly with the
-markdown plugin disabled. Section 12 of `docs/plans/20260803-claude-remarks-phase9.md` lists the
+markdown plugin disabled. Section 12 of `docs/plans/completed/20260803-claude-remarks-phase9.md` lists the
 whole set, split by which of them also needs a second machine. Select lines, press `Ctrl+Alt+Shift+R`
 (or use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a
 severity level, and press Enter. A gutter icon appears on the marked lines and follows the code as
@@ -191,7 +191,7 @@ in a real IDE.** Whether the menu item actually appears in a running preview, wh
 selection reaches Kotlin as the right range, and whether the plugin truly still loads cleanly with
 the markdown plugin disabled, are all still owed as hand checks. See `docs/claude/design.md`, section
 "A Remark on the Rendered Preview", for the whole design, and section 12 of
-`docs/plans/20260803-claude-remarks-phase9.md` for the full hand-check list.
+`docs/plans/completed/20260803-claude-remarks-phase9.md` for the full hand-check list.
 
 ## Rules that must not break
 
