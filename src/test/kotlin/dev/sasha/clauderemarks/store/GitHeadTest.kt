@@ -101,7 +101,36 @@ class GitHeadTest {
         assertNull(headCommit(repo))
     }
 
-    private fun repo(): Path = Files.createTempDirectory("claude-remarks-git")
+    /**
+     * The identity the plugin hashes to name its files. A project opened on a module below the
+     * repository root has to answer the repository, because that is what
+     * `git rev-parse --show-toplevel` prints on the skill side.
+     */
+    @Test
+    fun `the top level of a directory below the repository root is the repository`() {
+        val repo = repo()
+        write(repo, ".git/HEAD", "$sha\n")
+        val module = Files.createDirectories(repo.resolve("modules/api/src"))
+
+        assertEquals(repo, gitTopLevel(module))
+    }
+
+    /** A worktree's own root, not the repository its .git file points into. */
+    @Test
+    fun `a worktree's top level is the worktree itself`() {
+        val repo = repo()
+        val worktree = Files.createDirectories(repo.resolve("wt"))
+        Files.writeString(worktree.resolve(".git"), "gitdir: ${repo.resolve(".git/worktrees/wt")}\n")
+
+        assertEquals(worktree, gitTopLevel(worktree))
+    }
+
+    @Test
+    fun `a directory with no repository above it has no top level`() {
+        assertNull(gitTopLevel(repo()))
+    }
+
+    private fun repo(): Path = Files.createTempDirectory("claude-remarks-git").toRealPath()
 
     private fun write(root: Path, relative: String, content: String) {
         val file = root.resolve(relative)

@@ -1042,6 +1042,11 @@ same shape as `anchor/Anchoring.kt`). The EDT step that follows builds the clipb
 it, writes the published file (see "The published file" below), runs `markRemarksPublished` and
 shows one balloon.
 
+The balloon's file count leaves general remarks out. A remark about the whole change carries no
+path — an empty string by the time `collectForPrompt` has run — so counting distinct paths without
+filtering counted "no file" as a file, and one general remark on its own made the balloon say
+"across 1 file" with no file involved at all.
+
 **`clipboardPayload` is one function with a size check, not two implementations.** Under
 `INLINE_LIMIT_BYTES` (100 KB, measured in UTF-8 bytes, not characters) the markdown goes on the
 clipboard as text. At or above that, it is written to a file under `java.io.tmpdir` and the file's
@@ -1129,10 +1134,12 @@ whenever it likes, with no review ever having been started. `review/PublishedRem
 `publishedName(realPath)` names it, `publishedHeader(now, commit, count)` builds what sits above the
 prompt, and `writePublished(root, body, dir)` writes it.
 
-**The name and the location.** `~/.claude-remarks/<first 16 hex of sha256 of the real project
-path>.md`. That is the same 16 characters `handshakeName` (`review/ReviewHandshake.kt`) computes for
-the handshake file, with `.md` in place of `.json`. `projectHash` was pulled out of `handshakeName`
-so both callers share one function rather than two copies of the same hash. A skill running inside
+**The name and the location.** `~/.claude-remarks/<first 16 hex of sha256 of the project's
+identity>.md`. That is the same 16 characters `handshakeName` (`review/ReviewHandshake.kt`) computes
+for the handshake file, with `.md` in place of `.json`. `projectHash` was pulled out of
+`handshakeName` so both callers share one function rather than two copies of the same hash, and what
+goes into it is always `projectIdentity` — the git top level, or the base path outside a repository.
+See "What 'the project's identity' is" under the handshake section below. A skill running inside
 the repository computes the same name with the one-line `shasum` it already runs for the handshake.
 Permissions are `rw-------`, in a directory already `rwx------`, because the file holds remark text
 and slices of real source.
@@ -1163,7 +1170,11 @@ is marked and nothing is written. Nothing was handed over, so nothing says it wa
 fails after the clipboard already succeeded, the remarks are still marked `PUBLISHED`, because that
 state means "handed to a channel that cannot confirm a read," and the clipboard handover really did
 happen. Refusing to mark them would be a lie in the other direction. The balloon says the file was
-not updated in the same sentence, through `publishMessage`. This is also the entry in Known Issues
+not updated in the same sentence, through `publishMessage`, and says why: the exception's own
+message for a failed write, and "the project root did not resolve" when the write was skipped
+because the identity did not resolve. The whole exception goes to the platform log beside it. A
+permissions failure, a full disk and a name the filesystem refuses all reach that one branch, and a
+sentence carrying none of them leaves nothing to act on. This is also the entry in Known Issues
 below, "a failed published-file write leaves the previous file in place": the file still on disk
 after a failed write looks exactly like a current one to a skill reading it, and only the header's
 `published:` timestamp gives it away.
@@ -1504,14 +1515,32 @@ because a null host is never cached — worse than no feature at all.
 ### The handshake: found by repository path, never by scanning ports
 
 `ReviewHandshakeService.start()` writes one JSON file per open project under `~/.claude-remarks/`,
-named `handshakeName(realPath)` — the first 16 hex characters of `sha256(the project root's real
-path)`. A skill computes the same name with one line of shell (`shasum -a 256`) from
-`git rev-parse --show-toplevel`, which returns the physical path exactly like `toRealPath()` does on
-the plugin side, so a symlinked checkout still matches. The alternative — the skill scanning ports
+named `handshakeName(realPath)` — the first 16 hex characters of `sha256(the project's identity)`. A
+skill computes the same name with one line of shell (`shasum -a 256`) from
+`git rev-parse --show-toplevel`. The alternative — the skill scanning ports
 upward and asking each one whether it has this project open — was rejected because every one of
 those probe requests would need a token the skill does not have yet, so token delivery would still
 need solving on top. One file write answers port discovery, token delivery, and project matching
 together.
+
+**What "the project's identity" is, and why it is not the base path.** `projectIdentity`
+(`review/ReviewHandshake.kt`) answers it, and it is the only function allowed to: the git top level
+when the project sits inside a git repository, and the project base path when it does not, real path
+in both cases. It reuses `gitTopLevel` in `store/GitHead.kt`, which is the same walk up the tree
+`headCommit` already made to find `.git`, so there is one walk rather than two that can drift.
+
+Three places hash or compare a root, and each of them used to read `project.basePath` on its own:
+the handshake file's name, the published file's name (`review/PublishedRemarks.kt`) and the
+endpoint's project matching (`matchProject` in `review/ReviewRestService.kt`). The skill has always
+sent and hashed `git rev-parse --show-toplevel`. Those are the same string only for a project opened
+exactly at the repository root. Open the project on a module below it and both modes broke, with no
+way back: the review mode found no handshake file, so it never learned the port or the token and
+told the person no IDE had the repository open, and the published mode wrote one name while the
+skill looked for another and told the person to press Publish, which they just had. Routing all
+three through one function is what makes those three names impossible to disagree again.
+
+The real path matters for the same reason it always did: `git rev-parse --show-toplevel` prints the
+physical path, so a symlinked checkout only matches if the plugin side resolves symlinks too.
 
 **The port is read only after `BuiltInServerManager.getInstance().waitForStart().port`, never
 `.port` alone.** `BuiltInServerManagerImpl.port` falls back to the 63342 default until the real bind
@@ -1879,7 +1908,7 @@ block's own length may have changed: the answer is zero, for the reason above.
 Real defects found by review, deliberately not fixed. Each was judged remote enough that the fix was
 not worth the churn at the time. They are written down rather than dropped so a later session finds
 them here instead of rediscovering them, and so nobody treats this design as flawless. All of them
-are in `review/`, except the last.
+are in `review/`, except the last five.
 
 **Each entry starts with two labels: how likely it is to happen, then how bad it is if it does.**
 Severity on its own describes the worst case, so it makes a defect needing two coincidences in the
@@ -1999,6 +2028,22 @@ untested behaviour is a null project root reaching the same failed-write branch.
 only by the hand check in section 12 of the phase 9 plan: publish with a filesystem failure forced on
 the published-file write, and confirm the balloon says so while the store still shows the remarks
 handed over.
+
+**OCCASIONAL, MAJOR: a project opened below the repository root writes remark paths the agent
+resolves against the wrong directory.** The project's identity — what names the handshake file and
+the published file, and what the endpoint matches a request against — is the git top level
+(`projectIdentity`, `review/ReviewHandshake.kt`). The paths inside the prompt are something else:
+`store/RemarkTarget.kt`'s `relativePathOf` makes them relative to the project base path, and that
+was deliberately left alone, because every stored remark already holds one and the tree, the gutter
+and the resolver all read them that way. So a project opened on `modules/api` inside a repository
+writes `Service.kt` for `modules/api/Service.kt`, while the agent reading it is almost certainly
+sitting at the repository root, where that path is either missing or a different file. The two
+halves of the same prompt now answer to two different directories. It shows up only for a project
+opened below its repository root, which is why it is occasional rather than certain, and the agent
+notices — a path that does not exist is visible, unlike a path that quietly names another file.
+Not fixed here: making the prompt's paths repository-relative means changing what every stored
+remark's `path` field means, plus a migration for the ones already stored, which is a phase of its
+own and not a side effect of naming files correctly.
 
 **OCCASIONAL, MINOR: a remark written on the preview can point at whole lines rather than at the
 words that were selected.** `narrowToSelection` (`preview/PreviewSelection.kt`) searches for the

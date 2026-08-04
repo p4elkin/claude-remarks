@@ -5,8 +5,10 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
-import dev.sasha.clauderemarks.store.projectRoot
+import dev.sasha.clauderemarks.store.gitTopLevel
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermissions
@@ -22,10 +24,48 @@ import org.jetbrains.ide.BuiltInServerManager
  */
 
 /**
+ * What the plugin hashes, compares and calls "this project": the git top level when the project sits
+ * inside a git repository, and the project base path when it does not. Real path in both cases, so
+ * a symlinked checkout matches what `git rev-parse --show-toplevel` prints on the skill side.
+ *
+ * **Every place that names a file for a project, or matches a request against one, comes through
+ * here.** The handshake file's name, the published file's name and the endpoint's project matching
+ * all used to hash the base path on their own. A project opened on a module below the repository
+ * root then hashed the module while the skill hashed the repository, and both sides went looking for
+ * files the other never wrote — with no way back, because reaching the endpoint at all needs the
+ * handshake file the skill could not find. One function is what keeps the three from disagreeing
+ * again.
+ *
+ * Null when the base path is missing, or does not exist on disk, or is not a path at all. Every
+ * caller already had a "no root" branch for that, because a project directory can be deleted while
+ * the project is open.
+ *
+ * The two catches are named rather than `runCatching`: `runCatching` catches `Throwable`, and this
+ * runs inside a read action where `ProcessCanceledException` has to unwind rather than be read as a
+ * missing root.
+ */
+fun projectIdentity(basePath: String?): Path? {
+    val base = basePath ?: return null
+    val real = try {
+        Path.of(base).toRealPath()
+    } catch (e: IOException) {
+        return null
+    } catch (e: InvalidPathException) {
+        return null
+    }
+    return gitTopLevel(real) ?: real
+}
+
+/** [projectIdentity] for an open project. `basePath` is exactly the directory holding `.idea`. */
+fun projectIdentity(project: Project): Path? = projectIdentity(project.basePath)
+
+/**
  * The first 16 hex characters of sha256(realPath). A skill can compute this with one line of shell
  * (`shasum -a 256`), which is why sha256 was chosen over anything cleverer. Shared by handshakeName
  * and, since phase 9, publishedName in PublishedRemarks.kt: both name a file for the same project,
  * and a skill on the other side computes the same 16 characters for either one.
+ *
+ * What goes in is always [projectIdentity]'s answer, never a base path read somewhere else.
  */
 fun projectHash(realPath: String): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(realPath.toByteArray(Charsets.UTF_8))
@@ -124,7 +164,7 @@ class ReviewHandshakeService(private val project: Project) : Disposable {
         // would start a real HTTP server during ./gradlew test, and the write would land in the
         // developer's real handshake directory.
         if (ApplicationManager.getApplication().isUnitTestMode) return
-        val root = projectRoot(project)?.toNioPath()?.toRealPath() ?: return
+        val root = projectIdentity(project) ?: return
         // Never plain .port: it falls back to the default port until the real bind finishes, which
         // happens asynchronously after project open. waitForStart() joins that job and is safe to
         // call here because a ProjectActivity runs off the EDT.
@@ -139,7 +179,10 @@ class ReviewHandshakeService(private val project: Project) : Disposable {
      * read that fails for any reason means delete nothing.
      */
     override fun dispose() {
-        val root = runCatching { projectRoot(project)?.toNioPath()?.toRealPath() }.getOrNull() ?: return
+        // runCatching, not a bare call: this runs while the project is being torn down, and even
+        // reading basePath goes through the project's store, which can already be gone. There is
+        // nothing to do about that but leave the file alone, which is this method's own rule anyway.
+        val root = runCatching { projectIdentity(project) }.getOrNull() ?: return
         val file = handshakeDir().resolve(handshakeName(root.toString()))
         val content = runCatching { Files.readString(file) }.getOrNull() ?: return
         if (content.contains("\"token\": \"${ReviewToken.value}\"")) deleteHandshake(root)

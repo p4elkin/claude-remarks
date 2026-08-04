@@ -27,7 +27,7 @@ enum class ReviewEnd { READ, ABANDONED, STALE }
 
 /**
  * How far a review has got. A review in [Sent] has had its handoff file written and carries the ids
- * that were written, so the read acknowledgement knows what to mark sent. A sealed pair rather than
+ * that were written, so the read acknowledgement knows what to mark read. A sealed pair rather than
  * a nullable id list, so "ids exist only after a send" is not a rule a caller can forget.
  */
 sealed interface ReviewPhase {

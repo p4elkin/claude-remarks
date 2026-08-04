@@ -118,7 +118,8 @@ produce `READ`; publishing, however many times, only ever produces `PUBLISHED`. 
 press is now called Publish, not Copy. `ClaudeRemarks.CopyAll` keeps its id, because `README.md`
 promises that id will not be renamed, but the button, the menu entry and the class are all Publish
 now. Publishing also writes the same rendered prompt, with a small dated header on top, to a file
-under `~/.claude-remarks/<hash of the project path>.md`, overwritten on every publish, so a Claude
+under `~/.claude-remarks/<hash of the project's identity — the git top level, or the project base
+path outside a git repository>.md`, overwritten on every publish, so a Claude
 Code skill can read published remarks on its own schedule with no review ever started;
 `docs/skill/claude-remarks-review/SKILL.md` gained a second mode that reads it. Two behaviours in the
 publish pipeline have no automated test at all: a failed published-file write after the clipboard
@@ -342,7 +343,8 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    split out so the preview's own action can reuse it without a diff
                                    or an editor
   store/ContextFormat.kt           joinContext/splitContext, how context lines are stored
-  store/GitHead.kt                 headCommit, reads .git directly, no platform import, no Git4Idea
+  store/GitHead.kt                 headCommit and gitTopLevel, both off one walk up the tree for
+                                   .git. Reads .git directly, no platform import, no Git4Idea
   store/RemarkHistory.kt           historyFile, appendToHistory, renderHistory: the archive, with
                                    a phrase line under a sub-line heading and a plain "(general)"
                                    heading for a remark about no file
@@ -390,7 +392,10 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    Provider and its ResourceProvider. Subscribes to one pipe message,
                                    parses it on the browser's callback thread, then hops to the EDT
                                    to narrow the range against the Document and store it
-  review/ReviewHandshake.kt        handshakeName, renderHandshake, writeHandshake/deleteHandshake,
+  review/ReviewHandshake.kt        projectIdentity (the ONE function that decides what the plugin
+                                   hashes and compares as "this project": the git top level, or the
+                                   base path outside a repository), projectHash, handshakeName,
+                                   renderHandshake, writeHandshake/deleteHandshake,
                                    the per-run ReviewToken, and ReviewHandshakeService (@Service
                                    PROJECT, Disposable) — the file a skill reads to find this IDE
   review/AtomicWrite.kt            atomicWriteString: temp file beside the target, then rename
@@ -498,13 +503,15 @@ Anchoring (`AnchoringTest`, including phase 9's `phraseAt`, `findPhrase` and `re
 storage round-trips, the resolver helpers (including `isAboutNoFile`), the tree's node-building
 (including the General group), the markdown renderer (including the General section, rendered
 first with no code block), the settings round trip, `GitHeadTest` (reads real `.git` directories built on disk for
-the test, including a worktree, a detached HEAD and packed refs), `RemarkHistoryTest` (the
+the test, including a worktree, a detached HEAD and packed refs, plus `gitTopLevel` for a directory
+below the repository root, for a worktree, and with no repository at all), `RemarkHistoryTest` (the
 archive's markdown rendering, and the write itself against a temp file; since phase 9 also the
 sub-line position shape in the heading and the phrase written indented under it, and a general
 remark's `(general)` heading with no line numbers), `AtomicWriteTest` (the
 temp file lands beside the target, not in the system temp directory, and no temp file is left
-behind), `ReviewHandshakeTest` (the name, the rendering, the escaping, and the owner-only
-permissions), `WaitingReviewTest` (the pure `startOrConflict`: accept, honest-retry reuse, a
+behind), `ReviewHandshakeTest` (the name, the rendering, the escaping, the owner-only
+permissions, and `projectIdentity`: the repository for a project opened below its root, the base
+path with no repository, and null for a base path that is missing or unusable), `WaitingReviewTest` (the pure `startOrConflict`: accept, honest-retry reuse, a
 same-session retry after the deadline, and conflict, plus `isStale`'s boundary), and
 `ReviewRequestTest` (the pure `requestIsAllowed`, `projectForPath`, since phase 7
 `clampDeadlineSeconds`, and since phase 8 `readHandoff` and its size cap), `PreviewSelectionTest`

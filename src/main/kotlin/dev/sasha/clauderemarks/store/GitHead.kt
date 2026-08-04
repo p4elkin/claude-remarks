@@ -53,8 +53,35 @@ private fun refInside(commonDir: Path, ref: String): Path? =
     }
 
 /**
- * The directory holding HEAD, found by walking up from [startDir]. A project can be opened at a
- * module below the repository root, so the first .git up the tree is the answer.
+ * The `.git` entry itself, found by walking up from [startDir]. A project can be opened at a module
+ * below the repository root, so the first .git up the tree is the answer.
+ *
+ * Two callers need two different things from this one walk, which is why it is its own function:
+ * [gitDirFor] wants the directory the refs live in, and [gitTopLevel] wants the directory the entry
+ * sits in. Writing the walk twice is how the two would drift apart.
+ */
+private fun dotGitFor(startDir: Path): Path? {
+    val start = runCatching { startDir.toAbsolutePath().normalize() }.getOrNull() ?: return null
+    return generateSequence(start) { it.parent }
+        .map { it.resolve(".git") }
+        .firstOrNull { Files.exists(it) }
+}
+
+/**
+ * The repository [startDir] is in — the directory holding `.git` — or null when there is none above
+ * it. This is what `git rev-parse --show-toplevel` prints, for a plain checkout and for a worktree
+ * alike: a worktree's `.git` is a file sitting in the worktree's own root, so the parent of the
+ * entry is the right answer in both cases.
+ *
+ * It answers a question `headCommit` does not: which repository a project belongs to. That is the
+ * identity the plugin hashes to name its files, so that a project opened on a module below the
+ * repository root still agrees with a skill running at the repository root. See `projectIdentity`
+ * in review/ReviewHandshake.kt, the one function that decides it.
+ */
+fun gitTopLevel(startDir: Path): Path? = dotGitFor(startDir)?.parent
+
+/**
+ * The directory holding HEAD, found the same way.
  *
  * .git is a file rather than a directory in a worktree and in a submodule. It then holds one line,
  * "gitdir: <path>", and that path may be relative to the file's own directory.
@@ -66,11 +93,7 @@ private fun refInside(commonDir: Path, ref: String): Path? =
  * already implies write access to the repository.
  */
 private fun gitDirFor(startDir: Path): Path? {
-    val start = runCatching { startDir.toAbsolutePath().normalize() }.getOrNull() ?: return null
-    val dotGit = generateSequence(start) { it.parent }
-        .map { it.resolve(".git") }
-        .firstOrNull { Files.exists(it) }
-        ?: return null
+    val dotGit = dotGitFor(startDir) ?: return null
 
     if (Files.isDirectory(dotGit)) return dotGit
     val named = readTrimmed(dotGit)

@@ -7,6 +7,7 @@ import java.nio.file.attribute.PosixFilePermissions
 import kotlin.io.path.name
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -14,16 +15,20 @@ import org.junit.Test
 /** Plain JUnit: the name and the header are pure, and the write only needs a temporary directory. */
 class PublishedRemarksTest {
 
+    /**
+     * Pinned against the literal 16 characters, not against `handshakeName` with its suffix taken
+     * off. Both sides of that comparison were `projectHash(realPath)` one delegation hop away, so it
+     * held for whatever the hash returned, a constant included. The skill computes this name itself
+     * with `shasum -a 256 | cut -c1-16`, so the exact bytes are the contract.
+     */
     @Test
-    fun `the published name is the handshake name with a markdown suffix`() {
+    fun `the published name is the first 16 hex of the sha256, with a markdown suffix`() {
         val realPath = "/a/b"
 
-        val jsonName = handshakeName(realPath)
-        val mdName = publishedName(realPath)
-
-        assertEquals(jsonName.removeSuffix(".json"), mdName.removeSuffix(".md"))
-        assertTrue(mdName, mdName.endsWith(".md"))
-        assertTrue(mdName, Regex("[0-9a-f]{16}\\.md").matches(mdName))
+        assertEquals("662b7b62a798bb2d.md", publishedName(realPath))
+        // The handshake file for the same project differs in the suffix and in nothing else.
+        assertEquals("662b7b62a798bb2d.json", handshakeName(realPath))
+        assertNotEquals(publishedName(realPath), publishedName("/a/c"))
     }
 
     @Test
@@ -66,7 +71,7 @@ class PublishedRemarksTest {
         // The name, not only "some file landed here". The skill finds this file by computing
         // publishedName itself from the repository path, so a write under any other name — the
         // handshake name, say — is a file nothing can ever find.
-        assertEquals(publishedName("/some/project"), target.name)
+        assertEquals("a0317725f24b01df.md", target.name)
         assertEquals("body text", Files.readString(target))
         assertEquals(PosixFilePermissions.fromString("rw-------"), Files.getPosixFilePermissions(target))
         assertEquals(PosixFilePermissions.fromString("rwx------"), Files.getPosixFilePermissions(dir))

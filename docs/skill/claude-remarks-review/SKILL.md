@@ -38,13 +38,26 @@ the repository's real path — the same name the handshake file uses, with `.md`
 So there is nothing to ask the IDE for: the name is computable here, and the file is either there
 or it is not.
 
+**Which path exactly.** The plugin hashes the git top level — what `git rev-parse --show-toplevel`
+prints — whenever the open project sits anywhere inside a git repository, even on a module far below
+the repository root. Only for a project that is in no git repository at all does it hash the project
+base path instead, the directory holding `.idea`. This shell computes the first case. It cannot
+compute the second, because nothing here knows what the IDE opened; in a directory that is not in a
+git repository, ask the person for the project path shown in the IDE and hash that instead.
+
 Run this as one Bash call. It is self-contained on purpose: it shares no variable with the review
 flow in `## Steps`, and every name in it starts with `pub_` so it cannot collide with one. It reads
 no connection value, needs no token, and does not talk to the IDE at all.
 
 ```sh
 # Self-contained. Shares no variable with the review flow below, and defines none it reads.
-pub_root=$(git rev-parse --show-toplevel) || exit 1
+pub_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$pub_root" ]; then
+  echo "this directory is not in a git repository, so the published file's name cannot be computed here."
+  echo "The plugin then names it after the project base path — ask the person for the project path"
+  echo "the IDE shows, and hash that instead of \$pub_root."
+  exit 1
+fi
 pub_name=$(printf %s "$pub_root" | shasum -a 256 | cut -c1-16)
 pub_file="$HOME/.claude-remarks/$pub_name.md"
 
@@ -68,7 +81,11 @@ fi
 pub_published=$(sed -n '2s/^published: //p' "$pub_file")
 pub_commit=$(sed -n '3s/^commit: //p' "$pub_file")
 pub_count=$(sed -n '4s/^remarks: //p' "$pub_file")
-pub_head=$(git rev-parse --short=8 HEAD 2>/dev/null)
+# The first 8 characters of the full sha, never `--short=8`: for git, 8 is a floor, and it prints
+# more characters as soon as 8 are not unique in this repository. The plugin always writes exactly
+# 8, so `--short=8` would print a longer string, the comparison below would differ, and the STALE
+# block would fire for remarks published against this very commit.
+pub_head=$(git rev-parse HEAD 2>/dev/null | cut -c1-8)
 
 echo "published: ${pub_published:-unknown}, ${pub_count:-unknown} remarks"
 echo "published at commit ${pub_commit:-unknown}; this checkout is at ${pub_head:-unknown}"
@@ -168,8 +185,13 @@ agent:
    ide_project=       # the repository path as the IDE MACHINE sees it; empty means use this machine's
    ide_host=127.0.0.1 # the near end of the tunnel; change only if you tunnelled somewhere else
 
-   root=$(git rev-parse --show-toplevel)
+   root=$(git rev-parse --show-toplevel 2>/dev/null)
    [ -n "$ide_project" ] || ide_project=$root
+   [ -n "$ide_project" ] || {
+     echo "this directory is not in a git repository. The IDE then knows the project by its base"
+     echo "path — the directory holding .idea. Ask the person for it and set ide_project to it."
+     exit 1
+   }
    ```
 
    `root` returns the physical path even for a symlinked checkout, which matters: the IDE side
@@ -177,6 +199,12 @@ agent:
    because the file list in step 3 is built from this machine's own git; `$ide_project` is what
    goes in the request's `project` field and in every `ack` and `fetch` body. The two are the same
    string in the same-machine case, which is why the default is `$root`.
+
+   **The git top level is what the IDE knows this project by, whatever directory it was opened on.**
+   A project opened on a module below the repository root is still identified by the repository, so
+   `$root` matches it. The one case `git rev-parse` cannot answer is a project in no git repository
+   at all; the IDE then falls back to the project base path, which is why the third line above stops
+   and asks for it instead of carrying on with an empty string.
 
 2. **Compute the connection values: the tunnel values set above if `ide_port` is non-empty,
    otherwise the handshake file.**
@@ -191,9 +219,12 @@ agent:
    else
      remote=
      host=127.0.0.1
-     name=$(printf %s "$root" | shasum -a 256 | cut -c1-16)
+     # $ide_project, not $root: the two are the same string here unless the person had to name the
+     # project path by hand, which is the one case where $root is empty or is not what the IDE knows
+     # this project by. The plugin hashes the same value it matches requests against.
+     name=$(printf %s "$ide_project" | shasum -a 256 | cut -c1-16)
      handshake="$HOME/.claude-remarks/$name.json"
-     [ -f "$handshake" ] || { echo "no IDE has $root open (no handshake file at $handshake)"; exit 1; }
+     [ -f "$handshake" ] || { echo "no IDE has $ide_project open (no handshake file at $handshake)"; exit 1; }
      port=$(jq -r .port "$handshake")
      token=$(jq -r .token "$handshake")
    fi
@@ -223,12 +254,17 @@ agent:
    happened while this skill waits for remarks about files it never asked for. That has happened for
    real. So decide which of the four shapes below applies, run its command, and count the result.
 
+   **Each shape sets two variables, `files_json` and `about_a_diff`, and the guard below reads
+   them.** Copy one shape whole. Setting only the first leaves the guard with no answer, and the
+   guard stops rather than guessing.
+
    **One commit** — the shape that is easy to get wrong. Use `git show`, never `git diff`:
 
    ```sh
    commit=PUT_THE_COMMIT_ID_HERE          # this line is not optional
    files_json=$(git show --name-only --format= "$commit" \
      | jq -R -s -c 'split("\n") | map(select(length > 0))')
+   about_a_diff=yes
    ```
 
    `git diff --name-only <commit>` does NOT list that commit's files. It diffs that commit against
@@ -243,6 +279,7 @@ agent:
    tip=PUT_THE_TIP_HERE
    files_json=$(git diff --name-only "$base"..."$tip" \
      | jq -R -s -c 'split("\n") | map(select(length > 0))')
+   about_a_diff=yes
    ```
 
    **Uncommitted work** — what the person has edited but not committed. This is the only shape the
@@ -251,20 +288,27 @@ agent:
    ```sh
    files_json=$(git diff --name-only HEAD \
      | jq -R -s -c 'split("\n") | map(select(length > 0))')
+   about_a_diff=yes
    ```
 
    **Nothing in particular** — a review that is not about a diff at all. Then, and only then:
 
    ```sh
    files_json="[]"
+   about_a_diff=no
    ```
 
    Every command above prints paths relative to the repository root, which is what the endpoint
    expects. Now check the list before sending it:
 
    ```sh
-   # about_a_diff=no only for the "nothing in particular" shape above.
-   about_a_diff=yes
+   # about_a_diff is set by the shape above and by nothing else. It used to be assigned here, always
+   # to yes, which made the "nothing in particular" shape impossible to run at all: it tripped the
+   # empty-list guard below every time and exited 1.
+   case $about_a_diff in
+     yes|no) ;;
+     *) echo "about_a_diff was never set — copy one of the four shapes above whole"; exit 1;;
+   esac
    files_count=$(printf %s "$files_json" | jq 'length')
    if [ "$about_a_diff" = yes ] && [ "$files_count" -eq 0 ]; then
      echo "the file-list command found nothing, so there is nothing to review — not starting a review"
@@ -300,10 +344,21 @@ agent:
    body=$(jq -n --arg session "$session" --arg label "$label" --arg project "$ide_project" \
      --argjson files "$files_json" --argjson deadline "$deadline_seconds" \
      '{session:$session, label:$label, project:$project, files:$files, deadlineSeconds:$deadline}')
-   http_code=$(curl -s -o "$start_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
-     -X POST "$base_url/start" \
-     -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" \
-     -d "$body")
+   start_post() {
+     curl -s -o "$start_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+       -X POST "$base_url/start" \
+       -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" \
+       -d "$body"
+   }
+   http_code=$(start_post)
+   # The one retry step 4 describes, as code. The check below exits on any non-200, so a retry that
+   # lived only in prose could never run: the script was already gone by the time anyone read it.
+   # 429 is the built-in server's own rate limit, 30 requests a minute from one address.
+   if [ "$http_code" = 429 ]; then
+     echo "start: http 429 — the IDE is rate limiting; waiting 20 seconds and retrying once"
+     sleep 20
+     http_code=$(start_post)
+   fi
 
    # Print both before deciding anything: steps 4 and 5 are about these two values, and if the
    # script does not print them the agent never sees them.
@@ -361,8 +416,9 @@ agent:
      IDE run, but the handshake file survives an IDE that was killed rather than closed normally.
      A restarted IDE on the same port answers 403 to the old token. Tell the person to re-open the
      project — that rewrites the handshake file — and stop.
-   - **429** — the built-in server's own rate limit, 30 requests per minute by default. Wait a
-     few seconds and retry the POST once. If it 429s again, report it and stop.
+   - **429** — the built-in server's own rate limit, 30 requests per minute by default. The script
+     in step 3 has already waited 20 seconds and retried the POST once by the time you read the
+     status, so a 429 still showing here is the second one: report it and stop.
    - **404** — nothing claimed the request. Either the Claude Remarks plugin is not installed in
      that IDE, or the request was not a POST. Report it and stop.
    - anything else, or a 200 whose body does not parse as JSON — report the HTTP status and the

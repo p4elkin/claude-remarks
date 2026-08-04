@@ -7,6 +7,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
@@ -16,17 +17,19 @@ import dev.sasha.clauderemarks.render.clipboardPayload
 import dev.sasha.clauderemarks.render.collectForPrompt
 import dev.sasha.clauderemarks.render.renderPrompt
 import dev.sasha.clauderemarks.review.handshakeDir
+import dev.sasha.clauderemarks.review.projectIdentity
 import dev.sasha.clauderemarks.review.publishedHeader
 import dev.sasha.clauderemarks.review.writePublished
 import dev.sasha.clauderemarks.settings.RemarkSettings
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.headCommit
 import dev.sasha.clauderemarks.store.markRemarksPublished
-import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.resolveAll
 import java.io.IOException
 import java.nio.file.Path
 import java.util.concurrent.CancellationException
+
+private val LOG = Logger.getInstance("dev.sasha.clauderemarks.action.PublishRemarks")
 
 private const val NOTIFICATION_GROUP = "Claude Remarks"
 
@@ -34,12 +37,16 @@ private const val NOTIFICATION_GROUP = "Claude Remarks"
 private const val ALL_PENDING = "all-pending"
 
 /**
- * What the read action produced: the finished markdown, which remarks went into it, the project
- * root and the head commit.
+ * What the read action produced: the finished markdown, which remarks went into it, how many real
+ * files it covers, the project's identity and the head commit.
+ *
+ * [root] is `projectIdentity`'s answer, the same thing the handshake file is named for — the git top
+ * level, or the project base path outside a repository — not the base path on its own. [files]
+ * counts only remarks that name a file: a general remark is about no file, so it is left out.
  *
  * [root] and [commit] are read inside the read action, off the EDT, the same place everything else
  * here is read. Both are null when [ids] resolves to nothing to publish, and [root] alone can be
- * null on its own when the project root does not resolve — in which case the published file is
+ * null on its own when the identity does not resolve — in which case the published file is
  * never written, and only the hand check in section 12 of the phase 9 plan catches that: no unit
  * test drives the async publish pipeline (see [publishRemarks]'s own KDoc for why).
  *
@@ -81,7 +88,7 @@ internal data class Prepared(
  * light fixture buys a flaky test for very little. [publishMessage] is the pure part of this and is
  * what PublishRemarksTest exercises instead.
  */
-fun publishRemarks(project: Project, ids: Collection<String>?, dir: Path = handshakeDir()) {
+fun publishRemarks(project: Project, ids: Collection<String>?) {
     ReadAction.nonBlocking<Prepared> { prepare(project, ids) }
         .expireWith(project)
         // The id set is part of the key. Without it Publish All Pending and Publish Selected
@@ -90,7 +97,7 @@ fun publishRemarks(project: Project, ids: Collection<String>?, dir: Path = hands
         .coalesceBy(::publishRemarks, project, ids?.toSet() ?: ALL_PENDING)
         .finishOnUiThread(ModalityState.defaultModalityState()) { prepared ->
             if (prepared.ids.isEmpty()) {
-                notifyRemarks(project, "No remarks to copy.")
+                notifyRemarks(project, "No remarks to publish.")
                 return@finishOnUiThread
             }
             // The payload is built here rather than inside the read action. A non-blocking read
@@ -108,8 +115,8 @@ fun publishRemarks(project: Project, ids: Collection<String>?, dir: Path = hands
                 )
                 return@finishOnUiThread
             } catch (e: IllegalStateException) {
-                // The clipboard can be held by another process. Not marking the remarks sent here
-                // is the point: nothing was handed over.
+                // The clipboard can be held by another process. Not marking the remarks published
+                // here is the point: nothing was handed over.
                 notifyRemarks(
                     project,
                     "The remarks could not be put on the clipboard: ${e.message}",
@@ -118,10 +125,11 @@ fun publishRemarks(project: Project, ids: Collection<String>?, dir: Path = hands
                 return@finishOnUiThread
             }
 
-            // A null root means the project root did not resolve. Same shape as an IOException:
-            // the publish still hands over the clipboard, but the published file is not written.
-            val writeFailed = if (prepared.root == null) {
-                true
+            // A null root means the project's identity did not resolve. Same shape as an
+            // IOException: the publish still hands over the clipboard, but the published file is
+            // not written, and the balloon says which of the two happened.
+            val writeFailure = if (prepared.root == null) {
+                "the project root did not resolve"
             } else {
                 try {
                     val header = publishedHeader(
@@ -129,8 +137,13 @@ fun publishRemarks(project: Project, ids: Collection<String>?, dir: Path = hands
                         prepared.commit,
                         prepared.ids.size,
                     )
-                    writePublished(prepared.root, header + "\n" + prepared.markdown, dir)
-                    false
+                    // handshakeDir() is called here, inside the try, and is deliberately not a
+                    // default argument on publishRemarks. Kotlin evaluates a default argument in
+                    // the synthetic bridge, BEFORE the body runs, so anything it throws would
+                    // escape every try in this function — the same trap
+                    // store/RemarkEdits.kt's clearHandedOverRemarks names and rejects.
+                    writePublished(prepared.root, header + "\n" + prepared.markdown, handshakeDir())
+                    null
                 } catch (e: ProcessCanceledException) {
                     // Never swallowed. The platform throws it to unwind, not to report a failure,
                     // and turning it into "the published file was not updated" would hide it.
@@ -142,7 +155,14 @@ fun publishRemarks(project: Project, ids: Collection<String>?, dir: Path = hands
                     // attribute it will not take. Any of those escaping here would skip
                     // markRemarksPublished and the balloon both: the clipboard handover already
                     // happened, so the remarks would stay pending and nothing would be said at all.
-                    true
+                    //
+                    // The message goes into the balloon and the whole exception into the platform
+                    // log. A permissions failure, a full disk and a name the filesystem refuses all
+                    // arrive here, and one sentence carrying none of them leaves the person nothing
+                    // to act on — store/RemarkEdits.kt's archive() reports its own write failure the
+                    // same way, with the message in the balloon.
+                    LOG.warn("the published file could not be written", e)
+                    e.message ?: e.toString()
                 }
             }
 
@@ -150,14 +170,14 @@ fun publishRemarks(project: Project, ids: Collection<String>?, dir: Path = hands
 
             notifyRemarks(
                 project,
-                publishMessage(prepared.ids.size, prepared.files, clipboard.file, writeFailed),
+                publishMessage(prepared.ids.size, prepared.files, clipboard.file, writeFailure),
             )
         }
         .submit(AppExecutorUtil.getAppExecutorService())
         // Everything expensive runs inside the read action: resolving, reading Documents,
         // rendering. If any of it throws, finishOnUiThread never runs — nothing reaches the
-        // clipboard, nothing is marked sent, and no balloon appears. Without this the whole action
-        // would look like it did nothing at all, with the reason only in the platform log.
+        // clipboard, nothing is marked published, and no balloon appears. Without this the whole
+        // action would look like it did nothing at all, with the reason only in the platform log.
         .onError { error ->
             // A run dropped by coalesceBy, or one expired with the project, arrives here too. That
             // is not a failure and stays quiet. Both types are checked because which of them the
@@ -188,18 +208,20 @@ internal fun prepare(project: Project, ids: Collection<String>?): Prepared {
     if (rows.isEmpty()) return Prepared("", emptyList(), 0, null, null)
 
     val collected = collectForPrompt(project, rows)
-    // toRealPath(), the same call ReviewHandshakeService.start makes, so the two produce the same
-    // string and a skill computes one hash for either file. Read here, inside the read action, so
-    // the EDT callback in publishRemarks does no filesystem lookup beyond the writes it already
-    // does. runCatching, the same guard ReviewHandshakeService.dispose uses for the same call: a
-    // fixture-backed test's basePath does not always exist on the real filesystem, and any project
-    // whose root vanished between opening and publishing should fall back to null, the same as no
-    // root resolving at all, rather than throwing out of a read action.
-    val root = runCatching { projectRoot(project)?.toNioPath()?.toRealPath() }.getOrNull()
+    // projectIdentity, the one function ReviewHandshakeService and the endpoint's project matching
+    // also go through, so the published file and the handshake file are named for the same thing and
+    // a skill computes one hash for either. Read here, inside the read action, so the EDT callback in
+    // publishRemarks does no filesystem lookup beyond the writes it already does. It answers null —
+    // never throws — for a fixture-backed test's basePath that does not exist on the real
+    // filesystem, and for any project whose directory vanished between opening and publishing.
+    val root = projectIdentity(project)
     return Prepared(
         markdown = renderPrompt(RemarkSettings.getInstance().promptHeader, collected),
         ids = rows.mapNotNull { it.remark.id },
-        files = collected.map { it.path }.distinct().size,
+        // A general remark carries an empty path (collectForPrompt writes path.orEmpty()), and it is
+        // about no file at all, so counting it would make the balloon say one file too many. filter
+        // before distinct: publishing one general remark alone must say "across 0 files", not "1".
+        files = collected.map { it.path }.filter { it.isNotEmpty() }.distinct().size,
         root = root,
         commit = root?.let { headCommit(it) },
     )
@@ -209,7 +231,7 @@ internal fun prepare(project: Project, ids: Collection<String>?): Prepared {
  * The plural "s", or nothing for one. Ten balloons and dialogs across the plugin count remarks or
  * files in a sentence, and each of them had written this `if` out in full. Kept as the suffix rather
  * than a whole "N remarks" phrase, because the noun is not always "remark" ("N files") and is not
- * always the last word before it ("N sent remarks").
+ * always the last word before it ("N published remarks").
  */
 internal fun plural(n: Int): String = if (n == 1) "" else "s"
 
@@ -217,22 +239,25 @@ internal fun plural(n: Int): String = if (n == 1) "" else "s"
  * The one balloon publishRemarks shows, in one sentence even when it has two things to say.
  *
  * [clipboardFile] is the oversized-payload temp file from [clipboardPayload], or null for the
- * common case where the prompt went straight to the clipboard. [writeFailed] is whether the
- * published file write failed or was skipped (a null project root). When it did, the sentence
- * still reports the published count — the clipboard handover happened, so PUBLISHED is not a lie —
- * and adds why the published file itself was not updated, in the same sentence rather than a
- * second balloon.
+ * common case where the prompt went straight to the clipboard. [writeFailure] is why the published
+ * file was not written, or null when it was: the exception's own message for a failed write, and a
+ * plain sentence when the write was skipped because the project root did not resolve. When there is
+ * one, the sentence still reports the published count — the clipboard handover happened, so
+ * PUBLISHED is not a lie — and adds why the published file itself was not updated, in the same
+ * sentence rather than a second balloon. A reason, not just "it failed": a permissions problem, a
+ * full disk and a refused name are all the same sentence without it.
  */
 internal fun publishMessage(
     count: Int,
     files: Int,
     clipboardFile: Path?,
-    writeFailed: Boolean,
+    writeFailure: String?,
 ): String {
     val what = "$count remark${plural(count)} across $files file${plural(files)}"
     val clipboardSentence = if (clipboardFile == null) "Published $what"
         else "$what was too large for the clipboard. Wrote $clipboardFile and copied the path"
-    return if (writeFailed) "$clipboardSentence, but the published file was not updated."
+    return if (writeFailure != null)
+        "$clipboardSentence, but the published file was not updated: $writeFailure."
     else "$clipboardSentence."
 }
 

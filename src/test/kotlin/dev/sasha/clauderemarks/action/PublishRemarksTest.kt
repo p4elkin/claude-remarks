@@ -2,18 +2,20 @@ package dev.sasha.clauderemarks.action
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.store.RemarkStore
+import dev.sasha.clauderemarks.store.addGeneralRemark
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.markRemarksPublished
 import java.nio.file.Path
 
 /**
- * Which remarks a publish takes. Publish All must leave out the ones already sent, and Publish
- * Selected must take exactly the ids it was given even when they are sent — that pair IS the
- * publish lifecycle, so it is the one part of this file worth an automated test, together with
- * [publishMessage], the pure part of the balloon text. The async pipeline itself — the clipboard,
- * the published file write, the balloon actually shown — is checked by hand, per this file's own
- * KDoc above and section 12 of the phase 9 plan: pumping a read action plus an EDT callback in a
- * light fixture buys a flaky test for very little.
+ * Which remarks a publish takes, and how many files it says they cover. Publish All must leave out
+ * the ones already handed over, and Publish Selected must take exactly the ids it was given even
+ * when they are published — that pair IS the publish lifecycle, so it is the one part of this file
+ * worth an automated test, together with the file count and [publishMessage], the pure part of the
+ * balloon text. The async pipeline itself — the clipboard, the published file write, the balloon
+ * actually shown — is checked by hand, per this file's own KDoc above and section 12 of the phase 9
+ * plan: pumping a read action plus an EDT callback in a light fixture buys a flaky test for very
+ * little.
  */
 class PublishRemarksTest : BasePlatformTestCase() {
 
@@ -23,20 +25,41 @@ class PublishRemarksTest : BasePlatformTestCase() {
         RemarkStore.getInstance(project).clear()
     }
 
-    fun testPublishAllLeavesOutRemarksThatWereAlreadySent() {
-        val sent = addRemark(project, "Foo.kt", LINES, 0..0, "already handed over", null)
+    fun testPublishAllLeavesOutRemarksThatWereAlreadyPublished() {
+        val published = addRemark(project, "Foo.kt", LINES, 0..0, "already handed over", null)
         val pending = addRemark(project, "Foo.kt", LINES, 1..1, "still waiting", null)
-        markRemarksPublished(project, listOf(sent.id!!))
+        markRemarksPublished(project, listOf(published.id!!))
 
         assertEquals(listOf(pending.id), prepare(project, null).ids)
     }
 
-    fun testPublishSelectedTakesTheIdsItWasGivenEvenWhenTheyAreSent() {
-        val sent = addRemark(project, "Foo.kt", LINES, 0..0, "already handed over", null)
+    fun testPublishSelectedTakesTheIdsItWasGivenEvenWhenTheyArePublished() {
+        val published = addRemark(project, "Foo.kt", LINES, 0..0, "already handed over", null)
         addRemark(project, "Foo.kt", LINES, 1..1, "still waiting", null)
-        markRemarksPublished(project, listOf(sent.id!!))
+        markRemarksPublished(project, listOf(published.id!!))
 
-        assertEquals(listOf(sent.id), prepare(project, listOf(sent.id!!)).ids)
+        assertEquals(listOf(published.id), prepare(project, listOf(published.id!!)).ids)
+    }
+
+    /**
+     * A general remark is about the whole change, so it carries no path — an empty string once
+     * `collectForPrompt` has run. Counting it made the balloon say one file more than there were,
+     * and publishing a single general remark said "across 1 file" with no file in sight.
+     */
+    fun testAGeneralRemarkIsNotCountedAsAFile() {
+        addGeneralRemark(project, "about the whole change", null)
+        addRemark(project, "Foo.kt", LINES, 0..0, "about one file", null)
+
+        val prepared = prepare(project, null)
+
+        assertEquals(2, prepared.ids.size)
+        assertEquals(1, prepared.files)
+    }
+
+    fun testAPublishOfGeneralRemarksAloneCountsNoFilesAtAll() {
+        addGeneralRemark(project, "about the whole change", null)
+
+        assertEquals(0, prepare(project, null).files)
     }
 
     fun testNothingToPublishComesBackEmptyRatherThanRenderingAnEmptyPrompt() {
@@ -49,7 +72,7 @@ class PublishRemarksTest : BasePlatformTestCase() {
     fun testMessageSaysHowManyRemarksAndFilesWerePublished() {
         assertEquals(
             "Published 3 remarks across 2 files.",
-            publishMessage(count = 3, files = 2, clipboardFile = null, writeFailed = false),
+            publishMessage(count = 3, files = 2, clipboardFile = null, writeFailure = null),
         )
     }
 
@@ -58,14 +81,24 @@ class PublishRemarksTest : BasePlatformTestCase() {
 
         assertEquals(
             "1 remark across 1 file was too large for the clipboard. Wrote $file and copied the path.",
-            publishMessage(count = 1, files = 1, clipboardFile = file, writeFailed = false),
+            publishMessage(count = 1, files = 1, clipboardFile = file, writeFailure = null),
         )
     }
 
-    fun testMessageSaysThePublishedFileWasNotUpdatedWhenTheWriteFailed() {
+    /**
+     * The reason is in the sentence, not only the fact. A permissions failure, a full disk and a
+     * name the filesystem refuses all reach this balloon, and without the reason they read alike.
+     */
+    fun testMessageSaysWhyThePublishedFileWasNotUpdated() {
         assertEquals(
-            "Published 2 remarks across 1 file, but the published file was not updated.",
-            publishMessage(count = 2, files = 1, clipboardFile = null, writeFailed = true),
+            "Published 2 remarks across 1 file, but the published file was not updated: " +
+                "/Users/x/.claude-remarks: Permission denied.",
+            publishMessage(
+                count = 2,
+                files = 1,
+                clipboardFile = null,
+                writeFailure = "/Users/x/.claude-remarks: Permission denied",
+            ),
         )
     }
 

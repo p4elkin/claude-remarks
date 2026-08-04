@@ -180,9 +180,10 @@ class ReviewRestService : RestService() {
      * Runs on a netty IO thread, which is neither the EDT nor a thread holding any IntelliJ lock,
      * so this method must not touch the VFS, must not touch Swing, and must not wait on the EDT.
      * `CLAUDE.md` greps this whole file for the names that would do any of those, which is why they
-     * are not spelled out here either — the guard cannot tell a comment from code. The one
-     * filesystem call below, `toRealPath()`, is plain java.nio and is deliberately fine; anything
-     * that hands back a `VirtualFile` would not be, so opening files lives in its own file.
+     * are not spelled out here either — the guard cannot tell a comment from code. The filesystem
+     * calls this reaches — reading the handoff file, and working out which repository each open
+     * project belongs to — are plain java.nio and are deliberately fine; anything that hands back a
+     * `VirtualFile` would not be, so opening files lives in its own file.
      */
     override fun execute(
         urlDecoder: QueryStringDecoder,
@@ -303,7 +304,7 @@ class ReviewRestService : RestService() {
      * `too-large`, `unknown-project`, `bad-request` or `failed`.
      *
      * **Changes nothing.** Not the store, not the review's phase, not the deadline. Fetching is not
-     * reading: the `read` acknowledgement stays the only thing that marks a remark sent, so a fetch whose
+     * reading: the `read` acknowledgement stays the only thing that marks a remark read, so a fetch whose
      * response is lost to a dead tunnel costs one retry rather than a delivery the IDE believes in and the
      * agent never got. It is therefore safe to call as often as the skill likes, which is what a poll
      * needs.
@@ -380,16 +381,19 @@ class ReviewRestService : RestService() {
 
     /**
      * Which open project a request is about, or `unknown-project` written into [writer] and null.
-     * basePath is the path the project was opened with, which for a symlinked checkout is the
-     * symlink, while the skill sends the physical path from `git rev-parse --show-toplevel`.
-     * Without toRealPath() a plainly open project answers unknown-project. The runCatching is for
-     * a project whose directory has been deleted: it still appears in openProjects.
+     *
+     * [projectIdentity] is what each open project is compared by, the same function that names the
+     * handshake file and the published file. The skill sends what `git rev-parse --show-toplevel`
+     * prints, so the two sides have to agree on both points that answer moves: the physical path,
+     * for a symlinked checkout, and the repository root, for a project opened on a module below it.
+     * Comparing base paths here answered `unknown-project` for a plainly open project in the second
+     * case. It answers null for a project whose directory has been deleted, which still appears in
+     * openProjects, and such a project is simply left out of the list.
      */
     private fun matchProject(wanted: String, writer: JsonWriter): Project? {
         val open = ProjectManager.getInstance().openProjects.mapNotNull { project ->
-            val base = project.basePath ?: return@mapNotNull null
-            val real = runCatching { Path.of(base).toRealPath() }.getOrNull() ?: return@mapNotNull null
-            real to project
+            val identity = projectIdentity(project.basePath) ?: return@mapNotNull null
+            identity to project
         }
         val project = projectForPath(wanted, open)
         if (project == null) {

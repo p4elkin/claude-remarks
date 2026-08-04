@@ -7,6 +7,7 @@ import java.nio.file.attribute.PosixFilePermissions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -23,6 +24,39 @@ class ReviewHandshakeTest {
         assertEquals(a1, a2)
         assertNotEquals(a1, b)
         assertTrue(a1, Regex("[0-9a-f]{16}\\.json").matches(a1))
+    }
+
+    /**
+     * The identity the file name is built from, for a project opened on a module below the
+     * repository root. The skill hashes `git rev-parse --show-toplevel`, so anything else here
+     * writes a file under a name the skill never looks for — and the review mode cannot even fall
+     * back, because reaching the endpoint at all needs the handshake file it could not find.
+     */
+    @Test
+    fun `a project opened below the repository root is identified by the repository`() {
+        val repo = Files.createTempDirectory("claude-remarks-identity").toRealPath()
+        Files.createDirectories(repo.resolve(".git"))
+        val module = Files.createDirectories(repo.resolve("modules/api"))
+
+        assertEquals(repo, projectIdentity(module.toString()))
+    }
+
+    /** No repository above it: the base path is the identity, and the name is still computable. */
+    @Test
+    fun `a project outside a git repository is identified by its own base path`() {
+        val dir = Files.createTempDirectory("claude-remarks-identity").toRealPath()
+
+        assertEquals(dir, projectIdentity(dir.toString()))
+    }
+
+    @Test
+    fun `a base path that is missing, or is not a path at all, has no identity`() {
+        assertNull(projectIdentity(null))
+        assertNull(projectIdentity("/no/such/directory/anywhere"))
+        // A NUL byte is the one thing a POSIX path name cannot hold, so this is the branch
+        // that answers InvalidPathException rather than IOException. Both are caught by
+        // name: catching Throwable would swallow a cancellation in the publish read action.
+        assertNull(projectIdentity("no\u0000name"))
     }
 
     @Test
