@@ -1,34 +1,46 @@
 ---
 name: claude-remarks-review
 description: >
-  Read remarks a person wrote in the Claude Remarks IntelliJ plugin. Two modes. Read a published
-  file: use when asked to read the remarks someone published, read published remarks, look at the
-  remarks they just published from the IDE, check whether anything was published for this
-  repository, or act on remarks handed over through Publish All Pending or Publish Selected —
-  no review is started and nothing is waited for, because the plugin already wrote them to a file
-  under ~/.claude-remarks that this skill reads directly. Hand a review over and wait: use when
-  asked to start a review session with the IDE, wait for review comments from an open
+  Read remarks a person wrote in the Claude Remarks IntelliJ plugin. Three ways, and only the
+  first two are used without being asked. Read a published file: use when asked to read the
+  remarks someone published, read published remarks, look at the remarks they just published from
+  the IDE, check whether anything was published for this repository, or act on remarks handed over
+  through Publish All Pending or Publish Selected — no review is started and nothing is waited
+  for, because the plugin already wrote them to a file under ~/.claude-remarks that this skill
+  reads directly, and it also acknowledges the batch it read. Hand a review over and wait: use
+  when asked to start a review session with the IDE, wait for review comments from an open
   IntelliJ/JetBrains project, or read back remarks the person just sent with "Send to Claude
-  Code" from the Claude Remarks tool window. The IDE and this skill running on the same machine
-  is the normal case for both modes. When the IDE is on another machine, reached over SSH, the
-  review mode needs a tunnel the person sets up by hand and four connection values from them —
-  see "Over SSH: the IDE on another machine" below.
+  Code" from the Claude Remarks tool window. Listen for the next batch: start this only when a
+  person asks, in words, to watch or listen for remarks — never on your own initiative, never
+  because a published file or a waiting review was noticed. It watches the same published file
+  and reports each new batch as it arrives, acting on nothing published before listening started.
+  The IDE and this skill running on the same machine is the normal case for all three. When the
+  IDE is on another machine, reached over SSH, review mode needs a tunnel the person sets up by
+  hand and four connection values from them, which this skill can also store so they are not
+  retyped every run — see "Over SSH: the IDE on another machine" below.
 ---
 
 # Claude Remarks review
 
-Two ways to get a person's remarks out of the Claude Remarks tool window, and they do not overlap.
+Three ways to get a person's remarks out of the Claude Remarks tool window, and they do not
+overlap.
 
 - **They already published.** The person pressed Publish All Pending or Publish Selected, which
-  wrote the remarks to a file. Nothing was started and nothing is waiting. Read the file, act on
-  it, done. That is the next section, and it is the whole of that mode.
+  wrote the remarks to a file. Nothing was started and nothing is waiting. Read the file,
+  acknowledge the batch, act on it, done. That is the next section, and it is the whole of that
+  mode.
 - **Hand a review over and wait for it.** This skill starts a review, the IDE shows a banner, the
   person answers by pressing "Send to Claude Code", and this skill waits for that. That is
   `## Steps` below, and the section before it covers the case where the IDE sits on another
   machine.
+- **Listen for the next batch.** Watch the published file and report each new batch as it comes
+  in, with no review started and nothing sent anywhere else. Opt-in only: start this because a
+  person asked, in words, to watch or listen, never because a published file was noticed or a
+  review looked interesting. That is `## Listen for the next batch`, right after the next section.
 
 Pick the first when the person says they published something or asks for remarks that already
-exist. Pick the second when the person is being asked to review something now.
+exist. Pick the second when the person is being asked to review something now. Pick the third only
+when the person asks, in those words or plainly equivalent ones, to be watched or listened to.
 
 ## Read remarks the person already published
 
@@ -46,8 +58,10 @@ compute the second, because nothing here knows what the IDE opened; in a directo
 git repository, ask the person for the project path shown in the IDE and hash that instead.
 
 Run this as one Bash call. It is self-contained on purpose: it shares no variable with the review
-flow in `## Steps`, and every name in it starts with `pub_` so it cannot collide with one. It reads
-no connection value, needs no token, and does not talk to the IDE at all.
+flow in `## Steps`, and every name in it starts with `pub_` so it cannot collide with one. It
+reads the local handshake file to acknowledge the batch, but no remote connection value — this
+mode reads the published file straight off this machine's disk, so it is same-machine only, unlike
+review and listen mode.
 
 ```sh
 # Self-contained. Shares no variable with the review flow below, and defines none it reads.
@@ -68,19 +82,23 @@ fi
 
 # First line only, the same rule the rejection check in step 6 had to learn: a remark's own text
 # starts lines too, so an anchored grep would match a remark that quotes the marker.
-pub_first=$(head -1 "$pub_file")
+pub_first=$(sed -n '1p' "$pub_file")
 if [ "$pub_first" != '<!-- claude-remarks: published -->' ]; then
   echo "$pub_file is not a published-remarks file — its first line is not the published marker"
   echo "its first line is: $pub_first"
   exit 1
 fi
 
-# The header is fixed: line 1 the marker, then published:, commit:, remarks:, then a blank line.
-# Addressed by line number rather than searched for, so a remark quoting "commit:" cannot be read
-# as the header.
-pub_published=$(sed -n '2s/^published: //p' "$pub_file")
-pub_commit=$(sed -n '3s/^commit: //p' "$pub_file")
-pub_count=$(sed -n '4s/^remarks: //p' "$pub_file")
+# The header is fixed at eight lines: the marker, then nonce:, published:, commit:, remarks:,
+# review:, label:, rejected:, then a blank line and the body. Addressed by line number rather than
+# searched for, so a remark quoting "commit:" in its own text cannot be read as the header.
+pub_nonce=$(sed -n '2s/^nonce: //p' "$pub_file")
+pub_published=$(sed -n '3s/^published: //p' "$pub_file")
+pub_commit=$(sed -n '4s/^commit: //p' "$pub_file")
+pub_count=$(sed -n '5s/^remarks: //p' "$pub_file")
+pub_review=$(sed -n '6s/^review: //p' "$pub_file")
+pub_label=$(sed -n '7s/^label: //p' "$pub_file")
+pub_rejected=$(sed -n '8s/^rejected: //p' "$pub_file")
 # The first 8 characters of the full sha, never `--short=8`: for git, 8 is a floor, and it prints
 # more characters as soon as 8 are not unique in this repository. The plugin always writes exactly
 # 8, so `--short=8` would print a longer string, the comparison below would differ, and the STALE
@@ -89,11 +107,59 @@ pub_head=$(git rev-parse HEAD 2>/dev/null | cut -c1-8)
 
 echo "published: ${pub_published:-unknown}, ${pub_count:-unknown} remarks"
 echo "published at commit ${pub_commit:-unknown}; this checkout is at ${pub_head:-unknown}"
+if [ -n "$pub_review" ] && [ "$pub_review" != none ]; then
+  echo "this batch also answers review session $pub_review (label: ${pub_label:-none})"
+fi
 if [ -n "$pub_commit" ] && [ "$pub_commit" != none ] \
    && [ -n "$pub_head" ] && [ "$pub_commit" != "$pub_head" ]; then
   echo "STALE: these remarks were published against $pub_commit, not against $pub_head."
   echo "The code they point at has moved since. Re-read every line a remark names before acting,"
   echo "and say plainly in the report that the remarks predate the current checkout."
+fi
+
+if [ "$pub_rejected" = yes ]; then
+  echo
+  echo "rejected: yes — this batch is a review's rejection record, not remarks. Nothing to"
+  echo "acknowledge and nothing to act on. Stop here."
+  exit 0
+fi
+
+# Acknowledge before acting: READ means an agent read the remarks, not that the work is finished.
+# Keyed to the batch's own nonce, never to a review session, since a publish can happen with no
+# review waiting at all. Needs the local handshake file, the same one step 2 of the review flow
+# reads — with no IDE open there is none, and that is said plainly rather than failing.
+if [ -z "$pub_nonce" ]; then
+  echo
+  echo "line 2 does not start with 'nonce: ' — this file predates the acknowledgement route."
+  echo "Reading and acting on it anyway; there is nothing to acknowledge."
+else
+  pub_handshake="$HOME/.claude-remarks/$pub_name.json"
+  if [ -f "$pub_handshake" ]; then
+    pub_port=$(jq -r .port "$pub_handshake")
+    pub_token=$(jq -r .token "$pub_handshake")
+    pub_session=$(uuidgen)
+    pub_ack_resp=$(mktemp)
+    pub_ack_code=$(jq -n --arg session "$pub_session" --arg project "$pub_root" --arg nonce "$pub_nonce" \
+        '{session:$session, project:$project, nonce:$nonce}' \
+      | curl -s -o "$pub_ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+          -X POST "http://127.0.0.1:$pub_port/api/claude-remarks/published-read" \
+          -H "X-Claude-Remarks-Token: $pub_token" -H "Content-Type: application/json" -d @-)
+    if [ "$pub_ack_code" = 403 ]; then
+      echo
+      echo "published-read: http 403 — the token in $pub_handshake is stale (the IDE restarted"
+      echo "since it was written). Reading and acting on the remarks below anyway; only the IDE"
+      echo "was not told. Re-open the project in the IDE to fix this for next time."
+    else
+      pub_ack_answer=$(jq -r '.status // empty' "$pub_ack_resp" 2>/dev/null)
+      echo
+      echo "published-read: http $pub_ack_code, status ${pub_ack_answer:-unknown}"
+    fi
+    rm -f "$pub_ack_resp"
+  else
+    echo
+    echo "no IDE has $pub_root open right now (no handshake file at $pub_handshake). Reading and"
+    echo "acting on the remarks below anyway; only the IDE was not told."
+  fi
 fi
 
 echo
@@ -105,21 +171,20 @@ publish and by nothing else, so it can be hours old and can describe code that h
 The commit comparison is the only signal that this happened, and it is worth nothing if it is
 printed and then not reported.
 
-**Three things this mode must not do.**
+**What this mode does, and does not, do.**
 
-- **Do not delete the file after reading it.** Nothing on this path confirms a read: no
-  acknowledgement is sent, and the IDE never learns that anything read it. That is exactly why the
-  plugin has a separate `PUBLISHED` state from `READ` — publishing hands remarks to a channel that
-  cannot confirm. Deleting the file would destroy the only copy outside the IDE on the strength of
-  a confirmation that does not exist, and a second agent, or the same one after a restart, would
-  then find nothing.
-- **Do not post anything to the endpoint.** There is no review here. `ack` names a session, and
-  this mode has no session to name, so an acknowledgement would be answered `no-review` at best and
-  would mark somebody else's waiting review at worst. No token is read in this mode for the same
-  reason.
-- **Do not set a trap.** The traps in step 6 exist to tell the IDE that an agent walked away from a
-  review it was waiting on. Nothing is waiting here, so there is nothing to abandon and nothing to
-  tell.
+- **It does post to the endpoint, and it does read a token — both only for the acknowledgement
+  above.** `published-read` names a batch's own nonce, not a review session, so this can be sent
+  with no review anywhere in the picture. The token comes from the local handshake file, read the
+  same way step 2 of the review flow reads it, and only when that file exists — see the code above
+  for what happens when it does not.
+- **Do not delete the file after reading it.** The acknowledgement above may never reach the IDE at
+  all — no handshake file, or a stale token — and even when it does, the file itself stays the only
+  copy outside the IDE. A second agent, or the same one after a restart, reads the same file until
+  the next publish overwrites it.
+- **Do not set a trap.** The traps in step 6 of the review flow exist to tell the IDE that an agent
+  walked away from a review it was waiting on. Nothing is waiting here — a publish is not a review
+  — so there is nothing to abandon and nothing to tell.
 
 Then act on the remarks the same way step 7 describes: it is one markdown prompt, remarks grouped
 by file, each with its severity, its tag and the code it points at. Act on it, then say plainly
@@ -129,6 +194,111 @@ what was done.
 the IDE, press Publish All Pending (or Publish Selected) in the Claude Remarks tool window, then
 ask again." Do not start a review instead — that is a different thing, and it puts a banner in
 front of a person who was not asking to be interrupted.
+
+## Listen for the next batch
+
+Never started on this skill's own initiative — only when a person asks, in words, to watch or
+listen for the next batch of remarks. Noticing a published file, or a review waiting, is not
+asking. Unlike the two modes above, this one runs open-ended in the background instead of
+answering once.
+
+**What it never does.** It never posts to `/start` — it never starts a review — and it never posts
+to `/ack` — there is no review to acknowledge. The only request it ever sends is `published-read`,
+the same acknowledgement the one-shot mode above sends, keyed to a batch's own nonce.
+
+**Starting it.** Run this as one Bash call, self-contained the same way the one-shot mode above is
+— every name in it starts with `listen_` so it cannot collide with that mode or with the review
+flow in `## Steps`.
+
+```sh
+listen_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$listen_root" ]; then
+  echo "this directory is not in a git repository, so the published file's name cannot be computed"
+  echo "here. Ask the person for the project path the IDE shows, and hash that instead of"
+  echo "\$listen_root."
+  exit 1
+fi
+listen_name=$(printf %s "$listen_root" | shasum -a 256 | cut -c1-16)
+listen_file="$HOME/.claude-remarks/$listen_name.md"
+listen_session=$(uuidgen)
+listen_seen=
+if [ -f "$listen_file" ]; then
+  listen_line=$(sed -n '2p' "$listen_file")
+  case "$listen_line" in "nonce: "*) listen_seen=${listen_line#"nonce: "} ;; esac
+  echo "a batch is already sitting in $listen_file (nonce ${listen_seen:-unknown}). Read it now,"
+  echo "with the one-shot mode above, if it is wanted — listening starts from here and will not"
+  echo "act on it."
+fi
+echo "listen_session=$listen_session"
+echo "listen_file=$listen_file"
+echo "listen_seen=$listen_seen"
+echo "watching $listen_file, up to twelve hours, until the next new batch. Kill"
+echo "~/.claude-remarks/$listen_name.watch's pid to stop early."
+echo "run this next, as its own Bash call, marked background:"
+printf "  watch-remarks.sh --file '%s' --seen '%s' --deadline 43200\n" "$listen_file" "$listen_seen"
+```
+
+**`--deadline 43200` is passed explicitly, always — twelve hours, not `watch-remarks.sh`'s own
+1800-second default.** That default is sized for one review's wait, not for a person asking to be
+watched over a working session. Leaving it off would silently reuse 1800 seconds, and listening
+would stop after half an hour with no explanation. Say plainly, when listening starts, what is
+being watched, that it stops after twelve hours with nothing new, and how to stop it early — both
+printed by the block above.
+
+**When the watcher exits, act on what it printed — built with `$listen_session`, `$listen_root`
+and `$listen_name` typed again, since nothing carries a shell across two Bash calls:**
+
+- **Exit 0.** What the watcher printed is the whole published file, header included. Read the
+  eight-line header directly out of what it printed, by line number, the same way the one-shot
+  mode above reads it off disk: line 2 is `nonce: `, line 6 `review: `, line 7 `label: `, line 8
+  `rejected: `.
+  - Line 6 is not `review: none` — a batch answering someone's review landed here. This is an
+    anomaly: say so at the top of the answer, name the session, do not act on the remarks, and do
+    not acknowledge them. The review's own `ack read` is what should mark those, not this mode.
+  - Line 8 is `rejected: yes` — report it and do not acknowledge. There is nothing to mark read.
+  - Otherwise, acknowledge it the same way the one-shot mode does, with `$listen_session` in place
+    of `$pub_session` and line 2's nonce in place of `$pub_nonce`:
+
+    ```sh
+    listen_nonce=THE_NONCE_FROM_LINE_2_ABOVE
+    listen_handshake="$HOME/.claude-remarks/$listen_name.json"
+    if [ -f "$listen_handshake" ]; then
+      listen_port=$(jq -r .port "$listen_handshake")
+      listen_token=$(jq -r .token "$listen_handshake")
+      listen_ack_resp=$(mktemp)
+      listen_ack_code=$(jq -n --arg session "$listen_session" --arg project "$listen_root" \
+          --arg nonce "$listen_nonce" '{session:$session, project:$project, nonce:$nonce}' \
+        | curl -s -o "$listen_ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+            -X POST "http://127.0.0.1:$listen_port/api/claude-remarks/published-read" \
+            -H "X-Claude-Remarks-Token: $listen_token" -H "Content-Type: application/json" -d @-)
+      listen_ack_answer=$(jq -r '.status // empty' "$listen_ack_resp" 2>/dev/null)
+      listen_ack_session=$(jq -r '.session // empty' "$listen_ack_resp" 2>/dev/null)
+      echo "published-read: http $listen_ack_code, status ${listen_ack_answer:-unknown}"
+      rm -f "$listen_ack_resp"
+    else
+      echo "no handshake file at $listen_handshake — can watch but cannot acknowledge. Say that"
+      echo "plainly, then read the batch anyway."
+    fi
+    ```
+
+    `already-read` naming a session other than `$listen_session` is an anomaly, the same shape as
+    a foreign `review:` above: say so at the top, name that session, and do not act. `already-read`
+    naming `$listen_session` itself is a retry after a lost response, not an anomaly — proceed as
+    normal.
+  - Then summarise the batch and what is planned, and **wait for the person to say go.** Do not
+    act unattended, unlike the one-shot and review modes above — a listener runs unattended for
+    hours, and nobody chose this exact moment for the work to start.
+  - Re-arming — running `watch-remarks.sh` again to wait for the next batch after this one — is a
+    choice, said out loud, run as its own new Bash call the same way the first one was. It is never
+    automatic: the pid-file rule in `## The watcher script` still holds, one watcher per project on
+    the machine, so re-arming without saying so risks two sessions each believing they own the
+    listener.
+- **Exit 1.** The twelve-hour deadline passed with nothing new. Report it and stop. There is
+  nothing to acknowledge — `published-read` is never sent for a batch that never arrived.
+- **Exit 2.** Something the watcher could not get past. Report what it printed verbatim and stop.
+
+Nothing in listen mode ever sends `ack abandoned`: that request belongs to the review flow in
+`## Steps` alone, keyed to a review session listen mode never has.
 
 ## Over SSH: the IDE on another machine
 
@@ -167,7 +337,13 @@ agent:
   agent machine uses, and do not reuse 63342 if that machine runs an IDE too.
 - **Then tell the agent four values:** the tunnel's local port on the agent machine (8765 above),
   the token, the repository path as the **IDE machine** sees it, and the host only if it is not
-  `127.0.0.1`.
+  `127.0.0.1`. The agent can store them so they are not retyped on every later run:
+  `remote-config.sh save --port <port> --project <the IDE-machine path> [--host <host>]`, beside
+  this file, with `CLAUDE_REMARKS_TOKEN` set to the token in its environment — never as an
+  argument, which is world-readable through `ps`. It is keyed to **this** (the agent) machine's own
+  repository root, so two repositories here never share one stored configuration. `show` prints
+  back what is stored, without the token; `forget` deletes it. Step 1 below reads a stored file
+  automatically; with none stored, all four still have to be pasted by hand exactly as before.
 - **A missing tunnel looks like connection refused**, and that is the whole of the error handling.
   The plugin does not manage the tunnel, does not detect it and does not report on it.
 - **Restarting the IDE is what invalidates the token.** Re-opening a project rewrites the
@@ -227,13 +403,34 @@ exit path.
 
    ```sh
    # Remote case only: the IDE is on another machine, reached through an SSH tunnel this shell does
-   # not manage. Leave ide_port EMPTY for the normal same-machine case and the rest is ignored.
-   ide_port=          # the tunnel's local port ON THIS MACHINE, e.g. 8765
-   ide_token=         # the token from the IDE machine's handshake file
-   ide_project=       # the repository path as the IDE MACHINE sees it; empty means use this machine's
-   ide_host=127.0.0.1 # the near end of the tunnel; change only if you tunnelled somewhere else
+   # not manage. A stored configuration (remote-config.sh save, see "Over SSH" below) fills these
+   # in automatically; with none stored all four stay empty and the normal same-machine case runs
+   # untouched.
+   ide_port=
+   ide_token=
+   ide_project=
+   ide_host=127.0.0.1
 
    root=$(git rev-parse --show-toplevel 2>/dev/null)
+   remote_conf=
+   if [ -n "$root" ]; then
+     remote_name=$(printf %s "$root" | shasum -a 256 | cut -c1-16)
+     remote_conf="$HOME/.claude-remarks/remote-$remote_name.env"
+     if [ -f "$remote_conf" ]; then
+       # A whitelist parse, never `. "$remote_conf"` — sourcing runs the file, and a value holding
+       # a space or a quote could change what a later line means. This only ever reads the four
+       # names below and writes nothing.
+       while IFS='=' read -r key value; do
+         case "$key" in
+           ide_host) ide_host=$value ;;
+           ide_port) ide_port=$value ;;
+           ide_project) ide_project=$value ;;
+           ide_token) ide_token=$value ;;
+         esac
+       done < "$remote_conf"
+     fi
+   fi
+
    [ -n "$ide_project" ] || ide_project=$root
    [ -n "$ide_project" ] || {
      echo "this directory is not in a git repository. The IDE then knows the project by its base"
@@ -462,9 +659,16 @@ exit path.
    reading nothing and hanging until the wait in step 6 times out.
 
    - **403** — the token was refused. This is not usually an attack: the token is minted once per
-     IDE run, but the handshake file survives an IDE that was killed rather than closed normally.
-     A restarted IDE on the same port answers 403 to the old token. Tell the person to re-open the
-     project — that rewrites the handshake file — and stop.
+     IDE run, but the handshake file survives an IDE that was killed rather than closed normally,
+     and a stored `remote-config.sh` file survives an IDE restart the same way. A restarted IDE on
+     the same port answers 403 to the old token. In the same-machine case, tell the person to
+     re-open the project — that rewrites the handshake file — and stop. In the remote case, name
+     the stale file, `$remote_conf`, and say where a fresh token comes from: the `crtunnel` helper
+     on the IDE machine prints it, or "Over SSH: the IDE on another machine" above is the by-hand
+     route when that helper is not installed. Then re-save it —
+     `remote-config.sh save --port <port> --project <path>` with `CLAUDE_REMARKS_TOKEN` set to the
+     fresh value — and try again. In practice a re-save is what gets used, not `forget`, because
+     the project path does not change when the IDE restarts.
    - **429** — the built-in server's own rate limit, 30 requests per minute by default. The script
      in step 3 has already waited 20 seconds and retried the POST once by the time you read the
      status, so a 429 still showing here is the second one: report it and stop.
@@ -640,8 +844,12 @@ exit path.
 
 - Missing handshake file: "No IDE has this repository open right now. Open the project in
   IntelliJ (or another JetBrains IDE with the Claude Remarks plugin) and try again."
-- 403: "The IDE at this port answered with a stale token — re-open the project in the IDE, which
-  writes a fresh handshake, then try again."
+- 403, same-machine case: "The IDE at this port answered with a stale token — re-open the project
+  in the IDE, which writes a fresh handshake, then try again."
+- 403, remote case: "The token stored in `<remote_conf>` is stale — the IDE was restarted since it
+  was saved. Get a fresh one (`crtunnel` on the IDE machine prints it, or 'Over SSH' above if that
+  helper is not installed), then run `remote-config.sh save --port <port> --project <path>` again
+  with `CLAUDE_REMARKS_TOKEN` set to it."
 - Timeout waiting for a new batch: "No remarks arrived within the declared deadline
   (`deadline_seconds`, 1800 seconds by default). That is now the real wait: the watcher runs in the
   background with no ten-minute cap, so 1800 seconds means 1800 seconds. Nothing is lost — they

@@ -1021,15 +1021,15 @@ is checked the way task 9 checks the watcher: by hand, in the scratchpad directo
 own run. The script reads `HOME` rather than a hardcoded path, precisely so a check can point it at a
 disposable directory.
 
-- [ ] rewrite the published-read section: the new header line numbers, the nonce, the
+- [x] rewrite the published-read section: the new header line numbers, the nonce, the
       acknowledgement, and the two corrected rules
-- [ ] add the listen mode section, with its launch line, its rules, and the sentence it prints when
+- [x] add the listen mode section, with its launch line, its rules, and the sentence it prints when
       it starts
-- [ ] update the front matter description and the opening list to three ways, with the opt-in rule in
+- [x] update the front matter description and the opening list to three ways, with the opt-in rule in
       the description itself, since that is the text a session reads before it decides anything
-- [ ] write `remote-config.sh` with its three subcommands, reading `HOME` for the directory and
+- [x] write `remote-config.sh` with its three subcommands, reading `HOME` for the directory and
       taking the token only from `CLAUDE_REMARKS_TOKEN`
-- [ ] check `remote-config.sh` by hand with `HOME` pointed at a temporary directory. Each of these is
+- [x] check `remote-config.sh` by hand with `HOME` pointed at a temporary directory. Each of these is
       its own run:
   - `save` writes the file with the four keys and nothing else, and the file is mode 600.
   - the whole output of `save` does not contain the token. Grep it for the token string and find
@@ -1040,17 +1040,17 @@ disposable directory.
     nothing in either case.
   - `forget` deletes the file. `forget` with no file says so and exits 0.
   - run from two different repository roots: two different file names.
-- [ ] replace step 1's four blanks with the whitelist parse, then check both directions by hand: a
+- [x] replace step 1's four blanks with the whitelist parse, then check both directions by hand: a
       saved file produces the four variables, and a missing file leaves them empty so the
       same-machine branch still runs
-- [ ] make the 403 branch name the stored file and say where a fresh token comes from, in step 4 and
+- [x] make the 403 branch name the stored file and say where a fresh token comes from, in step 4 and
       in `## What to say if something goes wrong`
-- [ ] document `save`, `show` and `forget` in `## Over SSH: the IDE on another machine`, beside the
+- [x] document `save`, `show` and `forget` in `## Over SSH: the IDE on another machine`, beside the
       four values that section already tells the person to collect
-- [ ] check by hand that every shell block parses with `sh -n`, and that the published file's header
+- [x] check by hand that every shell block parses with `sh -n`, and that the published file's header
       is read by line number rather than by grep
-- [ ] the six guards print nothing
-- [ ] commit: `feat: the skill reads a batch once, listens when asked, and remembers a remote IDE`
+- [x] the six guards print nothing
+- [x] commit: `feat: the skill reads a batch once, listens when asked, and remembers a remote IDE`
 
 ### Task 12: Verify the whole phase
 
