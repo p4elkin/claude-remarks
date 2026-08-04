@@ -46,6 +46,17 @@ case "$cmd" in
     project=
 
     while [ $# -gt 0 ]; do
+      # Every flag below takes a value. Checked before the branch that reads $2, because `set -u`
+      # turns a missing one into "$2: unbound variable" — a shell error in place of the usage text
+      # the unrecognized-argument branch already prints for every other mistake.
+      case "$1" in
+        --host | --port | --project)
+          if [ $# -lt 2 ]; then
+            echo "remote-config.sh: $1 needs a value" >&2
+            usage
+          fi
+          ;;
+      esac
       case "$1" in
         --host) host=$2; shift 2 ;;
         --port) port=$2; shift 2 ;;
@@ -64,6 +75,22 @@ case "$cmd" in
       *) echo "remote-config.sh: --project must be an absolute path: '$project'" >&2; exit 1 ;;
     esac
 
+    # A line break in either value would break the file this writes. SKILL.md step 1 reads it back
+    # one line at a time, splitting each on the first `=`, so a value carrying a line break either
+    # truncates what is read after it or injects a key of its own — ide_token being the one worth
+    # injecting. --port is already digits only, so only these two need the check.
+    newline='
+'
+    carriage_return=$(printf '\rx'); carriage_return=${carriage_return%x}
+    for checked in "$host" "$project"; do
+      case "$checked" in
+        *"$newline"* | *"$carriage_return"*)
+          echo "remote-config.sh: --host and --project must not contain a line break" >&2
+          exit 1
+          ;;
+      esac
+    done
+
     token=${CLAUDE_REMARKS_TOKEN:-}
     if [ -z "$token" ]; then
       echo "remote-config.sh: CLAUDE_REMARKS_TOKEN must be set in the environment — never pass" >&2
@@ -74,8 +101,25 @@ case "$cmd" in
     if [ -d "$remarks_dir" ]; then
       # Refuses to write unless the directory is already owner-only: writeHandshake in
       # review/ReviewHandshake.kt holds itself to exactly that standard for a file holding the
-      # same token. stat's flag differs by platform, so BSD (macOS) is tried first, then GNU.
-      mode=$(stat -f '%Lp' "$remarks_dir" 2>/dev/null || stat -c '%a' "$remarks_dir" 2>/dev/null)
+      # same token.
+      #
+      # The two stat forms cannot be chained with `||`. On GNU coreutils `-f` means --file-system,
+      # takes no format argument, prints a filesystem block to stdout and exits non-zero, so
+      # `stat -f ... || stat -c ...` puts that whole block in front of the real answer and the mode
+      # printed in the refusal below is unreadable. So the BSD form's own output is thrown away
+      # unless it is octal digits and nothing else, and only then is it used.
+      mode=$(stat -f '%Lp' "$remarks_dir" 2>/dev/null) || mode=
+      case "$mode" in
+        '' | *[!0-7]*) mode=$(stat -c '%a' "$remarks_dir" 2>/dev/null) || mode= ;;
+      esac
+      case "$mode" in
+        '' | *[!0-7]*)
+          echo "remote-config.sh: neither stat form could read $remarks_dir's permissions, so this" >&2
+          echo "script cannot confirm the directory is owner-only before writing a token into it." >&2
+          echo "Check it by hand (it must carry no group or other access) and report this." >&2
+          exit 1
+          ;;
+      esac
       last2=${mode#"${mode%??}"}
       if [ "$last2" != "00" ]; then
         echo "remote-config.sh: $remarks_dir is not owner-only (mode $mode) — refusing to write" >&2

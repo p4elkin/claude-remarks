@@ -5,12 +5,12 @@ description: >
   first two are used without being asked. Read a published file: use when asked to read the
   remarks someone published, read published remarks, look at the remarks they just published from
   the IDE, check whether anything was published for this repository, or act on remarks handed over
-  through Publish All Pending or Publish Selected — no review is started and nothing is waited
+  through Publish Unread or Publish Selected — no review is started and nothing is waited
   for, because the plugin already wrote them to a file under ~/.claude-remarks that this skill
   reads directly, and it also acknowledges the batch it read. Hand a review over and wait: use
   when asked to start a review session with the IDE, wait for review comments from an open
-  IntelliJ/JetBrains project, or read back remarks the person just sent with "Send to Claude
-  Code" from the Claude Remarks tool window. Listen for the next batch: start this only when a
+  IntelliJ/JetBrains project, or read back remarks the person answers the waiting review with by
+  pressing Publish in the Claude Remarks tool window. Listen for the next batch: start this only when a
   person asks, in words, to watch or listen for remarks — never on your own initiative, never
   because a published file or a waiting review was noticed. It watches the same published file
   and reports each new batch as it arrives, acting on nothing published before listening started.
@@ -25,14 +25,17 @@ description: >
 Three ways to get a person's remarks out of the Claude Remarks tool window, and they do not
 overlap.
 
-- **They already published.** The person pressed Publish All Pending or Publish Selected, which
+- **They already published.** The person pressed Publish Unread or Publish Selected, which
   wrote the remarks to a file. Nothing was started and nothing is waiting. Read the file,
   acknowledge the batch, act on it, done. That is the next section, and it is the whole of that
   mode.
-- **Hand a review over and wait for it.** This skill starts a review, the IDE shows a banner, the
-  person answers by pressing "Send to Claude Code", and this skill waits for that. That is
-  `## Steps` below, and the section before it covers the case where the IDE sits on another
-  machine.
+- **Hand a review over and wait for it.** This skill starts a review, the IDE shows a banner
+  reading "Claude Code is waiting: <label>" and "Publish to answer, or Reject", and the person
+  answers it by publishing. **There is no Send control any more** — since phase 10 a publish,
+  Publish Unread or Publish Selected, is what answers a waiting review, and it writes the same file
+  a plain publish writes, with the review's own session id in the header. This skill waits for that
+  file. That is `## Steps` below, and the section before it covers the case where the IDE sits on
+  another machine.
 - **Listen for the next batch.** Watch the published file and report each new batch as it comes
   in, with no review started and nothing sent anywhere else. Opt-in only: start this because a
   person asked, in words, to watch or listen, never because a published file was noticed or a
@@ -139,11 +142,16 @@ else
     pub_token=$(jq -r .token "$pub_handshake")
     pub_session=$(uuidgen)
     pub_ack_resp=$(mktemp)
-    pub_ack_code=$(jq -n --arg session "$pub_session" --arg project "$pub_root" --arg nonce "$pub_nonce" \
-        '{session:$session, project:$project, nonce:$nonce}' \
-      | curl -s -o "$pub_ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+    pub_ack_body=$(jq -n --arg session "$pub_session" --arg project "$pub_root" --arg nonce "$pub_nonce" \
+      '{session:$session, project:$project, nonce:$nonce}')
+    # The token goes in on stdin, through a curl config file, never as an argument: an argument sits
+    # in curl's argv, which every process on this machine can read out of `ps`, and the token is the
+    # only gate on this endpoint. The body carries no secret, so it stays on the command line, which
+    # is what leaves stdin free for the config.
+    pub_ack_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$pub_token" \
+      | curl -s --config - -o "$pub_ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
           -X POST "http://127.0.0.1:$pub_port/api/claude-remarks/published-read" \
-          -H "X-Claude-Remarks-Token: $pub_token" -H "Content-Type: application/json" -d @-)
+          -H "Content-Type: application/json" -d "$pub_ack_body")
     if [ "$pub_ack_code" = 403 ]; then
       echo
       echo "published-read: http 403 — the token in $pub_handshake is stale (the IDE restarted"
@@ -191,7 +199,7 @@ by file, each with its severity, its tag and the code it points at. Act on it, t
 what was done.
 
 **If the file is missing**, say so and stop: "Nobody has published remarks for this repository. In
-the IDE, press Publish All Pending (or Publish Selected) in the Claude Remarks tool window, then
+the IDE, press Publish Unread (or Publish Selected) in the Claude Remarks tool window, then
 ask again." Do not start a review instead — that is a different thing, and it puts a banner in
 front of a person who was not asking to be interrupted.
 
@@ -221,6 +229,26 @@ fi
 listen_name=$(printf %s "$listen_root" | shasum -a 256 | cut -c1-16)
 listen_file="$HOME/.claude-remarks/$listen_name.md"
 listen_session=$(uuidgen)
+
+# Where the watcher script is. See "Where the two scripts are, and how to name them" below: the
+# skill's directory is not on PATH, so the launch line printed at the end of this block has to
+# carry an absolute path or it answers "command not found".
+listen_skill_dir=
+for listen_candidate in \
+  "$HOME/.claude/skills/claude-remarks-review" \
+  "$PWD/.claude/skills/claude-remarks-review" \
+  "$PWD/docs/skill/claude-remarks-review"
+do
+  [ -x "$listen_candidate/watch-remarks.sh" ] && { listen_skill_dir=$listen_candidate; break; }
+done
+if [ -z "$listen_skill_dir" ]; then
+  echo "watch-remarks.sh was not found in ~/.claude/skills/claude-remarks-review/, in"
+  echo "./.claude/skills/claude-remarks-review/ or in ./docs/skill/claude-remarks-review/."
+  echo "Install the skill the way docs/skill/README.md describes, or say where it is. Do not run"
+  echo "it by its bare name: it is not on PATH."
+  exit 1
+fi
+
 listen_seen=
 if [ -f "$listen_file" ]; then
   listen_line=$(sed -n '2p' "$listen_file")
@@ -232,10 +260,12 @@ fi
 echo "listen_session=$listen_session"
 echo "listen_file=$listen_file"
 echo "listen_seen=$listen_seen"
-echo "watching $listen_file, up to twelve hours, until the next new batch. Kill"
-echo "~/.claude-remarks/$listen_name.watch's pid to stop early."
+echo "watching $listen_file, up to twelve hours, until the next new batch. To stop early, kill the"
+echo "pid on the FIRST line of ~/.claude-remarks/$listen_name.watch (its second line is the path"
+echo "being watched, not a pid)."
 echo "run this next, as its own Bash call, marked background:"
-printf "  watch-remarks.sh --file '%s' --seen '%s' --deadline 43200\n" "$listen_file" "$listen_seen"
+printf "  '%s/watch-remarks.sh' --file '%s' --seen '%s' --deadline 43200\n" \
+  "$listen_skill_dir" "$listen_file" "$listen_seen"
 ```
 
 **`--deadline 43200` is passed explicitly, always — twelve hours, not `watch-remarks.sh`'s own
@@ -266,11 +296,14 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
       listen_port=$(jq -r .port "$listen_handshake")
       listen_token=$(jq -r .token "$listen_handshake")
       listen_ack_resp=$(mktemp)
-      listen_ack_code=$(jq -n --arg session "$listen_session" --arg project "$listen_root" \
-          --arg nonce "$listen_nonce" '{session:$session, project:$project, nonce:$nonce}' \
-        | curl -s -o "$listen_ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+      listen_ack_body=$(jq -n --arg session "$listen_session" --arg project "$listen_root" \
+        --arg nonce "$listen_nonce" '{session:$session, project:$project, nonce:$nonce}')
+      # The token on stdin through a curl config file, never as an argument — see the one-shot
+      # mode's copy of this block above for why.
+      listen_ack_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$listen_token" \
+        | curl -s --config - -o "$listen_ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
             -X POST "http://127.0.0.1:$listen_port/api/claude-remarks/published-read" \
-            -H "X-Claude-Remarks-Token: $listen_token" -H "Content-Type: application/json" -d @-)
+            -H "Content-Type: application/json" -d "$listen_ack_body")
       listen_ack_answer=$(jq -r '.status // empty' "$listen_ack_resp" 2>/dev/null)
       listen_ack_session=$(jq -r '.session // empty' "$listen_ack_resp" 2>/dev/null)
       echo "published-read: http $listen_ack_code, status ${listen_ack_answer:-unknown}"
@@ -281,6 +314,17 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
     fi
     ```
 
+    **This is the second copy of the `published-read` call, and it stays a copy on purpose.** A
+    third script beside `watch-remarks.sh` and `remote-config.sh` would leave one copy, and
+    `docs/skill/README.md` argues exactly that for the header format. It is not worth it here: the
+    two copies agree on the wire call and differ in what they do with the answer — the one-shot mode
+    spends a paragraph on a 403 and a stale token, this one compares `already-read` against its own
+    session id — so a shared script would need a flag for each difference and would still leave both
+    paragraphs of prose behind. It would also add a third thing that has to be found by absolute
+    path, which is the failure "Where the two scripts are" exists to stop. The two blocks are kept
+    identical line for line in the part that matters, the `printf | curl --config -` shape: change
+    one and change the other.
+
     `already-read` naming a session other than `$listen_session` is an anomaly, the same shape as
     a foreign `review:` above: say so at the top, name that session, and do not act. `already-read`
     naming `$listen_session` itself is a retry after a lost response, not an anomaly — proceed as
@@ -289,13 +333,18 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
     act unattended, unlike the one-shot and review modes above — a listener runs unattended for
     hours, and nobody chose this exact moment for the work to start.
   - Re-arming — running `watch-remarks.sh` again to wait for the next batch after this one — is a
-    choice, said out loud, run as its own new Bash call the same way the first one was. It is never
+    choice, said out loud, run as its own new Bash call the same way the first one was, by the same
+    absolute path the block above resolved and printed, never by the bare name. It is never
     automatic: the pid-file rule in `## The watcher script` still holds, one watcher per project on
     the machine, so re-arming without saying so risks two sessions each believing they own the
     listener.
 - **Exit 1.** The twelve-hour deadline passed with nothing new. Report it and stop. There is
   nothing to acknowledge — `published-read` is never sent for a batch that never arrived.
 - **Exit 2.** Something the watcher could not get past. Report what it printed verbatim and stop.
+- **Any exit code above 128, 143 in particular.** A signal, which means another watcher took over
+  this project and killed this one — a review starting, or a second listener. Nothing arrived and
+  nothing is owed: report that listening stopped because another watcher took over, and do not
+  acknowledge anything.
 
 Nothing in listen mode ever sends `ack abandoned`: that request belongs to the review flow in
 `## Steps` alone, keyed to a review session listen mode never has.
@@ -338,8 +387,10 @@ agent:
 - **Then tell the agent four values:** the tunnel's local port on the agent machine (8765 above),
   the token, the repository path as the **IDE machine** sees it, and the host only if it is not
   `127.0.0.1`. The agent can store them so they are not retyped on every later run:
-  `remote-config.sh save --port <port> --project <the IDE-machine path> [--host <host>]`, beside
-  this file, with `CLAUDE_REMARKS_TOKEN` set to the token in its environment — never as an
+  `~/.claude/skills/claude-remarks-review/remote-config.sh save --port <port> --project <the
+  IDE-machine path> [--host <host>]` — an absolute path, because the skill's own directory is on no
+  shell's `PATH`; see "Where the two scripts are, and how to name them" below — with
+  `CLAUDE_REMARKS_TOKEN` set to the token in its environment, never as an
   argument, which is world-readable through `ps`. It is keyed to **this** (the agent) machine's own
   repository root, so two repositories here never share one stored configuration. `show` prints
   back what is stored, without the token; `forget` deletes it. Step 1 below reads a stored file
@@ -348,6 +399,46 @@ agent:
   The plugin does not manage the tunnel, does not detect it and does not report on it.
 - **Restarting the IDE is what invalidates the token.** Re-opening a project rewrites the
   handshake file with the same token, because the token is minted once per IDE run.
+
+## Where the two scripts are, and how to name them
+
+**Both scripts are named by absolute path, always. Never by their bare name.** `watch-remarks.sh`
+and `remote-config.sh` sit in this skill's own directory, which is not on any shell's `PATH`, so a
+line reading `watch-remarks.sh --file …` answers `command not found` and the whole wait mechanism
+below silently does nothing. That has happened for real.
+
+**A skill has no variable naming its own directory**, so where it sits is a convention, and the
+convention is the one `docs/skill/README.md` installs: `~/.claude/skills/claude-remarks-review/`,
+what both its `ln -s` and its `cp -r` create. Two other places are worth trying before giving up —
+a project-level install under `.claude/skills/`, and a checkout of this repository being run
+straight out of its own tree. The block below tries all three, in that order, and stops with a
+sentence rather than printing a command that cannot run. **Every Bash call that prints a launch
+line runs it first**, and the launch line it prints then carries an absolute path.
+
+```sh
+# Resolve this skill's own directory. Rename the two variables per mode, the same way every other
+# block here does: listen_skill_dir/listen_candidate in listen mode, pub_* in the one-shot mode.
+skill_dir=
+for candidate in \
+  "$HOME/.claude/skills/claude-remarks-review" \
+  "$PWD/.claude/skills/claude-remarks-review" \
+  "$PWD/docs/skill/claude-remarks-review"
+do
+  [ -x "$candidate/watch-remarks.sh" ] && { skill_dir=$candidate; break; }
+done
+if [ -z "$skill_dir" ]; then
+  echo "watch-remarks.sh was not found in any of the three places this skill looks:"
+  echo "  ~/.claude/skills/claude-remarks-review/, ./.claude/skills/claude-remarks-review/,"
+  echo "  ./docs/skill/claude-remarks-review/"
+  echo "Install the skill the way docs/skill/README.md describes, or say where it is, and run this"
+  echo "again. Do not fall back to the bare name: it is not on PATH and never has been."
+  exit 1
+fi
+```
+
+`remote-config.sh` is named the same way. Where this file writes it out in prose it is written
+`~/.claude/skills/claude-remarks-review/remote-config.sh`, which is the install path above; if the
+skill is installed somewhere else, use that directory instead.
 
 ## The watcher script
 
@@ -359,7 +450,9 @@ never loop forever — a background command that never exits never notifies, and
 for a signal that cannot arrive. Launch it with a background Bash call, never a foreground one, and
 read what it printed once it exits.
 
-**Two forms, one per branch of the wait:**
+**Two forms, one per branch of the wait.** The name is written bare here only because this is a
+synopsis of the flags; every line actually run names the script by absolute path, for the reason the
+section above gives.
 
 ```
 watch-remarks.sh --file <path> [--seen <nonce>] [--require-review <session>]
@@ -376,26 +469,51 @@ watch-remarks.sh --fetch <base_url> --session <id> --project <path>
   not accepted here — the fetch endpoint already answers `ready` only for the session named in the
   request, so there is nothing left to filter client-side.
 - `--seen <nonce>` is the nonce already known. Omit it, or pass an empty string, to mean "any batch
-  is new."
-- `--require-review <session>` (file mode only) makes the watcher keep waiting until the batch's
-  `review:` header field equals that session, rather than reporting the first new batch it sees.
-- `--deadline <seconds>` defaults to 1800. Listen mode passes 43200 (twelve hours).
+  is new." **Ignored whenever `--require-review` is given**, which is why review mode does not pass
+  it at all — see step 6.
+- `--require-review <session>` (file mode only) makes the watcher wait for a batch whose `review:`
+  header field equals that session, and decide on that field alone. The first new batch that is not
+  this review's answer is skipped, and so is the nonce comparison.
+- `--deadline <seconds>` defaults to 1800. Listen mode passes 43200 (twelve hours). Zero is refused,
+  as is `--poll 0`: `sleep 0` returns at once, which would turn either loop into a busy poll for the
+  whole deadline, and in fetch mode into a curl flood.
+- `--poll <seconds>` is for hand runs and the by-hand checks only. Nothing in this file passes it;
+  both defaults above are chosen inside the script. It is kept because a deadline check that had to
+  wait the real 2 or 5 seconds per poll would take too long to run by hand.
 - The token for `--fetch` is read from `CLAUDE_REMARKS_TOKEN` in the environment, never from an
   argument — an argument is visible to every process on the machine through `ps`, and the token is
-  the only gate on the endpoint.
+  the only gate on the endpoint. The script then hands it to `curl` on stdin, through
+  `curl --config -`, for the same reason: `-H "…: $token"` would put it straight back into `curl`'s
+  own argv, where `ps` reads it. Every `curl` in this file does the same.
 
 **Exit codes.** `0`, with the whole published file on stdout (header included), when a new batch
 arrived. `1`, with one sentence, when the deadline passed with nothing new. `2`, with a reason, for
 anything wrong: a file it cannot read, a header whose first line is not the marker or whose second
 line does not start with `nonce: ` (which means the plugin that wrote it is older than this skill),
-an HTTP status other than 200, or a `too-large` answer.
+an HTTP status other than 200, or one of the fetch answers that no amount of polling can fix —
+`too-large`, `failed` (the IDE reached the published file and could not use it: an IOException, a
+header it could not parse, or a project directory that no longer resolves), `bad-request` and
+`unknown-project`.
 
-**One watcher per project on the machine.** On start it writes its own pid to
-`~/.claude-remarks/<the file's own 16 hex characters>.watch`, creating that directory
-`rwx------` first if the plugin has never run here. If a pid is already there and still belongs to
-a live `watch-remarks.sh` process, it kills that process and waits for it to actually exit before
-taking over — whichever session started it. It removes its own pid file when it exits, on every
-exit path.
+**An exit code above 128 is a signal, and it means another watcher took over.** 143 is the one to
+expect: the takeover below sends `SIGTERM`, and the killed watcher cleans up and exits 143. It is
+not a batch, not a deadline and not an error — see the exit-code lists in listen mode and in step 6
+for what to do with it.
+
+**One watcher per project on the machine.** On start it writes two lines to
+`~/.claude-remarks/<the file's own 16 hex characters>.watch` — its own pid, then the path it is
+watching — creating that directory `rwx------` first if the plugin has never run here. **Anything
+reading that file for a pid to kill must read the first line alone.** If a pid is already there and
+still belongs to a live `watch-remarks.sh` process **watching that same path**, it kills that
+process and waits for it to actually exit before taking over — whichever session started it. Both
+halves matter: a pid on its own gets recycled, and a recycled one can belong to another project's
+watcher, which is still a `watch-remarks.sh`. It removes its own pid file when it exits, on every
+exit path, signals included.
+
+The 16 hex characters come straight off the `--file` path's own basename when that basename really
+is 16 hex characters, which is what every path this file prints looks like. A `--file` pointed
+anywhere else is hashed instead, so the one-watcher rule still holds for it rather than quietly
+lapsing under a nonsense name.
 
 ## Steps
 
@@ -590,11 +708,16 @@ exit path.
    body=$(jq -n --arg session "$session" --arg label "$label" --arg project "$ide_project" \
      --argjson files "$files_json" --argjson deadline "$deadline_seconds" \
      '{session:$session, label:$label, project:$project, files:$files, deadlineSeconds:$deadline}')
+   # The token goes in on stdin, through a curl config file, never as an argument: an argument sits
+   # in curl's argv, which every process on this machine can read out of `ps`, and the token is the
+   # only gate on this endpoint. The body carries no secret, so it stays on the command line, which
+   # is what leaves stdin free for the config.
    start_post() {
-     curl -s -o "$start_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
-       -X POST "$base_url/start" \
-       -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" \
-       -d "$body"
+     printf 'header = "X-Claude-Remarks-Token: %s"\n' "$token" \
+       | curl -s --config - -o "$start_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+         -X POST "$base_url/start" \
+         -H "Content-Type: application/json" \
+         -d "$body"
    }
    http_code=$(start_post)
    # The one retry step 4 describes, as code. The check below exits on any non-200, so a retry that
@@ -666,9 +789,12 @@ exit path.
      the stale file, `$remote_conf`, and say where a fresh token comes from: the `crtunnel` helper
      on the IDE machine prints it, or "Over SSH: the IDE on another machine" above is the by-hand
      route when that helper is not installed. Then re-save it —
-     `remote-config.sh save --port <port> --project <path>` with `CLAUDE_REMARKS_TOKEN` set to the
-     fresh value — and try again. In practice a re-save is what gets used, not `forget`, because
-     the project path does not change when the IDE restarts.
+     `~/.claude/skills/claude-remarks-review/remote-config.sh save --port <port> --project <path>`
+     with `CLAUDE_REMARKS_TOKEN` set to the fresh value — and try again. A re-save is what fixes a
+     stale token, not `forget`: the project path does not change when the IDE restarts, and a save
+     overwrites the whole file. `forget` is for the other thing entirely — the remote setup is over
+     and this repository goes back to a same-machine IDE, so a stored port and token that now point
+     at nothing should stop being read by step 1.
    - **429** — the built-in server's own rate limit, 30 requests per minute by default. The script
      in step 3 has already waited 20 seconds and retried the POST once by the time you read the
      status, so a 429 still showing here is the second one: report it and stop.
@@ -701,6 +827,25 @@ exit path.
    for a batch, and this shell exits as soon as that line is printed.
 
    ```sh
+   # Where the watcher script is. See "Where the two scripts are, and how to name them" above: the
+   # skill's directory is not on PATH, so the launch line printed below has to carry an absolute
+   # path or it answers "command not found".
+   skill_dir=
+   for candidate in \
+     "$HOME/.claude/skills/claude-remarks-review" \
+     "$PWD/.claude/skills/claude-remarks-review" \
+     "$PWD/docs/skill/claude-remarks-review"
+   do
+     [ -x "$candidate/watch-remarks.sh" ] && { skill_dir=$candidate; break; }
+   done
+   if [ -z "$skill_dir" ]; then
+     echo "watch-remarks.sh was not found in ~/.claude/skills/claude-remarks-review/, in"
+     echo "./.claude/skills/claude-remarks-review/ or in ./docs/skill/claude-remarks-review/."
+     echo "The review has already started in the IDE, so send ack abandoned (step 6, exit 1) before"
+     echo "stopping. Do not run the watcher by its bare name: it is not on PATH."
+     exit 1
+   fi
+
    if [ -z "$remote" ]; then
      # The same file "Read remarks the person already published" above reads, named by $name from
      # step 2.
@@ -712,20 +857,29 @@ exit path.
      fi
      echo "session=$session"
      echo "published_file=$published_file"
-     echo "seen_nonce=$seen_nonce"
+     echo "seen_nonce=$seen_nonce   # printed to read, not passed — see below"
      echo "run this next, as its own Bash call, marked background:"
-     printf "  watch-remarks.sh --file '%s' --seen '%s' --require-review '%s' --deadline '%s'\n" \
-       "$published_file" "$seen_nonce" "$session" "$deadline_seconds"
+     printf "  '%s/watch-remarks.sh' --file '%s' --require-review '%s' --deadline '%s'\n" \
+       "$skill_dir" "$published_file" "$session" "$deadline_seconds"
    else
      echo "session=$session"
      echo "base_url=$base_url"
      echo "ide_project=$ide_project"
      echo "run this next, as its own Bash call, marked background, with CLAUDE_REMARKS_TOKEN set in"
      echo "its environment to the token read in step 2 — do not echo the token itself"
-     printf "  watch-remarks.sh --fetch '%s' --session '%s' --project '%s' --deadline '%s'\n" \
-       "$base_url" "$session" "$ide_project" "$deadline_seconds"
+     printf "  '%s/watch-remarks.sh' --fetch '%s' --session '%s' --project '%s' --deadline '%s'\n" \
+       "$skill_dir" "$base_url" "$session" "$ide_project" "$deadline_seconds"
    fi
    ```
+
+   **`--seen` is deliberately not passed here, and the watcher ignores it under `--require-review`
+   anyway.** The nonce above is read in the same shell that posted to `/start`, so a publish landing
+   in the gap between those two lines would be recorded as already seen — and the watcher would then
+   wait its whole deadline for an answer that had already arrived, with no way back. Rare, and there
+   is no recovery, which is why the flag is gone rather than made safer. `--require-review` needs no
+   nonce to decide: the session was invented moments ago in step 3, so a batch whose `review:` field
+   names it is this review's own answer, whatever nonce it carries. The value is still printed, to
+   read.
 
    `--require-review` is file-mode only. Task 9 built `--fetch` to refuse it outright: the fetch
    endpoint already answers `ready` only for the session named in the request, so there is nothing
@@ -768,11 +922,13 @@ exit path.
 
      ```sh
      ack_resp=$(mktemp)
-     ack_code=$(jq -n --arg session "$session" --arg project "$ide_project" --arg event read \
-         '{session:$session, project:$project, event:$event}' \
-       | curl -s -o "$ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+     ack_body=$(jq -n --arg session "$session" --arg project "$ide_project" --arg event read \
+       '{session:$session, project:$project, event:$event}')
+     # The token on stdin through a curl config file, never as an argument — see step 3 for why.
+     ack_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$token" \
+       | curl -s --config - -o "$ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
            -X POST "$base_url/ack" \
-           -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" -d @-)
+           -H "Content-Type: application/json" -d "$ack_body")
      ack_answer=$(jq -r .status "$ack_resp" 2>/dev/null)
      echo "ack read: http $ack_code, status $ack_answer"
      ```
@@ -783,17 +939,30 @@ exit path.
      below — so send `ack abandoned` yourself, report the timeout, and stop:
 
      ```sh
-     curl -s -o /dev/null -w 'ack abandoned: http %{http_code}\n' --connect-timeout 5 --max-time 20 \
-       -X POST "$base_url/ack" -H "X-Claude-Remarks-Token: $token" -H "Content-Type: application/json" \
-       -d "$(jq -n --arg session "$session" --arg project "$ide_project" --arg event abandoned \
-              '{session:$session, project:$project, event:$event}')"
+     # The token on stdin through a curl config file, never as an argument — see step 3 for why.
+     printf 'header = "X-Claude-Remarks-Token: %s"\n' "$token" \
+       | curl -s --config - -o /dev/null -w 'ack abandoned: http %{http_code}\n' \
+         --connect-timeout 5 --max-time 20 \
+         -X POST "$base_url/ack" -H "Content-Type: application/json" \
+         -d "$(jq -n --arg session "$session" --arg project "$ide_project" --arg event abandoned \
+                '{session:$session, project:$project, event:$event}')"
      ```
 
    - **Exit 2.** Something the watcher could not get past: a file it could not read, a header older
-     than this skill, an HTTP status other than 200, or a `too-large` answer. Report what it
-     printed verbatim and stop. Do not send `ack abandoned` here — nothing here has actually given
-     up on the review, and it may still be genuinely waiting for a batch that has not arrived yet.
-     The IDE's own scheduled deadline is what eventually clears the banner if nothing else does.
+     than this skill, an HTTP status other than 200, or one of the fetch answers no poll can fix —
+     `too-large`, `failed`, `bad-request` or `unknown-project`. `failed` means the IDE reached the
+     published file and could not use it, and the answer's `detail` says which of the three ways:
+     an IOException, a header it could not parse, or a project directory that no longer resolves.
+     Report what the watcher printed verbatim and stop. Do not send `ack abandoned` here — nothing
+     here has actually given up on the review, and it may still be genuinely waiting for a batch
+     that has not arrived yet. The IDE's own scheduled deadline is what eventually clears the banner
+     if nothing else does.
+
+   - **Any exit code above 128, 143 in particular.** A signal, which means another watcher took over
+     this project and killed this one — a second review starting, or a listener. **Do not send `ack`
+     of any kind, `abandoned` least of all.** Nothing has given up: the review is still waiting in
+     the IDE, and whichever watcher took over is the one that will see its answer. Report plainly
+     that this wait was displaced, and say which watcher now owns the project if it is known.
 
    **The trap goes, and nothing replaces it in the same shell.** The old code kept
    `trap 'ack abandoned' EXIT` in the same shell as the wait loop. With the wait moved to a
@@ -806,8 +975,10 @@ exit path.
    1 does:
 
    ```sh
+   # The first line alone: the pid file's second line is the path that watcher is watching, and
+   # passing both to kill passes it one argument that is not a pid at all.
    watch_hash=$(printf '%s' "$ide_project" | shasum -a 256 | cut -c1-16)
-   kill "$(cat "$HOME/.claude-remarks/$watch_hash.watch" 2>/dev/null)" 2>/dev/null
+   kill "$(sed -n '1p' "$HOME/.claude-remarks/$watch_hash.watch" 2>/dev/null)" 2>/dev/null
    ```
 
    **What this gives up, written down here so nobody re-adds the trap:** a session killed
@@ -818,10 +989,10 @@ exit path.
    one killed while the watcher itself is running.
 
    If waiting times out: nothing is lost. The remarks, if the person ever wrote any, are still
-   sitting in the IDE's tool window, marked pending — they were never marked sent, because sending
-   only writes the file, and marking sent waits for `ack read` — and the person can send them again
-   or copy them by hand. The `ack abandoned` sent above clears the IDE's banner; there is nothing
-   left to do by hand from the banner's Reject link for this run.
+   sitting in the IDE's tool window — nothing arrived, so nothing was ever published for this
+   review, and the remarks are still pending. The person can publish them again or copy them by
+   hand. The `ack abandoned` sent above clears the IDE's banner; there is nothing left to do by
+   hand from the banner's Reject link for this run.
 
    **What the acknowledgement answers:** `ok`, `no-review` (nothing is waiting under that session
    — the review was cancelled, expired, or already finished), `not-sent` (a read acknowledgement
@@ -831,12 +1002,12 @@ exit path.
 
    On anything other than `ok`, say so plainly and name the value, then still do step 7: the remarks
    were really read, and they are still in hand. What the non-`ok` answer means for the person is
-   that the IDE never marked them sent, so they are still pending in the tool window and can be sent
-   again. Do not retry the acknowledgement more than once — the IDE's own deadline already covers a
-   lost one — and do not start a second review.
+   that the IDE never marked them read, so they stay grey-but-unread in the tool window and the next
+   Publish Unread will carry them again. Do not retry the acknowledgement more than once — the IDE's
+   own deadline already covers a lost one — and do not start a second review.
 
-7. **Read the file and act on it.** It is one markdown prompt built the same way "Copy All
-   Pending" builds one — remarks grouped by file, each with its severity, its tag and the code it
+7. **Read the file and act on it.** It is one markdown prompt built the same way Publish Unread
+   builds one — remarks grouped by file, each with its severity, its tag and the code it
    points at. Act on it, then say plainly what was done, the same way you would after reading any
    other review feedback.
 
@@ -848,19 +1019,20 @@ exit path.
   in the IDE, which writes a fresh handshake, then try again."
 - 403, remote case: "The token stored in `<remote_conf>` is stale — the IDE was restarted since it
   was saved. Get a fresh one (`crtunnel` on the IDE machine prints it, or 'Over SSH' above if that
-  helper is not installed), then run `remote-config.sh save --port <port> --project <path>` again
-  with `CLAUDE_REMARKS_TOKEN` set to it."
+  helper is not installed), then run
+  `~/.claude/skills/claude-remarks-review/remote-config.sh save --port <port> --project <path>`
+  again with `CLAUDE_REMARKS_TOKEN` set to it."
 - Timeout waiting for a new batch: "No remarks arrived within the declared deadline
   (`deadline_seconds`, 1800 seconds by default). That is now the real wait: the watcher runs in the
-  background with no ten-minute cap, so 1800 seconds means 1800 seconds. Nothing is lost — they
-  are still pending in the IDE, never marked sent. Send to Claude Code again when ready, or paste
-  them here." Send `ack abandoned` yourself before saying this — see step 6; there is no trap to do
-  it automatically any more.
+  background with no ten-minute cap, so 1800 seconds means 1800 seconds. Nothing is lost — nothing
+  was published for this review, so the remarks are still pending in the IDE. Press Publish Unread
+  (or Publish Selected) when ready, or paste them here." Send `ack abandoned` yourself before saying
+  this — see step 6; there is no trap to do it automatically any more.
 - The person rejected the review: "The review was rejected in the IDE. No remarks were sent."
   Stop; do not retry and do not start a second review for the same request.
 - An acknowledgement answers anything other than `ok`: report the outcome (`no-review`,
   `not-sent`, `unknown-project`, `bad-request`) and the body verbatim, and add that the remarks were
-  read here but stay marked pending in the IDE, so the person can send them again.
+  read here but the IDE never marked them read, so the next Publish Unread will carry them again.
 - No tunnel in the remote case (connection refused): "There is no tunnel reaching the IDE machine
   at this host and port. On the IDE machine, start one with
   `ssh -o ExitOnForwardFailure=yes -R <port>:127.0.0.1:<the IDE's port> <this machine>`, then try
@@ -872,6 +1044,14 @@ exit path.
   `~/.claude-remarks/` on the IDE machine. Ask the person to read them there, or to send fewer
   remarks." Not a failure to retry — the review cannot be re-sent from the IDE either, so this
   stops here.
+- `fetch` answers `failed`: "The IDE reached the published file and could not use it: `<detail>`."
+  The `detail` field says which of three things happened — the file could not be read (an
+  IOException), its header could not be parsed (something other than this plugin wrote it, or an
+  older plugin's file is still sitting there), or the open project's own directory no longer
+  resolves (the checkout was deleted, moved or unmounted under the IDE). None of the three gets
+  better by polling, which is why the watcher exits 2 on it rather than waiting the deadline out.
+  Report the detail verbatim, and stop. Do not send `ack abandoned`: the review is still waiting in
+  the IDE, and the person can still publish into it once the cause is fixed.
 - `fetch` answers `unknown-project` in the remote case: "The two machines disagree about where the
   repository lives. The response's `open` list names the paths the IDE has open — pass one of
   those as `ide_project` and try again." This is the normal first failure of the remote case, not
