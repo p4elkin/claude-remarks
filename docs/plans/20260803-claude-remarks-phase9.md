@@ -2187,14 +2187,61 @@ The `## Known Issues` entry keeps the existing convention, a likelihood word the
 that were selected**, with the reasoning from
 [section 11](#11-known-limits-and-the-known-issues-entries-to-add).
 
-- [ ] update `docs/claude/design.md`
-- [ ] update `CLAUDE.md`, including the `preview/` package in the project structure and the new test
+- [x] update `docs/claude/design.md`
+      **Result: new section "A Remark on the Rendered Preview" added right before "The Shared Review
+      Session", covering the five pieces (the injected script, `PreviewRemarkExtension.kt`,
+      `PreviewSelection.kt`, `PreviewSelectionService.kt`, `AddPreviewRemarkAction.kt`), why the page
+      pushes rather than answers, the pipe handler's real thread (not the EDT, called inline from a
+      native CEF callback), why `md-src-pos` sitting on every opened tag makes a drawn Mermaid
+      diagram behave differently from ordinary prose (the coarse range is the whole fence, and one
+      `indexOf` decides node label vs. whole diagram), why the offsets are into the live `Document`
+      and not the file on disk, why narrowing searches rather than walks the parse tree, and why the
+      markdown dependency is optional with what that costs `build.gradle.kts`. Two new Known Issues
+      entries added: the plan's own "OCCASIONAL, MINOR: a remark from the preview can point at whole
+      lines" entry, and a second "OCCASIONAL, MINOR" entry specific to the Mermaid-fence case, each
+      with a likelihood word and a severity word per the section's existing convention.**
+- [x] update `CLAUDE.md`, including the `preview/` package in the project structure and the new test
       classes in the testing paragraph
-- [ ] update `README.md`
-- [ ] `./gradlew test` still passes, `./gradlew verifyPlugin` still passes, and all six guards are
+      **Result: opening paragraph's phase-9 sentence now says "tasks 1-23 ... implemented", not
+      "groups four and five ... not built yet"; the hand-check paragraph now also names group five's
+      own owed checks (menu item appearing, a real selection reaching Kotlin, the plugin loading
+      cleanly with markdown disabled) instead of only group one's three. A walkthrough sentence for
+      writing a remark from the preview was added. Two new phase paragraphs added after "Phase 9's
+      group three is built too": one for group four (file rows, drag), one for group five (the full
+      account: the five pieces, the two facts nobody would guess, the optional dependency, and an
+      explicit "none of this has been seen running in a real IDE" line). Project structure: added
+      `action/AddPreviewRemarkAction.kt`, and extended the `store/RemarkTarget.kt` line with
+      `fileTargetProblem`, the file-only refusal task 22 split out for the preview's own action to
+      reuse; the existing `preview/` lines, `plugin.xml`'s optional-dependency comment and
+      `claude-remarks-markdown.xml`'s line were already correct (written in task 21's own commit) and
+      needed no change. Toolchain: added a bullet for the optional markdown dependency and the
+      `EXPERIMENTAL_API_USAGES` subtraction. Testing paragraph: added `PreviewSelectionTest` and
+      `PreviewRemarkProblemTest` to the no-fixture group, and `PreviewSelectionServiceTest` to the
+      fixture-backed group — the three test classes group five actually has; there is no
+      `AddPreviewRemarkActionTest`, confirmed by a file search, since the action itself needs a real
+      JCEF panel and only its pure `previewRemarkProblem` helper is unit-tested.**
+- [x] update `README.md`
+      **Result: the phase-9 bullet under "## Phases" rewritten to drop "groups four and five are not
+      built yet" and describe both groups; the fourth action id (`ClaudeRemarks.AddPreviewRemark`)
+      was already added by task 22's own commit, confirmed by `git show 1a8f218 --stat` and reading
+      the current table section, so nothing there needed adding. A new short paragraph added to the
+      walkthrough describing the preview entry point and the optional-dependency consequence. The
+      Testing and Architecture sections of README.md were left untouched: this task's own Files list
+      scopes README to "the walkthrough, and the fourth action id", not those two sections.**
+- [x] `./gradlew test` still passes, `./gradlew verifyPlugin` still passes, and all six guards are
       empty. Documentation should change none of that, and running them here is what proves the group
       is shippable on its own.
-- [ ] commit: `docs: record how a remark is written on the rendered markdown preview`
+      **Result: `./gradlew test` — BUILD SUCCESSFUL, task reported UP-TO-DATE since only
+      documentation files changed; 436 executed tests counted from `build/test-results/test/*.xml`
+      (`grep -ho 'tests="[0-9]*"' | ... | paste -sd+ - | bc`), all green. All six guards from
+      section 7 ran with the quoted glob and every one came back empty. `./gradlew verifyPlugin` —
+      BUILD SUCCESSFUL, "Compatible. 3 usages of experimental API. 1 usage of internal API": the
+      three experimental usages are exactly `MarkdownHtmlPanel.getBrowserPipe()`, `.getVirtualFile()`
+      and `.getProject()`, the ones `build.gradle.kts`'s comment names and `EXPERIMENTAL_API_USAGES`
+      is subtracted for; the one internal usage is `SegmentedButton.getComponent()`, the
+      pre-existing, already-argued-for one. Tree clean apart from the three documentation files this
+      task edited, confirmed by `git status --porcelain` before committing.**
+- [x] commit: `docs: record how a remark is written on the rendered markdown preview`
 
 ### Task 24: The version, the idea file, and the final sweep
 

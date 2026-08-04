@@ -1246,6 +1246,95 @@ and prints no `lines` part at all, since `positionLabel` has nothing to describe
 line range. This reuses the same word the renderer's `## General` heading and the tree's
 `GENERAL_KEY` group use for the same kind of remark.
 
+## A Remark on the Rendered Preview
+
+Phase 9's group five lets a remark be written from IntelliJ's rendered markdown preview, not only
+from the source file. Select words in the preview, right-click, and pick Claude Remarks, and the
+remark points at the exact characters in the `.md` file behind the selection, not at the whole line.
+Section 9 of `docs/plans/20260803-claude-remarks-phase9.md` holds every platform fact this design
+rests on, with the file in the IntelliJ checkout each fact came from. This section is the shorter,
+durable record: what a later session needs, without re-reading the checkout to find it again.
+
+**The five pieces.** `src/main/resources/dev/sasha/clauderemarks/preview/claude-remarks-preview.js`
+is the script injected into the preview page. It listens for `selectionchange` and posts one message
+on every change. `preview/PreviewRemarkExtension.kt` is the `MarkdownBrowserPreviewExtension` that
+receives it: a provider handed the preview panel, which takes the panel's pipe, subscribes to that
+one message type, and serves the script's bytes from its own `ResourceProvider`.
+`preview/PreviewSelection.kt` is the pure arithmetic, `parseSelectionMessage` and `narrowToSelection`,
+that turns a browser message into a character range in the `.md` source.
+`preview/PreviewSelectionService.kt` is the project service that keeps the one most recent range,
+with the file url beside it. `action/AddPreviewRemarkAction.kt` is the entry point in the preview's
+right-click menu, which reads only what the service already holds and never asks the page anything.
+
+**The page pushes the selection. The IDE never asks for it.** A request-and-response design was
+considered and rejected. An action cannot grey itself out while it waits for an answer that has not
+arrived yet, so a request-based version would have had to stay always enabled or always guess. And
+the code that opens the remark box would then have to run on whatever thread a pipe handler answers
+on, instead of on the EDT, where every other entry point in this plugin already lives. Pushing avoids
+both problems: by the time the right-click menu opens, the answer is already sitting in
+`PreviewSelectionService`.
+
+**The pipe handler does not run on the EDT.** This is the fact a future session is least likely to
+guess, and the platform's own source never states it in words. `JBCefJSQuery.addHandler` wraps the
+handler in a `CefMessageRouterHandlerAdapter` and calls it straight from `onQuery`. `onQuery` itself
+is reached from native code, with no Java-side dispatch loop between the native call and the handler.
+So `PreviewRemarkExtension.receive` may only parse the string it was handed. Reading a `Document`,
+calling a project service, touching Swing: all of that has to hop to the EDT itself, with
+`invokeLater`, which is exactly what `receive` does after the parse. Every other extension built on
+this same pipe agrees: `CodeFenceCopyButtonBrowserExtension` and `CommandRunnerExtension` both wrap
+their own work in `invokeLater` too, and nothing in the platform contradicts it.
+
+**`md-src-pos` is written on every tag the markdown generator opens, not only on the ones worth
+selecting.** `ParagraphGeneratingProvider.kt` wraps each source line of a paragraph in its own
+`<span>` carrying this attribute, which is what usually lets a selection narrow down to one line. But
+the same attribute sits on a Mermaid fence too, and a Mermaid diagram is drawn as one block, with no
+span per line inside it the way a paragraph has. So the nearest ancestor carrying a position, walked
+up from a selection made inside a drawn diagram, is the whole fence: every line of the diagram's own
+source, not one node's label. `narrowToSelection` then runs its one `indexOf` search for the
+highlighted text inside that whole-fence source. If the diagram's own source really contains the
+selected label, which it usually does, since a Mermaid label is written as plain text, the search
+finds it and the remark lands on the label exactly. If it does not, the remark falls back to the
+whole fence, every line of the diagram at once, not to one line the way ordinary prose falls back.
+That difference is why this gets its own entry in Known Issues below, separate from the ordinary
+crossing-markup case.
+
+**The offsets are into the same `Document` the editor half of the split shows, not into the file on
+disk.** `HtmlSourceTextPreprocessor.kt` calls `generateMarkdownHtml(file, document.text, project)`,
+and nothing rewrites the text before it is parsed. So an offset the page reports describes the
+unsaved buffer. `PreviewRemarkExtension.receive` reads the `Document` for exactly this reason, not
+the file's bytes.
+
+**A selection is narrowed by searching the source, not by mapping the parse tree.** A browser
+selection names two DOM containers, not one range. The design finds the nearest ancestor of each end
+that carries `md-src-pos`, takes the whole span between them as a coarse range, then searches inside
+that slice for the text the person actually highlighted. The alternative, walking the markdown
+parser's own tree and mapping rendered offsets back to source offsets, would buy precision on
+emphasised text inside a paragraph. It would also cost a parser-shaped subsystem with its own tests,
+for a case where a whole-line remark is already an honest answer. `preview/PreviewSelection.kt`'s own
+KDoc lays out the same trade.
+
+**The markdown plugin is an optional dependency, so the plugin still loads without it.** `plugin.xml`
+declares `org.intellij.plugins.markdown` with `optional="true"` and its own config file,
+`claude-remarks-markdown.xml`. Every class and action group id this group needs comes from the
+markdown plugin. Naming one of them directly in `plugin.xml` would stop the whole plugin from loading
+the moment the markdown plugin is disabled, with no dialog and no visible error: the only symptom
+would be the Claude Remarks tool window simply not being there. Keeping every markdown reference
+inside the optional config file is what prevents that.
+
+`build.gradle.kts` also has to subtract `EXPERIMENTAL_API_USAGES`, not only `INTERNAL_API_USAGES` as
+before, from what `verifyPlugin` treats as a build failure. `MarkdownHtmlPanel.getBrowserPipe()`,
+`.getProject()` and `.getVirtualFile()` all carry `@ApiStatus.Experimental`, and the pipe is the only
+published route to what a person selected in the preview: the alternative, the panel's
+`PREVIEW_BROWSER` user-data key, sits on a class marked `@ApiStatus.Internal`, which is worse. The
+comment beside that line in `build.gradle.kts` explains the trade and what subtracting the whole
+category costs: a future experimental-API use in this plugin would also go unreported.
+
+**JCEF is the renderer this design needs, and the Compose one gives nothing to select.**
+`MarkdownHtmlPanel.getBrowserPipe()` defaults to null, and only the JCEF preview panel returns one.
+The Compose renderer is off by default in this IDE version, but if it were ever turned on, the
+extension in this group would simply never be created for it, and the right-click action would find
+nothing stored. That is a documented limit, not a crash: see Known Issues below.
+
 ## The Shared Review Session
 
 Phase 6 lets a Claude Code skill start a review inside a running IDE, wait while a person answers
@@ -1808,3 +1897,16 @@ untested behaviour is a null project root reaching the same failed-write branch.
 only by the hand check in section 12 of the phase 9 plan: publish with a filesystem failure forced on
 the published-file write, and confirm the balloon says so while the store still shows the remarks
 handed over.
+
+**OCCASIONAL, MINOR: a remark written on the preview can point at whole lines rather than at the
+words that were selected.** `narrowToSelection` (`preview/PreviewSelection.kt`) searches for the
+highlighted text inside the coarse range with one `indexOf`. The source says `some **bold** words`,
+the render says `some bold words`, the search fails, and the coarse range stands, usually one whole
+line. This is the same fallback the renderer's own `markersValid` already uses for a phrase that no
+longer matches, not a new kind of defect. See "A Remark on the Rendered Preview" above.
+
+**OCCASIONAL, MINOR: inside a drawn Mermaid diagram, whether a remark lands on one label or on the
+whole diagram depends only on whether the search finds the label's text.** `md-src-pos` is written on
+the whole fence, not per line inside a diagram the way it is per line inside a paragraph, so there is
+no line-sized fallback to land on when the search fails. A remark can then point at the entire
+diagram's source instead of at one node. See "A Remark on the Rendered Preview" above for why.

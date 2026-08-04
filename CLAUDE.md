@@ -3,11 +3,12 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-8 are implemented and covered by unit tests. Phase 9's groups one to three (tasks 1-15:
-three remark states in place of one and the published file, a sub-line remark that finds the words
-it points at again after they move, and a remark about the whole change instead of one file) are
-implemented and covered by unit tests too; groups four and five of phase 9 are not built yet. What
-has and has not been in front of a real IDE, per phase: **phase 6's seven security
+Phases 1-8 are implemented and covered by unit tests. Phase 9 (tasks 1-23: three remark states in
+place of one and the published file, a sub-line remark that finds the words it points at again after
+they move, a remark about the whole change instead of one file, a tree row that shows the file name
+first with dragging a remark onto a bucket, and a remark written from the rendered markdown preview)
+is implemented and covered by unit tests too; task 24, the version bump and the final sweep, is what
+remains. What has and has not been in front of a real IDE, per phase: **phase 6's seven security
 hand checks were run in a real IDE before 0.3.0 was released**, and phase 5's commit stamp was
 checked in a real IDE too. The `runIde` checks in the phase 1-2, phase 3-4, phase 5, **phase 7**,
 **phase 8** and **phase 9** plans were skipped in the autonomous sessions that did that work, so for
@@ -19,10 +20,14 @@ owes hand checks too, and it needs something no earlier phase did: a second mach
 `sshd`, and an agent session on the far side of it are needed to check the remote path at all. One
 machine is enough for the fetch action's own answers, but not for the tunnel. None of phase 8's
 checks have been run. Section 13 of `docs/plans/20260803-claude-remarks-phase8.md` lists all of
-them, split by which group needs the second machine. **Phase 9's three group-one hand checks have not
-been run either**, and task 1 of its plan says so in its own checkboxes: whether the plugin loads at
-all, whether a sub-line remark's markers land in the right place, and whether the grey row and faded
-gutter icon are visible, are all still owed in a sandbox IDE. Select lines, press `Ctrl+Alt+Shift+R`
+them, split by which group needs the second machine. **None of phase 9's hand checks have been run
+either.** Task 1 of its plan owes three of its own, in its own checkboxes: whether the plugin loads
+at all, whether a sub-line remark's markers land in the right place, and whether the grey row and
+faded gutter icon are visible. Group five owes checks nobody can automate at all: whether the Claude
+Remarks item appears in a running preview's right-click menu, whether a real browser selection
+reaches Kotlin as the right character range, and whether the plugin still loads cleanly with the
+markdown plugin disabled. Section 12 of `docs/plans/20260803-claude-remarks-phase9.md` lists the
+whole set, split by which of them also needs a second machine. Select lines, press `Ctrl+Alt+Shift+R`
 (or use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a
 severity level, and press Enter. A gutter icon appears on the marked lines and follows the code as
 you keep editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a
@@ -30,7 +35,11 @@ class name from the project. The tool window lists every remark as a tree groupe
 General group at the top for a remark about the whole change and a bucket level above the files once
 any remark is put in one; right-click a row for the severity and bucket menu. Press Add General
 Remark in the toolbar to write a remark that is not about any one file; it always shows up in the
-General group, whatever bucket it also carries. Press Publish All Pending in the tool window to turn
+General group, whatever bucket it also carries. A remark can also be written from the rendered
+markdown preview instead of from the source: select words there, right-click, and pick Add Claude
+Remark, and it points at the same characters behind the selection. This needs the Markdown plugin,
+which every JetBrains IDE bundles by default; with it turned off, only this one entry point is
+missing and everything else works as before. Press Publish All Pending in the tool window to turn
 every pending remark into one markdown prompt on the clipboard, and also to write the same prompt,
 with a small header on top, to a file under `~/.claude-remarks/` that a Claude Code skill can read
 on its own, with no review ever
@@ -143,6 +152,46 @@ whole change, so the top of the tree is where it should be read, worth the cost 
 bucket for grouping. The resolver's `isAboutNoFile` is the one thing that changed there: such a
 remark used to be refused as an orphan with no code, and now resolves as itself instead. See
 `docs/claude/design.md`, section "A Remark About No File", for the whole design.
+
+**Phase 9's group four is built too.** A file row in the tree now shows the file name in bold first,
+with the shortened directory in grey after it, instead of the whole path. A deep directory is
+shortened to its last two segments with a leading ellipsis rather than being cropped from the right,
+which used to lose the file name itself. A remark, several selected remarks, or a whole file or
+bucket group can also be dragged onto a bucket row to move them there, or onto `(no bucket)` to clear
+it; nothing changed in how a bucket gets created, `Move to Bucket…` in the right-click menu still
+does that by name. A `Published` group above the buckets was designed and deliberately left unbuilt;
+see `docs/ideas.md` for the condition that would make it worth building.
+
+**Phase 9's group five is built too.** A remark can now be written from IntelliJ's rendered markdown
+preview: select words there, right-click, pick Claude Remarks, and the remark points at the exact
+characters in the `.md` source behind the selection, not at the whole line.
+`src/main/resources/dev/sasha/clauderemarks/preview/claude-remarks-preview.js` is the script injected
+into the preview page, posting the browser's selection on every change.
+`preview/PreviewRemarkExtension.kt` is the `MarkdownBrowserPreviewExtension` that receives it and
+keeps the last one in `preview/PreviewSelectionService.kt`. `preview/PreviewSelection.kt` is the pure
+arithmetic that turns a browser selection into a character range, by searching for the highlighted
+text inside the coarse range the page can name. `action/AddPreviewRemarkAction.kt` is the entry point
+in the preview's right-click menu, reading only what is already stored and asking the page nothing.
+Two facts about this a future session should not have to re-derive by reading the platform again.
+First, the pipe handler that receives the browser's message does **not** run on the EDT: it is called
+inline from a native CEF callback, so it may only parse the message it was handed, and everything
+that touches a `Document`, a project service or Swing has to hop to the EDT itself, with
+`invokeLater`. Second, `md-src-pos` is written on every tag the markdown generator opens, not only on
+the ones worth selecting, and that is also true of a Mermaid fence: inside a drawn diagram there is
+no per-line span the way there is inside a paragraph, so the coarse range covers the whole diagram,
+and whether a remark lands on one node's label or on the whole diagram depends only on whether
+`narrowToSelection`'s one `indexOf` search finds the label's text inside that whole-fence source.
+`plugin.xml` declares the markdown plugin as an optional dependency, `org.intellij.plugins.markdown`,
+with its own config file, `claude-remarks-markdown.xml`, so the plugin still loads with the tool
+window intact when the markdown plugin is turned off. `build.gradle.kts` subtracts
+`EXPERIMENTAL_API_USAGES`, not only `INTERNAL_API_USAGES` as before, from what `verifyPlugin` treats
+as a failure, because the three `MarkdownHtmlPanel` getters this group calls are the published route
+to the preview's pipe and all carry `@ApiStatus.Experimental`. **None of this has been seen running
+in a real IDE.** Whether the menu item actually appears in a running preview, whether a real browser
+selection reaches Kotlin as the right range, and whether the plugin truly still loads cleanly with
+the markdown plugin disabled, are all still owed as hand checks. See `docs/claude/design.md`, section
+"A Remark on the Rendered Preview", for the whole design, and section 12 of
+`docs/plans/20260803-claude-remarks-phase9.md` for the full hand-check list.
 
 ## Rules that must not break
 
@@ -280,7 +329,10 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    resolveOne checks before treating a remark with no path as
                                    itself rather than as an orphan
   store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, the diff fallback, and the
-                                   refusal for a remark on the revision side of a diff
+                                   refusal for a remark on the revision side of a diff.
+                                   fileTargetProblem (phase 9) is the file-only half of that refusal,
+                                   split out so the preview's own action can reuse it without a diff
+                                   or an editor
   store/ContextFormat.kt           joinContext/splitContext, how context lines are stored
   store/GitHead.kt                 headCommit, reads .git directly, no platform import, no Git4Idea
   store/RemarkHistory.kt           historyFile, appendToHistory, renderHistory: the archive, with
@@ -302,6 +354,10 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    openGeneralRemarkInput, the tool window's entry point for a
                                    remark about no file
   action/AddRemarkIntention.kt     the Alt+Enter entry point
+  action/AddPreviewRemarkAction.kt the entry point in the rendered markdown preview's right-click
+                                   menu (phase 9). Reads only what PreviewSelectionService already
+                                   holds, asks the page nothing, and refuses with a dialog rather
+                                   than a hint, since there is no editor here to put a hint in
   action/PublishRemarks.kt         publishRemarks(project, ids), the whole publish pipeline, plus the
                                    Tools-menu action (PublishAllRemarksAction) that calls it without
                                    the tool window; renamed from CopyRemarks.kt/copyRemarks in phase 9
@@ -384,6 +440,12 @@ src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
   `settings.gradle.kts` downloads a JDK 21 on the first build, so any JDK 17-25 can start it.
 - `kotlin.stdlib.default.dependency = false` in `gradle.properties`: the IDE ships its own Kotlin
   stdlib, and bundling a second copy in the plugin zip is a known source of conflicts.
+- `org.intellij.plugins.markdown` is an optional dependency, declared in `plugin.xml` with
+  `config-file="claude-remarks-markdown.xml"`, so the plugin still loads with it disabled. Because of
+  it, `build.gradle.kts`'s `pluginVerification` subtracts `EXPERIMENTAL_API_USAGES` from
+  `verifyPlugin`'s failure level, alongside the pre-existing `INTERNAL_API_USAGES` subtraction: the
+  three `MarkdownHtmlPanel` getters the preview extension calls all carry `@ApiStatus.Experimental`,
+  and there is no non-experimental route to a preview's `BrowserPipe`.
 
 ## Reading the platform
 
@@ -437,7 +499,11 @@ behind), `ReviewHandshakeTest` (the name, the rendering, the escaping, and the o
 permissions), `WaitingReviewTest` (the pure `startOrConflict`: accept, honest-retry reuse, a
 same-session retry after the deadline, and conflict, plus `isStale`'s boundary), and
 `ReviewRequestTest` (the pure `requestIsAllowed`, `projectForPath`, since phase 7
-`clampDeadlineSeconds`, and since phase 8 `readHandoff` and its size cap) are plain JUnit tests with
+`clampDeadlineSeconds`, and since phase 8 `readHandoff` and its size cap), `PreviewSelectionTest`
+(since phase 9, `parseSelectionMessage`'s refusals and `narrowToSelection`'s search, including the
+cross-line case and the malformed-message case), and `PreviewRemarkProblemTest` (since phase 9, the
+pure `previewRemarkProblem`: no stored selection, a stored selection in another preview, and one that
+matches) are plain JUnit tests with
 no fixture, so they run in milliseconds. The rest
 need a light IDE fixture
 (`BasePlatformTestCase`, which needs `testFramework(TestFrameworkType.Platform)` in
@@ -474,7 +540,9 @@ diff-or-editor decision, since a light fixture project has no VCS root and every
 plain-editor branch), `SendReviewTest` (the send action's success and failure paths, that nothing is
 marked read until the read acknowledgement, that an abandoned acknowledgement and the deadline both
 leave the remarks pending, the reject action, and the phase guards that refuse a second send or an
-overwrite after a send), and `WaitingReviewServiceTest` (fixture-backed, because a
+overwrite after a send), `PreviewSelectionServiceTest` (since phase 9, fixture-backed for the same
+reason: `remember`, `forget` and `current` on the project-level service that holds the preview's last
+selection), and `WaitingReviewServiceTest` (fixture-backed, because a
 project-level service needs a project: `markSent` and the session it names, `acknowledge`,
 `expireIfStale`, that `clear` cancels the deadline task, that a stale review is not `current()`, and,
 since phase 8, `endedOutputPath`: findable by its own session, not by a different one, and only the
