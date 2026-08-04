@@ -830,9 +830,9 @@ per project on the machine, whichever session started it. It removes its own pid
 **A plugin older than this skill has to be legible.** If line 2 of the file does not start with
 `nonce: `, exit 2 saying the plugin is older than this skill rather than reading the wrong lines.
 
-- [ ] write the script, with `set -u`, no bashisms beyond what `/bin/sh` gives, and a comment at the
+- [x] write the script, with `set -u`, no bashisms beyond what `/bin/sh` gives, and a comment at the
       top saying in one sentence why it must always exit
-- [ ] check it by hand, in the scratchpad directory, not with gradle. Each of these is its own run:
+- [x] check it by hand, in the scratchpad directory, not with gradle. Each of these is its own run:
   - a file that already holds the `--seen` nonce, a 3 second deadline: exits 1 with the timeout
     sentence, and takes about 3 seconds, not 0 and not forever.
   - a file whose nonce differs from `--seen`: exits 0 at once and prints the whole file.
@@ -843,10 +843,10 @@ per project on the machine, whichever session started it. It removes its own pid
   - a file whose line 2 is not `nonce: `: exits 2 saying the plugin is older than the skill.
   - two runs at once on one project: the second kills the first, and the first is gone from
     `ps` afterwards.
-- [ ] document it in `SKILL.md`, including that it is launched as a **background** command and why
-- [ ] no gradle run: this task changes no Kotlin. Run the six guards anyway, since they are cheap and
+- [x] document it in `SKILL.md`, including that it is launched as a **background** command and why
+- [x] no gradle run: this task changes no Kotlin. Run the six guards anyway, since they are cheap and
       the rule is every task.
-- [ ] commit: `feat: one watcher both skill modes wait with`
+- [x] commit: `feat: one watcher both skill modes wait with`
 
 ### Task 10: Review mode waits with the watcher
 

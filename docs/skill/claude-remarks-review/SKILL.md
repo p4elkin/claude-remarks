@@ -173,6 +173,54 @@ agent:
 - **Restarting the IDE is what invalidates the token.** Re-opening a project rewrites the
   handshake file with the same token, because the token is minted once per IDE run.
 
+## The watcher script
+
+`watch-remarks.sh`, beside this file, is what both wait loops below use instead of polling inline.
+The reason is the mechanic every long wait in this skill runs into: a foreground Bash call is
+capped at ten minutes, but a **background** command has no such cap, keeps running across turns,
+and re-invokes this session when it **exits**. So the watcher has to exit on its own event and must
+never loop forever — a background command that never exits never notifies, and the session waits
+for a signal that cannot arrive. Launch it with a background Bash call, never a foreground one, and
+read what it printed once it exits.
+
+**Two forms, one per branch of the wait:**
+
+```
+watch-remarks.sh --file <path> [--seen <nonce>] [--require-review <session>]
+                  [--deadline <seconds>] [--poll <seconds>]
+watch-remarks.sh --fetch <base_url> --session <id> --project <path>
+                  [--seen <nonce>] [--deadline <seconds>] [--poll <seconds>]
+```
+
+- `--file <path>` is the local branch: poll the published file directly. Default poll interval 2
+  seconds.
+- `--fetch <base_url> --session <id> --project <path>` is the remote branch: poll
+  `POST <base_url>/fetch` the same way step 6 below does by hand. Default poll interval 5 seconds,
+  because the built-in server allows 30 requests a minute from one address. `--require-review` is
+  not accepted here — the fetch endpoint already answers `ready` only for the session named in the
+  request, so there is nothing left to filter client-side.
+- `--seen <nonce>` is the nonce already known. Omit it, or pass an empty string, to mean "any batch
+  is new."
+- `--require-review <session>` (file mode only) makes the watcher keep waiting until the batch's
+  `review:` header field equals that session, rather than reporting the first new batch it sees.
+- `--deadline <seconds>` defaults to 1800. Listen mode passes 43200 (twelve hours).
+- The token for `--fetch` is read from `CLAUDE_REMARKS_TOKEN` in the environment, never from an
+  argument — an argument is visible to every process on the machine through `ps`, and the token is
+  the only gate on the endpoint.
+
+**Exit codes.** `0`, with the whole published file on stdout (header included), when a new batch
+arrived. `1`, with one sentence, when the deadline passed with nothing new. `2`, with a reason, for
+anything wrong: a file it cannot read, a header whose first line is not the marker or whose second
+line does not start with `nonce: ` (which means the plugin that wrote it is older than this skill),
+an HTTP status other than 200, or a `too-large` answer.
+
+**One watcher per project on the machine.** On start it writes its own pid to
+`~/.claude-remarks/<the file's own 16 hex characters>.watch`, creating that directory
+`rwx------` first if the plugin has never run here. If a pid is already there and still belongs to
+a live `watch-remarks.sh` process, it kills that process and waits for it to actually exit before
+taking over — whichever session started it. It removes its own pid file when it exits, on every
+exit path.
+
 ## Steps
 
 1. **Find the repository root, and set the connection values if the IDE is on another machine.**
