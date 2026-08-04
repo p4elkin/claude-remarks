@@ -531,9 +531,13 @@ Phase 4 is the output side: turning pending remarks into one prompt.
 - **The markdown renderer** (`render/PromptRenderer.kt`) and **the publish pipeline**
   (`render/PromptPayload.kt`, `action/PublishRemarks.kt`, renamed from `CopyRemarks.kt` in phase 9)
   are covered in "The Publish Pipeline" below.
-- **The toolbar** has five buttons, renamed in phase 9 from Copy All Pending, Copy Selected, Clear
-  Sent to: Publish All Pending, Publish Selected, Clear Handed Over, Clear All, Refresh. Both Clear
-  buttons ask first and name their count. Publish Selected and Clear Handed Over grey out when
+- **The toolbar** has six buttons today, in this order: Add General Remark, Publish Unread, Publish
+  Selected, Clear Handed Over, Clear All, Refresh. Phases 3-4 built five of them, called Copy All
+  Pending, Copy Selected, Clear Sent, Clear All and Refresh. Phase 9 renamed the first three to
+  Publish All Pending, Publish Selected and Clear Handed Over, and its group three added Add General
+  Remark as the sixth. Phase 10 renamed Publish All Pending to Publish Unread, when its filter
+  changed from "still `PENDING`" to "not yet `READ`". Both Clear buttons ask first and name their
+  count. Publish Selected and Clear Handed Over grey out when
   there is nothing to act on, because a live button that does nothing when pressed is its own kind
   of silent failure. This is the same reasoning that keeps `AddRemarkAction` visible above.
 
@@ -1264,7 +1268,7 @@ handover that did not land on a live review.
 read this one file, sharing the repository root, the project hash and the "act on the markdown" step
 so none of the three duplicates that shell: a one-shot read of whatever is published right now, an
 opt-in listen mode that waits for the next batch, started only when asked for in words, and review
-mode, `## Steps`, which is `## 6. Implementation steps` — the same file as the other two once phase
+mode, written out step by step under `## Steps` — the same file as the other two once phase
 10 merged the review's own answer into it. All three find the repository root, compute the hash,
 build the path, and stop with a plain sentence if the file is missing or its first line is not the
 marker. The one-shot read and listen mode both post to `published-read` once they have read a batch,
@@ -1274,9 +1278,9 @@ separate state from `READ` for a plain publish; phase 10 gave it a route to `REA
 what the states mean. Review mode still answers through `POST /api/claude-remarks/ack` instead,
 keyed to its session rather than to a nonce, since a review already has a stronger identity than any
 one batch. Waiting, in review mode and in listen mode alike, is a launched background script,
-`watch-remarks.sh` (see "Why a file, not a socket" and the watcher paragraph under "The Shared Review
-Session" below), not a foreground poll loop: a foreground `Bash` call is capped at ten minutes, and
-the skill's declared deadline can be much longer than that.
+`watch-remarks.sh` (see "Why a file, not a socket" and "The watcher script, and why it has to exit"
+under "The Shared Review Session" below), not a foreground poll loop: a foreground `Bash` call is
+capped at ten minutes, and the skill's declared deadline can be much longer than that.
 
 ## A Remark About No File
 
@@ -1590,6 +1594,83 @@ in `SKILL.md` can be "while the file does not exist, sleep" — there is no part
 rule out separately. `ReviewHandshake.kt`'s own write goes through the same function, for the same
 reason, on the file the skill reads to find the IDE in the first place.
 
+### The watcher script, and why it has to exit
+
+`docs/skill/claude-remarks-review/watch-remarks.sh` is the skill side's whole wait. It is not part of
+the plugin, but the plugin's design depends on it, so it is written down here: it is what makes the
+deadline the skill declares to the endpoint a real number rather than a claim.
+
+**The cap that forced it.** A foreground `Bash` call in a Claude Code session is capped at ten
+minutes. The skill's default deadline is 1800 seconds, and listen mode's is twelve hours, so a poll
+loop written inline in a foreground call gets cut off long before the deadline it told the IDE about.
+That is what the skill did before phase 10: its loop counted to 1800 seconds inside one foreground
+call, so the number it sent the endpoint as `deadlineSeconds` was true on the IDE side and a fiction
+on its own.
+
+**A background command has no such cap, and it re-invokes the session when it exits.** That one
+sentence decides the whole shape. The session is woken by the *exit*, not by anything the command
+prints while it runs. So a watcher that loops forever would never notify anybody: the session would
+sit waiting for a signal that cannot arrive, and the deadline would pass unnoticed. Every path out of
+the script is therefore an explicit exit, and none of them loops back — a new batch exits 0 with the
+whole file on stdout, the deadline exits 1 with one sentence, anything wrong exits 2 with a reason,
+and a watcher killed by the one that replaced it exits 143 (128 plus `SIGTERM`), which a session must
+read as "another watcher took over", never as a batch or a deadline. The skill reads the exit code
+and the output once, in a fresh foreground call, and decides what to do from those two things alone.
+Nothing is left behind for it to go and read.
+
+**Two modes, one per transport, matching the two ways a skill can see the published file.** `--file
+<path>` polls the published file directly, every 2 seconds by default; this is the same-machine case,
+and it is also the only mode the two published-file modes can use. `--fetch <base_url>`, with
+`--session` and `--project` beside it, posts to the fetch action instead, every 5 seconds by
+default, for a review whose IDE is on the other end of a tunnel — 5 rather than 2 because the
+built-in server allows 30 requests a minute from one address and every tunnelled request shares
+`127.0.0.1`.
+
+**Two ways of deciding a batch is new, and only one of them is used at a time.** `--seen <nonce>` is
+the batch already known: report the first batch whose nonce differs from it. `--require-review
+<session>` is the review's own form, file mode only: report the first batch whose `review:` header
+field names that session, whatever its nonce is. When `--require-review` is given, `--seen` is not
+consulted at all. The reason is a gap the review flow cannot close: the skill reads the file's
+current nonce in the same shell that posts to `start`, so a publish landing between those two lines
+would already be recorded as seen, and a watcher filtering on the nonce would then wait out its whole
+deadline for an answer that had already arrived. The session id has no such gap, because it is
+invented moments before the `start` it is sent with. `--require-review` is refused outright with
+`--fetch` rather than ignored: the fetch action already answers `ready` only for the session named in
+the request, so there is nothing left to filter on the skill's side.
+
+**Why it polls a copy of the file rather than the file.** In file mode the watcher copies the
+published file with `cp` and reads the header and the body out of the copy. `cp` opens an inode, and
+the plugin's atomic rename replaces the directory entry without truncating the inode behind it, so
+the copy is always one whole batch — the old one or the new one, never a mix. Reading the header in
+one call and the body in another, straight off the target path, could straddle a rename. The copy is
+skipped entirely when the file's modification time and size are both unchanged since the last poll,
+which is most polls: at the 2-second default over listen mode's twelve hours the loop runs about
+21,600 times.
+
+**One watcher per project, through a pid file.** On start the watcher writes two lines to
+`~/.claude-remarks/<16 hex characters>.watch` — its own pid, then the path it was launched on
+(`--file`'s file, or `--fetch`'s project) — creating that directory `rwx------` first if the plugin
+has never run here. The 16 characters are the same `projectHash` computes for the handshake and
+published files, so the pid file sits beside them: in file mode they are taken straight off the
+published file's own name when that name really is 16 hex characters, and hashed from the given path
+when it is not. If a pid is already there and still belongs to a live `watch-remarks.sh` process
+watching the same path, the new watcher kills it and waits for it to actually exit before taking
+over. Without that, two sessions asked to listen on one repository would both wake on the same batch
+and both acknowledge it, and the second would be told `already-read` for a batch it had every right
+to think was its own. Both the command line and the second line's path are checked before anything is
+killed, since a recycled pid can belong to another project's watcher, which is still a
+`watch-remarks.sh`. On exit the watcher removes the pid file only if the first line is still its own
+pid, so a watcher that has already been replaced cannot delete the live one's file — and it traps
+`INT`, `TERM` and `HUP` as well as `EXIT`, because a shell killed by a signal never runs an `EXIT`
+trap, and a signal is exactly how a takeover ends the previous watcher.
+
+**The token for `--fetch` never appears in an argument.** It is read from `CLAUDE_REMARKS_TOKEN` in
+the environment, and it reaches `curl` through a config file on stdin rather than through a `-H`
+argument, so it is in neither the watcher's own argv nor `curl`'s. Every process on the machine can
+read an argument out of `ps`, and the token is the only gate on the endpoint — see "The security
+rule" below for why that gate is the whole of it. The request body carries no secret, so it stays on
+the command line, which is what leaves stdin free for the config.
+
 ### Why the published file's path is predictable, and that is safe here
 
 Before phase 10, `WaitingReviewState.outputPath` was a fresh
@@ -1858,10 +1939,11 @@ filesystem. The skill says so itself, through the `ack` action, and the IDE take
 
 **The endpoint now dispatches on a sub-path, and an unrecognized one refuses rather than starting a
 review.** `execute` splits the request path the same way the platform's own `UploadLogsService`
-does — `urlDecoder.path().split(getServiceName()).last().trimStart('/')` — so `/start` and `/ack`
-reach the same handler under one `isHostTrusted` check and one rate limit. Before this phase `execute`
-never looked at the path at all, so any sub-path — including a typo — silently started a review. Now
-anything other than `start` or `ack` answers `bad-request` and starts nothing.
+does — `urlDecoder.path().split(getServiceName()).last().trimStart('/')` — so every action
+reaches the same handler under one `isHostTrusted` check and one rate limit. Before this phase `execute`
+never looked at the path at all, so any sub-path — including a typo — silently started a review.
+Phase 7 recognized two actions, `start` and `ack`. There are four today: phase 8 added `fetch` and
+phase 10 added `published-read`. Anything else answers `bad-request` and starts nothing.
 
 ### Opening the diff the skill asked for
 
@@ -1989,6 +2071,56 @@ field is matched against the IDE machine's own open project paths, and two machi
 same repository checked out at two different paths. The fourth value defaults to the agent's own
 `git rev-parse --show-toplevel`, so the common case, where both machines agree, needs nothing extra.
 
+**The four values are stored on the agent machine, by
+`docs/skill/claude-remarks-review/remote-config.sh`.** Phase 10 added it. Before it, all four had to
+be pasted into the session again on every run, and the token is a UUID nobody retypes correctly.
+`save` writes `~/.claude-remarks/remote-<16 hex>.env`, four `key=value` lines: `ide_host`,
+`ide_port`, `ide_project` and `ide_token`. `show` prints back the first three; `forget` deletes the
+file. Step 1 of `SKILL.md` reads it automatically, and with no file stored the same-machine case runs
+exactly as it did before.
+
+**Two different repository paths, one file, and that is deliberate.** The file's name is the first 16
+hex characters of the sha256 of the **agent** machine's own repository root — the same hash shape the
+plugin uses, computed here over a path the plugin has never seen. `ide_project` *inside* the file is
+the repository path as the **IDE** machine sees it, which is the value the `start`, `fetch` and `ack`
+bodies carry. The two are usually different strings, and nothing tries to make them agree. The name
+answers "which checkout on this machine is this configuration for", so two repositories here can
+never share one stored configuration. The content answers "what does the IDE call the project", which
+is the only thing the endpoint will match against.
+
+**The token never travels as an argument, and never comes back out.** `save` reads it from
+`CLAUDE_REMARKS_TOKEN` in the environment and refuses to run without it. An argument would be
+readable by every process on the machine through `ps`, for as long as the command ran, and the token
+is the only gate on the endpoint — see "Why the security model needs no change" above. For the same
+reason `save`'s own confirmation line prints the host, the port and the project and nothing else, and
+`show` prints only those three. A person who needs the token again reads it off the handshake file on
+the IDE machine, where it lives in the first place.
+
+**The write is held to the same standard as the handshake file's.** If `~/.claude-remarks` already
+exists and is not owner-only, `save` refuses rather than writing a file holding a token into a
+directory other accounts can read — `writeHandshake` (`review/ReviewHandshake.kt`) makes the same
+demand for the same token. If the directory does not exist, it is created `700`. The file itself is
+written to a temp file beside the target, `chmod 600`, then renamed: the same temp-then-rename shape
+`AtomicWrite.kt` uses, with the permission set *before* the rename so the file never exists briefly
+world-readable under its final name.
+
+**The skill parses the file with a whitelist loop, never `.` (source).** Sourcing runs the file as
+shell. A value holding a space, a quote or a backtick would then change what a later line means, and
+this file is written by one script and read by another with nothing checking it in between. The
+reader instead splits each line on the first `=` and assigns only the four names it knows, ignoring
+everything else. That costs six lines and takes the whole class of "a stored value became a command"
+off the table. The writer holds up the other end of the same contract: `save` refuses a `--host` or
+a `--project` carrying a line break, because a line break either truncates what the reader sees after
+it or adds a key of its own, and `ide_token` is the key worth adding. `--port` is already digits
+only, so those two are the whole check.
+
+**The honest cost: the token is now on a second machine's disk.** Before this, the token existed in
+the IDE machine's handshake file and in whatever the person pasted into the session. Now it also sits
+in a file on the agent machine, at rest, until `forget` runs. An IDE restart mints a new token, which
+makes the stored one useless but does not remove it. The mitigations are the permission checks above
+and the fact that the token is worth nothing without the tunnel. The alternative — retyping a UUID
+every run — is what people work around by writing the token somewhere less careful than this.
+
 **The handshake file did not change.** `renderHandshake` writes three fields: the project path, the
 port and the token. The path only feeds the filename hash that names the file; the person reads the
 port and the token off it by hand. Host is not one of the three fields. It never lived in the
@@ -2069,13 +2201,23 @@ described as a scheduler-latency window, which sounds like milliseconds. Suspend
 it. `isStale` reads the wall clock while the scheduler counts monotonic time, so a machine that sleeps
 for an hour wakes with reviews that are stale and expiry tasks that have not run.
 
-**RARE, MAJOR: a same-session retry after a send hands back the old remarks.** `WaitingReview.kt`,
-`startOrConflict`'s same-session branch copies the existing state forward with a fresh deadline, and
-that copy keeps its `phase`. If the retry lands after a send, the review is still `Sent`, so the
-endpoint answers `waiting` with an output path whose `remarks.md` already exists — and the skill's
-`while [ ! -e "$output" ]` returns immediately with the *previous* review's remarks treated as the
-answer to the new request. `handleStart` cannot tell the two cases apart. Needs an agent that
-re-posts `start` with the same session id after a send, which nothing in the skill does today.
+**RARE, MAJOR: a same-session retry after a publish is handed the previous batch.**
+`WaitingReview.kt`, `startOrConflict`'s same-session branch copies the existing state forward with a
+fresh deadline, and that copy keeps its `phase`. A retry landing after a publish therefore still
+carries `Sent`, and `handleStart` cannot tell that case from a first request. Phase 10 removed the
+shape this defect used to have — `handleStart` no longer answers with an output path, and the skill
+no longer has a `while [ ! -e "$output" ]` loop that could return from one immediately — so the
+entry is re-derived here rather than carried forward. What is left rests on one assumption both
+branches of the wait make: a review's session id is invented moments before the `start` it is sent
+with, so any batch naming that session is this run's own answer. The local branch acts on that
+directly — `watch-remarks.sh --require-review <session>` reports the first batch whose `review:`
+header field names the session and ignores the nonce entirely. The remote branch acts on it by
+passing no `--seen`, so the fetch action's `ready` for the session's own batch is taken at face
+value. Both are right for a fresh session id and wrong for a retried one: after a publish the file
+already holds a batch naming that session, so a retry is handed the answer to the *earlier* request
+at once and acts on it instead of waiting for the new one. Still rare, and for the same reason as
+before: it needs an agent that re-posts `start` with the same session id after a publish, which
+nothing in the skill does today.
 
 **RARE, MAJOR: a backwards clock step can consume the deadline task.** `scheduleExpiry` computes its delay from
 the wall clock (`deadlineAt - currentTimeMillis`) but `ScheduledExecutorService` counts elapsed
@@ -2086,12 +2228,16 @@ still masks the review so the Send button stays correct, but the banner only rep
 so "Claude Code is waiting" can stay on screen indefinitely. That is the exact lie the scheduled task
 exists to prevent, in the one case it cannot cover.
 
-**RARE, MAJOR: the EDT can block behind a netty thread's filesystem call.** `start` is `@Synchronized` and holds
-the service monitor across `Files.createTempDirectory`. `markSent` and `clear` take the same monitor
-and are both called from the EDT — the send's `finishOnUiThread` block and the banner's Reject link.
-Normally sub-millisecond and invisible; on a hung or full `TMPDIR` the UI thread waits. The class
-KDoc argues carefully that `current()` is unsynchronized so the EDT never blocks on that call, which
-is true and was not the only path.
+**RESOLVED IN PHASE 10: the EDT used to be able to block behind a netty thread's filesystem call.**
+`start` is `@Synchronized` and used to hold the service monitor across `Files.createTempDirectory`,
+the per-review output directory. `markSent` and `clear` take the same monitor and are both called
+from the EDT — the publish's `finishOnUiThread` block and the banner's Reject link — so a hung or
+full `TMPDIR` made the UI thread wait. The class KDoc argued carefully that `current()` is
+unsynchronized so the EDT never blocks on that call, which was true and was not the only path. Phase
+10 removed the per-review directory rather than narrowing the lock: `start` now does no filesystem
+work at all, and the monitor is held only across a few field reads and writes. The one
+`Files.createTempDirectory` left in `src/main` is `handshakeDir()`'s unit-test branch, which runs
+inside a lazy delegate on the test's own thread and never under this lock.
 
 **RARE, MINOR: the disposal guard on the scheduled expiry narrows the race rather than closing it.** The task body
 checks `!project.isDisposed`, then `expireStaleReview` calls `getInstance(project)`, which throws

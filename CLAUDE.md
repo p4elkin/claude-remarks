@@ -15,9 +15,10 @@ bump to `0.7.0` and this final documentation sweep.
 **The plugin has now been seen running in a real IDE, on version `0.6.0`.** A review was started
 over the endpoint, the waiting banner appeared, the file the request named opened, remarks were
 written including sub-line ones with their markers, Send to Claude Code handed them over, and the
-read acknowledgement came back. Separately, the remote path was proven too: a tunnel from a laptop
-reached the endpoint on this machine, the token was accepted, and the IDE answered with its open
-projects. Publishing from the laptop wrote a correct published file with correct sub-line markers.
+read acknowledgement came back. Separately, the remote path was proven end to end between two
+machines: a tunnel carried the requests, the token was accepted, `start` was accepted, the banner
+appeared in the IDE on the far side, a fetch carried the content back across the tunnel, and the
+acknowledgement was accepted. The published file it carried had correct sub-line markers.
 That closes the one gating check phases 6 to 9 all owed — whether any of this works outside the
 tests at all — and no others. **Still unchecked by hand:** the markdown preview entry point,
 dragging a remark onto a bucket, phase 7's scheduled deadline and its diff opening, and everything
@@ -86,8 +87,9 @@ idea stays dropped. Phase 6 below does not revive it.
 
 **Phase 6 is built.** It adds a different, simpler automated path next to the clipboard, never
 instead of it: a Claude Code skill can ask a running IDE to hold a review open through the IDE's
-own built-in HTTP server, the person answers by pressing Send to Claude Code in the tool window,
-and the remarks reach the skill through a file both sides agree on. The plugin works exactly as it
+own built-in HTTP server, the person answered by pressing Send to Claude Code in the tool window
+until phase 10 replaced that button with a plain publish, and the remarks reach the skill through a
+file both sides agree on. The plugin works exactly as it
 did before with no skill installed and nothing listening. See `docs/claude/design.md`, section "The
 Shared Review Session", for the whole design, and `docs/ideas.md` for the reasoning this carries
 forward from before it was built.
@@ -363,7 +365,13 @@ published file" and "The Shared Review Session", for the whole design.
    acknowledgement over `POST /api/claude-remarks/ack`, keyed to a review session and handled by
    `reportReviewEnd` in `review/SendReview.kt`; and a `published-read` acknowledgement over
    `POST /api/claude-remarks/published-read`, keyed to a published batch's nonce and handled by
-   `reportPublishedRead` in `review/PublishedAck.kt`. A publish is still neither of them, however
+   `reportPublishedRead` in `review/PublishedAck.kt`. The two routes are not independent of each
+   other: a batch that answered a waiting review carries that review's session id on the
+   `PublishedBatch` record, and `reportPublishedRead` ends that review too, through the same
+   `WaitingReviewService.acknowledge` the `ack` action goes through. Without it the remarks would be
+   `READ` while the review sat in its `Sent` phase, and the review's own expiry would tell the person
+   the agent left without reading remarks the store already says were read. A publish is still
+   neither of them, however
    many times it runs — publishing, whether through the clipboard or the published file, can only
    ever move a remark to `PUBLISHED`. Letting anything else call `markRemarksRead` would let a copy
    or a publish quietly claim an agent read remarks it never saw.
