@@ -16,9 +16,9 @@ import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.render.clipboardPayload
 import dev.sasha.clauderemarks.render.collectForPrompt
 import dev.sasha.clauderemarks.render.renderPrompt
+import dev.sasha.clauderemarks.review.PublishedHeader
 import dev.sasha.clauderemarks.review.handshakeDir
 import dev.sasha.clauderemarks.review.projectIdentity
-import dev.sasha.clauderemarks.review.publishedHeader
 import dev.sasha.clauderemarks.review.writePublished
 import dev.sasha.clauderemarks.settings.RemarkSettings
 import dev.sasha.clauderemarks.store.RemarkStore
@@ -27,6 +27,7 @@ import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.resolveAll
 import java.io.IOException
 import java.nio.file.Path
+import java.util.UUID
 import java.util.concurrent.CancellationException
 
 private val LOG = Logger.getInstance("dev.sasha.clauderemarks.action.PublishRemarks")
@@ -132,11 +133,18 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
                 "the project root did not resolve"
             } else {
                 try {
-                    val header = publishedHeader(
-                        System.currentTimeMillis(),
-                        prepared.commit,
-                        prepared.ids.size,
-                    )
+                    // No batch is recorded yet: that is task 5's job, once PublishedBatchService
+                    // exists. The review fields stay null/false here for the same reason — nothing
+                    // in this task answers a waiting review yet.
+                    val header = PublishedHeader(
+                        nonce = UUID.randomUUID().toString(),
+                        publishedAt = System.currentTimeMillis(),
+                        commit = prepared.commit,
+                        remarks = prepared.ids.size,
+                        reviewSession = null,
+                        reviewLabel = null,
+                        rejected = false,
+                    ).render()
                     // handshakeDir() is called here, inside the try, and is deliberately not a
                     // default argument on publishRemarks. Kotlin evaluates a default argument in
                     // the synthetic bridge, BEFORE the body runs, so anything it throws would

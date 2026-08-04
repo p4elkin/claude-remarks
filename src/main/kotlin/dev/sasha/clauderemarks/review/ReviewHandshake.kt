@@ -79,8 +79,18 @@ fun handshakeName(realPath: String): String = projectHash(realPath) + ".json"
 /**
  * Not the IDE configuration directory: the skill has to find this without knowing which JetBrains
  * product is running, and the configuration directory name carries the product and the version.
+ *
+ * The unit-test branch is what makes the rest of phase 10 testable: the endpoint computes the
+ * published file's path itself, so a test that drives `execute` cannot pass a directory in
+ * through an HTTP request. Without this branch, a test driving the endpoint would write real files
+ * into the developer's own `~/.claude-remarks`. `ReviewHandshakeService.start()` already returns
+ * early in test mode for exactly this reason, so both the motivation and the mechanism have a
+ * precedent in this file.
  */
-fun handshakeDir(): Path = Path.of(System.getProperty("user.home"), ".claude-remarks")
+fun handshakeDir(): Path =
+    if (ApplicationManager.getApplication()?.isUnitTestMode == true)
+        Path.of(System.getProperty("java.io.tmpdir"), "claude-remarks-test")
+    else Path.of(System.getProperty("user.home"), ".claude-remarks")
 
 /**
  * One random token per IDE run, held in memory only. Not persisted: a restart mints a new one, and

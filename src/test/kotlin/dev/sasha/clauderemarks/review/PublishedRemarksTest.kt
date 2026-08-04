@@ -8,6 +8,7 @@ import kotlin.io.path.name
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -31,25 +32,141 @@ class PublishedRemarksTest {
         assertNotEquals(publishedName(realPath), publishedName("/a/c"))
     }
 
-    @Test
-    fun `the header starts with the marker and carries the time, the commit and the count`() {
-        val out = publishedHeader(now = 0L, commit = "0123456789abcdef0123456789abcdef01234567", count = 3)
-        val lines = out.trimEnd('\n').split("\n")
+    /** A round minute in millis, so formatting to minute precision and parsing it back round-trips. */
+    private val FIXED_PUBLISHED_AT = 1_700_000_000_000L - (1_700_000_000_000L % 60_000L)
 
-        assertEquals(out, 4, lines.size)
+    @Test
+    fun `the header renders eight lines in a fixed order`() {
+        val header = PublishedHeader(
+            nonce = "n-1",
+            publishedAt = FIXED_PUBLISHED_AT,
+            commit = "0123456789abcdef0123456789abcdef01234567",
+            remarks = 3,
+            reviewSession = "session-1",
+            reviewLabel = "review the auth change",
+            rejected = false,
+        )
+        val lines = header.render().trimEnd('\n').split("\n")
+
+        assertEquals(lines.toString(), 8, lines.size)
         assertEquals(PUBLISHED_MARKER, lines[0])
-        assertTrue(lines[1], Regex("""published: \d{4}-\d{2}-\d{2} \d{2}:\d{2}""").matches(lines[1]))
-        assertEquals("commit: 01234567", lines[2])
-        assertEquals("remarks: 3", lines[3])
+        assertEquals("nonce: n-1", lines[1])
+        assertTrue(lines[2], Regex("""published: \d{4}-\d{2}-\d{2} \d{2}:\d{2}""").matches(lines[2]))
+        assertEquals("commit: 01234567", lines[3])
+        assertEquals("remarks: 3", lines[4])
+        assertEquals("review: session-1", lines[5])
+        assertEquals("label: review the auth change", lines[6])
+        assertEquals("rejected: no", lines[7])
     }
 
     @Test
-    fun `a header with no commit says so rather than printing an empty field`() {
-        val out = publishedHeader(now = 0L, commit = null, count = 0)
+    fun `a header with nothing to say writes none rather than an empty field`() {
+        val header = PublishedHeader(
+            nonce = "n-2",
+            publishedAt = FIXED_PUBLISHED_AT,
+            commit = null,
+            remarks = 0,
+            reviewSession = null,
+            reviewLabel = null,
+            rejected = false,
+        )
+        val lines = header.render().trimEnd('\n').split("\n")
 
-        assertTrue(out, out.contains("commit: none"))
-        assertFalse(out, out.contains("commit: \n"))
-        assertFalse(out, out.contains("commit:\n"))
+        assertEquals("commit: none", lines[3])
+        assertEquals("review: none", lines[5])
+        assertEquals("label: none", lines[6])
+        assertEquals("rejected: no", lines[7])
+    }
+
+    @Test
+    fun `a label with a newline stays on one line, and a long label is cut`() {
+        val header = PublishedHeader(
+            nonce = "n-3",
+            publishedAt = FIXED_PUBLISHED_AT,
+            commit = null,
+            remarks = 0,
+            reviewSession = "s",
+            reviewLabel = "x".repeat(50) + "\n" + "y".repeat(200),
+            rejected = false,
+        )
+        val lines = header.render().trimEnd('\n').split("\n")
+
+        assertEquals(lines.toString(), 8, lines.size)
+        val labelLine = lines[6]
+        assertTrue(labelLine, labelLine.startsWith("label: "))
+        assertTrue(labelLine, labelLine.removePrefix("label: ").length <= 120)
+        assertFalse(labelLine, labelLine.contains('\n'))
+    }
+
+    @Test
+    fun `a rendered header reads back as the same fields`() {
+        val header = PublishedHeader(
+            nonce = "n-4",
+            publishedAt = FIXED_PUBLISHED_AT,
+            commit = "0123456789abcdef0123456789abcdef01234567",
+            remarks = 5,
+            reviewSession = "session-2",
+            reviewLabel = "a label",
+            rejected = true,
+        )
+
+        val readBack = publishedHeaderOf(header.render())
+
+        assertEquals(
+            header.copy(commit = header.commit?.take(8), reviewLabel = "a label"),
+            readBack,
+        )
+    }
+
+    @Test
+    fun `a body that does not start with the marker reads back as null`() {
+        val body = "not the marker\n" + PublishedHeader(
+            nonce = "n",
+            publishedAt = FIXED_PUBLISHED_AT,
+            commit = null,
+            remarks = 0,
+            reviewSession = null,
+            reviewLabel = null,
+            rejected = false,
+        ).render().substringAfter("\n")
+
+        assertNull(publishedHeaderOf(body))
+    }
+
+    @Test
+    fun `a header with a line out of order reads back as null`() {
+        val rendered = PublishedHeader(
+            nonce = "n",
+            publishedAt = FIXED_PUBLISHED_AT,
+            commit = "01234567",
+            remarks = 3,
+            reviewSession = null,
+            reviewLabel = null,
+            rejected = false,
+        ).render()
+        val lines = rendered.trimEnd('\n').split("\n").toMutableList()
+        val commitLine = lines[3]
+        lines[3] = lines[4]
+        lines[4] = commitLine
+        val swapped = lines.joinToString("\n") + "\n"
+
+        assertNull(publishedHeaderOf(swapped))
+    }
+
+    @Test
+    fun `a header whose count is not a number reads back as null`() {
+        val rendered = PublishedHeader(
+            nonce = "n",
+            publishedAt = FIXED_PUBLISHED_AT,
+            commit = null,
+            remarks = 0,
+            reviewSession = null,
+            reviewLabel = null,
+            rejected = false,
+        ).render()
+        val broken = rendered.replace("remarks: 0", "remarks: not-a-number")
+
+        assertNull(publishedHeaderOf(broken))
     }
 
     /**

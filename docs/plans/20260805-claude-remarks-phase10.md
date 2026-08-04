@@ -219,26 +219,41 @@ passed.
 Every number and fact below is recorded in this task's result note, so a later task can compare
 against it rather than guess.
 
-- [ ] record the baseline test counts two ways, because they measure different things and both are
+- [x] record the baseline test counts two ways, because they measure different things and both are
       quoted later: the executed count from `build/test-results/test/*.xml` after
       `./gradlew test`, and the declaration count from
-      `grep -rc "    fun test\|    fun \`" src/test --include='*.kt'` summed
-- [ ] run all six guards from [section 4](#4-validation-commands), with the sixth in its current
-      two-exclusion form, and record that each printed nothing
-- [ ] confirm the three send controls are still where
+      `grep -rc "    fun test\|    fun \`" src/test --include='*.kt'` summed. **Executed: 461.
+      Declared: 464.** (`./gradlew test` reported `UP-TO-DATE`, so the executed count is read from
+      the existing `build/test-results/test/*.xml`, the same result the last real run produced —
+      re-running would not change it.)
+- [x] run all six guards from [section 4](#4-validation-commands), with the sixth in its current
+      two-exclusion form, and record that each printed nothing. **All six printed nothing.**
+- [x] confirm the three send controls are still where
       [section 1](#1-what-is-true-today-checked-not-assumed) says: `grep -n "Send remarks\|Send to Claude Code" src/main/kotlin/dev/sasha/clauderemarks/ui/RemarksToolWindowFactory.kt`
-      and `grep -n "SendToWaiting" src/main/resources/META-INF/plugin.xml`
-- [ ] confirm `publishedHeader` still has exactly one caller:
-      `grep -rn "publishedHeader" src/main --include='*.kt'`
-- [ ] confirm phase 7's two guards are both in `review/SendReview.kt` and that
+      and `grep -n "SendToWaiting" src/main/resources/META-INF/plugin.xml`. **Confirmed**, both at
+      the lines section 1 names.
+- [x] confirm `publishedHeader` still has exactly one caller:
+      `grep -rn "publishedHeader" src/main --include='*.kt'`. **Confirmed**: the declaration in
+      `review/PublishedRemarks.kt:38`, and one import plus one call site in
+      `action/PublishRemarks.kt`.
+- [x] confirm phase 7's two guards are both in `review/SendReview.kt` and that
       `review/WaitingReview.kt`'s `markSent` has no phase check of its own. Read both functions.
-- [ ] read `platform/platform-api/src/com/intellij/ui/EditorNotificationPanel.java` in
+      **Confirmed.** The second-send refusal is `sendToWaitingReview`'s
+      `if (waiting.phase is ReviewPhase.Sent)` at line 33, and the overwrite-after-send refusal is
+      `rejectWaitingReview`'s `if (waiting.phase is ReviewPhase.Sent)` at line 134 — both exactly
+      where section 1 says. `markSent` unconditionally does
+      `state = acting.copy(phase = ReviewPhase.Sent(ids))` once the session id matches; it reads no
+      phase.
+- [x] read `platform/platform-api/src/com/intellij/ui/EditorNotificationPanel.java` in
       `~/dev/oss/intellij-community` and confirm two things the banner work depends on: `setText`
       feeds a plain `JLabel`, and action links go into a separate panel added at
       `BorderLayout.EAST`. If either has changed, say so plainly and stop, because
       [task 6](#task-6-publishing-answers-a-waiting-review-and-the-three-send-controls-go)'s wording
-      is written against them.
-- [ ] no commit: nothing changed.
+      is written against them. **Both confirmed, unchanged.** `setText(text)` is
+      `myLabel.setText(text)` where `myLabel` is a plain `JLabel` field. Action links go into
+      `myLinksPanel` (`createActionLabel` adds to it), and the constructor adds that panel with
+      `panel.add(BorderLayout.EAST, myLinksPanel)`.
+- [x] no commit: nothing changed.
 
 ### Group one: the published file becomes a batch
 
@@ -309,7 +324,7 @@ precedent in this file. The alternative considered and rejected: an internal mut
 `publishedDirForTests` that each test sets and restores, which is a global that a forgotten
 `tearDown` leaves pointing at the wrong place.
 
-- [ ] write the failing tests in `PublishedRemarksTest`:
+- [x] write the failing tests in `PublishedRemarksTest`:
   - `the header renders eight lines in a fixed order`. A fixed `publishedAt`, a 40 character sha, a
     review session and label. Assert the exact eight lines, the commit cut to eight characters, and
     that line 1 is `PUBLISHED_MARKER`.
@@ -323,21 +338,21 @@ precedent in this file. The alternative considered and rejected: an internal mut
   - `a body that does not start with the marker reads back as null`.
   - `a header with a line out of order reads back as null`. Swap `commit:` and `remarks:`.
   - `a header whose count is not a number reads back as null`.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.PublishedRemarksTest"` and expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.PublishedRemarksTest"` and expect a
       compile failure
-- [ ] implement `PublishedHeader`, `render`, `publishedHeaderOf` and the sanitizer, then update the
+- [x] implement `PublishedHeader`, `render`, `publishedHeaderOf` and the sanitizer, then update the
       one caller in `publishRemarks` to build a `PublishedHeader` with a fresh
       `UUID.randomUUID().toString()` nonce, the head commit, the count, and null, null, false for the
       review fields. Nothing records a batch yet; that is
       [task 5](#task-5-publish-records-its-batch-and-publish-unread-replaces-publish-all-pending).
-- [ ] implement the `handshakeDir()` test branch
-- [ ] the narrow command passes, and `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewHandshakeTest"`
+- [x] implement the `handshakeDir()` test branch
+- [x] the narrow command passes, and `./gradlew test --tests "dev.sasha.clauderemarks.review.ReviewHandshakeTest"`
       still passes, since it is the class that would notice a broken `handshakeDir`
-- [ ] **mutation:** drop the marker line from `render()`; the first test and the round-trip test must
+- [x] **mutation:** drop the marker line from `render()`; the first test and the round-trip test must
       fail. Let the sanitizer keep the newline; the label test must fail. Make `publishedHeaderOf`
       accept a header with a line out of order; that test must fail. Restore all three.
-- [ ] all six guards print nothing
-- [ ] commit: `feat: the published file's header names the batch it carries`
+- [x] all six guards print nothing
+- [x] commit: `feat: the published file's header names the batch it carries`
 
 ### Task 3: The batch memory, and what an acknowledgement causes
 
