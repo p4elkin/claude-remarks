@@ -1933,28 +1933,101 @@ offsets and `selection.toString()`. It reads the attribute's name from the page'
 script, which is what `ui/preview/jcef/ScrollSync.js` already does. On an empty selection it posts a
 message that says so, and that is what clears the stored entry.
 
-- [ ] add the Gradle dependency and confirm the markdown classes resolve at compile time
-- [ ] write the extension, its provider, its resource provider and the script
-- [ ] register the extension in the config file, and add the optional `<depends>` to `plugin.xml`
-- [ ] `./gradlew build` passes and `./gradlew verifyPluginProjectConfiguration` passes
-- [ ] `./gradlew verifyPlugin` passes. If it fails **only** on the obsolete or experimental
+- [x] add the Gradle dependency and confirm the markdown classes resolve at compile time
+      **Result: `bundledPlugin("org.intellij.plugins.markdown")` beside the existing
+      `bundledModule` line. All five classes resolve — `MarkdownBrowserPreviewExtension`, its
+      `Provider`, `MarkdownHtmlPanel`, `BrowserPipe` and `ResourceProvider` — and `:compileKotlin`
+      passes with no unresolved import.**
+- [x] write the extension, its provider, its resource provider and the script
+      **Result: `preview/PreviewRemarkExtension.kt` is the shape
+      `CodeFenceCopyButtonBrowserExtension` uses — one class implementing both
+      `MarkdownBrowserPreviewExtension` and `ResourceProvider`, a nested `Provider` that returns null
+      when `panel.browserPipe` is null (the Compose renderer), one declared script, and
+      `loadInternalResource<PreviewRemarkExtension>` serving it from the plugin's own jar. One thing
+      is beyond what this task's text spelled out and is written up as a deviation in the progress
+      log: the handler narrows the range before it stores it, and to do that it needs the `.md`
+      source, so it hops to the EDT with `invokeLater` and reads the `Document` there. See the
+      deviation line for why that is the smaller option. `dispose()` removes the subscription,
+      because `MarkdownJCEFHtmlPanel.reloadExtensions` disposes extensions while keeping the same
+      pipe.**
+- [x] register the extension in the config file, and add the optional `<depends>` to `plugin.xml`
+      **Result: `META-INF/claude-remarks-markdown.xml` holds the one
+      `<browserPreviewExtensionProvider>` under `defaultExtensionNs="org.intellij.markdown"`, and
+      `plugin.xml` gained
+      `<depends optional="true" config-file="claude-remarks-markdown.xml">org.intellij.plugins.markdown</depends>`
+      with the comment saying why it must be optional.**
+- [x] `./gradlew build` passes and `./gradlew verifyPluginProjectConfiguration` passes
+      **Result: both pass. `build` is green including the whole test suite, 428 tests across 40
+      classes, unchanged from task 20 — this task adds no test, because nothing it adds is reachable
+      without a JCEF panel.**
+- [x] `./gradlew verifyPlugin` passes. If it fails **only** on the obsolete or experimental
       annotations task 19 named, subtract that failure level in `build.gradle.kts` with a comment in
       the same shape as the existing one: which API, why there is no public alternative, and what
       the subtraction stops reporting from now on. If it fails on anything else, stop and report.
-- [ ] `./gradlew test` passes whole and all six guards are empty. Guard 4 is the one to watch: no
+      **Result: it passes, with `EXPERIMENTAL_API_USAGES` subtracted exactly as
+      [section 9](#9-group-five-what-the-preview-can-do-read-from-the-platform)'s third answer
+      predicted. The verifier's own conclusion is "Compatible. 3 usages of experimental API. 1 usage
+      of internal API", and the three are the three `MarkdownHtmlPanel` getters and nothing else:
+      `getBrowserPipe()` from `Provider.createBrowserExtension`, `getVirtualFile()` and
+      `getProject()` from `receive`. Nothing was reported for `@ApiStatus.Obsolete` on
+      `MarkdownBrowserPreviewExtension`, which is the other half of that answer confirmed. The new
+      comment in `build.gradle.kts` sits beside the existing one rather than replacing it, and says
+      which API, why there is no public route to the pipe, and what the subtraction stops reporting.**
+- [x] `./gradlew test` passes whole and all six guards are empty. Guard 4 is the one to watch: no
       part of the script or the extension may gain anything that writes to a file.
-- [ ] **prove the script cannot be reached from an arbitrary page.** Read
+      **Result: 428 tests green, and all six guards print nothing. Guard 4 was the one to watch and
+      it is clean: the extension only reads `Document.text`, and the script only reads the DOM and
+      posts a string.**
+- [x] **prove the script cannot be reached from an arbitrary page.** Read
       `ui/preview/jcef/impl/JcefBrowserPipeImpl.kt`'s `injectionAllowedUrls` and
       `ui/preview/PreviewStaticServer.kt`, then report in one paragraph what serves this script and
       to whom. There is no automated test for this, so it is read and reported, the way
       [task 6](#task-6-the-skill-learns-to-read-a-published-file)'s skill mutation is.
-- [ ] **mutation, read and reported rather than run, because no test in this project reaches
+      **Result: the script is served by `PreviewStaticServer`, an `HttpRequestHandler` on the IDE's
+      own built-in server, at `/markdownPreview/<provider hash>/claude-remarks-preview.js`. The
+      provider hash is the identity hash of the panel's aggregating resource provider, and the
+      provider is only registered for as long as that panel lives. So the bytes are reachable over
+      localhost by anything that guesses the hash — and reaching them buys nothing, because the bytes
+      are the script text this repository already publishes, and they carry no token, no path and no
+      project data. What matters is that the script only *works* on one page.
+      `MarkdownJCEFHtmlPanel` builds its page URL from a random token per panel
+      (`markdown-preview-index-<random>.html`) and constructs the pipe as
+      `JcefBrowserPipeImpl(browser = this, injectionAllowedUrls = listOf(pageUrl))`. The pipe injects
+      `window.__IntelliJTools.___jcefMessagePipePostToIdeFunction` on load-end only when the loaded
+      URL is in that list, and logs a warning and injects nothing otherwise. Without that function
+      the script's `post` throws inside `BrowserPipe.js`'s own try/catch and nothing ever reaches the
+      IDE. The preview page's Content Security Policy is built from the same list of declared script
+      URLs, so an injected script from anywhere else does not run there either, and the panel's
+      `MyFilteringRequestHandler` can block non-localhost requests outright. The route from a page to
+      this plugin therefore needs a page the markdown plugin itself opened.**
+- [x] **mutation, read and reported rather than run, because no test in this project reaches
       JavaScript:** take out the walk up to the nearest ancestor and use the selection's container
       directly, then say what a selection inside a `<strong>` would report. Write `md-src-pos` into
       the script instead of reading the meta tag, then say what breaks when the platform renames the
       attribute. Restore both.
-- [ ] add the `preview/` package to the project structure in `CLAUDE.md`
-- [ ] commit: `feat: the markdown preview tells the IDE which words are selected`
+      **Result, both read rather than applied. Without the walk, `nearestPosition` looks at
+      `range.startContainer` alone, and a browser selection starts in a *text node* — a text node
+      carries no attributes at all, so the check fails for every selection, not only for one inside
+      `<strong>`. The script would post the clearing message every single time, the stored entry
+      would always be empty, and the action would always refuse with "select something in the
+      preview first". The plugin would look installed and do nothing, with no error anywhere. Even a
+      single step to `parentNode` instead of the walk is not enough: it happens to work for
+      `<strong>`, which
+      [section 9](#9-group-five-what-the-preview-can-do-read-from-the-platform)'s fourth answer shows
+      does carry the attribute because every tag the generator opens gets one, but it fails for raw
+      inline HTML the person typed, which is passed through as written and carries nothing. The walk
+      is what turns both of those into a whole-line remark instead of no remark. Writing `md-src-pos`
+      into the script breaks nothing today, because that is what `HtmlGenerator.SRC_ATTRIBUTE_NAME`
+      currently is. It breaks silently the day the platform renames it: the meta tag would carry the
+      new name, every `hasAttribute` call in the script would return false, the walk would always
+      reach the body, and the script would post the clearing message forever. No exception, no log
+      line, no visible symptom other than an action that always refuses. `ScrollSync.js` reads the
+      name from the page for exactly this reason, and this script copies it.**
+- [x] add the `preview/` package to the project structure in `CLAUDE.md`
+      **Result: three `preview/` entries in the project structure, plus the new config file, the
+      script's resource path, and a rewrite of the `plugin.xml` entry to say it now declares one
+      optional dependency beside its two hard ones.**
+- [x] commit: `feat: the markdown preview tells the IDE which words are selected`
 
 ### Task 22: The action in the preview's right-click menu
 

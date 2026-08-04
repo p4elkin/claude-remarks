@@ -11,6 +11,13 @@
     <!-- Needed for ShowDiffAction, which opens the real diff for the files a review names.
          A hard dependency, not optional: every JetBrains IDE ships VCS. -->
     <depends>com.intellij.modules.vcs</depends>
+    <!-- The markdown preview: a remark written on the rendered page instead of on the source.
+         Optional on purpose, and it has to be. The markdown plugin is bundled in every JetBrains
+         IDE, but a person can disable it, and a hard dependency would then stop this whole plugin
+         from loading — with no dialog and no visible error, the only symptom being that the tool
+         window is not there. Everything that names a markdown class or group id lives in the config
+         file, never here. -->
+    <depends optional="true" config-file="claude-remarks-markdown.xml">org.intellij.plugins.markdown</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <!-- The id is part of the plugin's public interface: the platform derives the action id

@@ -1,0 +1,16 @@
+<!-- Everything that cannot exist without the markdown plugin.
+
+     plugin.xml names this file from an optional <depends>, so the whole file is skipped when the
+     markdown plugin is disabled and the rest of the plugin still loads. Nothing in here may be moved
+     into plugin.xml: every class and group id below comes from the markdown plugin, and an unknown
+     one there stops this plugin from loading at all, with no dialog and no visible error — the only
+     symptom is the tool window simply not being there. -->
+<idea-plugin>
+    <extensions defaultExtensionNs="org.intellij.markdown">
+        <!-- Declared by the markdown plugin as org.intellij.markdown.browserPreviewExtensionProvider,
+             dynamic="true". The provider is handed each preview panel as it is built, and returns an
+             extension for the ones that offer a browser pipe. -->
+        <browserPreviewExtensionProvider
+                implementation="dev.sasha.clauderemarks.preview.PreviewRemarkExtension$Provider"/>
+    </extensions>
+</idea-plugin>

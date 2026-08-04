@@ -314,6 +314,18 @@ src/main/kotlin/dev/sasha/clauderemarks/
   render/PromptRenderer.kt         pure Kotlin, zero platform imports. Remarks to markdown, general
                                    remarks first under their own heading and with no code block.
   render/PromptPayload.kt          collectForPrompt and clipboardPayload
+  preview/PreviewSelection.kt      SourceRange, PreviewSelection, parseSelectionMessage and
+                                   narrowToSelection: what a selection in the rendered markdown
+                                   preview is allowed to say, and how it becomes a character range in
+                                   the .md source. No platform import, so its tests need no fixture.
+  preview/PreviewSelectionService.kt
+                                   @Service PROJECT, in memory only: the last selection any preview
+                                   reported, with the file url beside it so a reader can compare
+  preview/PreviewRemarkExtension.kt
+                                   the browser half — the MarkdownBrowserPreviewExtension, its
+                                   Provider and its ResourceProvider. Subscribes to one pipe message,
+                                   parses it on the browser's callback thread, then hops to the EDT
+                                   to narrow the range against the Document and store it
   review/ReviewHandshake.kt        handshakeName, renderHandshake, writeHandshake/deleteHandshake,
                                    the per-run ReviewToken, and ReviewHandshakeService (@Service
                                    PROJECT, Disposable) — the file a skill reads to find this IDE
@@ -342,11 +354,24 @@ src/main/kotlin/dev/sasha/clauderemarks/
   review/OpenReviewFiles.kt        the only file in review/ that touches the VFS or the editor —
                                    opens a real diff over the files that have a local change,
                                    through ShowDiffAction, and a plain editor for the rest
-src/main/resources/META-INF/plugin.xml           declares two dependencies: com.intellij.modules.platform
-                                                  and, since phase 7, com.intellij.modules.vcs — for
-                                                  ShowDiffAction, which lives in a module jar
+src/main/resources/META-INF/plugin.xml           declares two hard dependencies:
+                                                  com.intellij.modules.platform and, since phase 7,
+                                                  com.intellij.modules.vcs — for ShowDiffAction, which
+                                                  lives in a module jar
                                                   (lib/modules/intellij.platform.vcs.impl.jar), not
-                                                  in app.jar
+                                                  in app.jar. Since phase 9 it also declares one
+                                                  optional dependency, org.intellij.plugins.markdown,
+                                                  naming the config file below
+src/main/resources/META-INF/claude-remarks-markdown.xml
+                                                  everything that cannot exist without the markdown
+                                                  plugin, skipped whole when it is disabled: the
+                                                  browserPreviewExtensionProvider registration
+src/main/resources/dev/sasha/clauderemarks/preview/claude-remarks-preview.js
+                                                  the script injected into the preview page. Listens
+                                                  for selectionchange, walks up to the nearest element
+                                                  carrying the position attribute (whose name it reads
+                                                  from the page's own meta tag), and posts four
+                                                  offsets plus the highlighted text
 src/main/resources/intentionDescriptions/AddRemarkIntention/description.html
 src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
 ```
