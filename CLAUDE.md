@@ -301,16 +301,21 @@ the markdown plugin disabled, are all still owed as hand checks. See `docs/claud
    The comment trap is still live: the grep is line-based, so a comment naming any of the five
    forbidden symbols would trip it, even to say they are absent.
 
-6. **Only `store/RemarkEdits.kt` and `review/SendReview.kt` may call `markRemarksRead`.** A remark
-   reaches `READ` for one reason only: a real `read` acknowledgement over
-   `POST /api/claude-remarks/ack`, handled by `reportReviewEnd` in `review/SendReview.kt`. Publishing,
-   whether through the clipboard or the published file, can only ever move a remark to `PUBLISHED`.
-   Letting anything else call `markRemarksRead` would let a copy or a publish quietly claim an agent
-   read remarks it never saw.
+6. **Only `store/RemarkEdits.kt`, `review/SendReview.kt` and `review/PublishedAck.kt` may call
+   `markRemarksRead`.** `READ` means an agent said it read the remarks. There are, since phase 10,
+   two routes that can say so, and both are answers to something the IDE itself minted: a `read`
+   acknowledgement over `POST /api/claude-remarks/ack`, keyed to a review session and handled by
+   `reportReviewEnd` in `review/SendReview.kt`; and a `published-read` acknowledgement over
+   `POST /api/claude-remarks/published-read`, keyed to a published batch's nonce and handled by
+   `reportPublishedRead` in `review/PublishedAck.kt`. A publish is still neither of them, however
+   many times it runs — publishing, whether through the clipboard or the published file, can only
+   ever move a remark to `PUBLISHED`. Letting anything else call `markRemarksRead` would let a copy
+   or a publish quietly claim an agent read remarks it never saw.
 
    ```bash
    grep -rn "markRemarksRead(" src/main --include='*.kt' \
-     | grep -v "store/RemarkEdits.kt" | grep -v "review/SendReview.kt"   # must be empty
+     | grep -v "store/RemarkEdits.kt" | grep -v "review/SendReview.kt" \
+     | grep -v "review/PublishedAck.kt"   # must be empty
    ```
 
    **One way past it, named rather than patched.** The grep is a line-based text search on the

@@ -409,7 +409,7 @@ from landing between the publish's file write and its `markRemarksPublished` cal
 `READ` and then have it immediately overwritten back to `PUBLISHED`. Both run on the EDT, so the
 acknowledgement queues behind the publish that is still finishing.
 
-- [ ] write the failing tests in `PublishedAckTest`, fixture-backed (`BasePlatformTestCase`), clearing
+- [x] write the failing tests in `PublishedAckTest`, fixture-backed (`BasePlatformTestCase`), clearing
       `RemarkStore` in `setUp` and `tearDown` because the light fixture project is shared across test
       classes:
   - `an acknowledgement of a recorded batch answers ok and marks its remarks read`. Add two remarks,
@@ -424,16 +424,16 @@ acknowledgement queues behind the publish that is still finishing.
     `UNKNOWN_BATCH`. Acknowledge the second: `OK`.
   - `an acknowledgement marks only its own batch`. Two batches, acknowledge the older one, and the
     newer one's remarks stay `PUBLISHED`.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.PublishedAckTest"` and expect a
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.PublishedAckTest"` and expect a
       compile failure
-- [ ] implement `PublishedAck.kt`, then the narrow command passes
-- [ ] widen guard 6 in `CLAUDE.md`: add `review/PublishedAck.kt` to the title and to the grep's
+- [x] implement `PublishedAck.kt`, then the narrow command passes
+- [x] widen guard 6 in `CLAUDE.md`: add `review/PublishedAck.kt` to the title and to the grep's
       exclusions, and rewrite the prose so it says what `READ` now means. It means an agent said it
       read the remarks. There are two acknowledgement routes, one keyed to a review session and one
       keyed to a batch nonce, both of them answers to something the IDE minted. A publish is still
       neither, however many times it runs. Keep the "one way past it, named rather than patched"
       paragraph as it is.
-- [ ] **mutation:** remove the batch from the list on acknowledgement instead of marking it read; the
+- [x] **mutation:** remove the batch from the list on acknowledgement instead of marking it read; the
       second-session test must fail with `UNKNOWN_BATCH`. Raise `MAX_REMEMBERED_BATCHES` to 17; the
       retention test must fail. Restore both. Then a third mutation with a different outcome: call
       `markRemarksRead` straight from `reportPublishedRead` instead of inside `invokeLater`. **No
@@ -441,8 +441,8 @@ acknowledgement queues behind the publish that is still finishing.
       either, since the grep for that rule only reads `ReviewRestService.kt`. Say so plainly in the
       report and restore it. The rule survives as the comment in the code and as the ordering
       paragraph above, and nothing stronger is available.
-- [ ] all six guards print nothing, the sixth now with three exclusions
-- [ ] commit: `feat: the plugin remembers the batches it published and what reading one means`
+- [x] all six guards print nothing, the sixth now with three exclusions
+- [x] commit: `feat: the plugin remembers the batches it published and what reading one means`
 
 ### Task 4: The endpoint action that takes a nonce back
 
