@@ -364,6 +364,9 @@ src/main/kotlin/dev/sasha/clauderemarks/
   ui/RemarksTree.kt                node building: a General group at the very top for a remark
                                    about no file, then buckets, then files, and the tree cell
                                    renderer
+  ui/RemarksTreeDnd.kt             the drag wiring beside that node building: the private drag bean,
+                                   installDragToBucket, and the node lookup under the pointer. The
+                                   decision a drop makes is bucketDropTarget, in RemarksTree.kt
   ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar (including Add General
                                    Remark), self-refresh on REMARKS_CHANGED
   action/AddRemarkAction.kt        the shortcut / popup-menu entry point, selectedLines(), and

@@ -1,9 +1,6 @@
 package dev.sasha.clauderemarks.ui
 
 import com.intellij.icons.AllIcons
-import com.intellij.ide.dnd.DnDDragStartBean
-import com.intellij.ide.dnd.DnDEvent
-import com.intellij.ide.dnd.DnDSupport
 import com.intellij.ide.dnd.aware.DnDAwareTree
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
@@ -31,7 +28,6 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
 import com.intellij.util.EditSourceOnDoubleClickHandler
 import com.intellij.util.concurrency.AppExecutorUtil
-import com.intellij.util.ui.tree.TreeUtil
 import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.action.openGeneralRemarkInput
 import dev.sasha.clauderemarks.action.plural
@@ -54,7 +50,6 @@ import dev.sasha.clauderemarks.store.fileForStoredPath
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.resolveAll
-import dev.sasha.clauderemarks.store.setRemarkBucket
 import java.awt.BorderLayout
 import java.awt.Component
 import javax.swing.Icon
@@ -78,15 +73,6 @@ internal fun selectRowForPopup(tree: JTree, x: Int, y: Int) {
     val path = tree.getPathForLocation(x, y) ?: return
     if (!tree.isPathSelected(path)) tree.addSelectionPath(path)
 }
-
-/**
- * What a drag carries: the remark ids that were under the selection when it started.
- *
- * Its own type, rather than a bare list, so a drag that started somewhere else — a file from the
- * project view, a change from the commit tool window — is refused instead of being read as a list of
- * ids that happens to arrive at the right component.
- */
-private data class DraggedRemarks(val ids: List<String>)
 
 class RemarksToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -154,7 +140,10 @@ class RemarksPanel(
         // buckets are set after the fact, and the tree is where a whole reading pass is triaged.
         tree.addMouseListener(TreePopupHandler())
 
-        installDragToBucket()
+        // The wiring lives in RemarksTreeDnd.kt, beside the pure bucketDropTarget it drives. The
+        // selection rule comes from here so that a drag and Publish Selected always cover the same
+        // rows.
+        installDragToBucket(tree, project, parent) { selectedIds() }
 
         // One subscription is enough. RemarkGutter's own EditorFactoryListener already calls
         // notifyRemarksChanged when an editor opens or closes, so a second listener here would
@@ -239,62 +228,6 @@ class RemarksPanel(
         Separator.getInstance(),
         DumbAwareAction.create("Delete") { deleteSelected() },
     )
-
-    /**
-     * Dragging rows onto a bucket moves them into it, and dropping them on "(no bucket)" takes them
-     * out of the one they are in. The whole decision is [bucketDropTarget], which is pure and
-     * tested; this method only finds the node under the pointer and calls the mutation function.
-     *
-     * `setRemarkBucket` is the same function the right-click menu's Move to Bucket… calls, so the
-     * drag adds no second way to change a bucket — it publishes REMARKS_CHANGED, and this panel's
-     * own subscription rebuilds the tree.
-     *
-     * `setDisposableParent(parent)`, so the support goes away with the tool window rather than
-     * outliving it as a registered source on a dead component.
-     *
-     * There is no "New bucket…" row to drop onto, on purpose: a bucket exists only because some
-     * remark carries its name, so an empty one would vanish on the next refresh, and Move to
-     * Bucket… in the right-click menu already creates a bucket by name.
-     */
-    private fun installDragToBucket() {
-        DnDSupport.createBuilder(tree)
-            .setBeanProvider {
-                // A group node stands for every row under it, the same rule Publish Selected uses,
-                // so dragging a file group moves every remark in that file.
-                selectedIds().takeIf { it.isNotEmpty() }?.let { DnDDragStartBean(DraggedRemarks(it)) }
-            }
-            .setTargetChecker { event ->
-                val drop = dropTargetOf(event)
-                if (drop == null || event.attachedObject !is DraggedRemarks) {
-                    event.setDropPossible(false, "")
-                    // true means "not mine, ask the parent component", which is what a drag from
-                    // somewhere else and a drop on a row that is not a bucket both are.
-                    return@setTargetChecker true
-                }
-                event.setDropPossible(true)
-                false
-            }
-            .setDropHandler { event ->
-                val dragged = event.attachedObject as? DraggedRemarks ?: return@setDropHandler
-                val drop = dropTargetOf(event) ?: return@setDropHandler
-                setRemarkBucket(project, dragged.ids, drop.bucket)
-            }
-            .setDisposableParent(parent)
-            .install()
-    }
-
-    /**
-     * The node under the pointer, turned into what a drop there would mean.
-     *
-     * The point arrives in screen-relative form and has to be converted to the tree's own
-     * coordinates before any row lookup, which is what `RelativePoint.getPoint(tree)` does. This is
-     * the same two-step the platform's own change-tree drag support uses.
-     */
-    private fun dropTargetOf(event: DnDEvent): BucketDrop? {
-        val onTree = event.relativePoint.getPoint(tree)
-        val path = TreeUtil.getPathForLocation(tree, onTree.x, onTree.y) ?: return null
-        return bucketDropTarget(path.lastPathComponent as? DefaultMutableTreeNode)
-    }
 
     /**
      * A right-click first selects the row under the pointer, then opens the menu.

@@ -9,7 +9,9 @@
 //   endFrom,   endTo    the same for where it ends
 //   text                what the person actually highlighted
 // A page can only name whole elements, so the two ranges are usually whole source lines. The IDE
-// narrows them onto the highlighted words itself, by searching for `text` in the source slice.
+// narrows them onto the highlighted words itself, by searching for `text` in the source slice: it
+// reads startFrom and endTo, and uses startTo and endFrom only to check that this message is in
+// order. See the PreviewSelection KDoc on the IDE side for why they are still posted.
 (function () {
   "use strict";
 

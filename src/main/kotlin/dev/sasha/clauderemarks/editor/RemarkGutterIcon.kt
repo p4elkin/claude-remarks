@@ -45,8 +45,11 @@ data class RemarkPlacement(
     val orphaned: Boolean,
     /** The exact source text a sub-line remark points at, straight out of `RemarkState.phrase`,
      *  or null for a whole-line remark. Shown in the tooltip, never in the tree row: the row
-     *  already crops on the right, and the tooltip has room. */
-    val phrase: String? = null,
+     *  already crops on the right, and the tooltip has room.
+     *
+     *  No default, unlike every other nullable field here would allow: both callers pass it, and a
+     *  default would only make it possible to build a placement that quietly loses the phrase. */
+    val phrase: String?,
 )
 
 /**
@@ -54,7 +57,7 @@ data class RemarkPlacement(
  *
  * The remark text is escaped: it is user input, and an unescaped "<" swallows everything up to the
  * next ">". The newlines become <br/>, because a raw "\n" is whitespace in HTML and the orphaned
- * and sent notes would end up on the same line as the remark.
+ * note and the published or read note would end up on the same line as the remark.
  *
  * The commit is here in full, unlike the tree, which shows it only on an orphaned row: a tooltip has
  * room and a tree row does not. It is cut to the same eight characters the tree's `writtenAt` and

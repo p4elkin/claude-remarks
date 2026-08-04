@@ -31,6 +31,13 @@ data class SourceRange(val startOffset: Int, val endOffsetExclusive: Int)
  * `md-src-pos` sits on the nearest ancestor of each end of the selection, which is usually a whole
  * source line. [startFrom] and [startTo] are that ancestor's range where the selection starts,
  * [endFrom] and [endTo] the one where it ends, and [text] is what the person actually highlighted.
+ *
+ * **Only [startFrom] and [endTo] are ever read.** [narrowToSelection] searches between those two and
+ * never looks at the middle pair. [startTo] and [endFrom] are kept as a sanity check on the message
+ * itself: [parseSelectionMessage] requires each pair to be in order, so a page that sends nonsense
+ * for either end is refused instead of producing a range that happens to fit the source. Deleting
+ * them would post three fields and lose that check, which is why they stay and are explained here
+ * rather than removed.
  */
 data class PreviewSelection(
     val startFrom: Int,

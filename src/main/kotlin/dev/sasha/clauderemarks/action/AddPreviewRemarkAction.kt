@@ -24,9 +24,20 @@ internal const val NOTHING_SELECTED = "Select something in the rendered preview 
 private const val NO_DOCUMENT =
     "The file behind this preview has no text open in the IDE, so a remark could not be stored."
 
-private const val MOVED_ON =
+/** Internal for the same reason as [NOTHING_SELECTED]: [previewStampProblem]'s test reads it. */
+internal const val MOVED_ON =
     "The file changed after that selection was made, so the remark was not added. Select the " +
         "words in the preview again."
+
+/**
+ * The impossible pair, said once. Past [fileTargetProblem] the file is there and it resolves to a
+ * path under the project root, so nothing below can take this branch. It refuses with a dialog all
+ * the same, because a silent no-op here would look exactly like a broken plugin — the same argument
+ * the class KDoc below makes about a greyed-out menu item.
+ */
+private const val NO_TARGET =
+    "The file behind this preview could not be found under the project directory, so the remark " +
+        "was not added."
 
 private const val NOT_ADDED_TITLE = "Claude Remark Not Added"
 
@@ -51,6 +62,26 @@ fun previewRemarkProblem(stored: StoredSelection?, fileUrl: String?): String? {
     }
     return null
 }
+
+/**
+ * Whether the source has changed since the page reported that selection, in words a person can read,
+ * or null when it has not.
+ *
+ * The window this closes is the one between the browser posting a selection and the person opening
+ * the menu. Nothing else covers it. The stamp the action takes when the popup opens covers only the
+ * seconds the input box is on screen, and the length check covers only a file that got shorter —
+ * an edit that leaves the file the same length, or longer, moves the words under those offsets while
+ * they still fit, and the remark then lands on text the person never chose.
+ *
+ * A stamp comparison rather than a diff of the text: `Document.getModificationStamp()` changes on
+ * every edit, so this refuses after an edit that put the words back exactly where they were. The
+ * cost is one selection made again in a case nobody will notice.
+ *
+ * Pure, like [previewRemarkProblem] and for the same reason: it is the part of this the tests can
+ * reach.
+ */
+fun previewStampProblem(stored: StoredSelection, documentStamp: Long): String? =
+    if (stored.sourceStamp == documentStamp) null else MOVED_ON
 
 /**
  * The entry point in the rendered markdown preview's right-click menu.
@@ -93,14 +124,23 @@ class AddPreviewRemarkAction : AnAction() {
 
         val file = selectionFile(stored)
         fileTargetProblem(project, file)?.let { return refuse(project, it) }
-        // Both non-null past fileTargetProblem, which refuses a null file and a null project root.
-        val path = relativePathOf(project, file) ?: return
-        val document = FileDocumentManager.getInstance().getDocument(file!!)
+        // One check for the pair fileTargetProblem has already ruled out, rather than a silent
+        // return for one of them and a "!!" for the other two lines apart. Past this the compiler
+        // knows the file is there, so the rest of the method needs neither.
+        val path = file?.let { relativePathOf(project, it) }
+        if (file == null || path == null) return refuse(project, NO_TARGET)
+        val document = FileDocumentManager.getInstance().getDocument(file)
             ?: return refuse(project, NO_DOCUMENT)
+
+        // The source may have been edited since the page reported this selection, which moves the
+        // words under those offsets while the offsets themselves stay valid.
+        previewStampProblem(stored, document.modificationStamp)?.let { return refuse(project, it) }
 
         // The offsets were checked against the source when the page reported them, and the file may
         // have got shorter since. selectedLines would throw on an offset past the end rather than
-        // refuse, so the check happens here.
+        // refuse, so the check happens here. The stamp check above already covers every edit this
+        // could catch; this stays as the guard on the throw itself, which is not something to leave
+        // resting on another check being correct.
         val range = stored.range
         if (range.endOffsetExclusive > document.textLength) return refuse(project, MOVED_ON)
 

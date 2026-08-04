@@ -1349,7 +1349,7 @@ names the bucket in full, whatever characters the bucket name contains. `bucketD
 reads that top node's key, never its label, which is what makes a bucket a person actually named
 `(no bucket)` set that literal name rather than being read as a request to clear the bucket.
 
-**The drag bean is a private type.** `RemarksToolWindowFactory.kt` defines a private data class,
+**The drag bean is a private type.** `ui/RemarksTreeDnd.kt` defines a private data class,
 `DraggedRemarks(ids: List<String>)`, and both the drag's target checker and its drop handler refuse
 anything that is not exactly that type. A drag started in the project view, the commit tool window,
 or anywhere else in the IDE is refused rather than misread as a list of remark ids that happened to
@@ -1369,6 +1369,14 @@ in the right-click menu already creates a bucket by typing its name, and that pa
 building the new-bucket drop target also removes an obligation `docs/ideas.md` names for it: a drop
 target that creates something needs an on-screen tip explaining that, and the tip is not needed once
 the part it would have explained is not there to explain.
+
+**The wiring lives beside the decision, not in the panel.** `installDragToBucket` and the node lookup
+under the pointer sit in `ui/RemarksTreeDnd.kt`, next to `ui/RemarksTree.kt`'s pure
+`bucketDropTarget`. `RemarksToolWindowFactory.kt` already owns the tree, the banner, the toolbar, the
+right-click menu, selection and collapse restore, navigation and the delete confirmations, and the
+drag is a separate subject with its own platform dependency on `com.intellij.ide.dnd`. The panel
+passes its own selection rule in as a lambda rather than letting the drag read the tree itself, so a
+drag and Publish Selected can never disagree about what a selected group covers.
 
 **What no test covers, and what is tested instead.** Nothing in the test suite performs a drag: a
 press-and-move gesture, a real drop landing on a real row, and the tree redrawing after it are not
@@ -1470,6 +1478,33 @@ category costs: a future experimental-API use in this plugin would also go unrep
 The Compose renderer is off by default in this IDE version, but if it were ever turned on, the
 extension in this group would simply never be created for it, and the right-click action would find
 nothing stored. That is a documented limit, not a crash: see Known Issues below.
+
+### A stored selection must not outlive what it describes
+
+Two ways a stored selection can outlive the thing it describes, and what closes each.
+
+**The preview is closed.** Closing a page fires no `selectionchange`, so the script never gets to say
+the selection is gone, and the stored entry would sit there until some other preview replaced it. The
+right-click action treats a data context that names no file as "act on the stored url", which is a
+deliberate choice — the stored url is then the only thing naming a file — so a selection left over
+from a closed preview could answer a right click in a different preview and write the remark against
+the wrong file, with no warning. `PreviewRemarkExtension.dispose` now calls
+`PreviewSelectionService.forgetSelectionIn(file.url)`. The url check is what makes it safe to call
+during disposal: a plain `forget` would take a live selection a second, still open preview had just
+stored, which is exactly the case the url comparison exists to protect.
+
+**The source is edited between the page reporting a selection and the person right-clicking.** The
+offsets are plain numbers. An edit that leaves the file the same length or longer moves the words
+under them while they still fit, and the length check the action makes would let that through. So
+`StoredSelection` carries a third field, `sourceStamp`: the `Document.getModificationStamp()` read on
+the EDT in the same pass that narrowed the range against that text. `previewStampProblem` in
+`action/AddPreviewRemarkAction.kt` compares it again before anything is written and refuses with the
+sentence the action already had for a file that moved on. It is pure, like `previewRemarkProblem`
+beside it, and for the same reason: it is the part of this entry point a test can reach.
+
+The stamp is checked in `actionPerformed`, never in `update`. Reading a `Document` needs a read
+action, and `update` declares `ActionUpdateThread.BGT`; the menu item stays enabled and refuses with
+a dialog, which is what every other refusal on this action already does.
 
 ## The Shared Review Session
 

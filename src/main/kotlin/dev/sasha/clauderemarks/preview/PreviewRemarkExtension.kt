@@ -75,6 +75,11 @@ internal class PreviewRemarkExtension(
      * parser refuses, a file with no document, and offsets that no longer fit the source because the
      * file got shorter after the render. In all three the last thing the person selected is gone, and
      * a remark written from a stale entry would point at characters they never chose.
+     *
+     * The document's modification stamp is stored beside the range, read here rather than by the
+     * action, because here is the one moment where the offsets and the text they were measured
+     * against are both in hand. The action compares it again before it writes anything, which is what
+     * catches a source edited between the page reporting a selection and the person right-clicking.
      */
     private fun receive(data: String) {
         val project = panel.project ?: return
@@ -83,9 +88,11 @@ internal class PreviewRemarkExtension(
         invokeLater {
             if (project.isDisposed) return@invokeLater
             val service = PreviewSelectionService.getInstance(project)
-            val source = FileDocumentManager.getInstance().getDocument(file)?.text
+            val document = FileDocumentManager.getInstance().getDocument(file)
+            val source = document?.text
             val range = if (selection == null || source == null) null else narrowToSelection(source, selection)
-            if (range == null) service.forget() else service.remember(file.url, range)
+            if (range == null || document == null) service.forget()
+            else service.remember(file.url, range, document.modificationStamp)
         }
     }
 
@@ -104,9 +111,26 @@ internal class PreviewRemarkExtension(
      * The pipe outlives this extension. `MarkdownJCEFHtmlPanel.reloadExtensions` disposes every
      * extension and builds new ones while keeping the same pipe, so a subscription left behind would
      * accumulate one dead handler per reload, each still writing to the service.
+     *
+     * The stored selection goes too, because a closed page reports nothing. Closing a preview fires
+     * no `selectionchange`, so the only other route to `forget` — the page saying the selection is
+     * gone — never runs, and a selection made in a preview that is no longer on screen would still
+     * answer the next right click somewhere else.
+     *
+     * [PreviewSelectionService.forgetSelectionIn], not `forget`: only the selection this preview's
+     * own file owns is dropped. A plain clear would take a live selection another preview had just
+     * stored.
+     *
+     * A reload disposes and rebuilds this extension while the page stays up, so a selection made
+     * before a reload is dropped too. That costs one selection the person makes again, and the
+     * alternative — keeping it — is the stale case this whole method is closing.
      */
     override fun dispose() {
         browserPipe.removeSubscription(SELECTION_MESSAGE_TYPE, handler)
+        val project = panel.project ?: return
+        if (project.isDisposed) return
+        val file = panel.virtualFile ?: return
+        PreviewSelectionService.getInstance(project).forgetSelectionIn(file.url)
     }
 
     /**
