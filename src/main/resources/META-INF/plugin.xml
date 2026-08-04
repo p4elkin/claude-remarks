@@ -65,13 +65,5 @@
                 description="Render every remark that has not been read into one markdown prompt and put it on the clipboard">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
-        <!-- Same reachability as ClaudeRemarks.CopyAll, and the same reason for no default
-             keystroke: this is a keymap entry the user assigns. -->
-        <action id="ClaudeRemarks.SendToWaiting"
-                class="dev.sasha.clauderemarks.review.SendReviewAction"
-                text="Send Claude Remarks to the Waiting Session"
-                description="Write every pending remark to the file the waiting Claude Code session is polling for">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
     </actions>
 </idea-plugin>

@@ -614,7 +614,7 @@ check in [section 8](#8-hand-checks) is what decides.
 The `Sent` phase text becomes:
 `Published N remarks for Claude Code. Waiting for it to read them. Publish again to add more.`
 
-- [ ] write the failing tests in `SendReviewTest`, replacing the eight named above:
+- [x] write the failing tests in `SendReviewTest`, replacing the eight named above:
   - `answering a waiting review records what was published`. Start a review, call
     `answerWaitingReview`, assert the phase is `Sent` with those ids.
   - `answering a review that already ended says so instead of claiming a handover`. Clear the review
@@ -628,23 +628,23 @@ The `Sent` phase text becomes:
     `testAFailedRejectionStillClearsTheReview` and the three acknowledgement tests exactly as they
     are. They are [task 7](#task-7-a-rejection-and-a-fetch-use-the-one-file)'s to change, not this
     task's.
-- [ ] update `RemarksPanelTest`'s two banner tests to the new text, and add
+- [x] update `RemarksPanelTest`'s two banner tests to the new text, and add
       `the banner offers Reject and nothing else`, which reads the panel's links and asserts there is
       exactly one
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest" --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"`
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.review.SendReviewTest" --tests "dev.sasha.clauderemarks.ui.RemarksPanelTest"`
       and expect a compile failure
-- [ ] implement: the two new functions, the publish's two calls, the header's `reviewSession` and
+- [x] implement: the two new functions, the publish's two calls, the header's `reviewSession` and
       `reviewLabel` fields filled from the waiting review, the three control removals, the banner
       text, and `publishMessage`'s extra sentence
-- [ ] the narrow command passes, and `./gradlew test` passes whole. Run the whole suite here even
+- [x] the narrow command passes, and `./gradlew test` passes whole. Run the whole suite here even
       though this task's narrow command is smaller: this task deletes public functions, and the
       classes that used them are spread across the suite.
-- [ ] **mutation:** make `answerWaitingReview` ignore `markSent`'s return value and always answer
+- [x] **mutation:** make `answerWaitingReview` ignore `markSent`'s return value and always answer
       null; the second test must fail. Leave the review fields out of the header; add an assertion in
       the first test that the rendered header names the session, or say plainly that the header
       stamping is only covered by the hand check. Restore.
-- [ ] all six guards print nothing
-- [ ] commit: `feat: publishing is how you answer a waiting review, and the Send controls are gone`
+- [x] all six guards print nothing
+- [x] commit: `feat: publishing is how you answer a waiting review, and the Send controls are gone`
 
 ### Task 7: A rejection and a fetch use the one file
 

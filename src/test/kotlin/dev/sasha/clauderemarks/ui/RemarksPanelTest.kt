@@ -8,7 +8,9 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.ui.HyperlinkLabel
 import com.intellij.ui.PopupHandler
+import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.editor.RemarkGutter
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.review.WaitingReviewService
@@ -305,7 +307,9 @@ class RemarksPanelTest : BasePlatformTestCase() {
         settleInvocationQueue()
 
         assertTrue(panel.banner.isVisible)
-        assertTrue(panel.banner.text.orEmpty().contains("a review label"))
+        val text = panel.banner.text.orEmpty()
+        assertTrue(text, text.contains("Claude Code is waiting: a review label"))
+        assertTrue(text, text.contains("Publish to answer"))
     }
 
     fun testTheBannerSaysTheRemarksAreWaitingToBeReadAfterASend() {
@@ -318,10 +322,26 @@ class RemarksPanelTest : BasePlatformTestCase() {
         settleInvocationQueue()
 
         assertTrue(panel.banner.isVisible)
-        assertTrue(
-            panel.banner.text.orEmpty(),
-            panel.banner.text.orEmpty().contains("Waiting for Claude Code to read"),
-        )
+        val text = panel.banner.text.orEmpty()
+        assertTrue(text, text.contains("Published 1 remark for Claude Code"))
+        assertTrue(text, text.contains("Waiting for it to read them"))
+    }
+
+    /**
+     * The Send control is gone: publishing is the only way to answer a waiting review, so the
+     * banner offers exactly one link now, Reject, not two.
+     */
+    fun testTheBannerOffersRejectAndNothingElse() {
+        val panel = panel()
+        WaitingReviewService.getInstance(project)
+            .start("s1", "a review label", 1800, temp.dir("remarks-panel-test"))
+
+        panel.refresh()
+        settleInvocationQueue()
+
+        val links = UIUtil.findComponentsOfType(panel.banner, HyperlinkLabel::class.java)
+        assertEquals(1, links.size)
+        assertEquals("Reject", links.single().text)
     }
 
     /**

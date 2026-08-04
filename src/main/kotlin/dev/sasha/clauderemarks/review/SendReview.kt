@@ -1,114 +1,34 @@
 package dev.sasha.clauderemarks.review
 
 import com.intellij.notification.NotificationType
-import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.ReadAction
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
-import com.intellij.util.concurrency.AppExecutorUtil
-import dev.sasha.clauderemarks.action.Prepared
 import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.action.plural
-import dev.sasha.clauderemarks.action.prepare
-import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.markRemarksRead
 import java.io.IOException
-import java.util.concurrent.CancellationException
 
 /**
- * The same pipeline as Publish All Pending — [prepare] is not re-rendered — with a different
- * destination: the file the waiting session is polling for instead of the clipboard.
+ * What a publish does about a waiting review. Null when none is waiting.
  *
- * Does nothing if no review is waiting. The toolbar button and the banner's link only appear
- * while one is, but the Tools-menu action and any keymap entry a user assigns can still be
- * pressed with none waiting.
+ * Named so the publish reads one function rather than reaching into [WaitingReviewService]
+ * itself.
  */
-fun sendToWaitingReview(project: Project) {
-    val waiting = WaitingReviewService.getInstance(project).current() ?: return
-    if (waiting.phase is ReviewPhase.Sent) {
-        notifyRemarks(project, "Already sent. Waiting for Claude Code to read them.")
-        return
-    }
+internal fun waitingReviewForPublish(project: Project): WaitingReviewState? =
+    WaitingReviewService.getInstance(project).current()
 
-    ReadAction.nonBlocking<Prepared> { prepare(project, null) }
-        .expireWith(project)
-        // Named explicitly, not PublishRemarks.kt's ALL_PENDING: a shared key would make Send and
-        // Publish All coalesce against each other, so pressing one while the other is still
-        // running would throw the first away with nothing to show for it.
-        .coalesceBy(::sendToWaitingReview, project)
-        .finishOnUiThread(ModalityState.defaultModalityState()) { prepared ->
-            if (prepared.ids.isEmpty()) {
-                // The agent is still waiting on purpose. Sending an empty file would tell it the
-                // person had finished.
-                notifyRemarks(project, "No remarks to send. The review stays waiting.")
-                return@finishOnUiThread
-            }
-            // Read again, on the EDT, right before the write. prepare() ran off the EDT, and the
-            // review it started from can have been rejected, acknowledged or expired in the
-            // meantime — all three happen on other threads. Writing to the snapshot's path then
-            // overwrites a rejection body, and the balloon claims a send nothing recorded.
-            val live = WaitingReviewService.getInstance(project).current()
-            if (live == null || live.sessionId != waiting.sessionId || live.phase is ReviewPhase.Sent) {
-                notifyRemarks(
-                    project,
-                    "The review ended before the remarks could be sent. They are still pending.",
-                )
-                return@finishOnUiThread
-            }
-            // Built here, not inside the read action above: a non-blocking read action is
-            // cancelled and re-run whenever a write action asks for the lock, so a write in there
-            // would run again on every retry and leave a stray file behind each time.
-            try {
-                atomicWriteString(handoffFile(live.outputPath), prepared.markdown)
-            } catch (e: IOException) {
-                // Nothing marked sent, review stays waiting: the handover did not succeed.
-                notifyRemarks(
-                    project,
-                    "The remarks could not be sent: ${e.message}",
-                    NotificationType.ERROR,
-                )
-                return@finishOnUiThread
-            }
-            val count = prepared.ids.size
-            // The write cannot happen inside the service's lock — it is a filesystem call, and
-            // current() must never block the EDT behind one — so the deadline task can still end
-            // the review between the check above and this call. markSent says whether it found the
-            // review to stamp, and a "Wrote N remarks" balloon for a review with no Sent phase
-            // would be a lie: the ack that follows is answered no-review and nothing is marked
-            // sent. So the two outcomes get two messages.
-            if (!WaitingReviewService.getInstance(project).markSent(live.sessionId, prepared.ids)) {
-                notifyRemarks(
-                    project,
-                    "Wrote $count remark${plural(count)}, but the review ended first — its " +
-                        "deadline passed. They are still pending, so send them again if Claude " +
-                        "Code is still waiting.",
-                    NotificationType.WARNING,
-                )
-                return@finishOnUiThread
-            }
-            notifyRemarks(
-                project,
-                "Wrote $count remark${plural(count)} for Claude Code. " +
-                    "Waiting for it to read them.",
-            )
-        }
-        .submit(AppExecutorUtil.getAppExecutorService())
-        .onError { error ->
-            // A run dropped by coalesceBy, or one expired with the project, arrives here too, and
-            // is not a failure.
-            if (error !is ProcessCanceledException && error !is CancellationException) {
-                notifyRemarks(
-                    project,
-                    "The remarks could not be prepared: ${error.message ?: error}",
-                    NotificationType.ERROR,
-                )
-            }
-        }
+/**
+ * Records that this publish answered [session]'s review with [ids], and says what to add to the
+ * publish's own balloon: null when the stamp succeeded and the review is simply waiting to read
+ * them, or a sentence saying the review had already ended when [WaitingReviewService.markSent]
+ * found nothing to stamp — the review it was meant to answer was rejected, acknowledged, or ran
+ * past its deadline in the gap between the publish snapshotting it and this call. The remarks are
+ * still published either way; only whether a review is left waiting for them differs.
+ */
+internal fun answerWaitingReview(project: Project, session: String, ids: List<String>): String? {
+    val stamped = WaitingReviewService.getInstance(project).markSent(session, ids)
+    return if (stamped) null
+    else "The review it was meant to answer had already ended, so it is not waiting for these."
 }
 
 /**
@@ -218,33 +138,3 @@ private fun reportReviewEnd(project: Project, state: WaitingReviewState, end: Re
     }
 }
 
-/**
- * Whether Send would do anything right now: a review waiting for its first send, and something
- * pending to put in it. One function, because the condition has two readers — this action and the
- * tool window's toolbar button — and two copies of it drift apart silently.
- *
- * `== ReviewPhase.Waiting`, never `is`: one spelling per shape across the plugin, `==` for the
- * object and `is` for the `Sent` data class that carries fields.
- */
-fun canSend(project: Project): Boolean =
-    WaitingReviewService.getInstance(project).current()?.phase == ReviewPhase.Waiting &&
-        RemarkStore.getInstance(project).all().any { it.status == RemarkStatus.PENDING }
-
-/**
- * Reachable without the tool window: from the Tools menu, from Search Everywhere, and from a
- * keymap entry the user assigns. Enabled only while a review is waiting and something is pending
- * to send it, the same pair `PublishAllRemarksAction` checks for its own condition.
- */
-class SendReviewAction : AnAction() {
-
-    override fun getActionUpdateThread() = ActionUpdateThread.BGT
-
-    override fun update(e: AnActionEvent) {
-        val project = e.project
-        e.presentation.isEnabled = project != null && canSend(project)
-    }
-
-    override fun actionPerformed(e: AnActionEvent) {
-        sendToWaitingReview(e.project ?: return)
-    }
-}

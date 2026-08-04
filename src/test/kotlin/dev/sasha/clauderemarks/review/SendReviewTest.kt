@@ -9,12 +9,18 @@ import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.nio.file.Files
 
 /**
- * The failure-path test here — [testAFailedWriteMarksNothingSentAndLeavesTheReviewWaiting] — is
- * the only guard on CLAUDE.md rule 8: nothing is marked sent unless the handover succeeded.
+ * `answerWaitingReview` and `markSent` are both synchronous, ordinary calls against a project
+ * service, so the tests that drive them need no `settleInvocationQueue()` of their own. It still
+ * appears after `finishReview` and `expireStaleReview` below: both of those queue their store
+ * mutation and their balloon through `invokeLater` (see `reportLater` in this same file), so an
+ * assertion made right after calling either would see the state before that finishes.
  *
- * `settleInvocationQueue()` appears after every send below because sendToWaitingReview hops off the
- * EDT (the read action) and back (finishOnUiThread), so an assertion made right after calling it
- * would see the state before that finishes.
+ * The rejection tests and the three acknowledgement tests below reach the `Sent` phase by calling
+ * `atomicWriteString`/`WaitingReviewService.markSent` directly rather than through a send action —
+ * there is no send action any more, publishing is how a waiting review is answered, and that
+ * pipeline is exercised by `action/PublishRemarksTest` instead, for the same reason
+ * `sendToWaitingReview`'s own removed KDoc gave: pumping a read action plus an EDT callback in a
+ * light fixture buys a flaky test for very little.
  */
 class SendReviewTest : BasePlatformTestCase() {
 
@@ -34,36 +40,14 @@ class SendReviewTest : BasePlatformTestCase() {
         super.tearDown()
     }
 
-    fun testSendingWritesTheWholePromptToTheWaitingReviewsOutputPath() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
-        addRemark(project, "A.kt", LINES, 0..0, "a note about A", null)
-
-        sendToWaitingReview(project)
-        settleInvocationQueue()
-
-        assertTrue(Files.readString(handoffFile(outputPath)).contains("a note about A"))
-    }
-
-    fun testSendingMarksNothingUntilTheAgentAcknowledges() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+    /** The header carries the review it answers, per PublishRemarks.kt — this is the stamp itself. */
+    fun testAnsweringAWaitingReviewRecordsWhatWasPublished() {
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test"))
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
-        sendToWaitingReview(project)
-        settleInvocationQueue()
+        val sentence = answerWaitingReview(project, "s1", listOf(remark.id!!))
 
-        assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
-    }
-
-    fun testSendingKeepsTheReviewAndRecordsWhatWasWritten() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
-
-        sendToWaitingReview(project)
-        settleInvocationQueue()
-
+        assertNull(sentence)
         val waiting = WaitingReviewService.getInstance(project).current()
         assertNotNull(waiting)
         val phase = waiting!!.phase
@@ -71,29 +55,46 @@ class SendReviewTest : BasePlatformTestCase() {
         assertEquals(listOf(remark.id), (phase as ReviewPhase.Sent).ids)
     }
 
-    fun testAFailedWriteMarksNothingSentAndLeavesTheReviewWaiting() {
-        // The parent of outputPath is a regular file, so Files.createDirectories throws when the
-        // write tries to create outputPath itself.
-        val outputPath = temp.file("send-review-blocked", ".txt").resolve("subdir")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+    /**
+     * The window between a publish snapshotting the waiting review and answering it: the review can
+     * have been rejected, acknowledged, or run past its deadline in between, all on other threads.
+     * markSent finding nothing to stamp is the safe outcome, and answerWaitingReview has to say so
+     * rather than claim a handover that did not happen.
+     */
+    fun testAnsweringAReviewThatAlreadyEndedSaysSoInsteadOfClaimingAHandover() {
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test"))
+        WaitingReviewService.getInstance(project).clear("s1")
 
-        sendToWaitingReview(project)
-        settleInvocationQueue()
+        val sentence = answerWaitingReview(project, "s1", listOf("a"))
 
-        assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
-        assertNotNull(WaitingReviewService.getInstance(project).current())
+        assertNotNull(sentence)
     }
 
-    fun testSendingWithNothingPendingLeavesTheReviewWaitingAndWritesNoFile() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
+    /**
+     * Phase 7's "already sent" refusal forbade a second send while the first was still unread. That
+     * refusal is gone: publishing again while a review is still Sent is now the normal way to add
+     * more to it, and the second answer simply replaces the first's recorded ids.
+     */
+    fun testAnsweringAReviewASecondTimeReplacesTheRecordedIds() {
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test"))
+        answerWaitingReview(project, "s1", listOf("a"))
 
-        sendToWaitingReview(project)
-        settleInvocationQueue()
+        val sentence = answerWaitingReview(project, "s1", listOf("a", "b"))
 
-        assertNotNull(WaitingReviewService.getInstance(project).current())
-        assertFalse(Files.exists(handoffFile(outputPath)))
+        assertNull(sentence)
+        val phase = WaitingReviewService.getInstance(project).current()!!.phase
+        assertTrue(phase is ReviewPhase.Sent)
+        assertEquals(listOf("a", "b"), (phase as ReviewPhase.Sent).ids)
+    }
+
+    /** The phase's central decision, on the new path: only a `read` acknowledgement marks anything. */
+    fun testNothingIsMarkedReadUntilTheAcknowledgement() {
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test"))
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+
+        answerWaitingReview(project, "s1", listOf(remark.id!!))
+
+        assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
     }
 
     fun testRejectingWritesTheMarkerAndClearsTheReview() {
@@ -117,27 +118,18 @@ class SendReviewTest : BasePlatformTestCase() {
         assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
     }
 
-    fun testASecondSendWhileWaitingForTheAcknowledgementIsRefused() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
-        addRemark(project, "A.kt", LINES, 0..0, "a note", null)
-        sendToWaitingReview(project)
-        settleInvocationQueue()
-        val contentAfterFirstSend = Files.readString(handoffFile(outputPath))
-
-        addRemark(project, "A.kt", LINES, 0..0, "a second note", null)
-        sendToWaitingReview(project)
-        settleInvocationQueue()
-
-        assertEquals(contentAfterFirstSend, Files.readString(handoffFile(outputPath)))
-    }
-
+    /**
+     * Reject after a Sent phase must not touch the handoff file: the phase guard in
+     * rejectWaitingReview only clears the review. `answerWaitingReview` is what reaches Sent now —
+     * there is no send action to write the file, so the file is written by hand here to stand in
+     * for what a publish would have written before answering.
+     */
     fun testRejectingAfterASendDoesNotOverwriteTheHandoffFile() {
         val outputPath = temp.dir("send-review-test")
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
-        addRemark(project, "A.kt", LINES, 0..0, "a note about A", null)
-        sendToWaitingReview(project)
-        settleInvocationQueue()
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note about A", null)
+        atomicWriteString(handoffFile(outputPath), "a note about A")
+        answerWaitingReview(project, "s1", listOf(remark.id!!))
         val sentContent = Files.readString(handoffFile(outputPath))
 
         rejectWaitingReview(project)
@@ -153,8 +145,7 @@ class SendReviewTest : BasePlatformTestCase() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
 
-        sendToWaitingReview(project)
-        settleInvocationQueue()
+        answerWaitingReview(project, "s1", listOf(remark.id!!))
 
         val outcome = finishReview(project, "s1", ReviewEnd.READ)
         settleInvocationQueue()
@@ -172,8 +163,7 @@ class SendReviewTest : BasePlatformTestCase() {
         val outputPath = temp.dir("send-review-test")
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
-        sendToWaitingReview(project)
-        settleInvocationQueue()
+        answerWaitingReview(project, "s1", listOf(remark.id!!))
 
         val outcome = finishReview(project, "s1", ReviewEnd.ABANDONED)
         settleInvocationQueue()
@@ -189,34 +179,13 @@ class SendReviewTest : BasePlatformTestCase() {
         val started = System.currentTimeMillis()
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
-        sendToWaitingReview(project)
-        settleInvocationQueue()
+        answerWaitingReview(project, "s1", listOf(remark.id!!))
 
         expireStaleReview(project, now = started + 1_800_001L)
         settleInvocationQueue()
 
         assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
         assertNull(WaitingReviewService.getInstance(project).current())
-    }
-
-    /**
-     * The window between the snapshot the send starts from and the write it ends with: prepare()
-     * runs off the EDT, so a Reject can land in between. The rejection body must survive, and the
-     * balloon must not claim a send.
-     */
-    fun testASendWhoseReviewEndedMidRenderDoesNotOverwriteTheRejection() {
-        val outputPath = temp.dir("send-review-test")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, outputPath)
-        addRemark(project, "A.kt", LINES, 0..0, "a note about A", null)
-
-        // The write in sendToWaitingReview happens inside finishOnUiThread, which has not run yet:
-        // nothing here has drained the queue.
-        sendToWaitingReview(project)
-        rejectWaitingReview(project)
-        settleInvocationQueue()
-
-        val firstLine = Files.readString(handoffFile(outputPath)).lineSequence().first()
-        assertEquals(REJECTED_MARKER, firstLine)
     }
 
     fun testAFailedRejectionStillClearsTheReview() {
@@ -230,22 +199,6 @@ class SendReviewTest : BasePlatformTestCase() {
 
         assertNull(WaitingReviewService.getInstance(project).current())
         assertEquals(RemarkStatus.PENDING, statusOf(remark.id!!))
-    }
-
-    /**
-     * The toolbar button and the Tools-menu action both read this one condition, so it is guarded
-     * where it lives. Both directions: a condition that is permanently false would pass the second
-     * assertion on its own.
-     */
-    fun testCanSendIsTrueWhileWaitingAndFalseOnceTheRemarksAreSent() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800, temp.dir("send-review-test"))
-        addRemark(project, "A.kt", LINES, 0..0, "a note", null)
-
-        assertTrue(canSend(project))
-
-        WaitingReviewService.getInstance(project).markSent("s1", listOf("a"))
-
-        assertFalse(canSend(project))
     }
 
     private fun statusOf(id: String) = RemarkStore.getInstance(project).all().single { it.id == id }.status

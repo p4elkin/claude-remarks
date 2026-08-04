@@ -36,9 +36,7 @@ import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.review.ReviewPhase
 import dev.sasha.clauderemarks.review.WaitingReviewService
-import dev.sasha.clauderemarks.review.canSend
 import dev.sasha.clauderemarks.review.rejectWaitingReview
-import dev.sasha.clauderemarks.review.sendToWaitingReview
 import dev.sasha.clauderemarks.store.REMARKS_CHANGED
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.RemarksListener
@@ -112,10 +110,10 @@ class RemarksPanel(
      */
     internal val banner = EditorNotificationPanel().apply {
         text = "Claude Code is waiting"
-        createActionLabel("Send remarks") { sendToWaitingReview(project) }
         // Reject, not Cancel: this writes the decision to the handoff file so the waiting session
         // stops at once. "Cancel" read as "close this banner", which is exactly the behaviour that
-        // was wrong.
+        // was wrong. It is the only link the banner offers now: there is no separate Send action —
+        // publishing is how a waiting review is answered.
         createActionLabel("Reject") { rejectWaitingReview(project) }
         isVisible = false
     }
@@ -198,10 +196,16 @@ class RemarksPanel(
      * The label is caller-supplied text that arrived over HTTP, not something this plugin wrote.
      * EditorNotificationPanel.setText feeds a JLabel, and Swing renders a string starting with
      * "<html>" as markup, so an unescaped label could inject arbitrary Swing markup into the tool
-     * window. escapeXmlEntities turns a leading "<html>" into inert text. Cut to 120 characters
-     * first, so a very long label costs one truncated escape rather than an escape of the whole
-     * thing. The Sent text below carries no caller-supplied content, only a count, so escaping it
-     * would be cargo cult.
+     * window. escapeXmlEntities turns a leading "<html>" into inert text, and it runs before the
+     * label is placed inside the `<html>` wrapper below, so wrapping the whole string does not
+     * weaken it. Cut to 120 characters first, so a very long label costs one truncated escape
+     * rather than an escape of the whole thing. The Sent text below carries no caller-supplied
+     * content, only a count, so escaping it would be cargo cult.
+     *
+     * Two lines while waiting, one `<html>` string with a `<br>` between them:
+     * `setText` feeds a plain `JLabel`, which is the only way to get a second line inside it. The
+     * Reject link sits in its own panel at the right edge, which is why the second line reads
+     * "Publish to answer, or" with the link beside it rather than inside the label text.
      */
     private fun updateBanner() {
         val waiting = WaitingReviewService.getInstance(project).current()
@@ -211,10 +215,12 @@ class RemarksPanel(
         }
         banner.text = when (val phase = waiting.phase) {
             ReviewPhase.Waiting ->
-                "Claude Code is waiting: " + StringUtil.escapeXmlEntities(waiting.label.take(120))
+                "<html>Claude Code is waiting: " +
+                    StringUtil.escapeXmlEntities(waiting.label.take(120)) +
+                    "<br>Publish to answer, or</html>"
             is ReviewPhase.Sent ->
-                "Sent ${phase.ids.size} remark${plural(phase.ids.size)}. " +
-                    "Waiting for Claude Code to read them."
+                "Published ${phase.ids.size} remark${plural(phase.ids.size)} for Claude Code. " +
+                    "Waiting for it to read them. Publish again to add more."
         }
         banner.isVisible = true
     }
@@ -462,11 +468,6 @@ class RemarksPanel(
         },
         ToolbarAction("Clear All", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
             confirmClearAll()
-        },
-        // The condition itself lives in review/SendReview.kt as canSend, so this button and the
-        // Tools-menu action read one function rather than two copies of the same pair of checks.
-        ToolbarAction("Send to Claude Code", AllIcons.Actions.Upload, { canSend(project) }) {
-            sendToWaitingReview(project)
         },
         // notifyRemarksChanged, not refresh(): this panel's own subscription rebuilds the tree
         // either way, and publishing resyncs the gutter icons too. A file reload (a branch
