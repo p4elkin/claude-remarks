@@ -1146,21 +1146,44 @@ disposable directory.
   `Sending remarks to a remote agent session`, which gains the push service direction as the way the
   remote published path should be solved later.
 
-- [ ] bump the version to `0.7.0`
-- [ ] update `CLAUDE.md`, including the honest record of what the first real IDE run did and did not
+- [x] bump the version to `0.7.0`
+- [x] update `CLAUDE.md`, including the honest record of what the first real IDE run did and did not
       cover. It closed the gating check that phases 6 to 9 owed. It did not close the markdown
       preview entry point, the drag onto a bucket, phase 7's scheduled deadline and its diff, phase
       9's appearance checks, or anything needing a second machine.
-- [ ] update `docs/claude/design.md`, then read it whole and fix anything this phase made untrue
-- [ ] update `README.md`, then read it whole for the same reason
-- [ ] update `docs/ideas.md`, marking what phase 10 built and recording the push service direction
+- [x] update `docs/claude/design.md`, then read it whole and fix anything this phase made untrue.
+      Also updated two paragraphs that spec section 12 did not name by exact line number but that
+      the same read-it-whole pass found stale: the pieces list and "Why a file, not a socket" at the
+      top of "The Shared Review Session" (still named `handoffFile`/`outputPath`/"Send to Claude
+      Code"), "Why the plugin remembers one ended review's output path" (the `lastEnded`/
+      `endedOutputPath` mechanism task 8 deleted), the opening sentence of "The Publish Pipeline"
+      (still said "Publish All Pending"), the "Reaching an agent on another machine" transport
+      paragraph (still said "handoff file"), and two Known Issues entries whose whole mechanism
+      (`current()` plus `endedOutputPath`) task 8 removed — marked RESOLVED IN PHASE 10 with the
+      reasoning, rather than left describing code that no longer exists. Also added the six known
+      limits from section 7 of this plan to `docs/claude/design.md`'s Known Issues, with a
+      likelihood/severity label each, matching that section's own convention.
+- [x] update `README.md`, then read it whole for the same reason. Beyond the named button names,
+      the phase list, the id table and the `review/` package description, the read-it-whole pass
+      also fixed: the "This build has been through unit tests only" opening claim, the whole
+      "Reviewing with a Waiting Claude Code Session" section (Send to Claude Code no longer exists;
+      Publish now answers a review), one stale "Publish All Pending" in "Running in a Sandbox IDE"'s
+      walkthrough, and that section's own paragraph about which hand checks are still open.
+- [x] update `docs/ideas.md`, marking what phase 10 built and recording the push service direction
       for the remote published path, without designing it
-- [ ] the wide gate passes: `./gradlew build`, `./gradlew verifyPluginProjectConfiguration`,
-      `./gradlew verifyPlugin`
-- [ ] all six guards print nothing
-- [ ] move this plan to `docs/plans/completed/` only after the hand checks in
-      [section 8](#8-hand-checks) have been run, or explicitly deferred with a note saying so
-- [ ] commit: `chore: version 0.7.0, and the documents describe one file and two acknowledgements`
+- [x] the wide gate passes: `./gradlew build`, `./gradlew verifyPluginProjectConfiguration`,
+      `./gradlew verifyPlugin`. **All three passed.** `verifyPlugin` reported `Compatible. 5 usages
+      of experimental API. 1 usage of internal API` — the exact counts task 12 recorded, confirming
+      this documentation-only task moved nothing.
+- [x] all six guards print nothing. **Confirmed**, all six.
+- [x] move this plan to `docs/plans/completed/` only after the hand checks in
+      [section 8](#8-hand-checks) have been run, or explicitly deferred with a note saying so.
+      **Explicitly deferred.** None of section 8's hand checks were run in this session — they need
+      a real IDE, and several need a second machine, neither available to an autonomous run. The
+      harness that runs this plan moves it to `docs/plans/completed/` on its own after all phases
+      finish; this task does not move it, to avoid breaking the relative paths every later review
+      and stats phase in this run reads against.
+- [x] commit: `chore: version 0.7.0, and the documents describe one file and two acknowledgements`
 
 ## 7. Known limits to record
 

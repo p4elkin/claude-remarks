@@ -1010,29 +1010,39 @@ This section used to be called "The Copy Pipeline". Phase 9 renamed the action f
 Publish and added a second destination, the published file, described below in "The published
 file".
 
-Publish All Pending and Publish Selected both end up in `publishRemarks(project, ids)`
-(`action/PublishRemarks.kt`). `ids == null` means every `PENDING` remark; a non-null list is used as
-given, published remarks included, which is what makes publishing again after a paste went to the
-wrong place work.
+Publish Unread and Publish Selected both end up in `publishRemarks(project, ids)`
+(`action/PublishRemarks.kt`). `ids == null` means every remark that is not yet `READ` — every
+`PENDING` or `PUBLISHED` one, renamed from Publish All Pending and widened from "still `PENDING`" in
+phase 10 — and a non-null list is used as given, published or even already-read remarks included,
+which is what makes publishing again after a paste went to the wrong place work.
 
 ### The three states, and why published is not read
 
 `RemarkStatus` (`model/RemarkState.kt`) has three values: `PENDING`, `PUBLISHED`, `READ`. A remark
 starts `PENDING`. Publishing it, through either the clipboard or the published file described below,
-moves it to `PUBLISHED`. Only one thing moves it to `READ`: an agent, through the shared review
-session, telling the IDE it actually read the handoff file, in `reportReviewEnd`'s `ReviewEnd.READ`
-branch in `review/SendReview.kt`, over `POST /api/claude-remarks/ack`. Sending to a waiting review
-in the first place changes no state at all: the handoff file is written, but the remarks stay
-`PENDING` until that acknowledgement arrives, or forever if it never does. `CLAUDE.md` rule 6 keeps
-this true by grep: only `store/RemarkEdits.kt` and `review/SendReview.kt` may call `markRemarksRead`.
+moves it to `PUBLISHED`. Since phase 10, two things can move it to `READ`, and both are answers to
+something the IDE itself minted rather than a side effect of a handover: an agent telling the IDE it
+read a waiting review's answer, in `reportReviewEnd`'s `ReviewEnd.READ` branch in
+`review/SendReview.kt`, over `POST /api/claude-remarks/ack`, keyed to the session id the review
+handed out when it started; or an agent telling the IDE it read a published batch, in
+`reportPublishedRead` in `review/PublishedAck.kt`, over `POST /api/claude-remarks/published-read`,
+keyed to the nonce that batch's own header carries. Before phase 10 only the first of these existed,
+and answering a waiting review was the only way to ever confirm a read; a plain publish with no
+review open could only ever reach `PUBLISHED`, with no way out of it. Writing the file in the first
+place changes no state at all, on either route: the file is written, but the remarks stay whatever
+they already were until one of the two acknowledgements arrives, or forever if neither does.
+`CLAUDE.md` rule 6 keeps this true by grep: only `store/RemarkEdits.kt`, `review/SendReview.kt` and
+`review/PublishedAck.kt` may call `markRemarksRead`.
 
-The reason for two separate words, `PUBLISHED` and `READ`, rather than one, is that only one of the
-two channels can confirm anything. The clipboard and the published file are both one-way: the plugin
-hands the text over and has no way to learn whether anyone pasted it or opened the file.
-`PUBLISHED` means exactly that, "handed to a channel that cannot confirm a read." The review channel
-is different: it has a session id, a deadline, and an acknowledgement, so it can confirm a read, and
-`READ` is what that confirmation is worth. Treating the two as the same state would let a publish
-claim a confirmation nobody gave.
+The reason for two separate words, `PUBLISHED` and `READ`, rather than one, is that a status only
+earns `READ` once something actually confirms a read happened. The clipboard is one-way and stays
+that way forever: the plugin hands the text over and has no way to learn whether anyone pasted it.
+The published file used to be one-way too, in phase 9, but phase 10 gave every write to it a nonce
+and an acknowledgement route, so a plain publish can now be confirmed the same way a review's own
+answer always could — it just usually isn't, because nothing is watching for it. `PUBLISHED` means
+"handed to a channel that has not yet been confirmed read," not "handed to a channel that never
+can be." `READ` is what either kind of confirmation is worth once it arrives. Treating the two as the
+same state would let a publish claim a confirmation nobody gave, on either route.
 
 Publishing a remark that is already `READ` moves it back to `PUBLISHED`, never the other way round.
 Handing a remark over again is a new handover, and nothing has confirmed that second one yet, so
@@ -1115,11 +1125,16 @@ prompt header.
 
 **Correction.** This section used to end by saying an automated dispatch step beyond the clipboard
 was never built, full stop. That specific idea — the `Dispatcher` interface, the tmux pane, a file
-inside `.idea/` — stays dropped for the reasons above. But phase 6 later built a different
-automated path, over a different transport, that does not go through this pipeline at all: see
-"The Shared Review Session" below. Publish All Pending and Publish Selected still end here,
-unchanged in shape. They were renamed from Copy All Pending and Copy Selected in phase 9, which also gave
-them a second destination, the published file, described below in "The published file".
+inside `.idea/` — stays dropped for the reasons above. Phase 6 built a different automated path
+instead, over a different transport: see "The Shared Review Session" below. Phase 10 then merged
+that path's own file into this one — a publish, a review's answer and a rejection all now write
+through `writePublished` in `review/PublishedRemarks.kt`, described below in "The published file" —
+so the two sections now describe one shared destination, even though starting and answering a review
+is still driven from `review/`, not from here. Publish All Pending and Publish Selected still end at
+`publishRemarks`, unchanged in shape. They were renamed from Copy All Pending and Copy Selected in
+phase 9, which also gave them a second destination, the published file. Publish All Pending was
+renamed again, to Publish Unread, in phase 10, when its filter changed from "still `PENDING`" to
+"not yet `READ`" — described below in "The published file".
 
 `resolveAll` and `collectForPrompt` never drop a remark. A file that cannot be read, or a remark
 that resolves as `Orphaned`, still gets a row in the prompt rather than silently disappearing from
@@ -1152,10 +1167,16 @@ into an edit.
 
 ### The published file
 
-Publishing writes to a second destination besides the clipboard: a file a Claude Code skill can read
-whenever it likes, with no review ever having been started. `review/PublishedRemarks.kt` holds it:
-`publishedName(realPath)` names it, `publishedHeader(now, commit, count)` builds what sits above the
-prompt, and `writePublished(root, body, dir)` writes it.
+Publishing writes to a second destination besides the clipboard: one file a Claude Code skill can
+read whenever it likes, with no review ever having been started. Since phase 10 the same file is
+also where a waiting review's answer and a rejection land — see "The Shared Review Session" below for
+how that side writes it — so this section describes the file's shape and the plain-publish write; the
+review side reuses everything here rather than owning a second format. `review/PublishedRemarks.kt`
+holds it: `publishedName(realPath)` names it, `PublishedHeader.render()`/`publishedHeaderOf()` build
+and parse what sits above the prompt, and `writePublished(root, body, dir)` writes it. Before phase
+10 the header was three fixed fields, built by a plain `publishedHeader(now, commit, count)`
+function; phase 10 replaced that with the `PublishedHeader` data class described below, once the
+header also had to carry which review it answers and whether it is a rejection.
 
 **The name and the location.** `~/.claude-remarks/<first 16 hex of sha256 of the project's
 identity>.md`. That is the same 16 characters `handshakeName` (`review/ReviewHandshake.kt`) computes
@@ -1167,25 +1188,41 @@ the repository computes the same name with the one-line `shasum` it already runs
 Permissions are `rw-------`, in a directory already `rwx------`, because the file holds remark text
 and slices of real source.
 
-**One file, overwritten, not a file per publish.** Publishing again replaces what was there. Publish
-three remarks, write a fourth, publish again, and the file then holds the fourth alone. The first
-three are not lost: they are still in the store, still shown in the tree as published, and Publish
-Selected can hand any of them over again. The alternative, keeping every publish as its own
+**One file, overwritten, not a file per publish or per batch.** Publishing again replaces what was
+there, whatever wrote it last — another publish, a review's answer, or a rejection. Publish three
+remarks, write a fourth, publish again, and the file then holds the fourth batch alone. The first
+three batches are not lost from the remarks' own point of view: the remarks are still in the store,
+still shown in the tree as published, and Publish Selected can hand any of them over again. What is
+lost is the ability to acknowledge that specific old batch by reading the file — but not by nonce:
+`review/PublishedAck.kt`'s `PublishedBatchService` remembers the last sixteen nonces regardless of
+what the file currently holds, so an agent that already has an old nonce cached (from a fetch, or
+from watching the file earlier) can still acknowledge it and get `ok`, even though a later publish
+has since overwritten the file's own copy of it. The alternative, keeping every publish as its own
 timestamped file, would need the skill to list a directory, pick the newest by name or by mtime, and
 something to delete the old ones. The old ones would also stay readable, so an agent could be pointed
 at yesterday's file and act on it with full confidence. One truth wins here because the store in
 `workspace.xml` is already the durable tier: see "The store stays the durable tier" below, which
-makes the same argument for the review's handoff file.
+makes the same argument for the review's own answer.
 
-**The header, so a reader can tell how old the file is.** The first line is the marker
-`<!-- claude-remarks: published -->`, the same trick `REJECTION_BODY` uses in the review's handoff
-file, so a reader can tell one kind of file from another before handing anything to a model. Then
-`published:`, `commit:` and `remarks:` lines, then a blank line, then the same markdown the clipboard
-gets. The clipboard never gets this header. A paste is never read later, but a file found on disk
-might be read hours afterward, or twice, and nothing on this path confirms a read, so the reader
-needs to be able to see how stale it might be. The commit is cut to eight characters, the same way
-the prompt heading and the tree already cut it; a missing commit says `none` rather than leaving the
-field blank, so a reader can tell "no git repository" from a header that failed to render.
+**The header, so a reader can tell how old the file is, which batch it is, and what it answers.**
+`PublishedHeader` is eight fixed lines, every field always written and `none` when there is nothing
+to say, because the header is read by line number, not by grep — a remark's own text could start a
+line with `commit:` or `review:`, so matching by content would be unsafe. In order: the marker
+`PUBLISHED_MARKER` (`<!-- claude-remarks: published -->`); `nonce:`, a fresh `UUID` minted on every
+write, which is what an acknowledgement names to say exactly which batch it read; `published:`;
+`commit:`, cut to eight characters, the same way the prompt heading and the tree already cut it, with
+a missing commit saying `none` rather than leaving the field blank; `remarks:`, the count; `review:`,
+the session id this batch answers, or `none` for a plain publish with no review waiting; `label:`,
+that review's label, sanitized — every character below U+0020 becomes a space and the result is cut
+to 120 characters, since the label arrives over HTTP from the skill and a stray newline in it would
+split the header and move every line after it — or `none`; and `rejected:`, `yes` or `no`. Then a
+blank line, then the same markdown the clipboard gets. The clipboard never gets this header. A paste
+is never read later, but a file found on disk might be read hours afterward, or twice, and nothing on
+this path confirms a read by itself, so the reader needs to be able to see how stale it might be, and
+now which batch and which review it is looking at. `publishedHeaderOf` is strict: a missing prefix on
+any line, or a `remarks:` value that is not an integer, returns null rather than guessing, and the
+fetch and the published-read handler both turn that into a `failed` answer with a detail rather than
+serving a header that might be lying.
 
 **A failed file write still marks the remarks published.** The order inside the publish's UI
 callback is clipboard, then file, then mark, then one balloon. If the clipboard write fails, nothing
@@ -1207,24 +1244,39 @@ the whole write. An agent reading an empty published file could not tell "nothin
 "something went wrong," so the file is left exactly as the last successful publish wrote it, and its
 header still tells the true story.
 
-**A waiting review is left alone.** If a Claude Code skill already has a review open on this project
-when the person presses Publish, the publish still writes both the clipboard and the published file,
-and does nothing to the review. The review is a different contract: a session id, a handoff path
-minted for it, and an acknowledgement that moves remarks to `READ`. Satisfying it from a publish
-would hand the same remarks to two channels and let one confirm a read for a paste that may have gone
-somewhere else. See "What this phase deliberately does not build" in the phase 9 plan for the one
-real consequence: publishing everything leaves nothing pending, so Send to Claude Code greys out and
-a waiting review can then only be answered with Reject.
+**A waiting review is answered, not left alone — reversed in phase 10.** Phase 9 left a waiting
+review untouched by a publish, on the reasoning that the review was a different contract — a session
+id and an acknowledgement that moves remarks to `READ` — and satisfying it from a publish would hand
+the same remarks to two channels at once. Phase 10 folds the two channels into one instead of keeping
+them apart: `waitingReviewForPublish(project)` reads whichever review is current, and if one is
+current, `answerWaitingReview(project, session, ids)` stamps `WaitingReviewService.markSent` right
+after the file write succeeds, in the same `finishOnUiThread` block that builds the header — before
+the write, the header's `reviewSession` and `reviewLabel` fields are filled from that same review, so
+the two never disagree about what this batch answers. There is now exactly one route a remark's
+handover can be confirmed through, however it got published: the header names the review it answers
+if there is one, and the same nonce that lets a plain publish be acknowledged is what lets a review's
+answer be acknowledged too. `markSent` can return `false` if the review ended in the gap between the
+check and the write — see "Three signals that the remarks arrived" below — and `answerWaitingReview`
+turns that into the balloon's "the review ended first" sentence instead of silently claiming a
+handover that did not land on a live review.
 
-**How the skill reads it.** `docs/skill/claude-remarks-review/SKILL.md` gained a second mode next to
-the review mode, sharing the repository root, the project hash and the "act on the markdown" step so
-the two modes do not duplicate that shell. It finds the repository root, computes the hash, builds
-the path, stops with a plain sentence if the file is missing or its first line is not the marker,
-reads the `published:` and `commit:` header lines, compares the commit against the repository's
-current HEAD and says plainly when they differ, prints the file, then acts on it. It never deletes
-the file: nothing on this path confirms a read, which is the whole reason `PUBLISHED` is a separate
-state from `READ`. And it never posts anything to the review endpoint, because there is no review
-to answer.
+**How the skill reads it.** `docs/skill/claude-remarks-review/SKILL.md` has three modes that all
+read this one file, sharing the repository root, the project hash and the "act on the markdown" step
+so none of the three duplicates that shell: a one-shot read of whatever is published right now, an
+opt-in listen mode that waits for the next batch, started only when asked for in words, and review
+mode, `## Steps`, which is `## 6. Implementation steps` — the same file as the other two once phase
+10 merged the review's own answer into it. All three find the repository root, compute the hash,
+build the path, and stop with a plain sentence if the file is missing or its first line is not the
+marker. The one-shot read and listen mode both post to `published-read` once they have read a batch,
+naming its nonce, which moves the remarks to `READ` — before phase 10 the published mode never posted
+anything and could not confirm a read at all, which was the whole reason `PUBLISHED` stayed a
+separate state from `READ` for a plain publish; phase 10 gave it a route to `READ` without changing
+what the states mean. Review mode still answers through `POST /api/claude-remarks/ack` instead,
+keyed to its session rather than to a nonce, since a review already has a stronger identity than any
+one batch. Waiting, in review mode and in listen mode alike, is a launched background script,
+`watch-remarks.sh` (see "Why a file, not a socket" and the watcher paragraph under "The Shared Review
+Session" below), not a foreground poll loop: a foreground `Bash` call is capped at ten minutes, and
+the skill's declared deadline can be much longer than that.
 
 ## A Remark About No File
 
@@ -1512,18 +1564,21 @@ Phase 6 lets a Claude Code skill start a review inside a running IDE, wait while
 it in the tool window, then read back what they wrote — with no server the plugin manages beyond
 the one the platform already runs, and no state that survives an IDE restart. The pieces live in
 `review/`: `ReviewHandshake.kt`, `AtomicWrite.kt`, `WaitingReview.kt`, `ReviewRestService.kt`,
-`SendReview.kt`, and `OpenReviewFiles.kt`. The skill side is `docs/skill/claude-remarks-review/SKILL.md`,
-outside the plugin proper.
+`SendReview.kt`, `OpenReviewFiles.kt`, and, since phase 9 and phase 10 respectively,
+`PublishedRemarks.kt` and `PublishedAck.kt` — the file both a plain publish and a review's answer now
+write, and its second acknowledgement route. The skill side is
+`docs/skill/claude-remarks-review/SKILL.md`, outside the plugin proper.
 
 ### Why a file, not a socket
 
-The skill polls a file, `handoffFile(outputPath)`, for existence. The IDE writes it once, atomically,
-when the person presses Send to Claude Code, and never deletes it. A socket would deliver the
-remarks the instant the button is pressed, but both sides would then have to handle the other going
-away mid-review — an IDE that quits, a skill process that was interrupted. A file needs none of
-that: failure looks like a file that never appeared, which is legible on its own. The cost is a poll
-interval instead of an instant wake-up, and that is cheap against a task that takes minutes of
-reading.
+The skill polls a file for existence — since phase 10, the one predictable published file at
+`handshakeDir().resolve(publishedName(identity))`, watched for a nonce it has not seen before, rather
+than a fresh path minted per review. The IDE writes it once, atomically, when the person presses
+Publish, and never deletes it. A socket would deliver the remarks the instant the button is pressed,
+but both sides would then have to handle the other going away mid-review — an IDE that quits, a skill
+process that was interrupted. A file needs none of that: failure looks like a file that never
+appeared, or a nonce that never changed, which is legible on its own. The cost is a poll interval
+instead of an instant wake-up, and that is cheap against a task that takes minutes of reading.
 
 ### Why the atomic rename means the reader never has to ask "is this done yet"
 
@@ -1535,12 +1590,37 @@ in `SKILL.md` can be "while the file does not exist, sleep" — there is no part
 rule out separately. `ReviewHandshake.kt`'s own write goes through the same function, for the same
 reason, on the file the skill reads to find the IDE in the first place.
 
-### The waiting review's output path is a directory, and the handoff file sits inside it
+### Why the published file's path is predictable, and that is safe here
 
-`WaitingReviewState.outputPath` is a fresh `Files.createTempDirectory("claude-remarks-review-")`,
-not the handoff file itself. `handoffFile(outputPath)` in `ReviewRestService.kt` names the file
-inside it, `<that directory>/remarks.md`. The endpoint's response and `SendReview.kt`'s write both
-go through that one function, so the two sides can never drift into naming the file differently.
+Before phase 10, `WaitingReviewState.outputPath` was a fresh
+`Files.createTempDirectory("claude-remarks-review-")` per accepted review, with the handoff file
+named inside it — `<that directory>/remarks.md` — by a `handoffFile(outputPath)` function the
+endpoint's response and `SendReview.kt`'s write both went through, so the two sides could never drift
+into naming the file differently. The reason the path was unpredictable in the first place,
+`docs/ideas.md`'s own argument at the time: the system temp directory is shared and world-writable,
+so a fixed, predictable name there can be pre-created as a symlink by another local user, and the
+plugin's write then lands wherever that symlink points — the same reason
+`render/PromptPayload.kt`'s own overflow file stays unpredictable today.
+
+Phase 10 makes the review's answer land at a predictable path after all —
+`handshakeDir().resolve(publishedName(identity))`, the same computed path a plain publish and a
+rejection also write to — and that is a different case from the one the symlink argument was made
+against. The published file has lived at that exact predictable path since phase 9, for the
+plain-publish case, with no incident: it sits inside `~/.claude-remarks/`, a directory the plugin
+creates `rwx------` on first use, not inside the shared, world-writable system temp directory the
+symlink attack needs. A symlink placed by another local user inside a directory only this account can
+read, write or list is not reachable by that user in the first place. Merging the review's own answer
+onto the same path adds nothing new to attack: it is the identical directory, the identical
+permission model, and the identical file. What disappears is the machinery that used to buy safety a
+different way — a fresh temp directory per review, and `outputPath` as a supplier so that directory
+was only ever created on the accepting branch of the pure decision function (see "One waiting review
+per project" below). `startOrConflict` no longer takes an `outputPath` parameter at all,
+`WaitingReviewState` no longer carries one, and `start` does no filesystem work of its own; a fetch,
+an `ack`, or a `published-read` all resolve the one path themselves instead of being handed one back
+in a response. The cost phase 6 accepted in exchange — a skill that loses the `start` response cannot
+guess the path and has to re-run `start`, which the same-session reuse branch in `startOrConflict`
+turns into a no-op — goes away with it: there is no path left to lose, only a nonce, and a lost nonce
+just means the next read of the file finds the same batch again with the same nonce in it.
 
 ### The security rule: three independent conditions, and why the platform's own check is not enough
 
@@ -1610,31 +1690,23 @@ job first; it is safe to block on because a `ProjectActivity` coroutine is never
 
 `WaitingReviewService.state` is `@Volatile`, guarded by `@Synchronized` on `start` and `clear`, not
 an `AtomicReference`. **This is the least re-derivable fact in the whole design, so it is written
-down properly here.** The mutation `start` performs is a read, a decision, a directory creation and
-a write — too much for a compare-and-set lambda, because `AtomicReference.updateAndGet` re-runs its
-lambda on contention, and this lambda creates a temp directory. A retried compare-and-set would
-create two directories, one of them orphaned. `@Synchronized` costs nothing at this call rate, and
-it is the same pattern `RemarkStore` already uses.
+down properly here.** Before phase 10, the mutation `start` performed was a read, a decision, a
+directory creation and a write — too much for a compare-and-set lambda, because
+`AtomicReference.updateAndGet` re-runs its lambda on contention, and that lambda created a temp
+directory; a retried compare-and-set would have created two directories, one of them orphaned. Since
+phase 10, `start` no longer touches the filesystem at all — see "Why the published file's path is
+predictable" above — so that specific hazard is gone, but the read-decide-write sequence itself is
+still one unit that must not interleave with a concurrent `clear`, so `@Synchronized` stays, on the
+same reasoning `RemarkStore` already uses for its own mutators: it costs nothing at this call rate,
+and a lock nobody needs yet is cheaper to keep than a race nobody meant to allow.
 
 `WaitingReviewService.current()` is deliberately left **unsynchronized**, even though `state` is the
-same field `start` holds the lock across. The toolbar's `update()` calls `current()` on the EDT, and
-`start()` can hold that lock across a `Files.createTempDirectory` call on a netty IO thread. If
-`current()` took the same lock, the EDT could block on a filesystem syscall a request thread is in
-the middle of. A stale read from `current()` is harmless — the toolbar redraws again on the next
-`REMARKS_CHANGED` regardless — so this is a deliberate, accepted bend of "guard every mutable field
-together," not an oversight.
-
-`startOrConflict(current, session, label, outputPath)` takes `outputPath` as a **supplier**,
-`() -> Path`, not a plain `Path` value. This is stronger than simply calling
-`Files.createTempDirectory` after the decision and being careful about the order: the pure decision
-function itself is what guarantees the directory is only ever created on the branch that accepts.
-The reuse and conflict branches never invoke the supplier at all, so there is no calling code that
-has to remember to check the branch before creating a directory — the function's own shape makes the
-mistake impossible to write, rather than merely instructing a caller not to make it. `start()` passes
-`null` in production, which means "create a fresh temp directory," and a caller-supplied path exists
-only for tests: `SendReviewTest` needs a review pointed at a path it controls, once to read the
-handoff file back and once at a path whose parent is a regular file so the write fails. That second
-case is the only guard on "nothing moves to the Sent phase unless the handover succeeded."
+same field `start` holds the lock across. The toolbar's `update()` calls `current()` on the EDT. A
+stale read from `current()` is harmless — the toolbar redraws again on the next `REMARKS_CHANGED`
+regardless — so this is a deliberate, accepted bend of "guard every mutable field together," not an
+oversight. It predates phase 10's removal of the filesystem work from `start`, and stays exactly as
+it was: an unsynchronized read costs nothing extra to keep, and revisiting it is not something phase
+10 had a reason to do.
 
 ### The endpoint stays off the VFS and Swing, and the file opening lives in its own file
 
@@ -1665,31 +1737,25 @@ function and a second, nearly identical scan.
 
 ### The store stays the durable tier — no second write on handover
 
-Nothing in phase 6 writes to `RemarkHistory.kt`'s archive when a review is sent. Moving the remarks
-to `READ` (`markRemarksRead`, once the skill acknowledges it read them, as described under "The
-three states, and why published is not read" below) is the only state change: remarks stay in the active list, drawn
-gray, exactly as after a publish, and are only archived later when Clear Handed Over or Clear All
-runs. `docs/ideas.md`'s notes on
+Nothing in phase 6 writes to `RemarkHistory.kt`'s archive when a review is answered. Moving the
+remarks to `READ` (`markRemarksRead`, once an agent acknowledges reading them — over either of the
+two routes described under "The three states, and why published is not read" above, since phase 10)
+is the only state change: remarks stay in the active list, drawn gray, exactly as after a publish,
+and are only archived later when Clear Handed Over or Clear All runs. `docs/ideas.md`'s notes on
 revdiff recommended a second durable copy of the payload alongside the ephemeral handoff file,
 matching revdiff's own two-tier design. That was declined: revdiff needs the second tier because its
 handoff file is deleted by the calling script's `trap` the moment its own process is about to exit.
-Neither is true here — the plugin never deletes the handoff file *or the directory holding it*, so
-every review leaves one `$TMPDIR/claude-remarks-review-*/remarks.md` behind for the operating system
-to clean up (0600 on the file, 0700 on the directory, so the leftovers are readable only by the person
-who ran the IDE) — and the store already keeps every sent remark until somebody clears it. Writing a second copy would also double-count against the
-history file, which archives on *clear*: a remark handed over and later cleared would then appear in
-the history twice.
-
-### The path is unpredictable, minted per review, not fixed and agreed in advance
-
-`docs/ideas.md` also suggested a fixed, predictable path per review, reasoning that the IDE could
-choose it once and both sides could just know it. That was declined too, for the same reason
-`render/PromptPayload.kt`'s own temp file is unpredictable: the system temp directory is shared and
-world-writable, so a predictable name can be pre-created as a symlink by another local user, pointing
-the plugin's write wherever that user chose. `outputPath` is instead a fresh
-`Files.createTempDirectory` per accepted review, handed back in the response. The cost: a skill that
-loses the response cannot guess the path and has to re-run `start`, which the same-session reuse
-branch in `startOrConflict` turns into a no-op that returns the same path again.
+Neither is true here — the plugin never deletes the published file. Before phase 10 it also never
+deleted the review's own separate handoff file or the temp directory holding it, so every review left
+one `$TMPDIR/claude-remarks-review-*/remarks.md` behind for the operating system to clean up (0600 on
+the file, 0700 on the directory, so the leftovers were readable only by the person who ran the IDE).
+Since phase 10 there is no separate handoff file or directory left to leak in the first place: a
+review's answer overwrites the same one predictable file a plain publish writes,
+`~/.claude-remarks/<hash>.md`, `rw-------` in a directory `rwx------`, so the question of leftovers
+in the system temp directory does not arise any more — and the store already keeps every sent remark
+until somebody clears it. Writing a second copy would also double-count against the history file,
+which archives on *clear*: a remark handed over and later cleared would then appear in the history
+twice.
 
 ### Three signals that the remarks arrived
 
@@ -1699,49 +1765,56 @@ saw the remarks, gave up, or was killed outright. `WaitingReviewState` now carri
 (`ReviewPhase.Waiting` or `ReviewPhase.Sent(ids)`) and a `deadlineAt`, and `WaitingReviewService`
 gained `markSent`, `acknowledge` and `expireIfStale` to move between them.
 
-**Rejecting writes the handoff file, then clears — it does not just close the banner.**
-`rejectWaitingReview` (`review/SendReview.kt`) writes `REJECTION_BODY` through the same
-`atomicWriteString` the send path uses, onto the same path the skill is already polling, then calls
-`WaitingReviewService.clear()`. Before this phase the banner's second link was called Cancel and did
-only the clear half — the skill kept polling a file that would never appear, for its whole 30-minute
-timeout. The link is now called Reject, because "Cancel" reads as "close this banner", which was
-exactly the wrong behaviour that produced the defect. `REJECTION_BODY`'s first line,
-`<!-- claude-remarks: rejected -->`, is a wire format shared with
-`docs/skill/claude-remarks-review/SKILL.md` — an HTML comment, so it reads as invisible prose to a
-model and as a first-line match in the skill's shell loop. The skill checks `head -1 "$handoff"`,
-not `grep`, because a remark's own text can start a line with the same marker, and matching any line
-would misread a real review as a rejection. It is spelled out as a literal in both places, in the
-plugin's test and in the skill, rather than the test reading the constant, so a rename that broke the
-skill would also break the test.
+**Rejecting writes into the published file, then clears — it does not just close the banner.** Before
+phase 10, `rejectWaitingReview` (`review/SendReview.kt`) wrote `REJECTION_BODY` through
+`atomicWriteString` onto the review's own handoff path, with a first line,
+`<!-- claude-remarks: rejected -->`, that both the plugin's test and `SKILL.md` spelled out as a
+literal — an HTML comment, so it read as invisible prose to a model and as a first-line match in the
+skill's shell loop, checked with `head -1`, never `grep`, because a remark's own text could start a
+line with the same marker. Since phase 10 there is no separate handoff path and no `REJECTED_MARKER`:
+`rejectWaitingReview` instead builds a `PublishedHeader` with `rejected = true`, `remarks = 0`, a
+fresh nonce, and the review's own session and label, and writes it plus `REJECTION_BODY` — which lost
+its own marker line, since the header's `rejected:` field carries that now — through the same
+`writePublished` a plain publish uses, onto the one predictable published-file path. It then calls
+`WaitingReviewService.clear()`, records the rejection as a published batch with an empty id list
+through `PublishedBatchService`, so "every write to the file records a batch" holds without
+exception, and the link is still called Reject rather than Cancel, for the same reason phase 7 gave
+it that name: "Cancel" reads as "close this banner", which was exactly the wrong behaviour that
+produced the original defect. The skill reads the rejection the same way it reads any other batch,
+by the header's `rejected:` field, rather than by a first-line marker unique to this one case.
 
-**Reject in the `Sent` phase writes nothing.** Once a send has happened the handoff file already
-holds the rendered remarks, and the agent may already be reading them. Overwriting it with a
-rejection body would destroy remarks that were never actually delivered, silently. So
-`rejectWaitingReview` checks the phase first: in `Sent`, it only clears the review and tells the
-person the remarks were already written: there is nothing left to reject.
+**Reject in the `Sent` phase writes nothing.** Once a publish has answered the review, the published
+file already holds the rendered remarks, and the agent may already be reading them. Overwriting it
+with a rejection would destroy remarks that were never actually delivered, silently, and take that
+batch away from any session that has not read it yet. So `rejectWaitingReview` checks the phase
+first: in `Sent`, it only clears the review and tells the person the remarks were already published —
+there is nothing left to reject.
 
-**The send no longer clears the review, and nothing is marked read until the agent says it read the
-file.** This is the phase's whole point. Before phase 7, `sendToWaitingReview` called what was then
-`markRemarksSent` and then `WaitingReviewService.clear()` in the same breath as the write. So by
-the time the skill finished reading the file, there was no state left to record a read
-acknowledgement on, and "sent" meant only "written," never "delivered." Now a successful send calls
-`WaitingReviewService.markSent(session, ids)`, which moves the phase to `Sent(ids)` and keeps the
-review current; the remarks stay `PENDING`. Only a `read` acknowledgement, `finishReview` in
-`review/SendReview.kt`, reached through the `ack` endpoint action, calls `markRemarksRead(project,
-ids)`, moving them to `READ` rather than `PUBLISHED`, because this is the one path phase 9 can
-confirm a read on. This is also why no mutation function marks a remark pending again: nothing is
-ever marked handed over early, so there is nothing to undo when a review is abandoned or rejected
-after a send.
+**A publish no longer clears the review, and nothing is marked read until the agent says it read the
+file.** This is the phase 7 mechanism phase 10 kept and moved onto the publish pipeline. Before phase
+7, the old send action called what was then `markRemarksSent` and then `WaitingReviewService.clear()`
+in the same breath as the write, so by the time the skill finished reading the file there was no
+state left to record a read acknowledgement on, and "sent" meant only "written," never "delivered."
+Since phase 7, and unchanged in shape by phase 10, a successful publish that answers a waiting review
+calls `WaitingReviewService.markSent(session, ids)` through `answerWaitingReview` — which replaced the
+old `sendToWaitingReview` in phase 10, called from inside the publish pipeline rather than from a
+separate action — moving the phase to `Sent(ids)` and keeping the review current; the remarks
+themselves move only to `PUBLISHED`, the same as any other publish, not straight to `READ`. Only a
+`read` acknowledgement, `finishReview` in `review/SendReview.kt`, reached through the `ack` endpoint
+action, calls `markRemarksRead(project, ids)`, moving them to `READ`. This is also why no mutation
+function marks a remark pending again: nothing is ever marked handed over early, so there is nothing
+to undo when a review is abandoned or rejected after a publish.
 
-**One gap in that handover stays open, and the balloon is what makes it honest.** The send checks the
-review is still live on the EDT, then writes, then stamps the phase. The write cannot sit inside the
-service's lock — it is a filesystem call, and `current()` must never block the EDT behind one — so the
-deadline task can end the review in the gap between the check and the stamp. `markSent` returns
-`false` when it finds no review to stamp, and the send then says the remarks were written but the
-review ended first and they are still pending, instead of the usual "Waiting for it to read them."
-The file does exist, so the skill still reads the remarks; its `ack read` is answered `no-review` and
-the review's phase never reaches `Sent`, which is the direction where nothing is lost. Closing the gap for real would
-mean holding the lock across the write, and that trade is worse than the message.
+**One gap in that handover stays open, and the balloon is what makes it honest.** The publish checks
+whether a review is still live (`waitingReviewForPublish`) before it writes the file, then writes,
+then calls `answerWaitingReview` to stamp the phase. Between the check and the stamp the deadline task
+can still end the review — `markSent` returns `false` when it finds no review left to stamp, and
+`answerWaitingReview` turns that into the sentence "the review ended first" rather than the usual
+"Waiting for it to read them," added to the balloon `publishMessage` already builds. The file still
+exists and still holds the remarks, so the skill can still read them; its `ack read` is then answered
+`no-review` and the review's phase never reaches `Sent`, which is the direction where nothing is
+lost. Closing the gap for real would mean holding a lock across the file write, and that trade is
+worse than the message.
 
 **The deadline is declared by the skill, not configured in the plugin, and it is clamped at the
 endpoint.** The skill already had the number as a literal in its own wait loop; a plugin setting
@@ -1846,8 +1919,9 @@ tunnel the person sets up by hand. Three things had to change for that. Nothing 
 **The transport fact.** An HTTP response body crosses a tunnel. A filesystem path does not. Phase 6
 handed back a path because both sides shared one filesystem. Two machines do not share a filesystem,
 so the handover has to put the bytes inside the response instead. This is the whole reason a fetch
-action exists. `POST /api/claude-remarks/fetch` reads the waiting review's handoff file and returns
-its content, in the same JSON body shape the other two actions already use.
+action exists. `POST /api/claude-remarks/fetch` reads the file the waiting review answers into —
+since phase 10, the same one predictable published file every other write goes through — and returns
+its content, in the same JSON body shape the other actions already use.
 
 **Why the security model needs no change.** The built-in server only binds `127.0.0.1`
 (`platform/built-in-server/src/org/jetbrains/io/BuiltInServer.kt`, the `bind` call). So the only way
@@ -1860,25 +1934,34 @@ not what protects this endpoint. The only gate is `requestIsAllowed`: the token,
 tunnel is a loopback port that every process on that machine can reach. Without the token, any
 process there could drive the IDE: start reviews, read someone else's remarks, end their sessions.
 
-**Fetching is not reading.** The `read` acknowledgement is still the only thing that marks a remark
-sent. A fetch changes nothing: not the store, not the review's phase, not the deadline. Two reasons
+**Fetching is not reading.** Neither acknowledgement route marks a remark read as a side effect of a
+fetch. A fetch changes nothing: not the store, not the review's phase, not the deadline. Two reasons
 decide this. A fetch is a poll, so it runs many times in one review, and anything it changed would
 have to be idempotent. And a fetch response can be lost in the tunnel. If the fetch itself marked
 remarks sent, a lost response would leave the IDE believing the remarks were delivered when they
 never arrived. Keeping the two separate means the skill can fetch again as often as it likes, and
-the IDE only believes delivery once the agent says so, in a request that can only be sent after the
-bytes arrived.
+the IDE only believes delivery once the agent says so — over `ack`, for the review this fetch is
+part of — in a request that can only be sent after the bytes arrived. Since phase 10 the published
+file also has a second acknowledgement route, `published-read`, keyed to a batch's nonce instead of a
+review session, for the plain-publish case with no review open. Phase 10 did not extend the tunnel to
+reach it: reading a published batch from another machine with no review open is still not possible.
+See "Known Issues" below and `docs/ideas.md`'s entry on the push-service direction that would take.
 
-**Why the plugin remembers one ended review's output path.** Rejecting a review writes the rejection
-into the handoff file, then clears the review. See "Three signals that the remarks arrived" above.
-A fetch keyed only to a live review would answer "nothing is waiting" for a review that just ended,
-and a remote agent could not tell a rejection from a timeout. So `WaitingReviewService` now keeps
-`lastEnded`, one nullable field set in `endReview()`, the one place every ending already goes
-through. `endedOutputPath(session)` reads it back, checked against the session id, so one agent still
-cannot read another agent's remarks this way. The same field covers a second case for free.
-`markSent` can fail if the deadline task ends the review in the gap between the write and the stamp,
-and then the file holds real remarks that no live review points at any more. `endedOutputPath` finds
-those too.
+**Why a fetch can still reach a rejection after the review has already ended, and why that no longer
+needs the plugin to remember anything about it.** Rejecting a review writes the rejection into the
+published file, then clears the review. See "Three signals that the remarks arrived" above. A fetch
+keyed only to a *live* review would answer "nothing is waiting" for a review that just ended, and a
+remote agent could not tell a rejection from a timeout. Phase 8 solved this by having
+`WaitingReviewService` remember `lastEnded`, one nullable field set in `endReview()`; `handleFetch`
+read it back through `endedOutputPath(session)`, checked against the session id, once `current()` no
+longer named a live review. Phase 10 removed that field along with the per-review output path it
+existed to serve: `endReview()` no longer sets anything for a fetch to read later, because there is
+nothing left that only a live review would know. `handleFetch` instead falls straight through to
+reading the one predictable published-file path once the request's session is not the current
+review's own `Waiting`-phase session, and the header's `reviewSession` field is what the session id
+is checked against — the same check a fetch for a still-`Sent` review already needed, so a review that
+has fully ended is not a special case for the fetch handler at all any more, only a difference in
+whether `current()` still names anything on the way there.
 
 **`start` is also one of the places that ends a review, not only `clear`, `acknowledge` and
 `expireIfStale`.** `startOrConflict`'s stale branch (see "The branch order in `startOrConflict`
@@ -2040,25 +2123,30 @@ remarks are lost in either case. Nothing was marked sent, so they stay pending i
 Not fixed here: the fix would mean threading `endReview()`'s return value out of the stale-replacement
 branch and into `reportLater`, a behaviour change nobody has asked for.
 
-**OCCASIONAL, MINOR: a short window lets a fetch miss a real, unread review.** `current()` masks a review the moment
-`isStale()` turns true. That happens before the scheduled expiry task actually runs and calls
-`endReview()`. In that window a review can be `Sent`, with a real handoff file already on disk,
-while `current()` already returns null and `lastEnded` has not been set yet. A fetch that lands in
-exactly that window falls through both checks in `handleFetch` and answers `no-review`, even though a
-file with real, unread remarks is sitting there. The local skill is not affected: it reads the file
-directly and never calls `current()` at all. `handleAck` is not affected either: it reads the raw
-`state` field, not `current()`. The window is as short as the scheduler's own latency, normally
-milliseconds, so it takes a fetch landing in exactly that gap to see it. Not fixed here: the fix would
-mean `handleFetch` reading past `current()`'s own staleness masking, which is a real change to the
-phase 7 deadline design, not a small one.
+**RESOLVED IN PHASE 10: a short window used to let a fetch miss a real, unread review.** Before phase
+10, `current()` masked a review the moment `isStale()` turned true, before the scheduled expiry task
+had actually run and called `endReview()` to set `lastEnded`. A fetch landing in that window fell
+through both checks in `handleFetch` and answered `no-review`, even though a file with real, unread
+remarks was sitting in the review's own temp directory. Phase 10 removed the mechanism this defect
+lived in, not by patching it: `handleFetch` no longer reads `lastEnded` or an ended review's output
+path at all. Once a request's session is not the current review's own `Waiting`-phase session, it
+falls straight through to reading the one predictable published-file path — the same path a `Sent`
+phase's answer, a rejection, or a plain publish all write to — and the header's `reviewSession` field,
+not any live-review lookup, is what decides whether this session may see it. There is no window left
+for a scheduler's own latency to open.
 
-**RARE, MAJOR: the fetch action inherits the defect where retrying with the same session id after a
-send still returns the old remarks.** `handleFetch` reads through `current()` and `endedOutputPath`, and both are
-fed by the same state that `startOrConflict`'s same-session branch copies forward with its old
-`phase`. So a `start` retried with the same session id after a send still answers `waiting` with an
-output path whose file already exists. A fetch right after that first poll then returns the previous
-review's remarks immediately. That is the same defect the local skill's file-existence check already
-has. Not made worse by the fetch action, and not fixed by it.
+**RESOLVED IN PHASE 10: the fetch action used to inherit the defect where retrying `start` with the
+same session id after a send still returned the old remarks.** `handleFetch` used to read through
+`current()` and `endedOutputPath`, both fed by the same state `startOrConflict`'s same-session branch
+copied forward with its old `phase`, so a `start` retried with the same session id after a send still
+answered `waiting` with an output path whose file already existed, and a fetch right after that first
+poll returned the previous review's remarks immediately. Phase 10 removed the per-review output path
+this defect depended on. A retried `start` still copies the review's phase forward, but a fetch no
+longer trusts that phase for anything beyond "is a fresh answer still pending" (`Waiting`); once the
+phase is `Sent`, the fetch reads the published file's header directly, and the header genuinely does
+name this session's own batch, correctly, because that is what a `Sent`-phase publish wrote there.
+What used to be a defect the redesign happened to remove as a side effect, not a case anyone
+re-verified by writing a new test against it — worth a deliberate check before relying on it further.
 
 **RARE, MAJOR: a file path is written into the prompt as a Markdown heading, unescaped.** `render/PromptRenderer.kt`
 emits `## <path>` per group. The prompt is instructions a model then acts on, so a path containing a
@@ -2115,3 +2203,43 @@ whole diagram depends only on whether the search finds the label's text.** `md-s
 the whole fence, not per line inside a diagram the way it is per line inside a paragraph, so there is
 no line-sized fallback to land on when the search fails. A remark can then point at the entire
 diagram's source instead of at one node. See "A Remark on the Rendered Preview" above for why.
+
+Six more, recorded in phase 10's own plan rather than found by review, because each is a limit the
+phase's design accepts rather than a defect in it. All of them are in `review/` or in the skill.
+
+**CERTAIN, MINOR: publishes grow until something acknowledges them.** Publish Unread carries every
+remark that is not `READ`. A person who never lets any session acknowledge — neither a one-shot read
+nor a listener — gets a bigger published file every time, until Clear Handed Over runs. Nothing is
+lost; the relief valves are Clear Handed Over and a narrower Publish Selected batch.
+
+**LIKELY, MINOR: a second publish overwrites a batch nobody has read yet.** The remarks it carried are
+still in the store, and the next Publish Unread carries them again. The one case that does not
+recover by itself is two Publish Selected batches with different rows: the first batch's rows come
+back only through a later Publish Unread or by selecting them again.
+
+**OCCASIONAL, MINOR: a rejection erases the last published batch from the file.** Same recovery as
+the overwrite above — the remarks stay in the store and a later publish carries them again.
+
+**OCCASIONAL, MINOR: the batch memory does not survive an IDE restart.** `PublishedBatchService`
+holds its batches in memory only, the same as `WaitingReviewService`. An acknowledgement after a
+restart is answered `unknown-batch`, the remarks stay `PUBLISHED`, and publishing again gives the
+skill a nonce the restarted service actually remembers.
+
+**LIKELY, MINOR: a killed agent session leaves the banner up until the IDE's own deadline.** Before
+phase 10 the skill's wait loop ran in the same foreground shell as `trap 'ack abandoned' EXIT`, so an
+ordinary interrupt abandoned the review at once; only a hard `SIGKILL` left the banner stale until the
+deadline. Since phase 10 the wait is a launched background watcher, and there is no shell left running
+the trap once the foreground call that launched it returns — abandoning is now something the session
+posts itself, in the foreground, when the watcher reports the deadline passed or the person says stop.
+A session that stops answering without saying either now leaves the banner up until the IDE's own
+scheduled deadline the same way a `SIGKILL`ed session always did. Nothing is lost: the remarks were
+never marked read, so they stay exactly where they were.
+
+**CERTAIN, MINOR: the published file cannot be read from a session on another machine.** The remote
+review path still works, because a fetch is keyed to a session and crosses the tunnel phase 8 built.
+There is no remote equivalent of the one-shot read or listen mode: reading or watching a published
+batch with no review open only ever resolves the file locally. The direction for solving this later is
+a small push service on the IDE machine that a remote session subscribes to, not a further extension
+of the tunnel-and-poll pattern, which would run straight into the built-in server's 30-requests-a-minute
+limit. See `docs/ideas.md`, "Sending remarks to a remote agent session", for the reasoning this is
+deferred with.

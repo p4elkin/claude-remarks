@@ -17,12 +17,16 @@ It is kept in this repository, not only under `~/.claude/skills`, because the sk
 endpoint it talks to are one protocol, and three separate pairs of halves have to agree:
 
 - the request shape in `review/ReviewRestService.kt` and the `curl` calls in `SKILL.md`;
-- `REJECTED_MARKER` in `review/SendReview.kt` and the `head -1 "$handoff"` comparison against the
-  same literal in `SKILL.md`, character for character. It checks only the first line, not any line
-  with `grep`, because a remark's own text can start a line with the same marker, and matching any
-  line would misread a real review as a rejection;
+- the eight fixed lines `PublishedHeader.render()` writes, in `review/PublishedRemarks.kt`, and the
+  line-numbered reads in `SKILL.md` that depend on that exact order — including the `rejected:` field,
+  which is how a rejection is told apart from a real batch since phase 10. Before phase 10 a
+  rejection was its own file with its own first-line marker, `REJECTED_MARKER`; that marker and the
+  separate handoff file are both gone, and the published file's header is the one place either side
+  ever checks;
 - the five values the `ack` action answers — `ok`, `no-review`, `not-sent`, `unknown-project`,
-  `bad-request` — and the branch in `SKILL.md` that reads them.
+  `bad-request` — and the branch in `SKILL.md` that reads them; and, since phase 10, the five values
+  the `published-read` action answers — `ok`, `already-read`, `unknown-batch`, `unknown-project`,
+  `bad-request` — read by the same script, `watch-remarks.sh`, that also backs review mode's wait.
 
 Keeping both halves of each in one place is what stops them drifting apart. The IDE and the
 Claude Code session run on the same machine in the normal case, and over a tunnel in the remote

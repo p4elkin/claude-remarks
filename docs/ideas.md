@@ -655,6 +655,20 @@ truncates, and a skill that keeps one wait loop for both transports. (Renumbered
 the IDE the remarks were actually delivered" and "Open the real diff for just the files the skill
 named" below.)
 
+**Phase 10 merged the published file and the handoff file into one, but did not extend the remote
+path to the published-file modes.** A remote session can still only reach remarks through a waiting
+review, fetched over the tunnel exactly as phase 8 built it. Listening for the next published batch
+from another machine is still not possible, and the direction for solving it later is deliberately
+not another poll: phase 8's fetch is keyed to a review session, and a remote listener has none, so
+the shape that suggests itself — a fetch keyed to the project plus a poll for a new nonce across the
+tunnel — runs straight into the built-in server's 30 requests a minute from one address, the same
+limit that already forced the remote review poll down to five seconds. Sasha's direction instead: a
+small push service on the machine the IDE runs on, which a remote session subscribes to, so a new
+batch is pushed once when it happens and nothing polls anything. Whoever designs this later should
+start from that shape, not from stretching the tunnel-and-poll pattern further. It is not designed
+here, and the questions it opens — what the service is, how a subscription is authenticated, and
+what happens to a subscriber that went away — are all open.
+
 **One thing below turned out wrong, and it is worth keeping rather than deleting.** The plan below
 says the person passes three values: host, port and token. It is four. The `start` request's
 `project` field is matched against the IDE machine's own open project paths, and two machines can
@@ -1431,7 +1445,11 @@ The honest model is three states:
 - **Published.** Handed to a channel that cannot confirm a read. The clipboard is one. A file on disk
   is another. This is a terminal state for the manual path, because pasting into a chat window is
   invisible to the IDE and always will be.
-- **Read.** An agent said it read them, over the endpoint. Only the review path can produce this.
+- **Read.** An agent said it read them, over the endpoint. Only the review path could produce this
+  when phase 9 built it. **Built in phase 10:** a second route, `published-read`, keyed to a
+  published batch's nonce rather than to a review session, so an agent can confirm a read with no
+  review ever started. See `docs/claude/design.md`, "The three states, and why published is not
+  read".
 
 Then the grey icon splits into two weights, and the copy action can honestly be called Publish.
 

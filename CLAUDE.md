@@ -3,31 +3,49 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-9 are implemented and covered by unit tests. Phase 9 (three remark states in place of one
-and the published file, a sub-line remark that finds the words it points at again after they move, a
-remark about the whole change instead of one file, a tree row that shows the file name first with
-dragging a remark onto a bucket, and a remark written from the rendered markdown preview) is
-complete, including task 24's version bump to `0.6.0` and this final documentation sweep. What has
-and has not been in front of a real IDE, per phase: **phase 6's seven security
+Phases 1-10 are implemented and covered by unit tests. Phase 10 (the published file and the review's
+handoff file merge into one file with one eight-line header; an agent's read of it now goes through
+one of two acknowledgement routes, a review's own session id or a published batch's nonce; Publish
+All Pending is renamed to Publish Unread and carries every remark that is not yet `READ`; Publish
+answers a waiting review directly, so the three separate Send controls are gone; and a background
+watcher script, launched by the skill, is what lets both review mode and the published-file modes
+wait past the ten-minute cap on a foreground shell call) is complete, including task 13's version
+bump to `0.7.0` and this final documentation sweep.
+
+**The plugin has now been seen running in a real IDE, on version `0.6.0`.** A review was started
+over the endpoint, the waiting banner appeared, the file the request named opened, remarks were
+written including sub-line ones with their markers, Send to Claude Code handed them over, and the
+read acknowledgement came back. Separately, the remote path was proven too: a tunnel from a laptop
+reached the endpoint on this machine, the token was accepted, and the IDE answered with its open
+projects. Publishing from the laptop wrote a correct published file with correct sub-line markers.
+That closes the one gating check phases 6 to 9 all owed — whether any of this works outside the
+tests at all — and no others. **Still unchecked by hand:** the markdown preview entry point,
+dragging a remark onto a bucket, phase 7's scheduled deadline and its diff opening, and everything
+phase 10 itself built. The one build ever installed on either machine when those checks ran was
+`0.6.0`, which predates phase 10, so none of phase 10's own hand checks — listed in section 8 of
+`docs/plans/completed/20260805-claude-remarks-phase10.md` — have been run either.
+
+What has and has not been in front of a real IDE otherwise, per phase: **phase 6's seven security
 hand checks were run in a real IDE before 0.3.0 was released**, and phase 5's commit stamp was
-checked in a real IDE too. The `runIde` checks in the phase 1-2, phase 3-4, phase 5, **phase 7**,
-**phase 8** and **phase 9** plans were skipped in the autonomous sessions that did that work, so for
-those treat "it works" as "the tests pass" until someone runs the hand checks at the end of the
-plan. **Phase 7's matter most now**, and none of them has been run: a second delivery
-signal, a scheduled deadline, and a diff opened over VCS all depend on platform behaviour no
-automated test in this project reaches. See `docs/claude/design.md` for exactly which. **Phase 8
-owes hand checks too, and it needs something no earlier phase did: a second machine.** A tunnel, an
-`sshd`, and an agent session on the far side of it are needed to check the remote path at all. One
-machine is enough for the fetch action's own answers, but not for the tunnel. None of phase 8's
-checks have been run. Section 13 of `docs/plans/completed/20260803-claude-remarks-phase8.md` lists all of
-them, split by which group needs the second machine. **None of phase 9's hand checks have been run
-either.** Task 1 of its plan owes three of its own, in its own checkboxes: whether the plugin loads
-at all, whether a sub-line remark's markers land in the right place, and whether the grey row and
-faded gutter icon are visible. Group five owes checks nobody can automate at all: whether the Claude
-Remarks item appears in a running preview's right-click menu, whether a real browser selection
-reaches Kotlin as the right character range, and whether the plugin still loads cleanly with the
-markdown plugin disabled. Section 12 of `docs/plans/completed/20260803-claude-remarks-phase9.md` lists the
-whole set, split by which of them also needs a second machine. Select lines, press `Ctrl+Alt+Shift+R`
+checked in a real IDE too. The `runIde` checks in the phase 1-2, phase 3-4 and phase 5 plans were
+skipped in the autonomous sessions that did that work, so for those treat "it works" as "the tests
+pass" until someone runs the hand checks at the end of the plan. **Phase 7's matter most of what is
+still open**: a second delivery signal, a scheduled deadline, and a diff opened over VCS all depend
+on platform behaviour no automated test in this project reaches. See `docs/claude/design.md` for
+exactly which. **Phase 8 owes hand checks too, and it needs something no earlier phase did: a second
+machine.** A tunnel, an `sshd`, and an agent session on the far side of it are needed to check the
+remote path at all. The gating run above closed the fetch action's own remote-path answers, but not
+phase 8's fuller list. Section 13 of `docs/plans/completed/20260803-claude-remarks-phase8.md` lists
+all of them, split by which group needs the second machine. **Most of phase 9's hand checks have
+still not been run.** Task 1 of its plan owed three of its own, in its own checkboxes: whether the
+plugin loads at all, whether a sub-line remark's markers land in the right place, and whether the
+grey row and faded gutter icon are visible — the gating run above answers the first two of those, for
+sub-line markers specifically, but not the third. Group five owes checks nobody can automate at all:
+whether the Claude Remarks item appears in a running preview's right-click menu, whether a real
+browser selection reaches Kotlin as the right character range, and whether the plugin still loads
+cleanly with the markdown plugin disabled. Section 12 of
+`docs/plans/completed/20260803-claude-remarks-phase9.md` lists the whole set, split by which of them
+also needs a second machine. Select lines, press `Ctrl+Alt+Shift+R`
 (or use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a
 severity level, and press Enter. A gutter icon appears on the marked lines and follows the code as
 you keep editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a
@@ -39,18 +57,20 @@ General group, whatever bucket it also carries. A remark can also be written fro
 markdown preview instead of from the source: select words there, right-click, and pick Add Claude
 Remark, and it points at the same characters behind the selection. This needs the Markdown plugin,
 which every JetBrains IDE bundles by default; with it turned off, only this one entry point is
-missing and everything else works as before. Press Publish All Pending in the tool window to turn
-every pending remark into one markdown prompt on the clipboard, and also to write the same prompt,
-with a small header on top, to a file under `~/.claude-remarks/` that a Claude Code skill can read
-on its own, with no review ever
-started; a balloon says how many remarks and files. Published remarks turn gray rather than
-disappearing, so Publish Selected can send them again if the paste went to the wrong place, and
-publishing a remark that was already read by a review hands it over again the same way. Clearing
-(Clear Handed Over, Clear All) archives to a history file in the IDE configuration directory before it
-removes anything. If a Claude Code skill has started a review, a banner reads "Claude Code is
-waiting: <label>" above the tree and Send to Claude Code hands every pending remark to it the same
-way Publish All Pending hands them to the clipboard. See "The Shared Review Session" below for how
-the IDE finds the skill and hands the remarks back.
+missing and everything else works as before. Press Publish Unread in the tool window to turn every
+remark that is not yet `READ` into one markdown prompt on the clipboard, and also to write the same
+prompt, with an eight-line header on top, to one file under `~/.claude-remarks/` that a Claude Code
+skill can read on its own, with no review ever started; a balloon says how many remarks and files.
+Published remarks turn gray rather than disappearing, so Publish Selected can send them again if the
+paste went to the wrong place, and publishing a remark that was already read hands it over again the
+same way. Clearing (Clear Handed Over, Clear All) archives to a history file in the IDE configuration
+directory before it removes anything. If a Claude Code skill has started a review, a banner reads
+"Claude Code is waiting: <label>" above the tree, and pressing Publish — Publish Unread or Publish
+Selected, whichever is in reach — both hands the remarks to the clipboard as always and answers the
+waiting review in the same file the published remarks already go to; the banner then says the review
+is waiting to read them. There is no separate Send control any more: since phase 10, a publish is
+how a waiting review gets answered. See "The Shared Review Session" below for how the IDE finds the
+skill and hands the remarks back.
 
 For the design — how anchoring, the gutter, the change notification, severity and buckets, the
 commit stamp, the history file, the publish pipeline, the published file, the phrase a remark points
@@ -112,9 +132,11 @@ this carries forward.
 
 **Phase 9's group one is built.** A remark now has three states instead of two: `PENDING`,
 `PUBLISHED` and `READ`, not `PENDING` and `SENT`. `PUBLISHED` means handed to a channel that cannot
-confirm a read: the clipboard, or the published file below. `READ` means an agent said, through the
-shared review session, that it actually read the remarks. Only the review's own acknowledgement can
-produce `READ`; publishing, however many times, only ever produces `PUBLISHED`. The action people
+confirm a read: the clipboard, or the published file below. `READ` means an agent said it actually
+read the remarks — since phase 10, over either of two acknowledgement routes, both keyed to
+something the IDE itself minted; see the phase 10 paragraph below. Only an agent's own
+acknowledgement can produce `READ`; publishing, however many times, only ever produces `PUBLISHED`.
+The action people
 press is now called Publish, not Copy. `ClaudeRemarks.CopyAll` keeps its id, because `README.md`
 promises that id will not be renamed, but the button, the menu entry and the class are all Publish
 now. Publishing also writes the same rendered prompt, with a small dated header on top, to a file
@@ -193,6 +215,39 @@ selection reaches Kotlin as the right range, and whether the plugin truly still 
 the markdown plugin disabled, are all still owed as hand checks. See `docs/claude/design.md`, section
 "A Remark on the Rendered Preview", for the whole design, and section 12 of
 `docs/plans/completed/20260803-claude-remarks-phase9.md` for the full hand-check list.
+
+**Phase 10 is built.** The published file and the review's handoff file were two files answering two
+contracts; now there is one file, one eight-line header, and one of two ways to acknowledge it. The
+header (`PublishedHeader` in `review/PublishedRemarks.kt`) always carries a fresh `nonce`, so an
+acknowledgement can name exactly the batch it read, plus `review:` and `label:` fields filled in
+whenever the batch also answers a waiting review, and a `rejected:` field, since a rejection is now
+just another batch written to the same file. `review/PublishedAck.kt`'s `PublishedBatchService`
+remembers the last sixteen published batches in memory and answers `ok`, `already-read` (naming who
+got there first), or `unknown-batch` to a `POST /api/claude-remarks/published-read` request carrying
+a nonce — the second acknowledgement route next to the review's own `ack`, and the reason guard 6
+below now names two files instead of one. Publish All Pending is renamed Publish Unread and now
+filters on "not yet `READ`" rather than "still `PENDING`", so publishing again after an
+acknowledgement, or while nothing has ever been acknowledged, is the ordinary case rather than a
+refused one. **Publishing is now how a waiting review gets answered, and the three controls that used
+to do that — the banner's "Send remarks" link, the toolbar's "Send to Claude Code" button, and the
+Tools menu's `ClaudeRemarks.SendToWaiting` action — are gone.** `answerWaitingReview` in
+`review/SendReview.kt` replaces `sendToWaitingReview`, called from inside the publish pipeline right
+after the file write succeeds; `sendToWaitingReview`, `canSend` and `SendReviewAction` are deleted.
+The banner is two lines now: "Claude Code is waiting: <label>" and "Publish to answer, or Reject."
+Rejecting also writes into the merged file — a batch with `remarks: 0` and `rejected: yes` — instead
+of into a directory the review owned on its own; that per-review temp directory is gone entirely,
+along with `WaitingReviewState.outputPath` and `endedOutputPath`, since a fetch or a published-read
+now always resolves the one predictable path under `handshakeDir()` rather than a path that had to be
+handed back in a response first. The skill gained a background watcher script,
+`docs/skill/claude-remarks-review/watch-remarks.sh`, launched once and read for its exit code and
+its stdout, which is what lets both review mode and the two published-file modes (a one-shot read,
+and an opt-in listen mode that waits for the next batch) wait past the ten-minute cap a foreground
+Bash call carries — the same reason the skill's own wait loop used to have to poll inside one long
+foreground call, capped at the plan's declared 1800 seconds in name only. The skill can also now
+remember a remote IDE's four connection values (host, port, project path, token) across runs, through
+`docs/skill/claude-remarks-review/remote-config.sh`, instead of the person retyping all four every
+time. See `docs/claude/design.md`, sections "The three states, and why published is not read", "The
+published file" and "The Shared Review Session", for the whole design.
 
 ## Rules that must not break
 
@@ -296,10 +351,11 @@ the markdown plugin disabled, are all still owed as hand checks. See `docs/claud
    owns the editor side" and names `review/SendReview.kt` by path, and does not spell out any of the
    five forbidden symbols, even to say they are absent.
 
-   Phase 8's fetch handler, `handleFetch`, also reads a file inside this class, through `readHandoff`.
-   Plain `java.nio` calls are what make that allowed, the same reason `toRealPath()` is allowed above.
-   The comment trap is still live: the grep is line-based, so a comment naming any of the five
-   forbidden symbols would trip it, even to say they are absent.
+   The fetch handler, `handleFetch`, also reads a file inside this class, through `readPublished`
+   (renamed from `readHandoff` in phase 10, once the review's own handoff file and the published file
+   became the same file). Plain `java.nio` calls are what make that allowed, the same reason
+   `toRealPath()` is allowed above. The comment trap is still live: the grep is line-based, so a
+   comment naming any of the five forbidden symbols would trip it, even to say they are absent.
 
 6. **Only `store/RemarkEdits.kt`, `review/SendReview.kt` and `review/PublishedAck.kt` may call
    `markRemarksRead`.** `READ` means an agent said it read the remarks. There are, since phase 10,
@@ -413,27 +469,43 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    the per-run ReviewToken, and ReviewHandshakeService (@Service
                                    PROJECT, Disposable) — the file a skill reads to find this IDE
   review/AtomicWrite.kt            atomicWriteString: temp file beside the target, then rename
-  review/PublishedRemarks.kt       publishedName, PUBLISHED_MARKER, publishedHeader, writePublished:
-                                   the published file a publish writes under handshakeDir(), added
-                                   in phase 9
-  review/WaitingReview.kt          WaitingReviewState (with its ReviewPhase, deadlineAt and
-                                   isStale), StartResult, the pure startOrConflict, and
-                                   WaitingReviewService (@Service PROJECT, Disposable) — at most one
-                                   waiting review per project, in memory only, plus markSent,
-                                   acknowledge, the scheduled expiry, and endedOutputPath (the
-                                   most-recently-ended review's output path, so a fetch can still
-                                   reach a rejection)
-  review/ReviewRestService.kt      the RestService at POST /api/claude-remarks/{start,ack,fetch}:
-                                   isHostTrusted, execute (dispatches on the sub-path),
-                                   clampDeadlineSeconds, readHandoff/HandoffRead (the handoff file
-                                   read back with a size cap), and the pure
+  review/PublishedRemarks.kt       PublishedHeader (nonce, publishedAt, commit, remarks, reviewSession,
+                                   reviewLabel, rejected) with render()/publishedHeaderOf(), the
+                                   private label sanitizer, PUBLISHED_MARKER, publishedName,
+                                   writePublished: the one merged file a publish, a review's answer or
+                                   a rejection all write under handshakeDir(). Added in phase 9 as a
+                                   three-field header; restructured into the eight-line PublishedHeader
+                                   in phase 10, when the review's own handoff file merged into this one
+  review/PublishedAck.kt           PublishedAckOutcome, PublishedBatch, PublishedAckAnswer,
+                                   PublishedBatchService (@Service PROJECT, in memory only, the last
+                                   sixteen published batches, @Synchronized record/acknowledge) and
+                                   reportPublishedRead: the second acknowledgement route, added in
+                                   phase 10, keyed to a published batch's nonce rather than to a review
+                                   session
+  review/WaitingReview.kt          WaitingReviewState (with its ReviewPhase and deadlineAt/isStale;
+                                   outputPath and endedOutputPath removed in phase 10, once the review
+                                   stopped owning a directory of its own), StartResult, the pure
+                                   startOrConflict, and WaitingReviewService (@Service PROJECT,
+                                   Disposable) — at most one waiting review per project, in memory
+                                   only, plus markSent, acknowledge and the scheduled expiry
+  review/ReviewRestService.kt      the RestService at
+                                   POST /api/claude-remarks/{start,ack,fetch,published-read} (the
+                                   fourth action added in phase 10): isHostTrusted, execute (dispatches
+                                   on the sub-path), clampDeadlineSeconds, readPublished/PublishedRead
+                                   (renamed from readHandoff/HandoffRead in phase 10, the merged file
+                                   read back with a size cap), handlePublishedRead, and the pure
                                    requestIsAllowed/projectForPath helpers. Rule 5 above governs this
-                                   file specifically
-  review/SendReview.kt             sendToWaitingReview and SendReviewAction: the same prepare()
-                                   pipeline Publish All Pending uses, written to the handoff file
-                                   instead of the clipboard; rejectWaitingReview; finishReview and
-                                   expireStaleReview, the ack's consequences (marking read, the
-                                   balloon), kept out of ReviewRestService.kt by rule 5
+                                   file specifically. handoffFile and handleStart's own filesystem
+                                   write are gone in phase 10, since start no longer creates a
+                                   directory
+  review/SendReview.kt             answerWaitingReview (replaces sendToWaitingReview, canSend and
+                                   SendReviewAction in phase 10, called from inside the publish
+                                   pipeline once the file write succeeds) and waitingReviewForPublish;
+                                   rejectWaitingReview (writes into the same merged file through
+                                   writePublished since phase 10, no longer its own marker or its own
+                                   directory); finishReview and expireStaleReview, the ack's
+                                   consequences (marking read, the balloon), kept out of
+                                   ReviewRestService.kt by rule 5
   review/OpenReviewFiles.kt        the only file in review/ that touches the VFS or the editor —
                                    opens a real diff over the files that have a local change,
                                    through ShowDiffAction, and a plain editor for the rest
@@ -530,7 +602,8 @@ permissions, and `projectIdentity`: the repository for a project opened below it
 path with no repository, and null for a base path that is missing or unusable), `WaitingReviewTest` (the pure `startOrConflict`: accept, honest-retry reuse, a
 same-session retry after the deadline, and conflict, plus `isStale`'s boundary), and
 `ReviewRequestTest` (the pure `requestIsAllowed`, `projectForPath`, since phase 7
-`clampDeadlineSeconds`, and since phase 8 `readHandoff` and its size cap), `PreviewSelectionTest`
+`clampDeadlineSeconds`, and since phase 8 `readPublished` — renamed from `readHandoff` in phase 10 —
+and its size cap), `PreviewSelectionTest`
 (since phase 9, `parseSelectionMessage`'s refusals and `narrowToSelection`'s search, including the
 cross-line case and the malformed-message case), and `PreviewRemarkProblemTest` (since phase 9, the
 pure `previewRemarkProblem`: no stored selection, a stored selection in another preview, and one that
@@ -556,28 +629,49 @@ tool window panel: every file and bucket group ends up expanded, the selection s
 and the Add General Remark button is offered and enabled with no selection and no editor open),
 `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
 0-based line argument), the collector half of `PromptPayloadTest`, `PublishRemarksTest` (renamed
-from `CopyRemarksTest` in phase 9), `PublishedRemarksTest` (the published file's name, header and
-write, added in phase 9),
+from `CopyRemarksTest` in phase 9; since phase 10, that a publish with no ids takes every remark that
+is not `READ`, not only `PENDING` ones), `PublishedRemarksTest` (the published file's name and write,
+added in phase 9; since phase 10, `PublishedHeader`'s eight-line `render()`/`publishedHeaderOf()`
+round trip, the label sanitizer, and the malformed-header cases that read back as null),
+`PublishedAckTest` (added in phase 10, fixture-backed: an acknowledgement of a recorded batch marks
+its remarks read and answers `ok`; a second session, or the same session twice, gets `already-read`
+naming who got there first; an unknown nonce answers `unknown-batch`; only the last sixteen batches
+are remembered; and an acknowledgement marks only its own batch),
 `ReviewEndpointSmokeTest` (the one test that calls `ReviewRestService.execute` itself, through a
 real `EmbeddedChannel`, so the response actually carries a body, plus the ack action's five answers,
-the unknown-action refusal, that the deadline the request declares really reaches the review, and,
-since phase 8, the fetch action's answers: `waiting` before a send, `ready` with the whole prompt
-after one, that a fetch marks nothing read and leaves the review alone, that a fetch still carries a
+the unknown-action refusal, that the deadline the request declares really reaches the review, the
+fetch action's answers since phase 8 — `waiting` before a send, `ready` with the whole prompt after
+one, that a fetch marks nothing read and leaves the review alone, that a fetch still carries a
 rejection's body, `no-review` for a session nothing knows about, `too-large` over the size cap,
-`bad-request` for a missing field, and `unknown-project` for a project nothing has open),
+`bad-request` for a missing field, and `unknown-project` for a project nothing has open — and, since
+phase 10, the `published-read` action's five answers, mirroring `PublishedAckTest` at the HTTP layer),
 `OpenReviewFilesTest` (the string-only half of the path
 filter: absolute paths and `..` segments are dropped, plus a fixture-backed class for the
 diff-or-editor decision, since a light fixture project has no VCS root and every file takes the
-plain-editor branch), `SendReviewTest` (the send action's success and failure paths, that nothing is
-marked read until the read acknowledgement, that an abandoned acknowledgement and the deadline both
-leave the remarks pending, the reject action, and the phase guards that refuse a second send or an
-overwrite after a send), `PreviewSelectionServiceTest` (since phase 9, fixture-backed for the same
+plain-editor branch), `SendReviewTest` (since phase 10: `answerWaitingReview` records what was
+published and replaces the ids on a second answer rather than refusing it, and says so instead of
+claiming a handover once the review already ended; `rejectWaitingReview` writes a rejection batch
+into the published file rather than into a directory of its own, and a rejection after a publish
+still writes nothing and only clears the review; nothing is marked read until the read
+acknowledgement, and an abandoned acknowledgement or the deadline both leave the remarks pending),
+`PreviewSelectionServiceTest` (since phase 9, fixture-backed for the same
 reason: `remember`, `forget` and `current` on the project-level service that holds the preview's last
 selection), and `WaitingReviewServiceTest` (fixture-backed, because a
 project-level service needs a project: `markSent` and the session it names, `acknowledge`,
-`expireIfStale`, that `clear` cancels the deadline task, that a stale review is not `current()`, and,
-since phase 8, `endedOutputPath`: findable by its own session, not by a different one, and only the
-most recently ended review is remembered).
+`expireIfStale`, and that `clear` cancels the deadline task and a stale review is not `current()`;
+phase 8's `endedOutputPath` tests were removed in phase 10 along with the field itself, once a fetch
+or a published-read started resolving the one predictable published-file path instead of a path the
+review had to hand back).
+
+Two more files are checked by hand, not by `./gradlew test`, because this repository's suite is
+Kotlin and runs no shell: `docs/skill/claude-remarks-review/watch-remarks.sh` (added in phase 10; each
+check is its own run, in the scratchpad directory, covering a deadline timeout, a nonce that has
+already changed, a file that appears after the watcher starts, `--require-review`, a malformed
+header, and that a second watcher on the same project kills the first) and
+`docs/skill/claude-remarks-review/remote-config.sh` (added in phase 10; each check is its own run too,
+with `HOME` pointed at a temporary directory, covering `save`/`show`/`forget`, that the token never
+appears in any output, permission and validation refusals, and that two repository roots produce two
+different stored files).
 
 Every fixture-backed test class that asserts on the whole store clears it in `setUp`, not only in
 `tearDown`: the light fixture project is shared across test classes, so remarks left behind by an
