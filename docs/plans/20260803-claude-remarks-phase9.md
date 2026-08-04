@@ -1826,7 +1826,7 @@ class PreviewSelectionService {
 }
 ```
 
-- [ ] write the failing tests in `PreviewSelectionTest`:
+- [x] write the failing tests in `PreviewSelectionTest`:
   - `a well formed message parses into five fields`. Assert each field on its own, so a parser that
     reads two of them in the wrong order is caught.
   - `a malformed message parses as null`. Four cases: broken json, a missing field, a negative
@@ -1841,17 +1841,41 @@ class PreviewSelectionService {
     which is what a stale render sends after the file got shorter.
   - `the first occurrence wins when the words appear twice`. The limit, pinned so it stays a
     decision rather than becoming a surprise.
-- [ ] write the failing tests in `PreviewSelectionServiceTest`: a stored selection reads back; a
+  **Result: all seven written, with the names above. The four malformed cases are four `assertNull`
+  calls inside the one test, each with its own message, so a failure names which case broke. The
+  cross-line test carries two assertions: the highlighted text with a space where the source has a
+  newline, which is what a flowed paragraph renders as, falls back to the whole two-line span
+  `0..31`, and the same two ancestors with a text that does survive the render narrow to `6..27`
+  across the line break.**
+- [x] write the failing tests in `PreviewSelectionServiceTest`: a stored selection reads back; a
       second store replaces the first; after `forget` there is nothing; and the stored file url is
       the one that was passed in.
-- [ ] run `./gradlew test --tests "dev.sasha.clauderemarks.preview.*"` and expect a compile failure
-- [ ] implement, then the same command passes and `./gradlew test` passes whole
-- [ ] **mutation:** make `narrowToSelection` always return the coarse range; the tightening test must
+      **Result: four tests, fixture-backed (`BasePlatformTestCase`), because a project-level
+      `@Service` needs a project. Both `setUp` and `tearDown` call `forget()`, the way every other
+      fixture-backed class in this project clears what it shares.**
+- [x] run `./gradlew test --tests "dev.sasha.clauderemarks.preview.*"` and expect a compile failure
+      **Result: it failed in `:compileTestKotlin`, on unresolved `SourceRange`, `PreviewSelection`,
+      `parseSelectionMessage`, `narrowToSelection` and `PreviewSelectionService`.**
+- [x] implement, then the same command passes and `./gradlew test` passes whole
+      **Result: 11 preview tests pass (7 pure, 4 fixture-backed), and the whole suite is 428 tests
+      green across 40 classes, run with `--rerun` after the mutations were restored.**
+- [x] **mutation:** make `narrowToSelection` always return the coarse range; the tightening test must
       fail. Make it return null rather than the coarse range when the search fails; the markup test
       must fail. Drop its bounds check; the out-of-range test must fail with an exception instead of
       a null. Make `parseSelectionMessage` accept a negative offset; that test must fail. Make the
       service keep the first entry instead of the last; the replace test must fail. Restore all five.
-- [ ] commit: `feat: a preview selection becomes a character range in the markdown source`
+      **Result: all five kill their test, run as two batches because the first and second mutation
+      change the same line. Batch one (always coarse, negative offset accepted, service keeps the
+      first) failed `the range tightens onto the highlighted words inside the line`, `a malformed
+      message parses as null` and `testASecondStoreReplacesTheFirst`, plus `the first occurrence
+      wins` and the narrowing half of the cross-line test, which the same always-coarse mutation
+      also covers. Batch two (null on a failed search, no bounds check) failed `the range stays
+      coarse when markup sits between the highlighted words` with `expected SourceRange(0, 19) but
+      was null`, and `a coarse range that does not fit the source gives null` with
+      `StringIndexOutOfBoundsException: Range [0, 400) out of bounds for length 13`, an exception
+      rather than a null, exactly as this checkbox predicted. All five restored, and the full suite
+      is green again.**
+- [x] commit: `feat: a preview selection becomes a character range in the markdown source`
 
 ### Task 21: The browser side, and the message it sends
 
