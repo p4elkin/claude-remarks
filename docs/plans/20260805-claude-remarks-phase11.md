@@ -171,7 +171,7 @@ marked.
 | 15 | StoredAnchor, and resolving an answer against its file | complete |
 | 16 | batchCarries on the published batch service | complete |
 | 17 | The answer endpoint action and AnswerReceipt | complete |
-| 18 | The fetch action loses its session requirement | not started |
+| 18 | The fetch action loses its session requirement | complete |
 | 19 | The Answers group in the tree | not started |
 | 20 | The answer's gutter icon | not started |
 | 21 | The markdown popup | not started |
@@ -638,12 +638,12 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/review/ReviewRestService.kt` (`handleFetch`: the `session.isNullOrBlank()` refusal, the `live` short-circuit, and the `header.reviewSession == session` branch)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/review/ReviewEndpointSmokeTest.kt`
 
-- [ ] write the test that a fetch with no `session` returns `ready` for a plain publish — the case that is impossible today, because a plain publish writes `review: none` and the header gate can never match
-- [ ] write the regression test that a fetch **with** a session behaves exactly as it does now, including `no-review` for a batch answering a different session — this is the whole argument for relaxing rather than adding a sixth action
-- [ ] write the test that a session-less fetch with no published file still answers `no-review`
-- [ ] make `session` optional: refuse only on a missing `project`, skip the live-review short-circuit when there is no session, and skip the header gate when there is no session
-- [ ] update the class KDoc's list of what `fetch` answers, and say that an absent session means any batch
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest'` - must pass before task 19
+- [x] write the test that a fetch with no `session` returns `ready` for a plain publish — the case that is impossible today, because a plain publish writes `review: none` and the header gate can never match
+- [x] write the regression test that a fetch **with** a session behaves exactly as it does now, including `no-review` for a batch answering a different session — this is the whole argument for relaxing rather than adding a sixth action
+- [x] write the test that a session-less fetch with no published file still answers `no-review`
+- [x] make `session` optional: refuse only on a missing `project`, skip the live-review short-circuit when there is no session, and skip the header gate when there is no session
+- [x] update the class KDoc's list of what `fetch` answers, and say that an absent session means any batch
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest'` - must pass before task 19
 
 ### Task 19: The Answers group in the tree
 

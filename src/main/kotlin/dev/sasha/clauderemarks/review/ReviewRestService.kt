@@ -22,7 +22,9 @@ import org.jetbrains.ide.RestService
  * repository, then later tells the IDE whether it read the remarks or gave up waiting. Where those
  * remarks land is not part of the answer since phase 10: both sides compute the one published file's
  * path from the repository path itself. `fetch` is a third moment: it hands that file's content back
- * in the response body itself, for an agent with no filesystem access to it. `published-read` is a
+ * in the response body itself, for an agent with no filesystem access to it. Its `session` field is
+ * optional since phase 11, and an absent one means *any* batch rather than one review's own — which
+ * is what lets a listener read a plain publish over a tunnel. `published-read` is a
  * fourth, and independent of the other three: it acknowledges a batch a
  * publish wrote to the merged file, keyed to the nonce that batch's header carries rather than to a
  * review session, since a publish can happen with no review waiting at all. `answer` is a fifth,
@@ -121,7 +123,13 @@ private class AckRequest(
     val event: String? = null,
 )
 
-/** Gson fills these by reflection too. No `event` and no `label`: a fetch changes nothing. */
+/**
+ * Gson fills these by reflection too. No `event` and no `label`: a fetch changes nothing.
+ *
+ * [session] is optional since phase 11. A caller that sends one names the review it is polling for
+ * and gets exactly the behaviour it always got; a caller that omits one is a listener with no review
+ * of its own, and asks for whatever batch the file currently holds.
+ */
 private class FetchRequest(
     val session: String? = null,
     val project: String? = null,
@@ -360,20 +368,36 @@ class ReviewRestService : RestService() {
      * the session that asked for it, since a publish or a rejection can happen with several sessions
      * having asked at different times: a file answering a different session, or none at all, is
      * `no-review`.
+     *
+     * **`session` is optional since phase 11, and an absent one means any batch.** Both the
+     * short-circuit and the header gate above are meaningful only when a review exists, so with no
+     * session both are skipped and the file is answered on as it is found. That is what makes a plain
+     * publish readable over a tunnel at all: it writes no review field, so the gate could never match
+     * any session id a caller could send, and such a batch was unreachable. Nothing is weakened by
+     * this — `session` was never a secret, the endpoint has never handed one out or checked one, and
+     * the token in [isHostTrusted] is the gate on this route. A session-less caller can therefore also
+     * be handed a batch answering somebody else's review, which the skill's listen mode reports and
+     * acts on rather than acknowledging.
      */
     private fun handleFetch(request: FullHttpRequest, writer: JsonWriter) {
         val body = runCatching {
             gson.fromJson<FetchRequest?>(createJsonReader(request), FetchRequest::class.java)
         }
         val parsed = body.getOrNull()
-        val session = parsed?.session
+        // Blank counts as absent, so a caller that sends an empty string is read as a listener rather
+        // than refused for a field it did not have to send in the first place.
+        val session = parsed?.session?.takeIf { it.isNotBlank() }
         val wanted = parsed?.project
-        if (session.isNullOrBlank() || wanted.isNullOrBlank()) {
-            badRequest(writer, body.exceptionOrNull(), "expected a JSON object with session and project")
+        if (wanted.isNullOrBlank()) {
+            badRequest(writer, body.exceptionOrNull(), "expected a JSON object with project, and optionally session")
             return
         }
         val project = matchProject(wanted, writer) ?: return
-        val live = WaitingReviewService.getInstance(project).current()?.takeIf { it.sessionId == session }
+        // Skipped whole with no session: this short-circuit tells one session's own poll to come back,
+        // and a listener has no review of its own to be waiting for.
+        val live = session?.let { name ->
+            WaitingReviewService.getInstance(project).current()?.takeIf { it.sessionId == name }
+        }
         if (live != null && live.phase == ReviewPhase.Waiting) {
             // Nothing has been published yet. The skill's poll is supposed to come back.
             writer.name("status").value("waiting")
@@ -418,14 +442,18 @@ class ReviewRestService : RestService() {
                         writer.name("status").value("failed")
                         writer.name("detail").value("the published file's header could not be parsed")
                     }
-                    header.reviewSession == session -> {
+                    // No session means any batch: there is nothing to compare the header against, and
+                    // that is what makes a plain publish — which writes no review field at all —
+                    // reachable over the tunnel.
+                    session == null || header.reviewSession == session -> {
                         writer.name("status").value("ready")
                         writer.name("content").value(read.text)
                         writer.name("nonce").value(header.nonce)
                         writer.name("bytes").value(read.bytes)
                     }
-                    // The file exists but answers a different session's review, or none at all —
-                    // a plain publish with no review waiting also reaches this branch.
+                    // Only reachable with a session in the body. The file exists but answers a
+                    // different session's review, or none at all — a plain publish with no review
+                    // waiting also reaches this branch.
                     else -> writer.name("status").value("no-review")
                 }
             }

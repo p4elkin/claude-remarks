@@ -235,6 +235,10 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     /**
      * A batch that answers a different session, or none at all, must not answer with that batch's
      * content — the header's `review:` comparison in handleFetch, as a test.
+     *
+     * Since phase 11 this is also one half of the regression guard on relaxing the action: a body
+     * that carries a session still goes through the header gate exactly as it did before, and only a
+     * body with no session at all skips it.
      */
     fun testAFetchForABatchThatAnswersAnotherSessionAnswersNoReview() {
         writePublished(identity(), publishedBody(reviewSession = "s1"))
@@ -246,11 +250,86 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
-     * The other two answers `handleFetch` can give for a malformed or misdirected request, the same
-     * pair `start` and `ack` already have their own parity tests for.
+     * The other half of that regression guard, and the sharper one: a plain publish writes no review
+     * field at all, and a caller that names a session still gets `no-review` for it. This is what
+     * "purely additive" means as a test — relaxing the gate must not make a session-carrying caller
+     * start matching batches it never matched before.
      */
-    fun testAFetchWithNoSessionAnswersBadRequest() {
+    fun testAFetchWithASessionStillAnswersNoReviewForAPlainPublish() {
+        writePublished(identity(), publishedBody(reviewSession = null))
+
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"no-review\""))
+        assertFalse(sent, sent.contains("a note about A"))
+    }
+
+    /**
+     * The case that was impossible before phase 11, and the whole reason the action was relaxed. A
+     * plain publish writes `review: none`, so `header.reviewSession` is null and the comparison is
+     * false for every session id any caller could send — a batch that does not answer a review was
+     * unreachable over the tunnel. With no session in the body there is nothing to compare against,
+     * so the gate is skipped and the batch comes back.
+     *
+     * `nonce` matters as much as `content` here: listen mode arms its watcher with the nonce it read
+     * off exactly this response.
+     */
+    fun testASessionLessFetchAnswersReadyForAPlainPublish() {
+        writePublished(identity(), publishedBody(reviewSession = null))
+
         val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"ready\""))
+        assertTrue(sent, sent.contains("a note about A"))
+        assertTrue(sent, sent.contains("\"nonce\""))
+        assertTrue(sent, sent.contains("\"n1\""))
+    }
+
+    /**
+     * An absent session means "any batch", including one answering somebody else's review. That is
+     * deliberate and not a hole: `session` was never a secret, the token in `isHostTrusted` is what
+     * gates this route, and the skill's listen mode has its own rule for a batch that names a session
+     * — say so, name it, act on nothing. Without this test that behaviour reads as a bug and gets
+     * "fixed" into a refusal the listener cannot work around.
+     */
+    fun testASessionLessFetchAlsoCarriesABatchAnsweringSomebodyElsesReview() {
+        writePublished(identity(), publishedBody(reviewSession = "s1"))
+
+        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"ready\""))
+        assertTrue(sent, sent.contains("a note about A"))
+    }
+
+    /** Nothing published for this project at all, asked without a session: still the ordinary poll answer. */
+    fun testASessionLessFetchWithNothingPublishedAnswersNoReview() {
+        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"no-review\""))
+    }
+
+    /**
+     * The live-review short-circuit is skipped when there is no session. It exists to tell one
+     * session's own poll to come back, and a listener has no review of its own to be waiting for — so
+     * a session-less fetch reads the file even while somebody else's review sits in `Waiting`, and
+     * answers on what it finds there.
+     */
+    fun testASessionLessFetchDoesNotWaitOnSomebodyElsesReview() {
+        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
+
+        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"no-review\""))
+        assertFalse(sent, sent.contains("\"waiting\""))
+    }
+
+    /**
+     * The other two answers `handleFetch` can give for a malformed or misdirected request, the same
+     * pair `start` and `ack` already have their own parity tests for. Only `project` is required
+     * since phase 11: a body with no `session` is a listener's fetch, not a malformed one.
+     */
+    fun testAFetchWithNoProjectAnswersBadRequest() {
+        val sent = post("/api/claude-remarks/fetch", """{"session":"s1"}""")
 
         assertTrue(sent, sent.contains("\"bad-request\""))
     }
