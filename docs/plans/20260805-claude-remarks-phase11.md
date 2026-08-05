@@ -157,7 +157,7 @@ marked.
 | 1 | Stop printing the tag and the level in the published prompt | complete |
 | 2 | Stop showing the tag and the level in the tree, the gutter and the history file | complete |
 | 3 | Take the tag chip row out of the input popup | complete |
-| 4 | Take the Severity submenu out of the shared menu | not started |
+| 4 | Take the Severity submenu out of the shared menu | complete |
 | 5 | Delete the tag and severity fields | not started |
 | 6 | Check whether the internal-API subtraction can leave the build file | not started |
 | 7 | Real descriptions on the six toolbar buttons | not started |
@@ -446,10 +446,10 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/ui/RemarkActions.kt` (the `severity` `DefaultActionGroup` inside `remarkChangeActions`, and its two imports)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarkActionsTest.kt`
 
-- [ ] delete the two severity tests from `RemarkActionsTest` and leave the bucket-item test in place
-- [ ] delete the `severity` group from `remarkChangeActions`, leaving `Move to Bucket…` as its only child for now
-- [ ] update the function's KDoc, which today explains where severity is chosen — replace that paragraph rather than leaving it describing something that is gone
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkActionsTest'` - must pass before task 5
+- [x] delete the two severity tests from `RemarkActionsTest` and leave the bucket-item test in place
+- [x] delete the `severity` group from `remarkChangeActions`, leaving `Move to Bucket…` as its only child for now
+- [x] update the function's KDoc, which today explains where severity is chosen — replace that paragraph rather than leaving it describing something that is gone
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkActionsTest'` - must pass before task 5
 
 ### Task 5: Delete the tag and severity fields
 

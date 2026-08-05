@@ -1,15 +1,11 @@
 package dev.sasha.clauderemarks.ui
 
-import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.store.RemarkStore
-import dev.sasha.clauderemarks.store.addRemark
 
 /**
  * The menu itself is checked by hand. What is checked here is the part that would fail silently:
- * that every severity has an item, and that pressing one changes exactly the remarks the lambda
- * names at the moment it is pressed, not the ones it named when the menu was built.
+ * which items the menu offers at all.
  */
 class RemarkActionsTest : BasePlatformTestCase() {
 
@@ -19,43 +15,14 @@ class RemarkActionsTest : BasePlatformTestCase() {
         RemarkStore.getInstance(project).clear()
     }
 
-    fun testThereIsOneItemForEverySeverity() {
-        val group = remarkChangeActions(project) { emptyList() }
-        val severity = group.getChildren(null).filterIsInstance<ActionGroup>().single()
-
-        assertEquals(
-            RemarkSeverity.entries.map { it.name.lowercase() },
-            severity.getChildren(null).map { it.templatePresentation.text },
-        )
-    }
-
     /**
-     * The bucket item is the only way in the UI to put a remark in a bucket, and the severity test
-     * above only ever looks inside the submenu — so deleting this item left both tests green and the
-     * whole bucket feature unreachable.
+     * The bucket item is the only way in the UI to put a remark in a bucket, so deleting it would
+     * leave the whole bucket feature unreachable with nothing else noticing.
      */
-    fun testThereIsABucketItemBesideTheSeverityMenu() {
+    fun testThereIsABucketItem() {
         val group = remarkChangeActions(project) { emptyList() }
 
         val items = group.getChildren(null).map { it.templatePresentation.text }
-        assertEquals(listOf("Severity", "Move to Bucket…"), items)
-    }
-
-    /**
-     * The ids are read when the item is pressed, not when the menu is built. The tree rebuilds
-     * itself on every remark change, so a list captured at build time is stale by the time anybody
-     * clicks — it would set the severity on rows that are no longer selected.
-     */
-    fun testPressingASeverityItemActsOnTheIdsAtPressTime() {
-        val first = addRemark(project, "A.kt", listOf("a", "b"), 0..0, "one")
-        var wanted = emptyList<String>()
-        val group = remarkChangeActions(project) { wanted }
-        val must = (group.getChildren(null).filterIsInstance<ActionGroup>().single())
-            .getChildren(null).single { it.templatePresentation.text == "must" }
-
-        wanted = listOf(first.id!!)
-        must.actionPerformed(com.intellij.testFramework.TestActionEvent.createTestEvent(must))
-
-        assertEquals(RemarkSeverity.MUST, RemarkStore.getInstance(project).all().single().severity)
+        assertEquals(listOf("Move to Bucket…"), items)
     }
 }

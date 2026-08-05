@@ -6,11 +6,8 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import dev.sasha.clauderemarks.action.plural
-import dev.sasha.clauderemarks.model.RemarkSeverity
-import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.setRemarkBucket
-import dev.sasha.clauderemarks.store.setRemarkSeverity
 
 /**
  * The actions that change remarks that already exist, built once and used from two places: the
@@ -20,19 +17,15 @@ import dev.sasha.clauderemarks.store.setRemarkSeverity
  * [ids] is a lambda, not a list. The tree rebuilds itself on every remark change, so a list read
  * when the menu was built is stale by the time anything in it is pressed.
  *
- * This is also the whole answer to "where does the severity get chosen". Not in the input popup:
- * that popup is the action that has to stay fast, and a second chooser in it turns it into a form.
- * The level is defaulted when the remark is written and changed here afterwards.
+ * This is where a remark is changed after it was written. The input popup deliberately stays a
+ * text box and nothing else: it is the action that has to stay fast, and a second chooser in it
+ * turns it into a form. Anything that is not the remark's own text is picked here instead.
  */
 fun remarkChangeActions(project: Project, ids: () -> List<String>): ActionGroup {
-    val severity = DefaultActionGroup("Severity", true)
-    RemarkSeverity.entries.forEach { level ->
-        severity.add(DumbAwareAction.create(level.label) { setRemarkSeverity(project, ids(), level) })
-    }
     // A plain DefaultActionGroup(vararg) is not a popup, so its children are inlined where it is
-    // placed rather than becoming a nested submenu. The Severity group above IS a popup, on purpose.
+    // placed rather than becoming a nested submenu. That is what this menu wants: every item shows
+    // up directly in the gutter menu and the tree's right-click menu.
     return DefaultActionGroup(
-        severity,
         DumbAwareAction.create("Move to Bucket…") { chooseBucket(project, ids()) },
     )
 }
