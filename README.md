@@ -20,7 +20,7 @@ a real IDE. See [Status](#status) before you decide to rely on it.
 
 - [What it does](#what-it-does)
 - [Installing](#installing)
-- [Using it](#using-it)
+- [Working with it](#working-with-it)
 - [The Claude Code skill](#the-claude-code-skill)
 - [When the IDE is on another machine](#when-the-ide-is-on-another-machine)
 - [Status](#status)
@@ -30,6 +30,57 @@ a real IDE. See [Status](#status) before you decide to rely on it.
 - [Licence](#licence)
 
 ## What it does
+
+Mark up what you are reading, in the IDE, and hand the marks to Claude Code.
+
+- **Annotate anything the editor shows** — source code, a rendered markdown preview, plain text. A
+  remark can cover whole lines, or just a phrase inside one.
+- **Nothing is written into your files.** Remarks live in IDE state only, and stay out of version
+  control.
+- **A remark remembers the code it points at**, and follows it as you keep editing.
+- **One press turns every remark into one markdown prompt** — your note, the lines, the code, and how
+  strongly you mean it — on the clipboard and in a file.
+- **A bundled Claude Code skill reads that file**, so the prompt does not have to be pasted by hand.
+  Tell a session `listen for my remarks in this project` and it waits in the background while you
+  read, then picks up each batch you publish. See
+  [The Claude Code skill](#the-claude-code-skill).
+
+## Installing
+
+Build the plugin zip, then install it from disk:
+
+```bash
+./gradlew buildPlugin      # writes build/distributions/claude-remarks-<version>.zip
+```
+
+In the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick that zip, and
+restart when asked.
+
+It needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound), and an IDE that ships the VCS
+module — every JetBrains IDE does, but if the plugin ever fails to load and the tool window simply
+is not there, that hard `<depends>com.intellij.modules.vcs</depends>` is the first thing to check.
+Building for the first time needs a JDK (17 through 25) and network access; see
+[Building and testing](#building-and-testing).
+
+## Working with it
+
+The loop is: read, mark, publish.
+
+1. Read the code. When something is worth saying, select the lines and press `Ctrl+Alt+Shift+R`.
+   Type the note. Tag it if the tag helps you; set the severity later, from the tree, when you are
+   triaging rather than reading.
+2. Keep going. The tool window fills up on its own — no refresh needed. Sort the pass into buckets
+   if it is large enough to be worth sorting.
+3. Press **Publish Unread**. Every remark that has not been read becomes one markdown prompt on the
+   clipboard: general remarks first under their own heading, then a section per remark carrying its
+   tag, its severity, the short sha of the commit it was written against, and the code it points at.
+   A balloon says how many remarks across how many files.
+4. Paste it into a Claude Code session.
+
+The rows do not disappear when you publish. They stay listed and stay full-strength, because the
+next Publish Unread carries them again — that is what makes Publish Selected useful when a paste
+went to the wrong window. They go grey only once an agent confirms it read them, and they leave the
+list only when you clear them.
 
 **Writing a remark.** Select some lines, press `Ctrl+Alt+Shift+R`, type a note, press Enter. The
 same box opens from `Alt+Enter` ("Add Claude Remark") and from the editor's right-click menu,
@@ -119,43 +170,6 @@ A single Delete on one row is the exception and does not archive: picking out on
 it means "this one was a mistake", and archiving every typo would make the history useless to read.
 
 **The prompt header is yours.** Edit it in **Settings → Tools → Claude Remarks**.
-
-## Installing
-
-Build the plugin zip, then install it from disk:
-
-```bash
-./gradlew buildPlugin      # writes build/distributions/claude-remarks-<version>.zip
-```
-
-In the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick that zip, and
-restart when asked.
-
-It needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound), and an IDE that ships the VCS
-module — every JetBrains IDE does, but if the plugin ever fails to load and the tool window simply
-is not there, that hard `<depends>com.intellij.modules.vcs</depends>` is the first thing to check.
-Building for the first time needs a JDK (17 through 25) and network access; see
-[Building and testing](#building-and-testing).
-
-## Using it
-
-The loop is: read, mark, publish.
-
-1. Read the code. When something is worth saying, select the lines and press `Ctrl+Alt+Shift+R`.
-   Type the note. Tag it if the tag helps you; set the severity later, from the tree, when you are
-   triaging rather than reading.
-2. Keep going. The tool window fills up on its own — no refresh needed. Sort the pass into buckets
-   if it is large enough to be worth sorting.
-3. Press **Publish Unread**. Every remark that has not been read becomes one markdown prompt on the
-   clipboard: general remarks first under their own heading, then a section per remark carrying its
-   tag, its severity, the short sha of the commit it was written against, and the code it points at.
-   A balloon says how many remarks across how many files.
-4. Paste it into a Claude Code session.
-
-The rows do not disappear when you publish. They stay listed and stay full-strength, because the
-next Publish Unread carries them again — that is what makes Publish Selected useful when a paste
-went to the wrong window. They go grey only once an agent confirms it read them, and they leave the
-list only when you clear them.
 
 Everything above works with nothing installed on the other end and nothing listening. The rest of
 this file is about the other end.
