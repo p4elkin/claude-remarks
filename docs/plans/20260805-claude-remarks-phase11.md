@@ -159,7 +159,7 @@ marked.
 | 3 | Take the tag chip row out of the input popup | complete |
 | 4 | Take the Severity submenu out of the shared menu | complete |
 | 5 | Delete the tag and severity fields | complete |
-| 6 | Check whether the internal-API subtraction can leave the build file | not started |
+| 6 | Check whether the internal-API subtraction can leave the build file | complete |
 | 7 | Real descriptions on the six toolbar buttons | not started |
 | 8 | The asksForAnswer flag, and the function that sets it | not started |
 | 9 | The shared menu gets Publish and Ask for an Answer | not started |
@@ -476,11 +476,11 @@ popup must `Disposer.register(popup, pane)`.
 **Files:**
 - Modify: `build.gradle.kts` (the `pluginVerification` block's `failureLevel` line and the comment above it)
 
-- [ ] remove `- FailureLevel.INTERNAL_API_USAGES` from the `failureLevel` expression, leaving the experimental subtraction alone
-- [ ] run `./gradlew verifyPlugin` and read the report
-- [ ] if it passes, delete the two comment paragraphs that describe `SegmentedButton.component` as the one internal usage — the chip row that caused it is gone
-- [ ] if it fails, put the subtraction back and rewrite the comment to name what the verifier actually found, rather than leaving it describing a usage that no longer exists
-- [ ] run `./gradlew verifyPluginProjectConfiguration` - must pass before task 7
+- [x] remove `- FailureLevel.INTERNAL_API_USAGES` from the `failureLevel` expression, leaving the experimental subtraction alone
+- [x] run `./gradlew verifyPlugin` and read the report
+- [x] if it passes, delete the two comment paragraphs that describe `SegmentedButton.component` as the one internal usage — the chip row that caused it is gone
+- [x] if it fails, put the subtraction back and rewrite the comment to name what the verifier actually found, rather than leaving it describing a usage that no longer exists (not needed — the run passed with zero internal-API usages)
+- [x] run `./gradlew verifyPluginProjectConfiguration` - must pass before task 7
 
 ### Task 7: Real descriptions on the six toolbar buttons
 

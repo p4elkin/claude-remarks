@@ -142,8 +142,8 @@ internal fun setOwnerOnly(path: Path, mode: String) {
     // fileAttributesViewOrNull is kotlin.io.path from the Kotlin standard library, @InlineOnly, with
     // no @ExperimentalPathApi and so no @OptIn — this removes internal-API exposure entirely rather
     // than trading one internal call (com.intellij.util.io.PosixFilePermissionsUtil, marked
-    // @ApiStatus.Internal) for another. The repository already carries one accepted internal-API
-    // usage; a second is not free.
+    // @ApiStatus.Internal) for another. Since phase 11 the repository carries no accepted
+    // internal-API usage at all, so this would have been the only one.
     path.fileAttributesViewOrNull<PosixFileAttributeView>()
         ?.setPermissions(PosixFilePermissions.fromString(mode))
 }

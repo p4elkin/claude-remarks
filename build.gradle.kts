@@ -45,25 +45,21 @@ intellijPlatform {
     }
 
     pluginVerification {
-        // The verifier's own conclusion is "Compatible. 1 usage of internal API". The one usage is
-        // SegmentedButton.component, whose getter carries @get:ApiStatus.Internal, reached from
-        // RemarkInputPanel so that Enter submits while focus sits on the tag chip row. The interface
-        // exposes no public way to the Swing component, so the alternatives were to lose that key or
-        // to accept this. Without the line below the Gradle plugin's default failure levels turn the
-        // note into a failed build, so `verifyPlugin` exits non-zero on a plugin the verifier itself
-        // calls compatible.
+        // INTERNAL_API_USAGES used to be subtracted here too, for SegmentedButton.component, reached
+        // from the tag chip row in RemarkInputPanel. Phase 11 deleted the chip row, so that usage is
+        // gone and the subtraction went with it. The verifier now reports no internal API usage at
+        // all, which is why a new one would fail the build again rather than pass unnoticed. Keep it
+        // that way: if a future change needs an internal API, weigh it as its own decision instead of
+        // reviving this subtraction.
         //
-        // What this costs: a future internal-API use is no longer reported either. If that getter is
-        // ever replaced by a public one, delete this block rather than growing it.
-        //
-        // EXPERIMENTAL_API_USAGES is subtracted for a second, separate reason: the markdown preview.
+        // EXPERIMENTAL_API_USAGES is subtracted for the markdown preview.
         // MarkdownHtmlPanel.getBrowserPipe(), getProject() and getVirtualFile() each carry
         // @ApiStatus.Experimental, and preview/PreviewRemarkExtension.kt calls all three. The pipe is
         // the only way a plugin can hear what the person selected in the rendered preview, and the
         // interface exposes no non-experimental route to it — getBrowserPipe() IS the published
         // route, the alternative being the panel's PREVIEW_BROWSER user-data key, which sits on an
         // @ApiStatus.Internal class and would be worse. So the choice was to drop the preview remark
-        // feature or to accept this, the same trade already accepted once for SegmentedButton.
+        // feature or to accept this.
         //
         // What this costs: a future experimental-API use is no longer reported either. If those
         // getters ever lose the annotation, delete this half of the expression.
@@ -71,6 +67,6 @@ intellijPlatform {
         // MarkdownBrowserPreviewExtension itself carries @ApiStatus.Obsolete, and that needs no
         // subtraction at all: the verifier has no processor for obsolete API and the Gradle plugin
         // has no matching failure level.
-        failureLevel = FailureLevel.ALL - FailureLevel.INTERNAL_API_USAGES - FailureLevel.EXPERIMENTAL_API_USAGES
+        failureLevel = FailureLevel.ALL - FailureLevel.EXPERIMENTAL_API_USAGES
     }
 }
