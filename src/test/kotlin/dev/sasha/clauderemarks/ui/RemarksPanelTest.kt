@@ -15,11 +15,14 @@ import dev.sasha.clauderemarks.editor.RemarkGutter
 import dev.sasha.clauderemarks.review.WaitingReviewService
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
+import dev.sasha.clauderemarks.store.answer
 import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.markRemarksRead
+import dev.sasha.clauderemarks.store.recordAnswer
 import dev.sasha.clauderemarks.store.setRemarkBucket
 import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.io.File
+import javax.swing.tree.DefaultMutableTreeNode
 
 /**
  * The panel, not just the nodes it builds. RemarksTreeTest only ever looks at the node model, so
@@ -328,6 +331,69 @@ class RemarksPanelTest : BasePlatformTestCase() {
         val event = TestActionEvent.createTestEvent(action)
         action.update(event)
         return event.presentation.isEnabled
+    }
+
+    /**
+     * The refresh resolves answers as well as remarks now. Nothing in RemarksTreeTest can catch the
+     * panel forgetting the second half: it builds the node model directly and never runs a refresh.
+     */
+    fun testAnAnswerGetsARowAtTheTopOfTheTree() {
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
+        recordAnswer(project, answer(id = "a-1", remarkId = remark.id!!, path = "A.kt"))
+
+        val panel = panel()
+
+        // the Answers group, its one row, the file group, its one row
+        assertEquals(4, panel.tree.rowCount)
+        val first = panel.tree.getPathForRow(0).lastPathComponent as DefaultMutableTreeNode
+        assertEquals(ANSWERS_KEY, (first.userObject as GroupNode).key)
+    }
+
+    /**
+     * Delete on an answer row went through remarkNodesUnder, which returns remark rows only, so it
+     * did nothing at all and said nothing. Exactly the failure that function's own KDoc warns about.
+     */
+    fun testDeletingASelectedAnswerRowRemovesTheAnswer() {
+        recordAnswer(project, answer(id = "a-1", remarkId = "r-1", path = "A.kt"))
+        val panel = panel()
+        panel.tree.setSelectionRow(1)
+
+        panel.deleteSelected()
+        settleInvocationQueue()
+
+        assertTrue(RemarkStore.getInstance(project).allAnswers().isEmpty())
+    }
+
+    /**
+     * An answer is never published, and it falls out that way rather than being special-cased:
+     * selectedIds() reads remark rows only, so Publish Selected greys itself out on an answer row.
+     */
+    fun testSelectingAnAnswerRowLeavesPublishSelectedWithNothingToSend() {
+        recordAnswer(project, answer(id = "a-1", remarkId = "r-1", path = "A.kt"))
+        val panel = panel()
+        panel.tree.setSelectionRow(1)
+
+        assertEquals(emptyList<String>(), panel.selectedIds())
+    }
+
+    /**
+     * The double-click decision, without a real popup: showing one needs a window, and which of the
+     * two things a double click does is the part that can be wrong.
+     */
+    fun testADoubleClickReadsAnAnswerRowAndStillNavigatesFromARemarkRow() {
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
+        recordAnswer(
+            project,
+            answer(id = "a-1", remarkId = remark.id!!, path = "A.kt", markdown = "because two threads write it"),
+        )
+        val panel = panel()
+
+        panel.tree.setSelectionRow(1)
+        assertEquals("because two threads write it", panel.selectedAnswerRow()?.markdown)
+
+        // Row 3 is the remark under its file group, below the two answer rows.
+        panel.tree.setSelectionRow(3)
+        assertNull(panel.selectedAnswerRow())
     }
 
     fun testTheBannerIsHiddenWhenNoReviewIsWaiting() {

@@ -40,14 +40,17 @@ import dev.sasha.clauderemarks.review.rejectWaitingReview
 import dev.sasha.clauderemarks.store.REMARKS_CHANGED
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.RemarksListener
+import dev.sasha.clauderemarks.store.ResolvedAnswer
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import dev.sasha.clauderemarks.store.clearAllRemarks
 import dev.sasha.clauderemarks.store.clearHandedOverRemarks
+import dev.sasha.clauderemarks.store.deleteAnswer
 import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.store.fileForStoredPath
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.resolveAll
+import dev.sasha.clauderemarks.store.resolveAnswers
 import java.awt.BorderLayout
 import java.awt.Component
 import javax.swing.Icon
@@ -71,6 +74,18 @@ internal fun selectRowForPopup(tree: JTree, x: Int, y: Int) {
     val path = tree.getPathForLocation(x, y) ?: return
     if (!tree.isPathSelected(path)) tree.addSelectionPath(path)
 }
+
+/**
+ * Everything one refresh resolved, carried back from the read action as one value.
+ *
+ * A pair of lists rather than two read actions, because the two views have to agree: a remark row
+ * says "answered" exactly when the Answers group holds an answer naming it, and two separate
+ * resolves could land either side of a store change and disagree for one frame.
+ */
+private data class ResolvedRows(
+    val remarks: List<ResolvedRemark>,
+    val answers: List<ResolvedAnswer>,
+)
 
 class RemarksToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -172,7 +187,9 @@ class RemarksPanel(
     fun refresh() {
         // resolveAll reads Documents, which needs a read lock and can touch disk, so it runs off
         // the EDT. coalesceBy drops an older run so a slow result cannot overwrite a newer one.
-        ReadAction.nonBlocking<List<ResolvedRemark>> { resolveAll(project) }
+        ReadAction.nonBlocking<ResolvedRows> {
+            ResolvedRows(resolveAll(project), resolveAnswers(project))
+        }
             .expireWith(parent)
             .coalesceBy(this)
             .finishOnUiThread(ModalityState.defaultModalityState()) { rows ->
@@ -183,7 +200,7 @@ class RemarksPanel(
                 // open any file that holds a remark.
                 val wasSelected = selectionKeys()
                 val wasCollapsed = collapsedGroups()
-                (tree.model as DefaultTreeModel).setRoot(buildTreeRoot(rows))
+                (tree.model as DefaultTreeModel).setRoot(buildTreeRoot(rows.remarks, rows.answers))
                 expandAll()
                 recollapse(wasCollapsed)
                 restoreSelection(wasSelected)
@@ -287,10 +304,17 @@ class RemarksPanel(
     private fun selectionKeys(): Set<String> =
         tree.selectionPaths.orEmpty().mapNotNull { keyOf(it.lastPathComponent) }.toSet()
 
-    /** A remark row is its id, a group row is its key. The root is invisible and never a row. */
+    /**
+     * A remark row is its id, an answer row is its own id, a group row is its key. The root is
+     * invisible and never a row.
+     *
+     * A remark id and an answer id are both random uuids, so the two cannot collide, and a selection
+     * of either kind survives a rebuild the same way.
+     */
     private fun keyOf(component: Any?): String? =
         when (val user = (component as? DefaultMutableTreeNode)?.userObject) {
             is RemarkNode -> user.id
+            is AnswerNode -> user.id
             is GroupNode -> user.key
             else -> null
         }
@@ -353,12 +377,36 @@ class RemarksPanel(
     }
 
     /** A selected group node counts as all its rows; see remarkNodesUnder in RemarksTree.kt. */
-    private fun selectedNodes(): List<RemarkNode> =
-        remarkNodesUnder(
-            tree.selectionPaths.orEmpty().mapNotNull { it.lastPathComponent as? DefaultMutableTreeNode }
-        )
+    private fun selectedNodes(): List<RemarkNode> = remarkNodesUnder(selectedTreeNodes())
 
+    /** The same for answer rows; selecting the Answers group counts as selecting every answer. */
+    private fun selectedAnswerNodes(): List<AnswerNode> = answerNodesUnder(selectedTreeNodes())
+
+    private fun selectedTreeNodes(): List<DefaultMutableTreeNode> =
+        tree.selectionPaths.orEmpty().mapNotNull { it.lastPathComponent as? DefaultMutableTreeNode }
+
+    /**
+     * The answer row the selection is *on*, or null when it is on anything else.
+     *
+     * Not selectedAnswerNodes().firstOrNull(): that also answers for a selected Answers group, and
+     * a double click on a group row is an expand, not a request to open one of its children.
+     *
+     * Internal, not private, so RemarksPanelTest can drive the double-click decision without a real
+     * popup appearing: showing one needs a window, and the decision is the part that can be wrong.
+     */
+    internal fun selectedAnswerRow(): AnswerNode? =
+        selectedTreeNodes().firstNotNullOfOrNull { it.userObject as? AnswerNode }
+
+    /**
+     * Double click. On an answer row it reads the answer instead of navigating: an answer row points
+     * at code, but the thing a person wants from it is the answer, and a double click that silently
+     * did nothing is exactly the failure remarkNodesUnder's own KDoc warns about.
+     */
     private fun navigateToSelected() {
+        selectedAnswerRow()?.let {
+            showAnswerPopup(project, it.markdown)
+            return
+        }
         val node = selectedNodes().firstOrNull() ?: return
         val root = projectRoot(project) ?: return
         // fileForStoredPath, not findRelativeFile: it makes the isAncestor check the resolver and
@@ -374,23 +422,39 @@ class RemarksPanel(
 
     /**
      * Deleting the rows you picked out asks nothing: you selected them and then pressed Delete,
-     * which is not silent. Selecting a group node — a file or a bucket — is the other case. It
-     * stands for every row under it, and on a collapsed node that is an unknown number of remarks
-     * nobody has published yet. That one asks, the same way Clear All does.
+     * which is not silent. Selecting a group node — a file, a bucket, or the Answers group — is the
+     * other case. It stands for every row under it, and on a collapsed node that is an unknown
+     * number of rows nobody has published yet. That one asks, the same way Clear All does.
+     *
+     * Answer rows go through deleteAnswer and remark rows through deleteRemark, and a selection can
+     * hold both. Without the answer half, Delete on an answer row would do nothing at all, with no
+     * message — remarkNodesUnder returns remark rows only.
+     *
+     * Internal, not private, so RemarksPanelTest can press Delete without a keystroke.
      */
-    private fun deleteSelected() {
+    internal fun deleteSelected() {
         val nodes = selectedNodes()
-        if (nodes.isEmpty()) return
-        val pickedOut = tree.selectionPaths.orEmpty()
-            .count { (it.lastPathComponent as? DefaultMutableTreeNode)?.userObject is RemarkNode }
-        if (nodes.size > pickedOut && !confirmDelete(nodes.size)) return
+        val answers = selectedAnswerNodes()
+        val total = nodes.size + answers.size
+        if (total == 0) return
+        val pickedOut = tree.selectionPaths.orEmpty().count {
+            val user = (it.lastPathComponent as? DefaultMutableTreeNode)?.userObject
+            user is RemarkNode || user is AnswerNode
+        }
+        if (total > pickedOut && !confirmDelete(total)) return
         nodes.forEach { deleteRemark(project, it.id) }
+        answers.forEach { deleteAnswer(project, it.id) }
     }
 
+    /**
+     * "row", not "remark": the selection can cover answer rows as well now, and a dialog that
+     * counted both while naming only one would be telling the person something untrue about what
+     * is about to go.
+     */
     private fun confirmDelete(count: Int): Boolean =
         Messages.showYesNoDialog(
             project,
-            "Delete $count remark${plural(count)} under the selection? " +
+            "Delete $count row${plural(count)} under the selection? " +
                 "This cannot be undone.",
             "Delete Claude Remarks",
             Messages.getWarningIcon(),

@@ -172,7 +172,7 @@ marked.
 | 16 | batchCarries on the published batch service | complete |
 | 17 | The answer endpoint action and AnswerReceipt | complete |
 | 18 | The fetch action loses its session requirement | complete |
-| 19 | The Answers group in the tree | not started |
+| 19 | The Answers group in the tree | complete |
 | 20 | The answer's gutter icon | not started |
 | 21 | The markdown popup | not started |
 | 22 | Clearing, the history file and the confirmation dialogs | not started |
@@ -652,12 +652,12 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/ui/RemarksToolWindowFactory.kt` (`refresh` so it resolves answers too, `deleteSelected`, `navigateToSelected`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksTreeTest.kt`, `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksPanelTest.kt`
 
-- [ ] write the tests: the Answers group is first and above General, it appears only when an answer exists, its rows are sorted newest first, a row carries the answer's first line, and a tree with answers and no buckets still has no bucket level
-- [ ] write the test that a marked remark's row says `asks` with no answer and `answered` with one
-- [ ] add `AnswerNode` and the Answers group to `buildTreeRoot`, keyed on a bare word that cannot collide with `file:` or `bucket:`
-- [ ] add the grey `asks` and `answered` suffix to the remark row, beside the `published` and `read` words — text and not a new icon, because the icon axis already carries status
-- [ ] make `deleteSelected` handle answer rows and `navigateToSelected` open the popup instead of navigating when the selected row is one
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest' --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest'` - must pass before task 20
+- [x] write the tests: the Answers group is first and above General, it appears only when an answer exists, its rows are sorted newest first, a row carries the answer's first line, and a tree with answers and no buckets still has no bucket level
+- [x] write the test that a marked remark's row says `asks` with no answer and `answered` with one
+- [x] add `AnswerNode` and the Answers group to `buildTreeRoot`, keyed on a bare word that cannot collide with `file:` or `bucket:`
+- [x] add the grey `asks` and `answered` suffix to the remark row, beside the `published` and `read` words — text and not a new icon, because the icon axis already carries status
+- [x] make `deleteSelected` handle answer rows and `navigateToSelected` open the popup instead of navigating when the selected row is one
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest' --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest'` - must pass before task 20
 
 ### Task 20: The answer's gutter icon
 

@@ -1,12 +1,15 @@
 package dev.sasha.clauderemarks.ui
 
 import dev.sasha.clauderemarks.anchor.AnchorResult
+import dev.sasha.clauderemarks.model.AnswerState
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
+import dev.sasha.clauderemarks.store.ResolvedAnswer
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import javax.swing.tree.DefaultMutableTreeNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -466,6 +469,151 @@ class RemarksTreeTest {
         assertEquals(null, bucketDropTarget(null))
     }
 
+    // ---- the Answers group ----
+
+    /**
+     * Above General, above the buckets, above the files. The answer that just arrived is the whole
+     * reason to look at the tree, so it is the first thing on it.
+     */
+    @Test
+    fun `the Answers group is first, above General`() {
+        val root = buildTreeRoot(
+            listOf(row(path = "", id = "r-1"), row(path = "src/Foo.kt", id = "r-2")),
+            listOf(answerRow(id = "a-1")),
+        )
+
+        val keys = (0 until root.childCount)
+            .map { ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).key }
+
+        assertEquals(listOf(ANSWERS_KEY, GENERAL_KEY, "file:src/Foo.kt"), keys)
+        assertEquals("Answers", (child(root, 0).userObject as GroupNode).label)
+    }
+
+    /** Nobody who has never received an answer gets an empty group wrapped around their tree. */
+    @Test
+    fun `the Answers group appears only when an answer exists`() {
+        val root = buildTreeRoot(listOf(row(id = "r-1")), emptyList())
+
+        assertEquals(1, root.childCount)
+        assertEquals("file:src/Foo.kt", (child(root, 0).userObject as GroupNode).key)
+    }
+
+    /**
+     * Newest first, which is a different order from every other group in the tree. Deliberate: the
+     * answer you just received is the one you want to read.
+     */
+    @Test
+    fun `answer rows are sorted newest first`() {
+        val root = buildTreeRoot(
+            emptyList(),
+            listOf(
+                answerRow(id = "a-old", answeredAt = 100L),
+                answerRow(id = "a-new", answeredAt = 300L),
+                answerRow(id = "a-middle", answeredAt = 200L),
+            ),
+        )
+
+        assertEquals(listOf("a-new", "a-middle", "a-old"), answerIdsUnder(root, 0))
+    }
+
+    @Test
+    fun `an answer row carries the answer's first line, its position and its file name`() {
+        val node = answerNode(
+            answerRow(markdown = "because two threads write it\n\nand the second one wins")
+        )
+
+        assertEquals("5-7", node.position)
+        assertEquals("because two threads write it", node.firstLine)
+        assertEquals("Foo.kt", node.fileName)
+    }
+
+    /** A leading blank line, or a body that opens with a heading, both read well this way. */
+    @Test
+    fun `an answer row's first line skips leading blank lines`() {
+        assertEquals("# The short answer", answerNode(answerRow(markdown = "\n\n# The short answer\nmore")).firstLine)
+    }
+
+    /**
+     * An answer to a general remark has no file, so there is no position to print and no file name
+     * to print beside it — the same way `isAboutNoFile` already handles the remark itself.
+     */
+    @Test
+    fun `an answer to a general remark has no position and no file name`() {
+        val node = answerNode(answerRow(path = "", result = AnchorResult.Exact(0, 0)))
+
+        assertEquals("", node.position)
+        assertEquals("", node.fileName)
+    }
+
+    @Test
+    fun `an orphaned answer says so, the same way a remark row does`() {
+        assertEquals("5-7 (orphaned)", answerNode(answerRow(result = AnchorResult.Orphaned(4, 6))).position)
+    }
+
+    /**
+     * Somebody who has never used a bucket must still get root then file then remark, with the
+     * Answers group added on top and no bucket level appearing from nowhere.
+     */
+    @Test
+    fun `a tree with answers and no buckets still has no bucket level`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt")),
+            listOf(answerRow(id = "a-1")),
+        )
+
+        assertEquals(2, root.childCount)
+        val file = child(root, 1)
+        assertEquals("Foo.kt", (file.userObject as GroupNode).label)
+        assertTrue((file.getChildAt(0) as DefaultMutableTreeNode).userObject is RemarkNode)
+    }
+
+    /** An answer row is an AnswerNode, so Publish Selected and the toggle take nothing from it. */
+    @Test
+    fun `selecting the Answers group gives no remark rows and every answer row`() {
+        val root = buildTreeRoot(listOf(row(id = "r-1")), listOf(answerRow(id = "a-1"), answerRow(id = "a-2")))
+        val group = listOf(child(root, 0))
+
+        assertEquals(emptyList<RemarkNode>(), remarkNodesUnder(group))
+        assertEquals(listOf("a-1", "a-2"), answerNodesUnder(group).map { it.id })
+    }
+
+    @Test
+    fun `the Answers group is not a drop target`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt", bucket = "auth refactor")),
+            listOf(answerRow(id = "a-1")),
+        )
+        val answers = child(root, 0)
+
+        assertEquals(ANSWERS_KEY, (answers.userObject as GroupNode).key)
+        assertEquals(null, bucketDropTarget(answers))
+        assertEquals(null, bucketDropTarget(child(answers, 0)))
+    }
+
+    // ---- the asks / answered word on a remark row ----
+
+    @Test
+    fun `a marked remark's row says asks with no answer and answered with one`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", asksForAnswer = true), row(id = "r-2", asksForAnswer = true)),
+            listOf(answerRow(id = "a-1", remarkId = "r-2")),
+        )
+        val rows = (0 until root.childCount).flatMap { group ->
+            val node = child(root, group)
+            (0 until node.childCount).mapNotNull { (node.getChildAt(it) as DefaultMutableTreeNode).userObject as? RemarkNode }
+        }.associateBy { it.id }
+
+        assertEquals("asks", asksLabel(rows.getValue("r-1")))
+        assertEquals("answered", asksLabel(rows.getValue("r-2")))
+    }
+
+    /** An unmarked remark says nothing, whether or not something answered it anyway. */
+    @Test
+    fun `an unmarked remark's row says neither word`() {
+        assertNull(asksLabel(remarkNode(row(asksForAnswer = false))))
+        assertNull(asksLabel(remarkNode(row(asksForAnswer = false), hasAnswer = true)))
+    }
+
     /** Two top-level groups: "(no bucket)" first, then "auth refactor". */
     private fun bucketedTree() = buildTreeRoot(
         listOf(
@@ -489,6 +637,13 @@ class RemarksTreeTest {
         }
     }
 
+    private fun answerIdsUnder(root: DefaultMutableTreeNode, index: Int): List<String> {
+        val group = root.getChildAt(index) as DefaultMutableTreeNode
+        return (0 until group.childCount).map {
+            ((group.getChildAt(it) as DefaultMutableTreeNode).userObject as AnswerNode).id
+        }
+    }
+
     private fun row(
         path: String = "src/Foo.kt",
         id: String = "r-1",
@@ -499,6 +654,7 @@ class RemarksTreeTest {
         commit: String? = null,
         startColumn: Int = 0,
         endColumn: Int = 0,
+        asksForAnswer: Boolean = false,
     ) = ResolvedRemark(
         RemarkState().also {
             it.id = id
@@ -508,6 +664,35 @@ class RemarksTreeTest {
             it.text = text
             it.status = status
             it.bucket = bucket
+            it.commit = commit
+            it.asksForAnswer = asksForAnswer
+        },
+        result,
+        startColumn,
+        endColumn,
+    )
+
+    /** The same builder shape as [row], for the answers half of a rebuild. */
+    private fun answerRow(
+        id: String = "a-1",
+        remarkId: String = "r-1",
+        path: String = "src/Foo.kt",
+        markdown: String = "because two threads write it",
+        answeredAt: Long = 0L,
+        result: AnchorResult = AnchorResult.Exact(4, 6),
+        commit: String? = null,
+        startColumn: Int = 0,
+        endColumn: Int = 0,
+    ) = ResolvedAnswer(
+        AnswerState().also {
+            it.id = id
+            it.remarkId = remarkId
+            it.question = "why is this synchronized?"
+            it.markdown = markdown
+            it.answeredAt = answeredAt
+            it.path = path
+            it.startLine = 4
+            it.endLine = 6
             it.commit = commit
         },
         result,
