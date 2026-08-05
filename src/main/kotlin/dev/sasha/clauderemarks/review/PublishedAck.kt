@@ -19,6 +19,19 @@ import java.util.UUID
 internal enum class PublishedAckOutcome { OK, ALREADY_READ, UNKNOWN_BATCH }
 
 /**
+ * What looking a remark up inside a published batch found. OK means the nonce names a remembered
+ * batch and that batch carried the remark. UNKNOWN_REMARK means the batch is real but never carried
+ * that id — a session answering a question it invented, or one from an older batch. UNKNOWN_BATCH
+ * covers both a nonce this plugin never recorded and one that fell off the remembered sixteen, the
+ * same two cases [PublishedAckOutcome.UNKNOWN_BATCH] covers.
+ *
+ * This is a separate enum from [PublishedAckOutcome] rather than a shared one because the two
+ * answers have different shapes: an acknowledgement can be ALREADY_READ, which a lookup can never
+ * be, and a lookup can be UNKNOWN_REMARK, which an acknowledgement can never be.
+ */
+internal enum class BatchLookup { OK, UNKNOWN_REMARK, UNKNOWN_BATCH }
+
+/**
  * One published batch: what it carried, which waiting review it answered if any, and who said they
  * read it. Kept after it is acknowledged, not removed — that is what lets a second session be told
  * who got there first instead of being told the batch is unknown.
@@ -118,6 +131,22 @@ internal class PublishedBatchService {
         val now = System.currentTimeMillis()
         batches[index] = batch.copy(readBy = session, readAt = now)
         return PublishedAckAnswer(PublishedAckOutcome.OK, batch.ids.size) to batch
+    }
+
+    /**
+     * Whether a remembered batch carried this remark, for the `answer` action to check before it
+     * stores anything.
+     *
+     * **This reads and returns, and changes nothing.** It never stamps `readBy` the way
+     * [acknowledge] does, and it never drops the batch. Answering a question must not consume the
+     * batch, for two reasons: the batch still has to be acknowledgeable through `published-read`
+     * afterwards, and several marked remarks in one batch each get their own answer, so the same
+     * nonce is looked up once per answer.
+     */
+    @Synchronized
+    internal fun batchCarries(nonce: String, remarkId: String): BatchLookup {
+        val batch = batches.firstOrNull { it.nonce == nonce } ?: return BatchLookup.UNKNOWN_BATCH
+        return if (remarkId in batch.ids) BatchLookup.OK else BatchLookup.UNKNOWN_REMARK
     }
 
     /**

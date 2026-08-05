@@ -169,7 +169,7 @@ marked.
 | 13 | AnswerState and the answers list in the store | complete |
 | 14 | recordAnswer and deleteAnswer, and the new guard | complete |
 | 15 | StoredAnchor, and resolving an answer against its file | complete |
-| 16 | batchCarries on the published batch service | not started |
+| 16 | batchCarries on the published batch service | complete |
 | 17 | The answer endpoint action and AnswerReceipt | not started |
 | 18 | The fetch action loses its session requirement | not started |
 | 19 | The Answers group in the tree | not started |
@@ -612,10 +612,10 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/review/PublishedAck.kt` (add `BatchLookup` and `PublishedBatchService.batchCarries` beside `acknowledge`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/review/PublishedAckTest.kt`
 
-- [ ] write the tests: a known nonce carrying the remark answers OK, a known nonce not carrying it answers UNKNOWN_REMARK, an unknown nonce answers UNKNOWN_BATCH
-- [ ] write the test that `batchCarries` is non-destructive — a `published-read` after any number of `batchCarries` calls still answers `ok`
-- [ ] add the `BatchLookup` enum and the `@Synchronized batchCarries`, which reads and returns and never stamps `readBy`
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.PublishedAckTest'` - must pass before task 17
+- [x] write the tests: a known nonce carrying the remark answers OK, a known nonce not carrying it answers UNKNOWN_REMARK, an unknown nonce answers UNKNOWN_BATCH
+- [x] write the test that `batchCarries` is non-destructive — a `published-read` after any number of `batchCarries` calls still answers `ok`
+- [x] add the `BatchLookup` enum and the `@Synchronized batchCarries`, which reads and returns and never stamps `readBy`
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.PublishedAckTest'` - must pass before task 17
 
 ### Task 17: The answer endpoint action and AnswerReceipt
 

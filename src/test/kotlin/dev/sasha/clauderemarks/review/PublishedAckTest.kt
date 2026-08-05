@@ -229,6 +229,91 @@ class PublishedAckTest : BasePlatformTestCase() {
         assertEquals(shown.toString(), 1, shown.size)
     }
 
+    /**
+     * The lookup the `answer` action does before it stores anything: the nonce names a remembered
+     * batch, and that batch carried the remark being answered.
+     */
+    fun testALookupOfARemarkItsBatchCarriesAnswersOk() {
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val b = addRemark(project, "B.kt", LINES, 0..0, "another note")
+        val service = PublishedBatchService.getInstance(project)
+        val nonce = service.record(listOf(a.id!!, b.id!!))
+
+        assertEquals(BatchLookup.OK, service.batchCarries(nonce, a.id!!))
+        assertEquals(BatchLookup.OK, service.batchCarries(nonce, b.id!!))
+    }
+
+    /**
+     * A real batch that never carried this id: a session answering a question it invented, or one
+     * from an older batch. That is a different refusal from an unknown nonce, and the endpoint says
+     * so with a different status.
+     */
+    fun testALookupOfARemarkItsBatchDoesNotCarryAnswersUnknownRemark() {
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val b = addRemark(project, "B.kt", LINES, 0..0, "another note")
+        val service = PublishedBatchService.getInstance(project)
+        val nonce = service.record(listOf(a.id!!))
+
+        assertEquals(BatchLookup.UNKNOWN_REMARK, service.batchCarries(nonce, b.id!!))
+    }
+
+    fun testALookupAgainstANonceNothingRecordedAnswersUnknownBatch() {
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val service = PublishedBatchService.getInstance(project)
+
+        assertEquals(BatchLookup.UNKNOWN_BATCH, service.batchCarries("does-not-exist", a.id!!))
+    }
+
+    /**
+     * A batch that fell off the remembered sixteen answers UNKNOWN_BATCH too, the same way
+     * `acknowledge` does — the two are the same two cases behind one word.
+     */
+    fun testALookupAgainstABatchPushedOutOfTheRememberedSixteenAnswersUnknownBatch() {
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val service = PublishedBatchService.getInstance(project)
+        val nonces = (0 until 17).map { service.record(listOf(a.id!!)) }
+
+        assertEquals(BatchLookup.UNKNOWN_BATCH, service.batchCarries(nonces.first(), a.id!!))
+        assertEquals(BatchLookup.OK, service.batchCarries(nonces[1], a.id!!))
+    }
+
+    /**
+     * A lookup must not consume the batch. Several marked remarks in one batch each get their own
+     * answer, so the same nonce is looked up once per answer, and the batch still has to be
+     * acknowledgeable through published-read afterwards. If batchCarries ever stamped readBy the way
+     * acknowledge does, the acknowledgement below would come back ALREADY_READ instead of OK.
+     */
+    fun testALookupNeverConsumesTheBatch() {
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val service = PublishedBatchService.getInstance(project)
+        val nonce = service.record(listOf(a.id!!))
+
+        repeat(3) { service.batchCarries(nonce, a.id!!) }
+        service.batchCarries(nonce, "not-in-this-batch")
+        val answer = reportPublishedRead(project, nonce, "s1")
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertEquals(PublishedAckOutcome.OK, answer.outcome)
+        assertEquals(1, answer.remarks)
+        assertEquals(RemarkStatus.READ, statusOf(a.id!!))
+    }
+
+    /**
+     * The other direction of the same rule: an acknowledgement does not hide the batch from a later
+     * lookup. An agent that acknowledges the batch it read and only then answers its questions is
+     * the ordinary order, not an anomaly.
+     */
+    fun testAnAcknowledgedBatchIsStillFoundByALookup() {
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val service = PublishedBatchService.getInstance(project)
+        val nonce = service.record(listOf(a.id!!))
+
+        reportPublishedRead(project, nonce, "s1")
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertEquals(BatchLookup.OK, service.batchCarries(nonce, a.id!!))
+    }
+
     private fun statusOf(id: String) = RemarkStore.getInstance(project).all().single { it.id == id }.status
 
     private companion object {
