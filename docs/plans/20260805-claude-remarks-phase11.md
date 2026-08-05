@@ -168,7 +168,7 @@ marked.
 | 12 | The regression test for the answers list annotation | complete |
 | 13 | AnswerState and the answers list in the store | complete |
 | 14 | recordAnswer and deleteAnswer, and the new guard | complete |
-| 15 | StoredAnchor, and resolving an answer against its file | not started |
+| 15 | StoredAnchor, and resolving an answer against its file | complete |
 | 16 | batchCarries on the published batch service | not started |
 | 17 | The answer endpoint action and AnswerReceipt | not started |
 | 18 | The fetch action loses its session requirement | not started |
@@ -600,11 +600,11 @@ popup must `Disposer.register(popup, pane)`.
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/store/AnswerResolveTest.kt`
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/ResolveAllTest.kt`
 
-- [ ] write `AnswerResolveTest`: an answer resolves against a real file, follows the code when twenty lines are inserted above it, orphans when the code is gone, and an answer with an empty path resolves as itself the way a general remark does
-- [ ] add the pure `StoredAnchor` value type and `resolveStored`, carrying the `fileForStoredPath` check, the `Document` lookup, the general case and the five refusals
-- [ ] rewrite `resolveOne` to build a `StoredAnchor` and call `resolveStored`, and confirm `ResolveAllTest` still passes unchanged — the remark path must behave identically
-- [ ] add `resolveAnswers(project)` reading `allAnswers()` and returning a resolved row per answer, with `ProgressManager.checkCanceled()` once per answer the way `resolveAll` already does
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.AnswerResolveTest' --tests 'dev.sasha.clauderemarks.store.ResolveAllTest'` - must pass before task 16
+- [x] write `AnswerResolveTest`: an answer resolves against a real file, follows the code when twenty lines are inserted above it, orphans when the code is gone, and an answer with an empty path resolves as itself the way a general remark does
+- [x] add the pure `StoredAnchor` value type and `resolveStored`, carrying the `fileForStoredPath` check, the `Document` lookup, the general case and the five refusals
+- [x] rewrite `resolveOne` to build a `StoredAnchor` and call `resolveStored`, and confirm `ResolveAllTest` still passes unchanged — the remark path must behave identically
+- [x] add `resolveAnswers(project)` reading `allAnswers()` and returning a resolved row per answer, with `ProgressManager.checkCanceled()` once per answer the way `resolveAll` already does
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.AnswerResolveTest' --tests 'dev.sasha.clauderemarks.store.ResolveAllTest'` - must pass before task 16
 
 ### Task 16: batchCarries on the published batch service
 

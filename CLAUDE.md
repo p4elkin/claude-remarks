@@ -276,7 +276,7 @@ published file" and "The Shared Review Session", for the whole design.
    `RemarkStore`'s own mutators stay public, and `RemarkEdits.kt` sits in the same package, so
    nothing but this check keeps the claim true. A caller that reaches past the ten that change a
    remark mutates the store without telling the gutter or the tool window to redraw. The grep
-   allows through the one read-only method by name, `all()`, rather than listing the mutator names
+   allows through the two read-only methods by name, `all()` and `allAnswers()`, rather than listing the mutator names
    by hand: a hand-picked list has to be edited every time a mutator is added, and forgetting is
    silent — the guard keeps passing while it stops covering the new function. That is exactly
    what happened here: phase 5 added `setSeverity`/`setBucket`, and the old six-name list never
@@ -290,7 +290,7 @@ published file" and "The Shared Review Session", for the whole design.
 
    ```bash
    grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include='*.kt' \
-     | grep -v RemarkEdits.kt | grep -v "\.all()"   # must be empty
+     | grep -v RemarkEdits.kt | grep -v "\.all()" | grep -v "\.allAnswers()"   # must be empty
    ```
 
    The glob has to be quoted. Unquoted, zsh expands `*.kt` itself before `grep` ever runs; with no
