@@ -23,6 +23,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.anchor.AnchorResult
 import dev.sasha.clauderemarks.anchor.resolveAnchor
+import dev.sasha.clauderemarks.anchor.resolveWithPhrase
 import dev.sasha.clauderemarks.store.REMARKS_CHANGED
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.RemarksListener
@@ -110,11 +111,11 @@ class RemarkGutter(private val project: Project) : Disposable {
                     track(editor.document)
                     // The tool window resolves against open documents, so opening one can change
                     // what it should show, not only what the gutter should show. Only when the file
-                    // actually holds a remark, though: track() already scheduled this document's
-                    // own sync, and the broadcast costs a full-project resolveAll plus a resolve
-                    // over every other tracked document, which would make plain file navigation
-                    // quadratic in the number of remarks.
-                    if (hasRemarks(editor.document)) notifyRemarksChanged(project)
+                    // actually holds a remark or an answer, though: track() already scheduled this
+                    // document's own sync, and the broadcast costs a full-project resolveAll plus a
+                    // resolve over every other tracked document, which would make plain file
+                    // navigation quadratic in the number of remarks.
+                    if (hasRemarksOrAnswers(editor.document)) notifyRemarksChanged(project)
                 }
 
                 override fun editorReleased(event: EditorFactoryEvent) {
@@ -128,12 +129,12 @@ class RemarkGutter(private val project: Project) : Disposable {
                         return
                     }
                     val document = editor.document
-                    val hadRemarks = hasRemarks(document)
+                    val hadRecords = hasRemarksOrAnswers(document)
                     val stillOpen = EditorFactory.getInstance()
                         .getEditors(document, project)
                         .any { it !== editor }
                     if (!stillOpen) drop(document)
-                    if (hadRemarks) notifyRemarksChanged(project)
+                    if (hadRecords) notifyRemarksChanged(project)
                 }
             },
             this,
@@ -200,14 +201,24 @@ class RemarkGutter(private val project: Project) : Disposable {
     }
 
     /**
-     * Whether the store holds a remark for this document's file. EDT, which already carries read
-     * access, so no explicit read action is needed for the path lookup.
+     * Whether the store holds a remark **or an answer** for this document's file. EDT, which already
+     * carries read access, so no explicit read action is needed for the path lookup.
+     *
+     * Both record types, and the name says both. An answer deliberately outlives the remark it
+     * answers, so a file can hold answers and no remark at all — and while this asked only about
+     * remarks, such a file missed the refresh on every editor opening and closing, leaving the tool
+     * window's resolved positions and orphan labels stale until something else published
+     * REMARKS_CHANGED.
      */
-    private fun hasRemarks(document: Document): Boolean {
+    private fun hasRemarksOrAnswers(document: Document): Boolean {
         val file = FileDocumentManager.getInstance().getFile(document) ?: return false
         val root = projectRoot(project) ?: return false
         val path = VfsUtilCore.getRelativePath(file, root) ?: return false
-        return RemarkStore.getInstance(project).all().any { it.path == path }
+        // Both calls are written out in full rather than through one `val store =`, so guard 3's
+        // grep sees them and lets them through by name. A local would hide them from it, which is
+        // the first of the two bypasses that guard names rather than patches.
+        return RemarkStore.getInstance(project).all().any { it.path == path } ||
+            RemarkStore.getInstance(project).allAnswers().any { it.path == path }
     }
 
     /** EDT. */
@@ -258,13 +269,32 @@ class RemarkGutter(private val project: Project) : Disposable {
                 )
             }
 
-        // The same filter and the same resolve, against the answer's own stored anchor. An answer to
-        // a general remark carries an empty path, so it never matches a real document's relative
-        // path and produces no placement anywhere — the same way a general remark already does not.
+        // The same filter, against the answer's own stored anchor. An answer to a general remark
+        // carries an empty path, so it never matches a real document's relative path and produces
+        // no placement anywhere — the same way a general remark already does not.
         val answers = RemarkStore.getInstance(project).allAnswers()
             .filter { it.path == path && it.id != null }
             .map { answer ->
-                val result = resolveAnchor(anchorOf(storedAnchorOf(answer)), lines)
+                val stored = storedAnchorOf(answer)
+                // resolveWithPhrase, which is the resolve resolveStored runs for the tool window,
+                // and NOT the line-only resolveAnchor. The two views must land an answer on the
+                // same lines: for a sub-line answer whose stored line no longer matches but whose
+                // phrase is still a few lines away, the phrase-aware resolve relocates and the
+                // line-only one orphans — so the row moved while the icon stayed behind, and
+                // clicking the icon opened the right answer from the wrong line.
+                //
+                // Called directly rather than through resolveStored, for the reason
+                // AnswerReceipt.freshAnchorFor gives: the file, the Document and its split lines are
+                // already in hand here, and resolveStored would look both up again and split the
+                // text a second time. Its no-file case is already decided by the filter above, which
+                // no empty path can pass.
+                val result = resolveWithPhrase(
+                    anchorOf(stored),
+                    lines,
+                    stored.phrase,
+                    stored.startColumn,
+                    stored.endColumn,
+                ).result
                 AnswerPlacement(
                     id = answer.id!!,
                     question = answer.question.orEmpty(),

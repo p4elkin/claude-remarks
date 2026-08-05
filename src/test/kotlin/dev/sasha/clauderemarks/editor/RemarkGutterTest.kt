@@ -1,14 +1,20 @@
 package dev.sasha.clauderemarks.editor
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.impl.DocumentMarkupModel
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.anchor.hashLines
+import dev.sasha.clauderemarks.store.REMARKS_CHANGED
 import dev.sasha.clauderemarks.store.RemarkStore
+import dev.sasha.clauderemarks.store.RemarksListener
+import dev.sasha.clauderemarks.store.ResolvedAnswer
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.answer
 import dev.sasha.clauderemarks.store.deleteAnswer
@@ -17,8 +23,10 @@ import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.recordAnswer
 import dev.sasha.clauderemarks.store.remark
+import dev.sasha.clauderemarks.store.resolveAnswers
 import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The service, driven against a real markup model. The renderer already has its own tests in
@@ -216,6 +224,69 @@ class RemarkGutterTest : BasePlatformTestCase() {
         assertEquals(0, answerIconCount())
     }
 
+    /**
+     * The gutter and the tool window must land one answer on one position.
+     *
+     * A sub-line answer whose stored line no longer matches, but whose phrase is still a few lines
+     * away, is where the two used to disagree: the tool window resolves through resolveStored, which
+     * looks for the phrase and relocates, while the gutter ran the line-only resolve and orphaned at
+     * the stale line. The row then moved and the icon stayed behind, and clicking the icon opened
+     * the right answer from the wrong source line.
+     *
+     * The two sides are compared against each other, not against a literal, so this keeps holding
+     * whatever the shared resolve decides. The literal is asserted once as well, so a resolve that
+     * quietly stopped relocating could not make both sides agree on the stale line.
+     */
+    fun testAnAnswerWhosePhraseMovedIsOnTheSameLineInTheGutterAsInTheTree() {
+        openFoo()
+        gutter.start()
+        settleInvocationQueue()
+
+        recordAnswer(project, answerWhosePhraseMoved())
+        settleInvocationQueue()
+
+        val fromTree = ReadAction.compute<ResolvedAnswer, RuntimeException> {
+            resolveAnswers(project).single()
+        }
+        assertEquals(2..2, fromTree.result.startLine..fromTree.result.endLine)
+        assertEquals(fromTree.result.startLine..fromTree.result.endLine, answerIconLines())
+    }
+
+    /**
+     * An answer outlives the remark it answers, so a file can hold answers and no remark at all.
+     * Opening such a file has to broadcast the refresh the tool window's resolved positions and
+     * orphan labels depend on, exactly as opening a file holding a remark does.
+     *
+     * Counted rather than asserted as exactly one: the project-level RemarkGutter is running in this
+     * same fixture and publishes the same broadcast. It runs the same production code, so with the
+     * predicate reading remarks only, neither instance publishes and this reads zero.
+     */
+    fun testOpeningAFileThatHoldsOnlyAnAnswerBroadcastsTheRefresh() {
+        gutter.start()
+        recordAnswer(project, answerOnBeta())
+        settleInvocationQueue()
+        val heard = countRemarksChanged()
+
+        openFoo()
+        settleInvocationQueue()
+
+        assertTrue("opening an answers-only file should refresh the tree", heard.get() > 0)
+    }
+
+    /** The same on the way out: closing an answers-only file broadcasts the refresh too. */
+    fun testClosingAFileThatHoldsOnlyAnAnswerBroadcastsTheRefresh() {
+        val file = openFoo()
+        gutter.start()
+        recordAnswer(project, answerOnBeta())
+        settleInvocationQueue()
+        val heard = countRemarksChanged()
+
+        FileEditorManager.getInstance(project).closeFile(file)
+        settleInvocationQueue()
+
+        assertTrue("closing an answers-only file should refresh the tree", heard.get() > 0)
+    }
+
     /** Deleting the answer takes its icon away, the same way deleting a remark takes the remark's. */
     fun testDeletingTheAnswerTakesItsIconAway() {
         openFoo()
@@ -321,7 +392,8 @@ class RemarkGutterTest : BasePlatformTestCase() {
         }
     }
 
-    private fun openFoo() {
+    /** The opened file is returned, so a test that has to close it again can name it. */
+    private fun openFoo(): VirtualFile {
         val onDisk = File(project.basePath!!, "Foo.kt")
         onDisk.parentFile.mkdirs()
         onDisk.writeText(LINES.joinToString("\n"))
@@ -330,6 +402,15 @@ class RemarkGutterTest : BasePlatformTestCase() {
         // file VFS already knows about.
         file.refresh(false, false)
         myFixture.openFileInEditor(file)
+        return file
+    }
+
+    /** Counts REMARKS_CHANGED broadcasts from the moment it is called until the test ends. */
+    private fun countRemarksChanged(): AtomicInteger {
+        val heard = AtomicInteger()
+        project.messageBus.connect(testRootDisposable)
+            .subscribe(REMARKS_CHANGED, RemarksListener { heard.incrementAndGet() })
+        return heard
     }
 
     /**
@@ -375,6 +456,22 @@ class RemarkGutterTest : BasePlatformTestCase() {
         startLine = 1,
         endLine = 1,
         textHash = hashLines(listOf("beta")),
+    )
+
+    /**
+     * An answer stored against the first line, whose stored hash matches nothing in the file and
+     * which carries no context, so the line resolve orphans on it — while its phrase, "gamma", sits
+     * on the third line, where the phrase-aware resolve finds it. This is the one shape where a
+     * line-only resolve and a phrase-aware one give different lines for the same record.
+     */
+    private fun answerWhosePhraseMoved() = answer(
+        path = "Foo.kt",
+        startLine = 0,
+        endLine = 0,
+        startColumn = 0,
+        endColumn = 5,
+        textHash = hashLines(listOf("nothing in this file looks like this")),
+        phrase = "gamma",
     )
 
     /** How many distinct answers have an icon, collapsed the same way [iconCount] is. */

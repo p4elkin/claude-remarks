@@ -2600,6 +2600,23 @@ listed in Known Issues rather than treated as solved. `AnswerGutterIconRenderer`
 `hashCode` include the markdown, not just the id and the tooltip: the markdown is not painted, but it
 is what the click opens, and an answer replaced in place must open the second body.
 
+⚠️ The gutter resolves an answer with `resolveWithPhrase`, the same phrase-aware resolve
+`resolveStored` runs for the tool window — not with the line-only `resolveAnchor`. The two views have
+to land one answer on one position. A sub-line answer whose stored line no longer matches, but whose
+phrase is still a few lines away, is where they came apart: the phrase-aware resolve relocates the
+row while the line-only one orphans the icon on the stale line, so the tree moved and the icon stayed
+behind, and clicking that icon opened the right answer from the wrong source line. It calls
+`resolveWithPhrase` directly rather than going through `resolveStored`, for the same reason
+`AnswerReceipt.freshAnchorFor` does: the file, the `Document` and its split lines are already in hand,
+and the no-file case is already decided by the path filter above it.
+
+The gutter's *remark* placements deliberately still run the line-only `resolveAnchor`, so a remark
+whose phrase moved can still be drawn where the tree does not point. That is older than the answers
+and it was left alone when the answer path was fixed, because moving it too would trade away rule 3
+in `apply()` — an orphaned remark keeps the live highlighter the platform has been moving exactly
+while you type — and that trade has never been argued anywhere. "Two Positions On Screen, And When
+They Differ" below is the section to extend if it ever is.
+
 `RemarkGutter.apply()` runs one loop over a private `GutterEntry` (key, start line, end line,
 orphaned, renderer) rather than carrying a second copy of itself for answers. The two rules that loop
 enforces — keep a live highlighter when the fresh resolve orphans, repaint rather than rebuild when
