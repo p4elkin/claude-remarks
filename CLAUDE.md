@@ -40,7 +40,7 @@ phase 8's fuller list. Section 13 of `docs/plans/completed/20260803-claude-remar
 all of them, split by which group needs the second machine. **Most of phase 9's hand checks have
 still not been run.** Task 1 of its plan owed three of its own, in its own checkboxes: whether the
 plugin loads at all, whether a sub-line remark's markers land in the right place, and whether the
-grey row and faded gutter icon are visible — the gating run above answers the first two of those, for
+grey row and the checked gutter icon are visible — the gating run above answers the first two of those, for
 sub-line markers specifically, but not the third. Group five owes checks nobody can automate at all:
 whether the Claude Remarks item appears in a running preview's right-click menu, whether a real
 browser selection reaches Kotlin as the right character range, and whether the plugin still loads
@@ -64,7 +64,9 @@ prompt, with an eight-line header on top, to one file under `~/.claude-remarks/`
 skill can read on its own, with no review ever started; a balloon says how many remarks and files.
 A published remark stays in the list rather than disappearing, and it still draws at full strength,
 because it is still the work the next publish carries — only once an agent confirms it read the
-remark does the row turn gray and the icon fade. So Publish Selected can send a published remark
+remark does the row turn gray and its icon become the checked one. The icon says which of the three
+states a remark is in — a note when written, the Publish buttons' own upload mark once handed over, a
+check once read — while the colour says only whether it is still the work. So Publish Selected can send a published remark
 again if the paste went to the wrong place, and publishing a remark that was already read hands it
 over again the same way. Clearing (Clear Handed Over, Clear All) archives to a history file in the IDE configuration
 directory before it removes anything. If a Claude Code skill has started a review, a banner reads

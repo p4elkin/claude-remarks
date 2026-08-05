@@ -1,7 +1,6 @@
 package dev.sasha.clauderemarks.ui
 
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.SimpleTextAttributes
 import dev.sasha.clauderemarks.model.RemarkStatus
 import javax.swing.Icon
@@ -10,25 +9,40 @@ import javax.swing.Icon
  * How a remark's status looks, read by both the gutter icon and the tool window tree, so that a
  * future change to how a status looks happens in one place instead of the two it used to.
  *
- * The rule the whole file encodes, since the meaning of the three states changed: what the next
- * publish carries is what still reads as work outstanding. Publish Unread takes everything that is
- * not `READ`, so `PUBLISHED` is still work, exactly like `PENDING` — only `READ` is done. The look
- * follows that split, not the old PENDING/everything-else line: `PENDING` and `PUBLISHED` both draw
- * at full strength with regular text, `READ` alone is faded and grey.
+ * Two channels carrying two different facts, because the three states do not collapse onto one axis.
+ *
+ * **Colour answers "is this still the work", which has two answers.** Publish Unread takes everything
+ * that is not `READ`, so `PUBLISHED` goes in the next publish exactly like `PENDING` does, and only
+ * `READ` is done. So `PENDING` and `PUBLISHED` share regular text and `READ` alone is grey. This is
+ * not the old PENDING/everything-else line, which greyed a published remark as though it were
+ * finished when the next publish would carry it again.
+ *
+ * **The icon answers "which state is it", which has three answers.** One icon each, telling the
+ * three steps in order: written, sent, confirmed. Making the icon follow the colour's two-way split
+ * instead would leave `PENDING` and `PUBLISHED` indistinguishable at the start of a row, which is
+ * the whole reason a row carries an icon.
+ *
+ * `PUBLISHED` deliberately borrows the toolbar button's own icon, so the mark on the row is the
+ * picture of the action that put it there.
  *
  * `ui/RemarkActions.kt`'s `remarkChangeActions` already sits in `ui/` while being shared by the
  * gutter and the tree, so this file follows the same placement rather than inventing a new one.
  */
 object RemarkStatusLook {
 
-    private val FULL_ICON: Icon = AllIcons.General.Note
+    /** Written, and handed nowhere yet. */
+    private val PENDING_ICON: Icon = AllIcons.General.Note
 
-    /** Faded: an agent said it actually read this one. 0.25 is what the old READ_ICON already used. */
-    private val READ_ICON: Icon = IconLoader.getTransparentIcon(AllIcons.General.Note, 0.25f)
+    /** Handed to a channel that cannot confirm a read — the same icon the Publish buttons carry. */
+    private val PUBLISHED_ICON: Icon = AllIcons.Actions.Upload
+
+    /** An agent said it actually read this one. The only state that is done. */
+    private val READ_ICON: Icon = AllIcons.Actions.Checked
 
     /** The icon for [status], the same instance the gutter and the tree row both draw. */
     fun icon(status: RemarkStatus): Icon = when (status) {
-        RemarkStatus.PENDING, RemarkStatus.PUBLISHED -> FULL_ICON
+        RemarkStatus.PENDING -> PENDING_ICON
+        RemarkStatus.PUBLISHED -> PUBLISHED_ICON
         RemarkStatus.READ -> READ_ICON
     }
 

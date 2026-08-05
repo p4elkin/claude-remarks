@@ -1055,15 +1055,25 @@ changed whenever its status is not already `PUBLISHED`, which is what makes that
 `removeHandedOver` removes everything that is not `PENDING`, so Clear Handed Over takes `PUBLISHED`
 and `READ` remarks together, archiving them to the history file first exactly as before.
 
-**The tree row and the gutter icon draw two appearances, not three, since the meaning of the three
-states changed under them.** Publish Unread now takes everything that is not `READ`, so `PUBLISHED`
-is still outstanding work, exactly like `PENDING` — only `READ` is done. The visual line follows
-that: it now sits between `READ` and the other two, not between `PENDING` and the other two the way
-it used to. `PENDING` and `PUBLISHED` both draw `AllIcons.General.Note` at full strength with
-`REGULAR_ATTRIBUTES`; `READ` alone draws it at 25% opacity (`IconLoader.getTransparentIcon`, the
-same value the old `READ` icon already used) with `GRAYED_ATTRIBUTES`. The word at the end of the
-row, "published" or "read", still marks the one distinction colour no longer carries: whether a
-`PUBLISHED` remark has been confirmed read yet. `ui/RemarkStatusLook.kt` is the one place that
+**The tree row and the gutter icon carry two channels, because the three states do not collapse onto
+one axis.** Colour answers "is this still the work", which has two answers: Publish Unread takes
+everything that is not `READ`, so `PUBLISHED` goes in the next publish exactly like `PENDING`, and
+only `READ` is done. So `PENDING` and `PUBLISHED` share `REGULAR_ATTRIBUTES` and `READ` alone is
+`GRAYED_ATTRIBUTES`. That line sits between `READ` and the other two, not between `PENDING` and the
+other two the way it used to, which greyed a published remark as though it were finished when the
+next publish would carry it again.
+
+The icon answers "which state is it", which has three answers, so there is one icon each, telling
+the three steps in order: `AllIcons.General.Note` for `PENDING`, written and handed nowhere;
+`AllIcons.Actions.Upload` for `PUBLISHED`, the same icon the Publish buttons carry, so the mark on
+the row is the picture of the action that put it there; and `AllIcons.Actions.Checked` for `READ`.
+Making the icon follow colour's two-way split instead was tried first and undone: it left `PENDING`
+and `PUBLISHED` indistinguishable at the start of a row, which is the whole reason a row carries an
+icon. No opacity is used any more, so `IconLoader.getTransparentIcon` is gone from this path.
+
+The word at the end of the
+row, "published" or "read", still marks the same distinction a second way, in text.
+`ui/RemarkStatusLook.kt` is the one place that
 decides the icon and the text attributes for a status; `editor/RemarkGutterIcon.kt`'s
 `RemarkGutterIconRenderer.getIcon` and `ui/RemarksTree.kt`'s `RemarkTreeRenderer` both read it,
 instead of each carrying its own copy of the rule the way they did before. The tree row also now
@@ -1854,9 +1864,10 @@ function and a second, nearly identical scan.
 Nothing in phase 6 writes to `RemarkHistory.kt`'s archive when a review is answered. Moving the
 remarks to `READ` (`markRemarksRead`, once an agent acknowledges reading them — over either of the
 two routes described under "The three states, and why published is not read" above, since phase 10)
-is the only state change: remarks stay in the active list, now drawn gray and faded — a `PUBLISHED`
-remark, unlike a `READ` one, still draws at full strength; see "The three states, and why published
-is not read" above — and are only archived later when Clear Handed Over or Clear All runs. `docs/ideas.md`'s notes on
+is the only state change: remarks stay in the active list, drawn grey and carrying the checked icon —
+a `PUBLISHED` remark, unlike a `READ` one, still draws with regular text and carries the upload icon
+instead; see "The three states, and why published is not read" above — and are only archived later
+when Clear Handed Over or Clear All runs. `docs/ideas.md`'s notes on
 revdiff recommended a second durable copy of the payload alongside the ephemeral handoff file,
 matching revdiff's own two-tier design. That was declined: revdiff needs the second tier because its
 handoff file is deleted by the calling script's `trap` the moment its own process is about to exit.
