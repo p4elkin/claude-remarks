@@ -111,7 +111,7 @@ class RemarkGutterIconRenderer(
 private fun menuFor(project: Project, editor: Editor, id: String): ActionGroup = DefaultActionGroup(
     DumbAwareAction.create("Edit Remark") {
         val stored = RemarkStore.getInstance(project).all().firstOrNull { it.id == id } ?: return@create
-        openRemarkEdit(project, editor, id, stored.text.orEmpty(), stored.tag)
+        openRemarkEdit(project, editor, id, stored.text.orEmpty())
     },
     // The same group the tree's right-click menu uses. Here the id is fixed: it is the remark whose
     // icon was clicked.

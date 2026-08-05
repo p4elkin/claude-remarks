@@ -11,7 +11,6 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.projectRoot
@@ -141,12 +140,11 @@ class AddRemarkActionTest : BasePlatformTestCase() {
             editor.selectionModel.selectionStart,
             editor.selectionModel.selectionEnd,
         )
-        addRemark(project, "Foo.kt", editor.document.text.split("\n"), lines, "why beta?", RemarkTag.BUG)
+        addRemark(project, "Foo.kt", editor.document.text.split("\n"), lines, "why beta?")
 
         val stored = RemarkStore.getInstance(project).all().single()
         assertEquals(1, stored.startLine)
         assertEquals(2, stored.endLine)
-        assertEquals(RemarkTag.BUG, stored.tag)
         assertEquals("2-3", remarkNode(resolveAll(project).single()).position)
     }
 

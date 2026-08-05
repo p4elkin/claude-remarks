@@ -148,7 +148,7 @@ class AddPreviewRemarkAction : AnAction() {
         val columns = selectedColumns(document, range.startOffset, range.endOffsetExclusive)
         val stampWhenOpened = document.modificationStamp
 
-        val popup = buildInputPopup(project, "Add Claude Remark", "", null) { input ->
+        val popup = buildInputPopup(project, "Add Claude Remark", "") { typed ->
             // The same guard openNewRemarkInput makes, for the same reason: the range was taken
             // when the box opened and the text is read now, seconds later. If the file changed in
             // between, those offsets describe characters the person never chose.
@@ -157,7 +157,7 @@ class AddPreviewRemarkAction : AnAction() {
                 return@buildInputPopup
             }
             addRemark(
-                project, path, document.text.split("\n"), lines, input.text, input.tag,
+                project, path, document.text.split("\n"), lines, typed,
                 startColumn = columns.first, endColumn = columns.second,
             )
         }

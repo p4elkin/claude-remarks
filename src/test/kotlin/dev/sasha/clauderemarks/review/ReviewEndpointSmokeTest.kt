@@ -87,7 +87,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     fun testAnAcknowledgementOfASentReviewAnswersOk() {
-        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note")
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
 
@@ -198,7 +198,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      * been answered reads the file rather than being told to keep polling" can be pinned at all.
      */
     fun testAFetchMarksNothingReadAndLeavesTheReviewAlone() {
-        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note")
         writePublished(identity(), publishedBody(reviewSession = "s1"))
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
@@ -340,7 +340,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      * invokeLater, the same as the ack action's.
      */
     fun testAPublishedReadForARecordedBatchAnswersOkAndMarksTheRemarksRead() {
-        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note")
         val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
 
         val sent = post(
@@ -361,7 +361,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      * twice: it is told already-read and who got there first.
      */
     fun testASecondPublishedReadForTheSameBatchAnswersAlreadyReadAndNamesTheFirstSession() {
-        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note")
         val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
         post(
             "/api/claude-remarks/published-read",

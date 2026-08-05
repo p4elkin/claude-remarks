@@ -156,7 +156,7 @@ marked.
 |---|---|---|
 | 1 | Stop printing the tag and the level in the published prompt | complete |
 | 2 | Stop showing the tag and the level in the tree, the gutter and the history file | complete |
-| 3 | Take the tag chip row out of the input popup | not started |
+| 3 | Take the tag chip row out of the input popup | complete |
 | 4 | Take the Severity submenu out of the shared menu | not started |
 | 5 | Delete the tag and severity fields | not started |
 | 6 | Check whether the internal-API subtraction can leave the build file | not started |
@@ -434,11 +434,11 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/store/RemarkStore.kt` (`RemarksState.editRemark` and `RemarkStore.edit`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarkInputPanelTest.kt`, `src/test/kotlin/dev/sasha/clauderemarks/action/AddRemarkActionTest.kt`
 
-- [ ] rewrite `RemarkInputPanelTest` so it checks the Enter, Shift+Enter and class-name bindings and nothing about chips
-- [ ] delete the chip row, its five constants and helpers, `selectedTag`, `tagChipsComponent` and the Alt binding loop, and collapse `RemarkInput` to a plain `String` returned by `remarkInputResult`
-- [ ] rewrite the placeholder text so it no longer promises `Alt+1-4 picks a tag`
-- [ ] drop the `tag` parameter from the four functions in `AddRemarkAction.kt`, from the three in `RemarkEdits.kt`, and from `editRemark`/`edit` in `RemarkStore.kt`, then fix every call site the compiler names
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkInputPanelTest' --tests 'dev.sasha.clauderemarks.action.AddRemarkActionTest'` - must pass before task 4
+- [x] rewrite `RemarkInputPanelTest` so it checks the Enter, Shift+Enter and class-name bindings and nothing about chips
+- [x] delete the chip row, its five constants and helpers, `selectedTag`, `tagChipsComponent` and the Alt binding loop, and collapse `RemarkInput` to a plain `String` returned by `remarkInputResult`
+- [x] rewrite the placeholder text so it no longer promises `Alt+1-4 picks a tag`
+- [x] drop the `tag` parameter from the four functions in `AddRemarkAction.kt`, from the three in `RemarkEdits.kt`, and from `editRemark`/`edit` in `RemarkStore.kt`, then fix every call site the compiler names
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkInputPanelTest' --tests 'dev.sasha.clauderemarks.action.AddRemarkActionTest'` - must pass before task 4
 
 ### Task 4: Take the Severity submenu out of the shared menu
 

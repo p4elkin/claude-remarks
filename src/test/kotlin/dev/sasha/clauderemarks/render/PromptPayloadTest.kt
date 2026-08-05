@@ -71,7 +71,7 @@ class CollectForPromptTest : BasePlatformTestCase() {
 
     fun testTheAnchoredLinesComeBackWithContextEitherSide() {
         writeFile("Foo.kt", (1..20).joinToString("\n") { "line $it" })
-        addRemark(project, "Foo.kt", (1..20).map { "line $it" }, 9..10, "why?", null)
+        addRemark(project, "Foo.kt", (1..20).map { "line $it" }, 9..10, "why?")
 
         val collected = collectForPrompt(project, resolveAll(project)).single()
 
@@ -87,7 +87,7 @@ class CollectForPromptTest : BasePlatformTestCase() {
 
     fun testContextIsClampedAtTheStartOfAFile() {
         writeFile("Foo.kt", "a\nb\nc\nd")
-        addRemark(project, "Foo.kt", listOf("a", "b", "c", "d"), 0..0, "why?", null)
+        addRemark(project, "Foo.kt", listOf("a", "b", "c", "d"), 0..0, "why?")
 
         val collected = collectForPrompt(project, resolveAll(project)).single()
 
@@ -96,7 +96,7 @@ class CollectForPromptTest : BasePlatformTestCase() {
     }
 
     fun testARemarkOnAMissingFileStillComesBack() {
-        addRemark(project, "NoSuchFile.kt", listOf("a"), 0..0, "why?", null)
+        addRemark(project, "NoSuchFile.kt", listOf("a"), 0..0, "why?")
 
         val collected = collectForPrompt(project, resolveAll(project)).single()
 
@@ -114,7 +114,7 @@ class CollectForPromptTest : BasePlatformTestCase() {
         writeFile("Foo.kt", (1..20).joinToString("\n") { "line $it" })
         // The anchor is captured from text the file does not hold, so neither the hash nor the
         // context can be found again and the resolve comes back orphaned — with the file readable.
-        addRemark(project, "Foo.kt", (1..20).map { "unrelated $it" }, 9..10, "why?", null)
+        addRemark(project, "Foo.kt", (1..20).map { "unrelated $it" }, 9..10, "why?")
 
         val collected = collectForPrompt(project, resolveAll(project)).single()
 
@@ -139,7 +139,7 @@ class CollectForPromptTest : BasePlatformTestCase() {
      *  surroundings twice, once as real code and once as capture-time context. */
     fun testAResolvedRemarkCarriesNoCaptureTimeContext() {
         writeFile("Foo.kt", (1..20).joinToString("\n") { "line $it" })
-        addRemark(project, "Foo.kt", (1..20).map { "line $it" }, 9..10, "why?", null)
+        addRemark(project, "Foo.kt", (1..20).map { "line $it" }, 9..10, "why?")
 
         val collected = collectForPrompt(project, resolveAll(project)).single()
 
@@ -155,8 +155,8 @@ class CollectForPromptTest : BasePlatformTestCase() {
     fun testSeveralRemarksInOneFileEachComeBackWithTheirOwnSlice() {
         writeFile("Foo.kt", (1..30).joinToString("\n") { "line $it" })
         val lines = (1..30).map { "line $it" }
-        addRemark(project, "Foo.kt", lines, 2..2, "one", null)
-        addRemark(project, "Foo.kt", lines, 20..20, "two", null)
+        addRemark(project, "Foo.kt", lines, 2..2, "one")
+        addRemark(project, "Foo.kt", lines, 20..20, "two")
 
         val collected = collectForPrompt(project, resolveAll(project))
 
@@ -209,7 +209,7 @@ class CollectForPromptTest : BasePlatformTestCase() {
         // The remark was written against the same line indented four, which is what makes the
         // stored columns 4 to 11 wrong for the file as it is now.
         addRemark(
-            project, "Moved.kt", listOf("    println(\"a\")"), 0..0, "why?", null,
+            project, "Moved.kt", listOf("    println(\"a\")"), 0..0, "why?",
             startColumn = 4, endColumn = 11,
         )
 

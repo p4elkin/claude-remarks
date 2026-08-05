@@ -47,8 +47,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
     fun testEveryFileGroupIsExpanded() {
         listOf("A.kt", "B.kt", "C.kt").forEach { path ->
-            addRemark(project, path, LINES, 0..0, "first note in $path", null)
-            addRemark(project, path, LINES, 1..1, "second note in $path", null)
+            addRemark(project, path, LINES, 0..0, "first note in $path")
+            addRemark(project, path, LINES, 1..1, "second note in $path")
         }
 
         val panel = panel()
@@ -59,7 +59,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
     }
 
     fun testTheSelectionSurvivesARefresh() {
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val panel = panel()
         panel.tree.setSelectionRow(1)
         assertEquals(listOf(remark.id), panel.selectedIds())
@@ -78,8 +78,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
      */
     fun testACollapsedFileGroupStaysCollapsedAcrossARefresh() {
         listOf("A.kt", "B.kt").forEach { path ->
-            addRemark(project, path, LINES, 0..0, "first note in $path", null)
-            addRemark(project, path, LINES, 1..1, "second note in $path", null)
+            addRemark(project, path, LINES, 0..0, "first note in $path")
+            addRemark(project, path, LINES, 1..1, "second note in $path")
         }
         val panel = panel()
         assertEquals(6, panel.tree.rowCount)
@@ -100,8 +100,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
      * removed a whole file's remarks with no question asked.
      */
     fun testAFileNodeStaysSelectedAsAFileNodeAcrossARefresh() {
-        addRemark(project, "A.kt", LINES, 0..0, "one", null)
-        addRemark(project, "A.kt", LINES, 1..1, "two", null)
+        addRemark(project, "A.kt", LINES, 0..0, "one")
+        addRemark(project, "A.kt", LINES, 1..1, "two")
         val panel = panel()
         panel.tree.setSelectionRow(0)
         assertEquals(2, panel.selectedIds().size)
@@ -127,7 +127,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
         val file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(onDisk)!!
         myFixture.openFileInEditor(file)
         val document = FileDocumentManager.getInstance().getDocument(file)!!
-        addRemark(project, "Reloaded.kt", LINES, 0..0, "a note", null)
+        addRemark(project, "Reloaded.kt", LINES, 0..0, "a note")
 
         // Built by hand, exactly as RemarkGutterTest does, so this test gets its own tracked set
         // instead of racing the project-level instance that a postStartupActivity would create.
@@ -160,8 +160,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
      * too. This pins that, and pins that a bucket node is one selection covering every row under it.
      */
     fun testABucketTreeIsFullyExpandedAndABucketNodeSelectsEveryRowUnderIt() {
-        val first = addRemark(project, "A.kt", LINES, 0..0, "one", null)
-        val second = addRemark(project, "B.kt", LINES, 0..0, "two", null)
+        val first = addRemark(project, "A.kt", LINES, 0..0, "one")
+        val second = addRemark(project, "B.kt", LINES, 0..0, "two")
         setRemarkBucket(project, listOf(first.id!!, second.id!!), "auth refactor")
 
         val panel = panel()
@@ -186,8 +186,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
      * assertion would pass either way.
      */
     fun testAFileGroupCollapsedInsideABucketStaysCollapsedAcrossARefresh() {
-        val first = addRemark(project, "A.kt", LINES, 0..0, "one", null)
-        val second = addRemark(project, "B.kt", LINES, 0..0, "two", null)
+        val first = addRemark(project, "A.kt", LINES, 0..0, "one")
+        val second = addRemark(project, "B.kt", LINES, 0..0, "two")
         setRemarkBucket(project, listOf(first.id!!, second.id!!), "auth refactor")
         val panel = panel()
         // bucket + two file groups + two rows
@@ -213,8 +213,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
      * With nothing selected every item was a silent no-op.
      */
     fun testARightClickSelectsTheRowUnderThePointer() {
-        addRemark(project, "A.kt", LINES, 0..0, "one", null)
-        addRemark(project, "A.kt", LINES, 1..1, "two", null)
+        addRemark(project, "A.kt", LINES, 0..0, "one")
+        addRemark(project, "A.kt", LINES, 1..1, "two")
         val panel = panel()
         panel.tree.clearSelection()
 
@@ -226,8 +226,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
     /** Adding, not replacing: right-clicking inside a multi-row selection must not collapse it. */
     fun testARightClickInsideAnExistingSelectionKeepsIt() {
-        addRemark(project, "A.kt", LINES, 0..0, "one", null)
-        addRemark(project, "A.kt", LINES, 1..1, "two", null)
+        addRemark(project, "A.kt", LINES, 0..0, "one")
+        addRemark(project, "A.kt", LINES, 1..1, "two")
         val panel = panel()
         panel.tree.setSelectionRows(intArrayOf(1, 2))
 
@@ -267,7 +267,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
         val panel = panel()
         assertEquals(0, panel.remarks().size)
 
-        addRemark(project, "A.kt", LINES, 0..0, "one", null)
+        addRemark(project, "A.kt", LINES, 0..0, "one")
         settleInvocationQueue()
 
         assertEquals(1, panel.remarks().size)
@@ -296,7 +296,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
      * grey the button out just when a person wants to hand the remarks over again.
      */
     fun testPublishUnreadStaysEnabledForAPublishedButUnreadRemark() {
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
         markRemarksPublished(project, listOf(remark.id!!))
         val panel = panel()
 
@@ -305,7 +305,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
     /** The other side of the same predicate: with everything read there is nothing left to publish. */
     fun testPublishUnreadIsDisabledOnceEveryRemarkIsRead() {
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
         markRemarksPublished(project, listOf(remark.id!!))
         markRemarksRead(project, listOf(remark.id!!))
         val panel = panel()

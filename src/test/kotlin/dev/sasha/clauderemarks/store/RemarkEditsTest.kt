@@ -3,7 +3,6 @@ package dev.sasha.clauderemarks.store
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.model.RemarkTag
 import java.io.File
 import java.nio.file.Files
 
@@ -33,7 +32,6 @@ class RemarkEditsTest : BasePlatformTestCase() {
             lines = listOf("alpha", "beta", "gamma", "delta"),
             range = 1..2,
             text = "why beta?",
-            tag = RemarkTag.QUESTION,
         )
 
         assertEquals(1, heard)
@@ -41,7 +39,6 @@ class RemarkEditsTest : BasePlatformTestCase() {
         assertEquals(1, stored.startLine)
         assertEquals(2, stored.endLine)
         assertEquals("why beta?", stored.text)
-        assertEquals(RemarkTag.QUESTION, stored.tag)
         assertEquals(RemarkStatus.PENDING, stored.status)
         assertNotNull(stored.id)
         assertNotNull(stored.textHash)
@@ -72,7 +69,6 @@ class RemarkEditsTest : BasePlatformTestCase() {
             lines = listOf("a", "b", "c", "d", "e", "f", "g"),
             range = 3..3,
             text = "note",
-            tag = null,
         )
 
         assertEquals(listOf("a", "b", "c"), splitContext(stored.contextBefore))
@@ -88,7 +84,6 @@ class RemarkEditsTest : BasePlatformTestCase() {
             lines = listOf("alpha", "beta", "gamma", "delta"),
             range = 1..1,
             text = "why beta?",
-            tag = null,
             startColumn = 1,
             endColumn = 3,
         )
@@ -104,7 +99,7 @@ class RemarkEditsTest : BasePlatformTestCase() {
     /** The wiring half of "a remark can be written about the whole change": no path, no line range
      *  beyond the whole-line sentinel, no textHash, no context — and it still publishes. */
     fun testAddingAGeneralRemarkStoresItWithNoPathAndPublishes() {
-        val stored = addGeneralRemark(project, "the whole change needs a second look", RemarkTag.QUESTION)
+        val stored = addGeneralRemark(project, "the whole change needs a second look")
 
         assertEquals(1, heard)
         assertNull(stored.path)
@@ -114,7 +109,6 @@ class RemarkEditsTest : BasePlatformTestCase() {
         assertNull(stored.contextBefore)
         assertNull(stored.contextAfter)
         assertEquals("the whole change needs a second look", stored.text)
-        assertEquals(RemarkTag.QUESTION, stored.tag)
         assertEquals(RemarkStatus.PENDING, stored.status)
         assertEquals(listOf(stored.id), RemarkStore.getInstance(project).all().map { it.id })
     }
@@ -124,13 +118,13 @@ class RemarkEditsTest : BasePlatformTestCase() {
     fun testAddingAGeneralRemarkInsideAGitRepositoryStampsTheHeadCommit() {
         writeGitHead(SHA)
 
-        assertEquals(SHA, addGeneralRemark(project, "note", null).commit)
+        assertEquals(SHA, addGeneralRemark(project, "note").commit)
     }
 
     fun testEditingARemarkPublishes() {
         val stored = addOne()
 
-        editRemark(project, stored.id!!, "changed", RemarkTag.BUG)
+        editRemark(project, stored.id!!, "changed")
 
         assertEquals(2, heard)
         assertEquals("changed", RemarkStore.getInstance(project).all().single().text)
@@ -139,7 +133,7 @@ class RemarkEditsTest : BasePlatformTestCase() {
     fun testEditingAnUnknownIdDoesNotPublish() {
         addOne()
 
-        editRemark(project, "no-such-id", "changed", null)
+        editRemark(project, "no-such-id", "changed")
 
         assertEquals(1, heard)
     }
@@ -312,7 +306,6 @@ class RemarkEditsTest : BasePlatformTestCase() {
         lines = listOf("alpha", "beta"),
         range = 0..0,
         text = "note",
-        tag = null,
     )
 
     /**

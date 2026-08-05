@@ -10,7 +10,6 @@ import dev.sasha.clauderemarks.anchor.phraseAt
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.model.RemarkTag
 import java.nio.file.Path
 import java.util.UUID
 
@@ -49,7 +48,6 @@ fun addRemark(
     lines: List<String>,
     range: IntRange,
     text: String,
-    tag: RemarkTag?,
     startColumn: Int = 0,
     endColumn: Int = 0,
 ): RemarkState {
@@ -62,7 +60,6 @@ fun addRemark(
         this.startColumn = startColumn
         this.endColumn = endColumn
         this.text = text
-        this.tag = tag
         this.createdAt = System.currentTimeMillis()
         this.textHash = anchor.textHash
         this.contextBefore = joinContext(anchor.contextBefore)
@@ -88,11 +85,10 @@ fun addRemark(
  * again. The commit stamp is still captured, the same as [addRemark], because it says what the
  * whole change was measured against even when no single file is named.
  */
-fun addGeneralRemark(project: Project, text: String, tag: RemarkTag?): RemarkState {
+fun addGeneralRemark(project: Project, text: String): RemarkState {
     val remark = RemarkState().apply {
         this.id = UUID.randomUUID().toString()
         this.text = text
-        this.tag = tag
         this.createdAt = System.currentTimeMillis()
         this.commit = project.basePath?.let { headCommit(Path.of(it)) }
     }
@@ -101,8 +97,8 @@ fun addGeneralRemark(project: Project, text: String, tag: RemarkTag?): RemarkSta
     return remark
 }
 
-fun editRemark(project: Project, id: String, text: String, tag: RemarkTag?) {
-    if (RemarkStore.getInstance(project).edit(id, text, tag)) notifyRemarksChanged(project)
+fun editRemark(project: Project, id: String, text: String) {
+    if (RemarkStore.getInstance(project).edit(id, text)) notifyRemarksChanged(project)
 }
 
 fun deleteRemark(project: Project, id: String) {

@@ -42,7 +42,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
         gutter.start()
         settleInvocationQueue()
 
-        addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
+        addRemark(project, "Foo.kt", LINES, 1..1, "why?")
         settleInvocationQueue()
 
         assertEquals(1, iconCount())
@@ -51,7 +51,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
     fun testDeletingTheLastRemarkTakesItsIconAway() {
         openFoo()
         gutter.start()
-        val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
+        val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?")
         settleInvocationQueue()
 
         deleteRemark(project, stored.id!!)
@@ -71,7 +71,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
      */
     fun testAnEditorAlreadyOpenWhenTheServiceStartsIsSeeded() {
         openFoo()
-        addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
+        addRemark(project, "Foo.kt", LINES, 1..1, "why?")
         settleInvocationQueue()
         val paintedByAnyoneElse = rawIconCount()
 
@@ -82,7 +82,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
     }
 
     fun testOpeningAFileAfterTheServiceStartedAlsoGetsIcons() {
-        addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
+        addRemark(project, "Foo.kt", LINES, 1..1, "why?")
         gutter.start()
         settleInvocationQueue()
 
@@ -95,7 +95,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
     /** An orphan keeps an icon at its stale lines. Losing it would lose the remark on screen. */
     fun testARemarkWhoseCodeIsGoneStillHasAnIcon() {
         openFoo()
-        addRemark(project, "Foo.kt", listOf("nothing", "like", "this", "file"), 1..1, "why?", null)
+        addRemark(project, "Foo.kt", listOf("nothing", "like", "this", "file"), 1..1, "why?")
         gutter.start()
         settleInvocationQueue()
 
@@ -111,7 +111,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
     fun testTheTooltipCarriesTheCommitFromTheStore() {
         writeGitHead(SHA)
         openFoo()
-        addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
+        addRemark(project, "Foo.kt", LINES, 1..1, "why?")
         gutter.start()
         settleInvocationQueue()
 
@@ -121,7 +121,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
 
     fun testAPublishedRemarkKeepsItsIcon() {
         openFoo()
-        val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
+        val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?")
         gutter.start()
         settleInvocationQueue()
 
@@ -161,7 +161,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
      */
     fun testAFileReloadedFromDiskGetsItsIconsResolvedAgain() {
         openFoo()
-        addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
+        addRemark(project, "Foo.kt", LINES, 1..1, "why?")
         gutter.start()
         settleInvocationQueue()
         val before = remarkHighlighters()
@@ -192,7 +192,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
      */
     fun testALineTypedInsideTheBlockDoesNotMoveTheIconBack() {
         openFoo()
-        addRemark(project, "Foo.kt", LINES, 1..2, "why?", null)
+        addRemark(project, "Foo.kt", LINES, 1..2, "why?")
         gutter.start()
         settleInvocationQueue()
         val beforeTyping = iconLines()

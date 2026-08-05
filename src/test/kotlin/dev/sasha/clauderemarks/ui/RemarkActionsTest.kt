@@ -47,7 +47,7 @@ class RemarkActionsTest : BasePlatformTestCase() {
      * clicks — it would set the severity on rows that are no longer selected.
      */
     fun testPressingASeverityItemActsOnTheIdsAtPressTime() {
-        val first = addRemark(project, "A.kt", listOf("a", "b"), 0..0, "one", null)
+        val first = addRemark(project, "A.kt", listOf("a", "b"), 0..0, "one")
         var wanted = emptyList<String>()
         val group = remarkChangeActions(project) { wanted }
         val must = (group.getChildren(null).filterIsInstance<ActionGroup>().single())

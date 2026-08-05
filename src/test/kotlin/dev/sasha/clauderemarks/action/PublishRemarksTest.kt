@@ -45,10 +45,10 @@ class PublishRemarksTest : BasePlatformTestCase() {
      * takes it again. Only a remark a review has actually acknowledged is left out.
      */
     fun testAPublishWithNoIdsTakesEveryRemarkThatIsNotRead() {
-        val pending = addRemark(project, "Foo.kt", LINES, 0..0, "still pending", null)
-        val published = addRemark(project, "Foo.kt", LINES, 1..1, "published but not read", null)
+        val pending = addRemark(project, "Foo.kt", LINES, 0..0, "still pending")
+        val published = addRemark(project, "Foo.kt", LINES, 1..1, "published but not read")
         markRemarksPublished(project, listOf(published.id!!))
-        val read = addRemark(project, "Foo.kt", LINES, 2..2, "already read", null)
+        val read = addRemark(project, "Foo.kt", LINES, 2..2, "already read")
         markRemarksPublished(project, listOf(read.id!!))
         markRemarksRead(project, listOf(read.id!!))
 
@@ -56,17 +56,17 @@ class PublishRemarksTest : BasePlatformTestCase() {
     }
 
     fun testAPublishWithIdsTakesExactlyThoseReadOnesIncluded() {
-        val read = addRemark(project, "Foo.kt", LINES, 0..0, "already read", null)
+        val read = addRemark(project, "Foo.kt", LINES, 0..0, "already read")
         markRemarksPublished(project, listOf(read.id!!))
         markRemarksRead(project, listOf(read.id!!))
-        addRemark(project, "Foo.kt", LINES, 1..1, "not selected", null)
+        addRemark(project, "Foo.kt", LINES, 1..1, "not selected")
 
         assertEquals(listOf(read.id), prepare(project, listOf(read.id!!)).ids)
     }
 
     fun testPublishSelectedTakesTheIdsItWasGivenEvenWhenTheyArePublished() {
-        val published = addRemark(project, "Foo.kt", LINES, 0..0, "already handed over", null)
-        addRemark(project, "Foo.kt", LINES, 1..1, "still waiting", null)
+        val published = addRemark(project, "Foo.kt", LINES, 0..0, "already handed over")
+        addRemark(project, "Foo.kt", LINES, 1..1, "still waiting")
         markRemarksPublished(project, listOf(published.id!!))
 
         assertEquals(listOf(published.id), prepare(project, listOf(published.id!!)).ids)
@@ -78,8 +78,8 @@ class PublishRemarksTest : BasePlatformTestCase() {
      * and publishing a single general remark said "across 1 file" with no file in sight.
      */
     fun testAGeneralRemarkIsNotCountedAsAFile() {
-        addGeneralRemark(project, "about the whole change", null)
-        addRemark(project, "Foo.kt", LINES, 0..0, "about one file", null)
+        addGeneralRemark(project, "about the whole change")
+        addRemark(project, "Foo.kt", LINES, 0..0, "about one file")
 
         val prepared = prepare(project, null)
 
@@ -88,7 +88,7 @@ class PublishRemarksTest : BasePlatformTestCase() {
     }
 
     fun testAPublishOfGeneralRemarksAloneCountsNoFilesAtAll() {
-        addGeneralRemark(project, "about the whole change", null)
+        addGeneralRemark(project, "about the whole change")
 
         assertEquals(0, prepare(project, null).files)
     }
@@ -170,7 +170,7 @@ class PublishRemarksTest : BasePlatformTestCase() {
      * to hand over again, and gating on PENDING would grey the action out for it.
      */
     fun testTheToolsMenuPublishStaysEnabledForAPublishedButUnreadRemark() {
-        val published = addRemark(project, "Foo.kt", LINES, 0..0, "published but not read", null)
+        val published = addRemark(project, "Foo.kt", LINES, 0..0, "published but not read")
         markRemarksPublished(project, listOf(published.id!!))
 
         assertTrue(updatedPresentation().isEnabled)
@@ -178,7 +178,7 @@ class PublishRemarksTest : BasePlatformTestCase() {
 
     /** The other side of the same predicate: with everything read there is nothing to publish. */
     fun testTheToolsMenuPublishIsDisabledOnceEveryRemarkIsRead() {
-        val read = addRemark(project, "Foo.kt", LINES, 0..0, "already read", null)
+        val read = addRemark(project, "Foo.kt", LINES, 0..0, "already read")
         markRemarksPublished(project, listOf(read.id!!))
         markRemarksRead(project, listOf(read.id!!))
 

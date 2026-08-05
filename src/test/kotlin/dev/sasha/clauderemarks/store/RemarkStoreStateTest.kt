@@ -152,15 +152,14 @@ class RemarkStoreStateTest {
     }
 
     @Test
-    fun `editing a remark changes its text and tag and marks the state as changed`() {
+    fun `editing a remark changes its text and marks the state as changed`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1", text = "old", tag = null))
         val before = state.modificationCount
 
-        assertTrue(state.editRemark("r-1", "new", RemarkTag.BUG))
+        assertTrue(state.editRemark("r-1", "new"))
 
         assertEquals("new", state.snapshot().single().text)
-        assertEquals(RemarkTag.BUG, state.snapshot().single().tag)
         assertTrue(state.modificationCount > before)
     }
 
@@ -170,7 +169,7 @@ class RemarkStoreStateTest {
         state.addRemark(remark(id = "r-1", text = "old"))
         val before = state.modificationCount
 
-        assertFalse(state.editRemark("no-such-id", "new", null))
+        assertFalse(state.editRemark("no-such-id", "new"))
 
         assertEquals("old", state.snapshot().single().text)
         assertEquals(before, state.modificationCount)
@@ -286,13 +285,12 @@ class RemarkStoreStateTest {
     fun `an edited remark survives the round trip through xml`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1", text = "old", tag = null))
-        state.editRemark("r-1", "new", RemarkTag.REFACTOR)
+        state.editRemark("r-1", "new")
         state.markPublished(setOf("r-1"))
 
         val restored = roundTrip(state).remarks.single()
 
         assertEquals("new", restored.text)
-        assertEquals(RemarkTag.REFACTOR, restored.tag)
         assertEquals(RemarkStatus.PUBLISHED, restored.status)
     }
 
@@ -497,11 +495,10 @@ class RemarkStoreStateTest {
         state.addRemark(remark(id = "r-1", text = "old", tag = null))
         val snapshot = state.snapshot()
 
-        state.editRemark("r-1", "new", RemarkTag.BUG)
+        state.editRemark("r-1", "new")
         state.markPublished(setOf("r-1"))
 
         assertEquals("old", snapshot.single().text)
-        assertNull(snapshot.single().tag)
         assertEquals(RemarkStatus.PENDING, snapshot.single().status)
     }
 
@@ -551,14 +548,17 @@ class RemarkStoreStateTest {
      * The race the deep copy closes, probed the same way the modification-count race below is: not
      * a deterministic reproduction, a bounded loop in which a bad pair may simply never appear.
      *
-     * `editRemark` writes `text` and then `tag`, both under the lock. A reader holding the live
-     * objects reads them at some later moment of its own, outside that lock, so it can catch the
-     * new text next to the old tag — a prompt rendered with an edit half applied, and no later pass
-     * fixes a prompt that already went to the clipboard. Proven by mutation: with `snapshot()` back
-     * to `remarks.toList()` this fails almost immediately.
+     * This used to pair `text` against `tag`, because `editRemark` wrote both. Phase 11 took the tag
+     * off a remark, so there is no second field left to catch half written, and the pair test would
+     * pass no matter what `snapshot()` did. What is still true, and is what the deep copy actually
+     * buys, is this: a remark a reader is holding must not change under it. A reader walks these
+     * objects on a pooled thread for as long as rendering a whole prompt takes, and a shallow copy
+     * hands it the live object, so the same field read twice comes back with two answers and the
+     * prompt is rendered from a remark that was never in one piece. Proven by mutation: with
+     * `snapshot()` back to `remarks.toList()` this fails almost immediately.
      */
     @Test(timeout = 5_000)
-    fun `a reader never sees an edit half applied`() {
+    fun `a remark inside a snapshot does not change under its reader`() {
         val state = RemarkStore.RemarksState()
         state.addRemark(remark(id = "r-1", text = "old", tag = null))
 
@@ -567,16 +567,19 @@ class RemarkStoreStateTest {
 
         val writer = Thread {
             while (System.nanoTime() < stopAt) {
-                state.editRemark("r-1", "new", RemarkTag.BUG)
-                state.editRemark("r-1", "old", null)
+                state.editRemark("r-1", "new")
+                state.editRemark("r-1", "old")
             }
         }
         val reader = Thread {
             while (System.nanoTime() < stopAt) {
                 val seen = state.snapshot().single()
-                val text = seen.text
-                val tag = seen.tag
-                if ((text == "new") != (tag == RemarkTag.BUG)) mixed.set("text=$text tag=$tag")
+                val first = seen.text
+                // A window for the writer to land an edit. With a shallow copy `seen` IS the live
+                // remark, so the second read comes back with the other text; with a deep copy the
+                // object the reader holds is its own and cannot move.
+                Thread.yield()
+                if (seen.text != first) mixed.set("text went from $first to ${seen.text}")
             }
         }
 
@@ -585,7 +588,7 @@ class RemarkStoreStateTest {
         writer.join()
         reader.join()
 
-        mixed.get()?.let { fail("a reader saw an edit half applied: $it") }
+        mixed.get()?.let { fail("a remark changed under the reader holding it: $it") }
     }
 
     /**

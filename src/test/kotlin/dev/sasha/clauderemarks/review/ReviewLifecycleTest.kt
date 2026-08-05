@@ -47,7 +47,7 @@ class ReviewLifecycleTest : BasePlatformTestCase() {
     /** The header carries the review it answers, per PublishRemarks.kt — this is the stamp itself. */
     fun testAnsweringAWaitingReviewRecordsWhatWasPublished() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
 
         val sentence = answerWaitingReview(project, "s1", listOf(remark.id!!))
 
@@ -107,8 +107,8 @@ class ReviewLifecycleTest : BasePlatformTestCase() {
      */
     fun testASecondPublishBeforeTheAcknowledgementIsNotMarkedRead() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        val delivered = addRemark(project, "A.kt", LINES, 0..0, "the batch the agent got", null)
-        val neverDelivered = addRemark(project, "B.kt", LINES, 0..0, "published after", null)
+        val delivered = addRemark(project, "A.kt", LINES, 0..0, "the batch the agent got")
+        val neverDelivered = addRemark(project, "B.kt", LINES, 0..0, "published after")
 
         answerWaitingReview(project, "s1", listOf(delivered.id!!))
         answerWaitingReview(project, "s1", listOf(neverDelivered.id!!))
@@ -122,7 +122,7 @@ class ReviewLifecycleTest : BasePlatformTestCase() {
     /** The phase's central decision, on the new path: only a `read` acknowledgement marks anything. */
     fun testNothingIsMarkedReadUntilTheAcknowledgement() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
 
         answerWaitingReview(project, "s1", listOf(remark.id!!))
 
@@ -166,7 +166,7 @@ class ReviewLifecycleTest : BasePlatformTestCase() {
 
     fun testRejectingLeavesEveryRemarkPending() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
 
         rejectWaitingReview(project, temp.dir("send-review-test"))
 
@@ -181,7 +181,7 @@ class ReviewLifecycleTest : BasePlatformTestCase() {
     fun testRejectingAfterASendDoesNotOverwriteThePublishedFile() {
         val dir = temp.dir("send-review-test")
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note about A", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note about A")
         val root = identity()
         val header = PublishedHeader(
             nonce = "n1",
@@ -206,7 +206,7 @@ class ReviewLifecycleTest : BasePlatformTestCase() {
      *  POST /api/claude-remarks/ack may reach READ, per CLAUDE.md's guard on markRemarksRead. */
     fun testAReadAcknowledgementAfterASendMarksTheRemarksRead() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
 
         answerWaitingReview(project, "s1", listOf(remark.id!!))
 
@@ -224,7 +224,7 @@ class ReviewLifecycleTest : BasePlatformTestCase() {
      */
     fun testAnAbandonedAcknowledgementAfterASendLeavesTheRemarksPending() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
         answerWaitingReview(project, "s1", listOf(remark.id!!))
 
         val outcome = finishReview(project, "s1", ReviewEnd.ABANDONED)
@@ -239,7 +239,7 @@ class ReviewLifecycleTest : BasePlatformTestCase() {
     fun testTheDeadlinePassingAfterASendLeavesTheRemarksPending() {
         val started = System.currentTimeMillis()
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
         answerWaitingReview(project, "s1", listOf(remark.id!!))
 
         expireStaleReview(project, now = started + 1_800_001L)
@@ -256,7 +256,7 @@ class ReviewLifecycleTest : BasePlatformTestCase() {
         val badDir = temp.file("reject-review-blocked", ".txt").resolve("subdir")
         identity() // forces the project root to resolve, so the failure below is genuinely badDir's
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
 
         rejectWaitingReview(project, badDir)
 

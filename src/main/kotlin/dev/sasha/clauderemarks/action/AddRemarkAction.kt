@@ -12,13 +12,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
-import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.store.addGeneralRemark
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.editRemark
 import dev.sasha.clauderemarks.store.relativePathOf
 import dev.sasha.clauderemarks.store.remarkTargetProblem
-import dev.sasha.clauderemarks.ui.RemarkInput
 import dev.sasha.clauderemarks.ui.RemarkInputPanel
 import java.awt.Component
 
@@ -81,7 +79,7 @@ fun openNewRemarkInput(project: Project, editor: Editor, dataContext: DataContex
     val columns = selectedColumns(document, selection.selectionStart, selection.selectionEnd)
     val stampWhenOpened = document.modificationStamp
 
-    showRemarkInput(project, editor, "Add Claude Remark", "", null) { input ->
+    showRemarkInput(project, editor, "Add Claude Remark", "") { typed ->
         // The line range was taken when the box opened; the text is read now, seconds later. If
         // the document changed in between, those line numbers point at code the user never chose,
         // and the anchor would be captured from it. Refuse rather than anchor to the wrong lines.
@@ -95,16 +93,16 @@ fun openNewRemarkInput(project: Project, editor: Editor, dataContext: DataContex
             return@showRemarkInput
         }
         addRemark(
-            project, path, document.text.split("\n"), range, input.text, input.tag,
+            project, path, document.text.split("\n"), range, typed,
             startColumn = columns.first, endColumn = columns.second,
         )
     }
 }
 
 /** Opens the input on a remark that already exists. EDT only. */
-fun openRemarkEdit(project: Project, editor: Editor, id: String, text: String, tag: RemarkTag?) {
-    showRemarkInput(project, editor, "Edit Claude Remark", text, tag) { input ->
-        editRemark(project, id, input.text, input.tag)
+fun openRemarkEdit(project: Project, editor: Editor, id: String, text: String) {
+    showRemarkInput(project, editor, "Edit Claude Remark", text) { typed ->
+        editRemark(project, id, typed)
     }
 }
 
@@ -113,11 +111,11 @@ fun openRemarkEdit(project: Project, editor: Editor, id: String, text: String, t
  * to position the popup against here, so `showInBestPositionFor(editor)` — what every other opener
  * of this popup uses — is not available; this shows it centred over [component] instead, which is
  * the tool window's tree. RemarkInputPanel itself needs no change for this: it already only knows
- * about text and a tag, never a file.
+ * about the text that was typed, never a file.
  */
 fun openGeneralRemarkInput(project: Project, component: Component) {
-    buildInputPopup(project, "Add General Claude Remark", "", null) { input ->
-        addGeneralRemark(project, input.text, input.tag)
+    buildInputPopup(project, "Add General Claude Remark", "") { typed ->
+        addGeneralRemark(project, typed)
     }.showInCenterOf(component)
 }
 
@@ -138,10 +136,9 @@ internal fun buildInputPopup(
     project: Project,
     title: String,
     text: String,
-    tag: RemarkTag?,
-    onSubmit: (RemarkInput) -> Unit,
+    onSubmit: (String) -> Unit,
 ): JBPopup {
-    val panel = RemarkInputPanel(project, text, tag)
+    val panel = RemarkInputPanel(project, text)
     val popup = JBPopupFactory.getInstance()
         .createComponentPopupBuilder(panel, panel.textArea)
         .setTitle(title)
@@ -152,9 +149,9 @@ internal fun buildInputPopup(
         .setMovable(true)
         .setResizable(true)
         .createPopup()
-    panel.onSubmit = { input ->
+    panel.onSubmit = { typed ->
         popup.cancel()
-        onSubmit(input)
+        onSubmit(typed)
     }
     return popup
 }
@@ -164,10 +161,9 @@ private fun showRemarkInput(
     editor: Editor,
     title: String,
     text: String,
-    tag: RemarkTag?,
-    onSubmit: (RemarkInput) -> Unit,
+    onSubmit: (String) -> Unit,
 ) {
-    buildInputPopup(project, title, text, tag, onSubmit).showInBestPositionFor(editor)
+    buildInputPopup(project, title, text, onSubmit).showInBestPositionFor(editor)
 }
 
 /**

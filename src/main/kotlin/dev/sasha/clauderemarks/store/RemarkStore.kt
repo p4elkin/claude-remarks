@@ -13,7 +13,6 @@ import com.intellij.util.xmlb.annotations.XCollection
 import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.model.RemarkTag
 
 /**
  * Holds every remark for one project.
@@ -74,31 +73,23 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
         }
 
         /**
-         * Changes a remark's text and tag in place, under the same lock every other mutator holds.
+         * Changes a remark's text in place, under the same lock every other mutator holds.
          *
-         * In place, not replace-with-a-copy, and the two writes below are not one atomic step. Two
-         * separate readers used to be able to catch the moment between them, and they need separate
-         * answers.
+         * In place, not replace-with-a-copy. Until phase 11 took the tag off a remark this wrote
+         * two fields rather than one, and the ORDER below is what made that safe on disk:
+         * incrementModificationCount() runs after the write, so a save that landed in between
+         * recorded the lower count it read on the way in, and the next save saw a higher count and
+         * wrote the field again. Keep that order. One write is not a reason to reverse it — the
+         * next field added here would silently lose the argument.
          *
-         * The serializer, saving workspace.xml off the EDT. It only ever sees what snapshot()
-         * copied for it, and snapshot() takes this same lock, so it now gets both fields or
-         * neither. Even before the copy went deep this could not lose data permanently, because of
-         * the ORDER here: incrementModificationCount() runs after both writes, so a save that
-         * landed between them recorded the lower count it read on the way in, and the next save saw
-         * a higher count and wrote both fields again. That argument still holds and is why nothing
-         * on disk was ever wrong for good. It is kept because it is the reason the ordering below
-         * must not be rearranged.
-         *
-         * The prompt and the tool window, reading on a pooled thread. These walk the fields long
-         * after leaving the lock, so the ordering argument above says nothing about them: they
-         * could read the new text next to the old tag, and there is no later pass that fixes an
-         * already-copied prompt. This is what snapshot() being a deep copy closes.
+         * The other reader is the prompt and the tool window, on a pooled thread. Those walk the
+         * fields long after leaving this lock, so the ordering argument says nothing about them.
+         * What covers them is snapshot() being a deep copy; see snapshot() for why.
          */
         @Synchronized
-        fun editRemark(id: String, text: String, tag: RemarkTag?): Boolean {
+        fun editRemark(id: String, text: String): Boolean {
             val target = remarks.firstOrNull { it.id == id } ?: return false
             target.text = text
-            target.tag = tag
             incrementModificationCount()
             return true
         }
@@ -215,7 +206,7 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
 
     fun remove(id: String): Boolean = liveState.removeRemark(id)
 
-    fun edit(id: String, text: String, tag: RemarkTag?): Boolean = liveState.editRemark(id, text, tag)
+    fun edit(id: String, text: String): Boolean = liveState.editRemark(id, text)
 
     fun markPublished(ids: Set<String>): Int = liveState.markPublished(ids)
 

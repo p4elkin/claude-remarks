@@ -35,8 +35,8 @@ class PublishedAckTest : BasePlatformTestCase() {
     }
 
     fun testAnAcknowledgementOfARecordedBatchAnswersOkAndMarksItsRemarksRead() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
-        val b = addRemark(project, "B.kt", LINES, 0..0, "another note", null)
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val b = addRemark(project, "B.kt", LINES, 0..0, "another note")
         val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!, b.id!!))
 
         val answer = reportPublishedRead(project, nonce, "s1")
@@ -49,7 +49,7 @@ class PublishedAckTest : BasePlatformTestCase() {
     }
 
     fun testASecondSessionAcknowledgingTheSameBatchIsToldWhoWasFirst() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
         reportPublishedRead(project, nonce, "s1")
         UIUtil.dispatchAllInvocationEvents()
@@ -61,7 +61,7 @@ class PublishedAckTest : BasePlatformTestCase() {
     }
 
     fun testTheSameSessionAcknowledgingTwiceIsToldItWasItself() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
         reportPublishedRead(project, nonce, "s1")
         UIUtil.dispatchAllInvocationEvents()
@@ -73,7 +73,7 @@ class PublishedAckTest : BasePlatformTestCase() {
     }
 
     fun testANonceNothingRecordedAnswersUnknownBatchAndMarksNothing() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
 
         val answer = reportPublishedRead(project, "does-not-exist", "s1")
         UIUtil.dispatchAllInvocationEvents()
@@ -94,8 +94,8 @@ class PublishedAckTest : BasePlatformTestCase() {
     }
 
     fun testAnAcknowledgementMarksOnlyItsOwnBatch() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "an older note", null)
-        val b = addRemark(project, "B.kt", LINES, 0..0, "a newer note", null)
+        val a = addRemark(project, "A.kt", LINES, 0..0, "an older note")
+        val b = addRemark(project, "B.kt", LINES, 0..0, "a newer note")
         markRemarksPublished(project, listOf(a.id!!, b.id!!))
         val first = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
         PublishedBatchService.getInstance(project).record(listOf(b.id!!))
@@ -124,7 +124,7 @@ class PublishedAckTest : BasePlatformTestCase() {
      * enough failed publishes would push a real, readable batch out into unknown-batch.
      */
     fun testAForgottenBatchIsUnknownAgain() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val service = PublishedBatchService.getInstance(project)
         val nonce = service.record(listOf(a.id!!))
 
@@ -142,7 +142,7 @@ class PublishedAckTest : BasePlatformTestCase() {
      * person the agent left without reading remarks the store already says were read.
      */
     fun testAcknowledgingABatchThatAnsweredAReviewEndsThatReviewToo() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         WaitingReviewService.getInstance(project).start("review-1", "a label", 1800)
         val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!), "review-1")
         WaitingReviewService.getInstance(project).markSent("review-1", listOf(a.id!!))
@@ -164,7 +164,7 @@ class PublishedAckTest : BasePlatformTestCase() {
      * queue is what puts the test inside that window.
      */
     fun testAnAcknowledgementLandingBeforeTheReviewIsStampedSentStillEndsIt() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         WaitingReviewService.getInstance(project).start("review-1", "a label", 1800)
         val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!), "review-1")
 
@@ -182,7 +182,7 @@ class PublishedAckTest : BasePlatformTestCase() {
      * so there is nothing for it to end.
      */
     fun testAcknowledgingABatchWithNoReviewLeavesALiveReviewAlone() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
         WaitingReviewService.getInstance(project).start("review-1", "a label", 1800)
 
@@ -211,7 +211,7 @@ class PublishedAckTest : BasePlatformTestCase() {
                 }
             },
         )
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note", null)
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val service = PublishedBatchService.getInstance(project)
         val empty = service.record(emptyList(), "review-1")
         val ordinary = service.record(listOf(a.id!!))
