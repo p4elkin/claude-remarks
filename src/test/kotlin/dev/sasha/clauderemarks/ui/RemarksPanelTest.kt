@@ -3,6 +3,7 @@ package dev.sasha.clauderemarks.ui
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.TestActionEvent
@@ -10,11 +11,13 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.HyperlinkLabel
 import com.intellij.ui.PopupHandler
 import com.intellij.util.ui.UIUtil
+import dev.sasha.clauderemarks.anchor.hashLines
 import dev.sasha.clauderemarks.editor.RemarkGutter
 import dev.sasha.clauderemarks.review.WaitingReviewService
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.answer
+import dev.sasha.clauderemarks.store.fileUnderProjectRoot
 import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.markRemarksRead
 import dev.sasha.clauderemarks.store.recordAnswer
@@ -461,6 +464,68 @@ class RemarksPanelTest : BasePlatformTestCase() {
         // Row 3 is the remark under its file group, below the two answer rows.
         panel.tree.setSelectionRow(3)
         assertNull(panel.selectedAnswerRow())
+    }
+
+    /**
+     * The other half of that double click, and the half that was missing: an answer row navigates to
+     * the code the answer is about, then shows the popup. Reading an answer with the editor still
+     * somewhere else is half an answer, and that is what a real IDE session found first.
+     *
+     * **What this covers:** that navigateToSelected opens the answer's file and puts the caret on the
+     * line the row resolved to. Restore the early `return` that only showed the popup and this fails
+     * on the very first assertion, because nothing is open at all.
+     *
+     * **What it does not cover:** the popup. Showing one needs a real window, and what the popup is
+     * made of is pinned by AnswerPopupTest instead. So this test says the navigation happens; nothing
+     * here says the answer is also shown.
+     *
+     * The answer's own anchor resolves exactly here — the hash is over the line it names — so the row
+     * carries a live position rather than an orphaned one, and the assertion is about where the row
+     * says it points now.
+     */
+    fun testADoubleClickOnAnAnswerRowNavigatesToTheCodeItPointsAt() {
+        fileUnderProjectRoot(project, "Answered.kt", "alpha\nbeta\ngamma\ndelta\n")
+        recordAnswer(
+            project,
+            answer(
+                id = "a-1",
+                remarkId = "r-1",
+                path = "Answered.kt",
+                startLine = 2,
+                endLine = 2,
+                textHash = hashLines(listOf("gamma")),
+            ),
+        )
+        val panel = panel()
+        // Row 0 is the Answers group, row 1 its one answer.
+        panel.tree.setSelectionRow(1)
+
+        panel.navigateToSelected()
+        settleInvocationQueue()
+
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor
+        assertNotNull("the answer row should have opened its file", editor)
+        assertEquals(
+            "Answered.kt",
+            FileDocumentManager.getInstance().getFile(editor!!.document)?.name,
+        )
+        assertEquals(2, editor.caretModel.logicalPosition.line)
+    }
+
+    /**
+     * An answer with no file — one to a general remark, or one whose remark was deleted before it
+     * arrived — has nothing to navigate to. It must open no editor and it must not throw; the popup
+     * still comes up, which is the part this cannot see.
+     */
+    fun testAnAnswerWithNoFileOpensNothingAndDoesNotThrow() {
+        recordAnswer(project, answer(id = "a-1", remarkId = "r-1", path = ""))
+        val panel = panel()
+        panel.tree.setSelectionRow(1)
+
+        panel.navigateToSelected()
+        settleInvocationQueue()
+
+        assertEquals(0, FileEditorManager.getInstance(project).openFiles.size)
     }
 
     fun testTheBannerIsHiddenWhenNoReviewIsWaiting() {

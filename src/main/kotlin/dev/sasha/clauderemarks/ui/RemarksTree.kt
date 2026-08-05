@@ -82,9 +82,8 @@ data class RemarkNode(
 )
 
 /**
- * One answer row. Everything the row needs to draw itself and to open its popup, and nothing else:
- * an answer row does not navigate, so it carries no path and no line to navigate to, and the
- * question it answers is read off the store rather than duplicated here.
+ * One answer row. Everything the row needs to draw itself, to navigate, and to open its popup. The
+ * question it answers is not here: it is read off the store, rather than duplicated onto the row.
  *
  * [position] and [fileName] are both empty for an answer to a general remark: such an answer has no
  * file, so there is no position to print and no file name to print beside it. Every other answer
@@ -95,6 +94,26 @@ data class RemarkNode(
  */
 data class AnswerNode(
     val id: String,
+    /**
+     * The stored path of the file this answer points at, or empty for an answer with no file — one
+     * to a general remark, or one whose remark was already gone when it arrived.
+     *
+     * ⚠️ Read by `RemarksPanel.navigateToSelected` in `RemarksToolWindowFactory.kt`, and by nothing
+     * else. A simplification review in phase 11 deleted this field as write-only, which was true
+     * then: a double click on an answer row only opened the popup. It navigates now. Do not delete
+     * this again for looking unused — check that one caller first.
+     */
+    val path: String,
+    /**
+     * The 0-based line this answer RESOLVED to on this rebuild, not the line it was stored at. The
+     * same field [RemarkNode.startLine] carries, filled the same way, so a double click lands where
+     * the row's own position label says it points.
+     *
+     * ⚠️ Read by `RemarksPanel.navigateToSelected` in `RemarksToolWindowFactory.kt`, and by nothing
+     * else. Deleted as write-only by the same phase 11 review, for the same then-correct reason as
+     * [path] above. Do not delete it again without checking that caller.
+     */
+    val startLine: Int,
     val position: String,
     val fileName: String,
     val firstLine: String,
@@ -137,6 +156,10 @@ fun answerNode(row: ResolvedAnswer): AnswerNode {
     val label = movedOrOrphanedLabel(row.result, answer.startLine, answer.endLine, answer.commit)
     return AnswerNode(
         id = answer.id.orEmpty(),
+        path = path,
+        // row.result, not answer.startLine: the same source the position label beside it is built
+        // from, so the row cannot say one line and navigate to another.
+        startLine = row.result.startLine,
         position = if (general) "" else rowPosition(row.result, row.startColumn, row.endColumn) + label,
         fileName = if (general) "" else path.substringAfterLast('/'),
         firstLine = firstLineOf(answer.markdown),

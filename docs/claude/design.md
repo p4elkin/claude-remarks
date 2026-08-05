@@ -2641,8 +2641,25 @@ inline is what makes the group scannable without opening anything.
 `remarkNodesUnder` returns remark rows only, so selecting the Answers group gives `selectedIds()` an
 empty list — Publish Selected and the Ask for an Answer toggle then correctly do nothing, because an
 answer is never published and never asks. `deleteSelected` handles answer rows, or Delete on one
-would silently do nothing. And `navigateToSelected`, which runs on double click, opens the popup
-instead of navigating.
+would silently do nothing. And `navigateToSelected`, which runs on double click, navigates to the
+code the answer points at **and then** shows the popup.
+
+That last one was one-sided at first: a double click on an answer row only opened the popup and left
+the editor wherever it was. The first real IDE session found it at once — an answer is about a piece
+of code, and reading it without seeing the code is half an answer. So an answer row now behaves like a
+remark row and does the extra thing on top. Order matters: navigate first, popup second, because the
+popup cancels itself when its window is deactivated, and opening an editor under it would shut it.
+
+The row carries the two fields that navigation needs, `path` and `startLine`, and `startLine` comes
+from what the rebuild resolved (`row.result.startLine`), not from the stored field — the same source
+the position label beside it is built from, so the row cannot say one line and jump to another.
+⚠️ Both fields were deleted once by a simplification review as write-only, correctly at the time, and
+both now carry a comment on the field saying who reads them. Two cases are decided rather than
+stumbled into. An answer with no file — one to a general remark, or one whose remark was deleted
+before the answer arrived — carries an empty path, so it shows the popup and navigates nowhere. An
+orphaned answer navigates to its stale line anyway: the row already says `(orphaned…)`, the file is
+still the right file, the stale line is the best starting point anyone has, and it is exactly what a
+remark row has always done for its own orphans.
 
 The remark row itself gained a grey word beside `published` and `read`: `asks` when it is marked with
 no answer yet, `answered` once one has come back. Text and not a new icon, because the icon axis

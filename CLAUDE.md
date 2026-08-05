@@ -580,7 +580,9 @@ src/main/kotlin/dev/sasha/clauderemarks/
   ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar (six buttons, each with its
                                    own description since phase 11), self-refresh on REMARKS_CHANGED.
                                    Since phase 11 it also resolves answers, deletes answer rows, and
-                                   opens the popup instead of navigating when the row is an answer
+                                   on an answer row navigates to the code AND then opens the popup.
+                                   navigateTo is the one place that opens a file at a line, shared by
+                                   the remark row and the answer row
   ui/AnswerPopup.kt                showAnswerPopup (phase 11): DocMarkdownToHtmlConverter inside a
                                    ReadAction.nonBlocking, then a JBHtmlPane in a JBScrollPane on the
                                    EDT. Disposer.register(popup, pane) is not optional — JBHtmlPane

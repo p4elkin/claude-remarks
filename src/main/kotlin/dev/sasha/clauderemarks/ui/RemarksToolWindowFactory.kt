@@ -405,26 +405,60 @@ class RemarksPanel(
         selectedTreeNodes().singleOrNull()?.userObject as? AnswerNode
 
     /**
-     * Double click. On an answer row it reads the answer instead of navigating: an answer row points
-     * at code, but the thing a person wants from it is the answer, and a double click that silently
-     * did nothing is exactly the failure remarkNodesUnder's own KDoc warns about.
+     * Double click. A remark row opens its file at the line the row resolved to. An answer row does
+     * the same and *then* shows the answer, because an answer is about a piece of code and reading it
+     * with no idea what it is about is half an answer. Until this changed, an answer row only opened
+     * the popup and never moved the editor, which is the first thing that felt wrong when the feature
+     * was used in a real IDE.
+     *
+     * Navigate first, popup second, and the order is load-bearing. A component popup built by
+     * `showAnswerPopup` cancels itself when its window is deactivated, so opening an editor while the
+     * popup is up would shut the popup again. (It is also async — the markdown conversion runs off the
+     * EDT — so the popup appears after the editor either way. The order here is what makes that true
+     * on purpose rather than by luck.)
+     *
+     * **An answer with no file shows the popup and navigates nowhere.** An answer to a general
+     * remark, and an answer whose remark was deleted before it arrived, both carry an empty path.
+     * There is nothing to open, so [navigateTo] returns and the popup still comes up.
+     *
+     * **An orphaned answer navigates to the stale line anyway.** The row is already labelled
+     * "(orphaned…)", so nobody is being told the position is current, and the file is still the right
+     * file — the stale line is the best starting point anyone has for finding where the code went. It
+     * is also exactly what a remark row has always done for its own orphans, and two rows in one tree
+     * behaving differently on the same gesture would need a better reason than this one has.
      */
-    private fun navigateToSelected() {
-        selectedAnswerRow()?.let {
-            showAnswerPopup(project, it.markdown)
+    internal fun navigateToSelected() {
+        selectedAnswerRow()?.let { answer ->
+            navigateTo(answer.path, answer.startLine)
+            showAnswerPopup(project, answer.markdown)
             return
         }
         val node = selectedNodes().firstOrNull() ?: return
+        navigateTo(node.path, node.startLine)
+    }
+
+    /**
+     * Opens [path] at [line], or does nothing at all when there is nothing to open.
+     *
+     * The empty-path check is first, and it is what a row with no file needs: a general remark and a
+     * general remark's answer both store an empty path, and asking the VFS for the file at "" is a
+     * question with no sensible answer.
+     *
+     * fileForStoredPath, not findRelativeFile: it makes the isAncestor check the resolver and the
+     * code slicer make. Without it a stored path of "../../../../etc/passwd" — which resolveAll
+     * refuses to read, so its row shows as orphaned — still opened that file in an editor on double
+     * click, because the row keeps the raw stored path.
+     *
+     * [line] is 0-based: OpenFileDescriptor builds a LogicalPosition straight from it, and
+     * LogicalPosition shares its base with Document.getLineNumber. Checked in the bytecode, and
+     * pinned by NavigationLineBaseTest.
+     */
+    private fun navigateTo(path: String, line: Int) {
+        if (path.isEmpty()) return
         val root = projectRoot(project) ?: return
-        // fileForStoredPath, not findRelativeFile: it makes the isAncestor check the resolver and
-        // the code slicer make. Without it a stored path of "../../../../etc/passwd" — which
-        // resolveAll refuses to read, so its row shows as orphaned — still opened that file in an
-        // editor on double click, because the row keeps the raw stored path.
-        val file = fileForStoredPath(root, node.path) ?: return
-        // The line is 0-based: OpenFileDescriptor builds a LogicalPosition straight from it, and
-        // LogicalPosition shares its base with Document.getLineNumber. Checked in the bytecode.
+        val file = fileForStoredPath(root, path) ?: return
         FileEditorManager.getInstance(project)
-            .openTextEditor(OpenFileDescriptor(project, file, node.startLine, 0), true)
+            .openTextEditor(OpenFileDescriptor(project, file, line, 0), true)
     }
 
     /**
