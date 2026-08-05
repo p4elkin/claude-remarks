@@ -162,7 +162,7 @@ marked.
 | 6 | Check whether the internal-API subtraction can leave the build file | complete |
 | 7 | Real descriptions on the six toolbar buttons | complete |
 | 8 | The asksForAnswer flag, and the function that sets it | complete |
-| 9 | The shared menu gets Publish and Ask for an Answer | not started |
+| 9 | The shared menu gets Publish and Ask for an Answer | complete |
 | 10 | The Ask Claude action, its intention and its menu item | not started |
 | 11 | The prompt marks a remark that asks, and prints every remark's id | not started |
 | 12 | The regression test for the answers list annotation | not started |
@@ -517,12 +517,12 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/ui/RemarkActions.kt` (`remarkChangeActions`, adding two children before `Move to Bucket…`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarkActionsTest.kt`
 
-- [ ] write the test that the menu offers Ask for an Answer, Publish and Move to Bucket…, in that order
-- [ ] write the test that pressing Publish acts on the ids the lambda names at press time, not at build time — this replaces the deleted severity test and is why no injectable chooser is needed
-- [ ] write the test that the Ask for an Answer toggle reports the store's state and flips it across several ids at once
-- [ ] add a `ToggleAction` whose `isSelected` is true when every remark in `ids()` carries the flag, and whose `setSelected` calls `setRemarkAsksForAnswer` on all of them
-- [ ] add a Publish item calling `publishRemarks(project, ids())`, returning early on an empty list the way `chooseBucket` already does
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkActionsTest'` - must pass before task 10
+- [x] write the test that the menu offers Ask for an Answer, Publish and Move to Bucket…, in that order
+- [x] write the test that pressing Publish acts on the ids the lambda names at press time, not at build time — this replaces the deleted severity test and is why no injectable chooser is needed
+- [x] write the test that the Ask for an Answer toggle reports the store's state and flips it across several ids at once
+- [x] add a `ToggleAction` whose `isSelected` is true when every remark in `ids()` carries the flag, and whose `setSelected` calls `setRemarkAsksForAnswer` on all of them
+- [x] add a Publish item calling `publishRemarks(project, ids())`, returning early on an empty list the way `chooseBucket` already does
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkActionsTest'` - must pass before task 10
 
 ### Task 10: The Ask Claude action, its intention and its menu item
 
