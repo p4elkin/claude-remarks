@@ -10,6 +10,7 @@ import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.util.xmlb.annotations.XCollection
+import dev.sasha.clauderemarks.model.AnswerState
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 
@@ -50,6 +51,20 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
         // `val x by list<T>()` emits nothing at all.
         @get:XCollection(style = XCollection.Style.v2)
         val remarks by list<RemarkState>()
+
+        // The second list, and the annotation above it is needed here for exactly the same reason
+        // it is needed on `remarks`: without it this list serializes to nothing at all and every
+        // answer is lost on restart, silently. AnswerStateTest reads the written XML for an answer's
+        // own values rather than only round-tripping, because a round trip through a list that
+        // serializes empty is consistent with itself and passes.
+        //
+        // Answers live beside remarks in one state object rather than in a second @State component:
+        // a second component would be a second copy of the @Synchronized mutators, the deep
+        // snapshot, the hand-written getState() and the modification-count override below — four
+        // more chances to get one of them wrong, for data that is read together, written from the
+        // same places and saved into the same file.
+        @get:XCollection(style = XCollection.Style.v2)
+        val answers by list<AnswerState>()
 
         // The mutators live here, not on RemarkStore: BaseState.incrementModificationCount() is
         // protected, so only a BaseState subclass can reach it. @Synchronized locks this state
@@ -148,12 +163,64 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
             return removed
         }
 
-        /** Returns how many were removed. */
+        /**
+         * Removes every remark and every answer, and returns how many records went in all.
+         *
+         * Both lists, because Clear All is the person saying "take everything the tool window
+         * shows", and an answer left behind would be a row whose question is gone. Clear Handed Over
+         * is the one that keeps answers: it goes through [removeHandedOver], which this does not
+         * touch, because an answer was never handed anywhere.
+         *
+         * The count is remarks plus answers rather than remarks alone, so a project holding only
+         * answers still reports something removed. [clearAllRemarks] returns this straight to its
+         * caller and skips its change notification when it is zero, so a remarks-only count would
+         * leave the tree showing answers that are already gone.
+         */
         @Synchronized
         fun clear(): Int {
-            val removed = remarks.size
+            val removed = remarks.size + answers.size
             if (removed > 0) {
                 remarks.clear()
+                answers.clear()
+                incrementModificationCount()
+            }
+            return removed
+        }
+
+        /**
+         * Stores an answer, replacing any answer already held for the same remark.
+         *
+         * An upsert keyed on [AnswerState.remarkId], not a plain add, so a question answered twice
+         * ends with one answer carrying the second body and its own fresh anchor. Enforced here
+         * rather than left to the answering session: every publish mints a fresh nonce and a watcher
+         * compares nonces rather than content, so the same question reaching a session twice is the
+         * ordinary case, and a rule written in a skill's markdown is advice a model may or may not
+         * follow.
+         *
+         * A replaced answer is not archived, which matches [editRemark] overwriting a remark's text
+         * with no archive either. The clear-then-archive rule covers a deletion the person asked for.
+         */
+        @Synchronized
+        fun putAnswer(answer: AnswerState) {
+            answers.removeIf { it.remarkId == answer.remarkId }
+            answers.add(answer)
+            incrementModificationCount()
+        }
+
+        /** Removes one answer by its own id, not by the remark's. Returns whether anything went. */
+        @Synchronized
+        fun removeAnswer(id: String): Boolean {
+            val removed = answers.removeIf { it.id == id }
+            if (removed) incrementModificationCount()
+            return removed
+        }
+
+        /** Returns how many were removed. */
+        @Synchronized
+        fun clearAnswers(): Int {
+            val removed = answers.size
+            if (removed > 0) {
+                answers.clear()
                 incrementModificationCount()
             }
             return removed
@@ -186,6 +253,16 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
         @Synchronized
         fun snapshot(): List<RemarkState> =
             remarks.map { live -> RemarkState().also { it.copyFrom(live) } }
+
+        /**
+         * The answers half of [snapshot], deep for the same reason and with the same argument behind
+         * it: the tree, the gutter and the resolver all walk answers on a pooled thread long after
+         * they have left this lock, so a shallow `answers.toList()` would hand them objects
+         * [putAnswer] can still replace under them.
+         */
+        @Synchronized
+        fun answersSnapshot(): List<AnswerState> =
+            answers.map { live -> AnswerState().also { it.copyFrom(live) } }
 
         /**
          * BaseState.getModificationCount() sums property.getModificationCount() over the stored
@@ -223,16 +300,35 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
 
     fun clear(): Int = liveState.clear()
 
+    /** The read-only accessor the tree, the gutter and the resolver all read answers through, the
+     *  same shape [all] is for remarks: a deep copy, so no reader holds a live object. */
+    fun allAnswers(): List<AnswerState> = liveState.answersSnapshot()
+
+    fun putAnswer(answer: AnswerState) {
+        liveState.putAnswer(answer)
+    }
+
+    fun removeAnswer(id: String): Boolean = liveState.removeAnswer(id)
+
+    fun clearAnswers(): Int = liveState.clearAnswers()
+
     /**
-     * A fresh state carrying a copy of the list, taken under the same lock the mutators hold, so
+     * A fresh state carrying a copy of both lists, taken under the same lock the mutators hold, so
      * the serializer never iterates a list anyone can mutate.
      *
-     * The copy goes all the way down: snapshot() copies each RemarkState too, so the serializer
-     * shares no object with the live state at all. See snapshot() for why that is not the
+     * The copy goes all the way down: snapshot() and answersSnapshot() copy each element too, so the
+     * serializer shares no object with the live state at all. See snapshot() for why that is not the
      * hand-cloning it once looked like.
+     *
+     * Both lists are copied here by hand, which means a third list added later is a third line to
+     * write and a third line to forget. Forgetting one loses every record in it on the next save with
+     * nothing logged — the same silent loss a missing @get:XCollection causes, and indistinguishable
+     * from it. RemarkStoreStateTest pins each list separately for that reason.
      */
-    override fun getState(): RemarksState =
-        RemarksState().also { it.remarks.addAll(liveState.snapshot()) }
+    override fun getState(): RemarksState = RemarksState().also {
+        it.remarks.addAll(liveState.snapshot())
+        it.answers.addAll(liveState.answersSnapshot())
+    }
 
     override fun loadState(state: RemarksState) {
         liveState = state

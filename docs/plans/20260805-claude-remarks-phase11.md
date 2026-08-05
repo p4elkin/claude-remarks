@@ -166,7 +166,7 @@ marked.
 | 10 | The Ask Claude action, its intention and its menu item | complete |
 | 11 | The prompt marks a remark that asks, and prints every remark's id | complete |
 | 12 | The regression test for the answers list annotation | complete |
-| 13 | AnswerState and the answers list in the store | not started |
+| 13 | AnswerState and the answers list in the store | complete |
 | 14 | recordAnswer and deleteAnswer, and the new guard | not started |
 | 15 | StoredAnchor, and resolving an answer against its file | not started |
 | 16 | batchCarries on the published batch service | not started |
@@ -573,12 +573,12 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/store/RemarkStore.kt` (`RemarksState`: the `answers` list beside `remarks`, `putAnswer`, `removeAnswer`, `clearAnswers`, `answersSnapshot`, and `clear`; `RemarkStore`: `allAnswers` and the delegating mutators, and `getState`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/AnswerStateTest.kt`
 
-- [ ] write the test that `putAnswer` replaces: a second answer for the same `remarkId` leaves one answer carrying the second body, and a second answer for a different `remarkId` leaves two
-- [ ] create `AnswerState` with its own copy of the anchor fields, and a KDoc saying why it does not share a superclass with `RemarkState`
-- [ ] ⚠️ add the `answers` list to `RemarksState` **with `@get:XCollection(style = XCollection.Style.v2)`** — without it the list serializes empty and every answer is lost on restart with nothing logged
-- [ ] add `putAnswer` as an upsert keyed on `remarkId`, plus `removeAnswer`, `clearAnswers` and `answersSnapshot`, all `@Synchronized`; make `clear()` clear both lists and `getState()` copy both
-- [ ] add `allAnswers()` to `RemarkStore` as the read-only accessor the tree, the gutter and the resolver will use
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.AnswerStateTest' --tests 'dev.sasha.clauderemarks.store.RemarkStoreStateTest'` - must pass before task 14
+- [x] write the test that `putAnswer` replaces: a second answer for the same `remarkId` leaves one answer carrying the second body, and a second answer for a different `remarkId` leaves two
+- [x] create `AnswerState` with its own copy of the anchor fields, and a KDoc saying why it does not share a superclass with `RemarkState`
+- [x] ⚠️ add the `answers` list to `RemarksState` **with `@get:XCollection(style = XCollection.Style.v2)`** — without it the list serializes empty and every answer is lost on restart with nothing logged
+- [x] add `putAnswer` as an upsert keyed on `remarkId`, plus `removeAnswer`, `clearAnswers` and `answersSnapshot`, all `@Synchronized`; make `clear()` clear both lists and `getState()` copy both
+- [x] add `allAnswers()` to `RemarkStore` as the read-only accessor the tree, the gutter and the resolver will use
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.AnswerStateTest' --tests 'dev.sasha.clauderemarks.store.RemarkStoreStateTest'` - must pass before task 14
 
 ### Task 14: recordAnswer and deleteAnswer, and the new guard
 

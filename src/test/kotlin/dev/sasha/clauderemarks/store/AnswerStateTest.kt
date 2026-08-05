@@ -4,6 +4,7 @@ import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
 import dev.sasha.clauderemarks.model.AnswerState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -123,6 +124,98 @@ class AnswerStateTest {
 
         assertEquals(1, restored.remarks.size)
         assertEquals(0, restored.answers.size)
+    }
+
+    /**
+     * The upsert. A question answered twice must end with one answer carrying the second body, not
+     * two rows in the Answers group saying different things about the same remark.
+     *
+     * This is not a rare case and the store is where it is settled. Every publish mints a fresh
+     * nonce, and a watcher compares nonces rather than content, so re-publishing the same question
+     * looks like new work to a listening session — one extra press of Publish is enough to produce a
+     * second answer.
+     */
+    @Test
+    fun `a second answer for the same remark replaces the first`() {
+        val state = RemarkStore.RemarksState()
+        state.putAnswer(answer(id = "a-1", remarkId = "r-1", markdown = "the first try"))
+
+        state.putAnswer(answer(id = "a-2", remarkId = "r-1", markdown = "the second try"))
+
+        val stored = state.answersSnapshot()
+        assertEquals(1, stored.size)
+        assertEquals("a-2", stored.single().id)
+        assertEquals("the second try", stored.single().markdown)
+    }
+
+    /** The other half: the key is the remark, so two questions keep two answers. */
+    @Test
+    fun `an answer for a different remark sits beside the first`() {
+        val state = RemarkStore.RemarksState()
+        state.putAnswer(answer(id = "a-1", remarkId = "r-1"))
+
+        state.putAnswer(answer(id = "a-2", remarkId = "r-2"))
+
+        assertEquals(listOf("a-1", "a-2"), state.answersSnapshot().map { it.id })
+    }
+
+    /** Replacement survives the round trip too, so what is on disk is one answer and not two. */
+    @Test
+    fun `a replaced answer round-trips as one answer`() {
+        val state = RemarkStore.RemarksState()
+        state.putAnswer(answer(id = "a-1", remarkId = "r-1", markdown = "the first try"))
+        state.putAnswer(answer(id = "a-2", remarkId = "r-1", markdown = "the second try"))
+
+        val restored = roundTrip(state).answers
+
+        assertEquals(1, restored.size)
+        assertEquals("the second try", restored.single().markdown)
+    }
+
+    /** By the answer's own id, not by the remark's — deleting a row in the tree names the answer. */
+    @Test
+    fun `removeAnswer takes the answer named and leaves the rest`() {
+        val state = RemarkStore.RemarksState()
+        state.putAnswer(answer(id = "a-1", remarkId = "r-1"))
+        state.putAnswer(answer(id = "a-2", remarkId = "r-2"))
+
+        assertTrue(state.removeAnswer("a-1"))
+        assertEquals(listOf("a-2"), state.answersSnapshot().map { it.id })
+        assertFalse(state.removeAnswer("a-1"))
+    }
+
+    /** Clear All takes both lists; Clear Handed Over does not, and that is [RemarkStore.RemarksState.removeHandedOver]'s business. */
+    @Test
+    fun `clear takes remarks and answers together and counts both`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        state.putAnswer(answer(id = "a-1", remarkId = "r-1"))
+
+        assertEquals(2, state.clear())
+        assertEquals(0, state.snapshot().size)
+        assertEquals(0, state.answersSnapshot().size)
+    }
+
+    /** Answers are not "handed over" to anything, so the clear that keeps pending work keeps them. */
+    @Test
+    fun `clearing what was handed over leaves answers alone`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        state.markPublished(setOf("r-1"))
+        state.putAnswer(answer(id = "a-1", remarkId = "r-1"))
+
+        assertEquals(1, state.removeHandedOver())
+        assertEquals(listOf("a-1"), state.answersSnapshot().map { it.id })
+    }
+
+    @Test
+    fun `clearAnswers takes every answer and returns how many went`() {
+        val state = RemarkStore.RemarksState()
+        state.putAnswer(answer(id = "a-1", remarkId = "r-1"))
+        state.putAnswer(answer(id = "a-2", remarkId = "r-2"))
+
+        assertEquals(2, state.clearAnswers())
+        assertEquals(0, state.clearAnswers())
     }
 
     private fun asXml(answer: AnswerState) = JDOMUtil.write(XmlSerializer.serialize(answer))
