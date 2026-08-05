@@ -458,9 +458,14 @@ class RemarksPanel(
         ToolbarAction("Add General Remark", AllIcons.General.Add, { true }) {
             openGeneralRemarkInput(project, tree)
         },
+        // Upload, not Copy: the button stopped being a copy in phase 9, when publishing gained the
+        // published file, and stopped being only that in phase 10, when it also became how a waiting
+        // review is answered. Copy was left over from "Copy All Pending" and understated all three.
+        // Upload is the icon the deleted Send to Claude Code button carried, so the picture follows
+        // the meaning rather than the control that went away.
         ToolbarAction(
             "Publish Unread",
-            AllIcons.Actions.Copy,
+            AllIcons.Actions.Upload,
             { remarks().any { it.status != RemarkStatus.READ } },
         ) { publishRemarks(project, null) },
         ToolbarAction(
