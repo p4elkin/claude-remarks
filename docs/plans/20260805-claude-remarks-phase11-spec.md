@@ -1343,6 +1343,23 @@ stops the `unknown-batch` case from silently redoing work somebody already did.
 `--seen <the nonce the skill just read>`, so a newer batch carries a different nonce and the watcher
 reports it on its first poll.
 
+**⚠️ Two live failures on 2026-08-05 prove this requirement.** Two independent sessions armed a
+watcher with a `--seen` nonce that was already stale. Both watchers exited 0 within a second, on the
+batch that was already sitting in the published file and had already been handled. One of the two was
+this session's own watcher. Nothing was listening afterwards, and neither session noticed.
+
+A watcher on another repository, armed by hand on the same day, gets it right — it reads the nonce
+that is really in the file first, and only then arms:
+
+```sh
+nonce=$(sed -n '2p' /Users/sasha/.claude-remarks/<hash>.md | cut -d' ' -f2)
+watch-remarks.sh --file ... --seen "$nonce" --deadline 43200
+```
+
+Those two lines are the startup claim above, done by hand: read the file, take the nonce that is
+really there, then arm the watcher pinned to it. So this requirement is not argued from theory. It is
+the fix for a failure that has already happened twice, in one day.
+
 #### The loop, in this exact order
 
 1. The batch arrives and the watcher exits.
@@ -1359,64 +1376,102 @@ which is the exact failure this whole change is fixing.
 - **The deadline passes with no batch.** Each re-arm gets a fresh `--deadline 43200`, so any batch
   resets the clock and listening continues for as long as the person keeps working. Twelve hours of
   silence ends it.
-- **Another session takes over.** How the session recognises that is the next subsection, and it is
-  not the exit code.
 - **A refusal**, exit 2: a malformed header, or a file it cannot read.
+- **The person asks the session to stop listening.**
 
-#### ⚠️ Exit 143 does not mean a takeover, and reading it that way stops the listener
+**Nothing else ends it.** Another session listening to the same repository does not. Losing a batch
+claim does not. A watcher killed by something in the environment does not — the session says what
+happened and arms a new one. Whichever of the three ends it, **the session says so in one line, and
+says why.** A listener that goes quiet is the failure this whole section exists to remove.
 
-**A defect found live on 2026-08-05, in the rule as first written.** A watcher exited 143 with
-nothing having taken over: no `watch-remarks.sh` process running anywhere, no pid file left in
-`~/.claude-remarks/`, and the published file still holding a batch that had already been
-acknowledged. It was a plain `SIGTERM` from something else in the environment.
+#### Several sessions may listen to one repository, and nothing kills a watcher
 
-**143 is `128 + SIGTERM`, which any kill produces.** The script's own trap is
-`trap 'cleanup; ...; exit 143' INT TERM HUP`, so a harness restart, a machine going to sleep and a
-stray `kill` all produce exactly the code a takeover produces. A session that stops on 143 stops
-listening whenever any of those happens, and the person keeps publishing into a listener that
-quietly went away — the exact failure this whole change exists to remove.
+**One watcher per project was the rule, and it was the wrong rule.** It said that a starting watcher
+kills whichever watcher is already running for that project, and that a session whose watcher was
+killed must stop listening. The reason given was to stop two sessions doing the same work twice.
 
-⚠️ **The script's own comment says the wrong thing, and it is where the wrong rule came from:**
-"a session reading an exit code above 128 should read it as 'another watcher took over', never as a
-batch or a deadline." That comment is corrected as part of this phase.
+**That reason is already covered one layer up, by the batch claim.** `published-read` is atomic in
+the IDE. The first session to claim a batch is answered `ok`. Every later one is answered
+`already-read`, and that answer names the session that got there first. So the exclusion the killing
+was meant to provide already exists, in the one place that can do it correctly.
 
-**What actually means a takeover is that another live watcher now owns this project's pid file**, and
-the script gives a clean signal for it, because its cleanup trap removes the pid file only while the
-file still holds its own pid:
+**Doing the same exclusion twice is what caused a real incident on 2026-08-05.** A session stopped a
+watcher by matching on the program's name. Every repository's watcher on this machine runs a program
+called `watch-remarks.sh`, so the match hit watchers for repositories that had nothing to do with the
+work in hand. Those sessions stopped listening and said nothing about it.
 
-- *A real takeover.* The winner kills the loser, waits for it to die, then writes its own pid. A
-  moment later the pid file exists and names a **live** process.
-- *A stray kill.* Nothing overwrites the file, so the dying watcher's own cleanup removes it. **No
-  pid file is left at all.**
+**So the rule is replaced. Several sessions may listen to the same repository at once, and nothing
+kills a watcher.** Six rules follow, and `SKILL.md` carries all six.
 
-#### The rule, on any exit code above 128
+```mermaid
+sequenceDiagram
+    participant A as session A
+    participant B as session B
+    participant IDE as the IDE
+    IDE->>A: batch, nonce N
+    IDE->>B: batch, nonce N
+    A->>IDE: published-read N
+    B->>IDE: published-read N
+    IDE-->>A: ok
+    IDE-->>B: already-read, session A
+    Note over A: acts on the batch, then re-arms
+    Note over B: names session A, does not act, re-arms
+```
 
-1. Read `~/.claude-remarks/<the project's own 16 hex characters>.watch`.
-2. **If there is no file, wait two seconds and read once more.** The winner writes its pid only after
-   the killed watcher has exited, and it notices that death through a loop that sleeps a whole second
-   at a time — so there is a window of up to about a second in which a real takeover has happened and
-   no file exists yet. One retry closes it.
-3. **If a file exists**, its first line is a pid and its second is the identity that watcher was
-   launched on. If that pid is alive, and its command line names `watch-remarks.sh` and contains that
-   identity, **another session took over. Say so and stop. Do not re-arm** — if both sessions re-arm
-   they ping-pong forever, each killing the other's watcher.
-4. **Otherwise nothing took over.** Re-arm, and say in one line that the watcher was killed and has
-   been restarted, so the person knows there was a gap in listening.
+**No watcher kills another.** Starting a watcher for a project never takes over from one that is
+already running for it. The block in `watch-remarks.sh` that kills the pid already in the pid file is
+deleted — a real edit to the script, recorded in section 22.
 
-**The identity in step 3 is the one thing the two modes differ on**, and the check has to compare the
-right one. In file mode it is the published file's path. In fetch mode it is **the project path as
-the IDE machine sees it**, because that is what `--project` carries and what the script hashes for
-the pid file's own name.
+**The batch claim decides who acts.** All listening sessions wake on the same batch and all post
+`published-read` for it. Exactly one is answered `ok`, and that one acts. A session answered
+`already-read` reports which session took the batch, does not act on the batch, and **keeps
+listening**. Losing a claim is an ordinary outcome, not a reason to stop.
 
-⚠️ **This defect is older than this phase, and review mode has it too.** `SKILL.md` step 6 says
-the same wrong thing about an exit code above 128, and tells the session not to acknowledge because
-"whichever watcher took over is the one that will see its answer". When nothing took over, nobody
-will. Review mode gets the same check, and on "nothing took over" it re-launches the watcher for the
-same review rather than giving up on a review that is still waiting in the IDE.
+**Repository isolation is a guarantee, and `SKILL.md` states it as one.** It must not be left as
+something a reader could work out for themselves from the script. Two things hold it up, and both
+already exist: the pid file is named from the project's own 16 hex characters, so two repositories
+never share one, and the check on a pid requires the live process's command line to name the same
+watched path, so a recycled pid belonging to another repository's watcher never matches.
 
-**Neither of the two changes above needs a code edit to `watch-remarks.sh`.** It stays one batch and
-exit, and `--seen` is already optional so the skill decides what to pass. The script does get the one
-comment above corrected, and the third listen-mode change, next, is the one that needs a real edit.
+**Never kill a watcher by process name.** No `pkill`, no `killall`, no `ps | grep | kill` matched on
+`watch-remarks.sh`. That name is shared by every repository's watcher on the machine, so a blunt
+match stops all of them at once — which is exactly what went wrong. A watcher is stopped **only** by
+the pid on the first line of its own repository's pid file, and only after checking that the pid is
+alive and that its command line names the same watched path.
+
+That is what the pid file is for now. It is not a claim of ownership and it excludes nobody. It
+identifies one specific watcher, and that is what makes a blunt match unnecessary.
+
+⚠️ **The pid file names the watcher that started most recently for that project.** With two sessions
+listening to one repository, stopping by the pid file stops the newer watcher. A session that has to
+stop an older one matches on **both** `watch-remarks.sh` **and** its own watched path, never on the
+program name alone.
+
+**A session that stops listening says so, and says why.** It never goes quiet. The incident began
+with a session that stopped silently, so the person kept publishing into a listener that was no
+longer there. The deadline passing, a refusal, and the person asking it to stop each get one line.
+
+**Exit 143 no longer means a takeover.** It is `128 + SIGTERM`, which any kill produces: a harness
+restart, a machine going to sleep, a stray `kill`. With nothing killing watchers, a session that sees
+143 — or any code above 128 — says in one line that the watcher was killed, and arms a new one. There
+is no pid-file check on this path.
+
+⚠️ **An earlier draft of this spec put a pid-file check here, and it is deleted.** It said: read the
+pid file, retry once after two seconds, and stop listening if the file names a live watcher on the
+same identity. It was the right fix for the wrong design. It existed to tell a real takeover from a
+stray kill, and there are no takeovers any more. Do not re-add it.
+
+⚠️ **Review mode carries the same wrong rule, and is corrected the same way.** `SKILL.md` step 6
+tells the session that an exit code above 128 means another watcher took over, and tells it not to
+acknowledge because "whichever watcher took over is the one that will see its answer". Nothing takes
+over, so nobody will see it. Review mode says in one line that the watcher was killed, and launches a
+new one for the same review, which is still waiting in the IDE.
+
+**The claim and the re-arm need no code edit to `watch-remarks.sh`.** It stays one batch and exit,
+and `--seen` is already optional, so the skill decides what to pass. Two edits to the script do come
+out of this section: the block that kills another watcher goes, and the trap's comment, which tells a
+reader to read any exit code above 128 as "another watcher took over", is corrected. The third
+listen-mode change, working over the tunnel, is next, and it is the one that changes behaviour.
 
 ### Listen mode over the tunnel
 
@@ -1457,11 +1512,12 @@ comes from `CLAUDE_REMARKS_TOKEN` in the environment and is already handed to `c
 `--config -`. The pid file is already keyed on `--project` in fetch mode rather than on a local path.
 
 ⚠️ **One consequence of that last point.** In file mode the pid file is named from the local
-published file's own basename; in fetch mode it is named from the project path the IDE machine uses.
-When those two paths differ — the normal remote case — a local watcher and a remote watcher for the
-same repository do not see each other, and the one-watcher rule holds within each mode but not across
-them. Accepted, and written down: they are watching two different machines' views of one repository,
-and only one of them can be right about where the IDE is.
+published file's own basename. In fetch mode it is named from the project path the IDE machine uses.
+When those two differ — the normal remote case — a local watcher and a remote watcher for one
+repository write two different pid files and never see each other. That is no longer a conflict,
+because no watcher excludes another anyway. It costs one thing: stopping a watcher means knowing
+which of the two files names it. Both watchers would report the same batch, and the batch claim is
+what decides which session acts on it.
 
 #### The startup claim, remotely
 
@@ -1657,7 +1713,8 @@ storing the remark is a hand check.
 
 **Checks 8, 9 and 10 need a second machine and a tunnel.** The remote checks phase 8 already owes are
 listed in section 13 of `docs/plans/completed/20260803-claude-remarks-phase8.md`; these are new and
-are not in that list.
+are not in that list. **Checks 11 and 26 need two Claude sessions on this one machine, not two
+machines.**
 
 1. **Ask Claude, end to end in one gesture.** Select lines, press the new shortcut, type a question,
    press Enter. The remark is stored marked, the balloon says one remark was published, and the
@@ -1684,10 +1741,11 @@ are not in that list.
     IDE machine, let the remote session answer it, and check the answer appears in the IDE's Answers
     group and on the gutter. This is the one that proves the phase's headline feature is not quietly
     local-only.
-11. **A real takeover stops the loser.** Start a second listener on the same project. The first must
-    read the pid file, find a live watcher on the same identity, report that it was displaced, and
-    stop — **not** re-arm. If both re-arm they ping-pong, so this is the check that the pid-file rule
-    was actually implemented.
+11. **⚠️ Two sessions listening to one project.** Two sessions, not two machines. Start a listener
+    in one session, then start a second listener in the other session on the same repository. Neither
+    watcher is killed: both are still running. Publish once. Exactly one session is answered `ok` and
+    acts on the batch. The other is answered `already-read`, names the session that got there first,
+    does not act on the batch, and keeps listening.
 12. **⚠️ Ask Claude while a review is waiting.** Start a review, then press Ask Claude. The one
     question answers the review and the banner moves to its Sent wording. This is section 20's risk,
     on screen — the check is that the balloon says what happened, not that it is prevented.
@@ -1718,10 +1776,16 @@ are not in that list.
     ⚠️ **Never against the real `~/.claude-remarks`**, which holds the real remarks.
 24. **The token is invisible.** With the new POSTs in flight, both local and remote, `ps` shows no
     token in any `curl` argument line, and nothing echoes it.
-25. **A stray kill does not stop the listener.** With a listener running, send its watcher a plain
-    `SIGTERM` and nothing else. The session must find no pid file, say in one line that the watcher
-    was killed and restarted, and re-arm. This is the defect that was found live, so it is the check
-    that matters most of the three about the loop.
+25. **A killed watcher is reported and replaced.** With a listener running, send its watcher a
+    plain `SIGTERM` and nothing else. The session sees 143, says in one line that the watcher was
+    killed and a new one has been started, and re-arms. It never reads 143 as a takeover, because
+    nothing takes over any more. This is the defect that was found live, so of the checks about the
+    loop this is the one that matters most.
+26. **⚠️ Two repositories on one machine stay apart.** Two sessions, not two machines. Start a
+    listener for this repository and a listener for a different repository. Stop the first one, by
+    the pid on the first line of its own `.watch` file. The second listener keeps running and its own
+    pid file is untouched. This is the incident of 2026-08-05 turned into a check, so run it by pid
+    and never by program name.
 
 ---
 
@@ -1757,9 +1821,12 @@ a shell script that has to decide what "the same" means.
 **LIKELY, MINOR: a listener nobody remembers starting is still running.** Every batch resets the
 twelve-hour deadline, so a listener on a project somebody publishes to during a working day never
 dies on its own. That is what section 17 asked for. The cost shows up elsewhere: a *second* session
-asked to read the same project's remarks gets `already-read` naming a session the person has
-forgotten about, and the batch it wanted has been claimed. The way out already exists and listen mode
-already prints it — the first line of `~/.claude-remarks/<hash>.watch` is the pid to kill.
+asked to read the same project's remarks is answered `already-read`, naming a session the person has
+forgotten about, and the batch it wanted has already been claimed. That is the designed behaviour
+now, not a failure — the answer names the winner, so the person knows where the batch went. To stop
+the forgotten listener, kill the pid on the first line of `~/.claude-remarks/<hash>.watch`, after
+checking that the pid is alive and that its command line names this repository's watched path. Never
+match on the program name.
 
 **LIKELY, MINOR: two gutter icons on the same lines.** A remark and its answer both anchor to the
 same code while both exist, so the gutter stacks them. Honest but busy. Hand check 16 is what decides
@@ -1789,6 +1856,14 @@ pane in section 15, but not removed — a person still has to widen it.
 answer with no anchor rather than dropping it. Listed because the resulting row has no position and
 no file, which looks broken until you know why.
 
+**OCCASIONAL, MAJOR: a blunt kill stops every repository's watcher.** This happened on 2026-08-05.
+A session stopped a watcher by matching on the program name `watch-remarks.sh`, which every
+repository's watcher on the machine runs, so watchers for unrelated repositories died with it and
+those sessions went quiet. The prevention is a rule, not a mechanism: stop a watcher only by the pid
+in its own repository's pid file, after checking that the pid is alive and that its command line
+names the same watched path. Section 17 states it, `SKILL.md` states it, and hand check 26 is what
+proves the isolation holds.
+
 **OCCASIONAL, MINOR: a session-less fetch hands back somebody else's review answer.** With the header
 gate gone (section 12), the endpoint returns whatever the published file holds. Listen mode's
 existing anomaly rule covers it — line 6 is not `review: none`, so say so, name the session, do not
@@ -1811,29 +1886,25 @@ who publishes seventeen times before the session answers loses the oldest batch,
 refused. Same shape as an IDE restart, and it already applies to `published-read`. Publishing again
 fixes it.
 
-**OCCASIONAL, MAJOR: a killed watcher is mistaken for a takeover, and listening stops.** Found live
-on 2026-08-05, and the reason section 17 now keys the decision on the pid file rather than on the
-exit code. Exit 143 is `128 + SIGTERM`, so a harness restart, a sleeping machine and a stray `kill`
-all look exactly like a takeover. A session following the first version of the rule goes quiet while
-the person keeps publishing. Occasional rather than rare, because a listener now runs for hours and a
-stray signal over that span is ordinary. Hand check 25 is what proves the new check gets it right.
+**OCCASIONAL, MINOR: a watcher is killed by something in the environment.** Found live on
+2026-08-05. Exit 143 is `128 + SIGTERM`, so a harness restart, a machine going to sleep and a stray
+`kill` all end a watcher the same way. Occasional rather than rare, because a listener now runs for
+hours and a stray signal over that span is ordinary. What it costs is a gap in listening, one batch
+wide at worst: the session says the watcher was killed and arms a new one. It was major while the
+first version of the rule read 143 as a takeover and stopped the listener; with nothing taking over,
+there is nothing left to mistake it for. Hand check 25 is what proves the session really re-arms.
 
-**RARE, MAJOR: two auto-re-arming listeners ping-pong.** Each kills the other's watcher, is told it
-was displaced, re-arms, and starts again. Nothing ends it and both sessions burn turns. The pid-file
-check in section 17 is the whole prevention: the loser stops only when the file names a live watcher
-on the same identity. Hand check 11 is what confirms it was implemented.
+**RARE, MINOR: the pid file names only the newest watcher for a project.** Several sessions may
+listen to one repository, and each writes its own pid into the same file, so the file names whichever
+started last. Stopping by the pid file then stops that one. An older watcher for the same repository
+has to be found by matching both the program and the watched path. Accepted: the file is a handle for
+stopping one specific watcher, not a register of all of them.
 
-**RARE, MINOR: the pid file is briefly absent during a real takeover.** The winner writes its pid
-only after the loser has exited, and it notices that death through a loop that sleeps a second at a
-time, so for up to about a second a real takeover looks like a stray kill. The two-second retry in
-section 17's step 2 closes it. If both watchers die before either writes, the losing session re-arms
-and takes the project back, which is the safe direction of the two.
-
-**RARE, MINOR: a local and a remote watcher on the same repository do not see each other.** The pid
-file is named from the local file's basename in file mode and from the IDE-machine project path in
-fetch mode, and those differ whenever the two machines mount the repository at different paths.
-Section 17 accepts this. It costs two watchers where the rule says one, and both would report the
-same batch.
+**RARE, MINOR: a local and a remote watcher on one repository write two pid files.** The name comes
+from the local file's basename in file mode and from the IDE-machine project path in fetch mode, and
+those differ whenever the two machines mount the repository at different paths. Both watchers report
+the same batch, and the batch claim decides which session acts on it. What it costs is that stopping
+one of them means knowing which of the two files names it.
 
 **RARE, MAJOR: `workspace.xml` grows.** Nothing prunes answers except Clear All. Twenty answers at
 the 16 KiB cap is over 300 KB in a file the platform saves on every remark change and the tool
@@ -1953,6 +2024,10 @@ gesture does, and section 9 records why the classifying design was dropped.
   kinds costs more than the case is worth.
 - **No content-keyed deduplication in `watch-remarks.sh`.** Section 20. It stays one batch and exit,
   and it still never reads what a remark says.
+- **No exclusion between watchers.** Section 17. Several sessions may listen to one repository, and
+  the batch claim is what stops two of them doing the same work.
+- **No register of every running watcher.** Section 17. The pid file names one watcher, the newest
+  for that project, and that is enough to stop that one by pid.
 - **No `/btw` route, and no agterm dependency in the skill.** Section 9.
 - **No subagent as the default answerer.** Section 9. It is the escalation for a question the session
   cannot answer from what it already holds.
@@ -1966,15 +2041,18 @@ gesture does, and section 9 records why the classifying design was dropped.
 - **No change to how `published-read` works.** Answering and acknowledging stay independent, and
   listen mode's startup claim uses it exactly as it is.
 
-⚠️ **`watch-remarks.sh` does change, and this is the first phase in which it has.** Section 17. Two of
-the three listen-mode decisions were absorbed with no edit, because the script already takes `--seen`
-or not and already exits on its own event. The third, working over the tunnel, cannot be: fetch mode
-requires a `--session` that a listener does not have. Three small edits, no new mode, and the script
-still delivers one batch and exits.
+⚠️ **`watch-remarks.sh` does change, and this is the first phase in which it has.** Section 17. Two
+of the three listen-mode decisions were absorbed with no edit, because the script already takes
+`--seen` or not and already exits on its own event. The third, working over the tunnel, cannot be:
+fetch mode requires a `--session` that a listener does not have. Three small edits there, no new
+mode, and the script still delivers one batch and exits.
 
-One more edit to it is a comment, not behaviour: the trap's own comment tells a reader to treat any
-exit code above 128 as a takeover, which section 17 shows is wrong and is where the wrong rule came
-from.
+⚠️ **A fourth edit comes from the decision that nothing kills a watcher.** The block that kills
+whichever pid is already in the pid file goes. The pid file itself stays, and so does the check that
+a pid is alive and that its command line names the same watched path — that check is now what makes
+stopping one specific watcher safe, and it is what keeps two repositories apart. The trap's own
+comment is corrected in the same task: it tells a reader to read any exit code above 128 as another
+watcher taking over, and section 17 shows that is wrong and is where the wrong rule came from.
 
 ### Hard constraints carried into every task
 
