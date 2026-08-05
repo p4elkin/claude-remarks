@@ -176,7 +176,7 @@ marked.
 | 20 | The answer's gutter icon | complete |
 | 21 | The markdown popup | complete |
 | 22 | Clearing, the history file and the confirmation dialogs | complete |
-| 23 | watch-remarks.sh fetch mode without a session | not started |
+| 23 | watch-remarks.sh fetch mode without a session | complete |
 | 24 | The skill answers what is marked | not started |
 | 25 | The skill: listen mode claims, re-arms and reaches over the tunnel | not started |
 | 26 | Verify acceptance criteria | not started |
@@ -712,36 +712,36 @@ popup must `Disposer.register(popup, pane)`.
   `hex16_of` that explains the pid file's name by that same rule; the comment above
   `trap 'cleanup; ...; exit 143' INT TERM HUP`)
 
-- [ ] drop `session_id` from the fetch-mode guard, so it requires the url and the project and no
+- [x] drop `session_id` from the fetch-mode guard, so it requires the url and the project and no
       longer the session, and build the request body without a `session` field when `$session_id` is
       empty and with it when it is not
-- [ ] reword `timed_out_fetch` so it does not name a session it may not have, and update the `usage`
+- [x] reword `timed_out_fetch` so it does not name a session it may not have, and update the `usage`
       synopsis so `--session` reads as optional
-- [ ] ⚠️ delete the block that kills whichever pid is already in the pid file, and the five-second
+- [x] ⚠️ delete the block that kills whichever pid is already in the pid file, and the five-second
       wait for that process to die. A starting watcher never takes over from one that is already
       running: several sessions may listen to one repository, and the batch claim in the IDE is what
       stops two of them acting on the same batch
-- [ ] keep the pid file, the `mkdir` lock around the write, and the cleanup trap's check that the file
+- [x] keep the pid file, the `mkdir` lock around the write, and the cleanup trap's check that the file
       still holds this watcher's own pid. Rewrite the comment above `hex16_of`, which explains the
       file's name by the one-watcher-per-project rule: the file now identifies one specific watcher so
       that it can be stopped by pid, and that is what makes a match on the program name unnecessary
-- [ ] ⚠️ correct the comment above the `INT TERM HUP` trap, which tells a reader to read any exit code
+- [x] ⚠️ correct the comment above the `INT TERM HUP` trap, which tells a reader to read any exit code
       above 128 as "another watcher took over". 143 is `128 + SIGTERM`, which any kill produces, and
       nothing takes over any more. Say that a session seeing it reports the kill and starts a new
       watcher
-- [ ] ⚠️ leave the token handling exactly as it is — read from `CLAUDE_REMARKS_TOKEN` in the
+- [x] ⚠️ leave the token handling exactly as it is — read from `CLAUDE_REMARKS_TOKEN` in the
       environment and handed to `curl` on stdin through `--config -`, never as an argument where `ps`
       can read it
-- [ ] check by hand in the scratchpad, with `HOME` pointed at a temporary directory and **never** at
+- [x] check by hand in the scratchpad, with `HOME` pointed at a temporary directory and **never** at
       the real `~/.claude-remarks`: fetch mode starts with no `--session`, it still refuses with no
       `--project`, and it still refuses with no `CLAUDE_REMARKS_TOKEN`
-- [ ] check by hand in that same scratchpad `HOME`: start a file-mode watcher, then start a second one
+- [x] check by hand in that same scratchpad `HOME`: start a file-mode watcher, then start a second one
       on the same file. Both processes are still alive after the second starts, and the pid file holds
       the second watcher's pid on line 1 and the watched path on line 2
-- [ ] check by hand in that same scratchpad `HOME`: with a watcher running on one path, start and then
+- [x] check by hand in that same scratchpad `HOME`: with a watcher running on one path, start and then
       stop a watcher on a second path. The first watcher is still alive and its own pid file is
       untouched
-- [ ] run `sh -n docs/skill/claude-remarks-review/watch-remarks.sh`, then run the three hand checks
+- [x] run `sh -n docs/skill/claude-remarks-review/watch-remarks.sh`, then run the three hand checks
       above once each from a clean scratchpad `HOME` - must pass before task 24
 
 ### Task 24: The skill answers what is marked
