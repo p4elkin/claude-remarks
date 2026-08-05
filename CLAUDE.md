@@ -274,9 +274,13 @@ fields, the input popup's chip row with its five Alt bindings, the shared menu's
 `setRemarkSeverity`, and the four-level scale the prompt used to explain are all deleted. The reason
 is use: severity was never changed from its default and a tag was never picked, so every remark ever
 published shipped as an untagged `should` while the prompt spent a paragraph teaching a scale it
-then used one value of. An old element carrying `severity="MUST"` and `tag="BUG"` still deserializes
-— `BaseState` ignores an attribute it has no property for — and the attributes are dropped on the
-next save. `RemarkStoreStateTest` pins that.
+then used one value of. An old element carrying `<option name="severity" value="MUST"/>` and
+`<option name="tag" value="BUG"/>` still deserializes — the deserializer skips an `<option>` it has
+no property for — and the two options are dropped on the next save. `RemarkStoreStateTest` pins that.
+⚠️ `BaseState` stores every property as an `<option name= value=/>` child element, never as an XML
+attribute, so a migration test must be written in `<option>` form. Attribute form parses into a
+`RemarkState` with every property at its default, which makes such a test pass against any
+`RemarkState` at all — that is what four tests in that class did until phase 11's review rewrote them.
 
 *Publish is in the shared menu, and the toolbar buttons say what they take.* `remarkChangeActions`
 offers Ask for an Answer, Publish and Move to Bucket…, in that order, from both the gutter icon's

@@ -501,7 +501,7 @@ class RemarksPanel(
      * second.
      *
      * Cleared by the REMARKS_CHANGED subscription above, which is the only thing that can change the
-     * store as far as this panel is concerned: all ten mutation functions publish it, and rule 3 in
+     * store as far as this panel is concerned: all twelve mutation functions publish it, and rule 3 in
      * CLAUDE.md is what keeps anything else from mutating without publishing. EDT only.
      */
     private var remarksCache: List<RemarkState>? = null

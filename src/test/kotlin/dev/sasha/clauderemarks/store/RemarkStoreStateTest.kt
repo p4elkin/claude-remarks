@@ -76,7 +76,7 @@ class RemarkStoreStateTest {
      * keep the option form or it stops testing migration.
      */
     @Test
-    fun `a remark with old severity and tag attributes deserializes correctly`() {
+    fun `a remark stored with the old severity and tag options still loads`() {
         val restored = XmlSerializer.deserialize(
             JDOMUtil.load(
                 """

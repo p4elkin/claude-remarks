@@ -60,16 +60,35 @@ A remark has these fields:
 - `commit`: The repository HEAD read straight out of `.git` when the remark was written, or null
   when there was no readable git repository. Never refreshed. See "The commit stamp" below.
 
-All fields are stored flat as XML attributes on a single element.
+All fields are stored flat on a single `<RemarkState>` element, with no nesting. `BaseState` writes
+each property as an `<option name="…" value="…"/>` child element, **not** as an XML attribute on the
+element itself, and it omits a property still sitting at its default. So a stored remark looks like
+this:
+
+```xml
+<RemarkState>
+  <option name="id" value="r-1" />
+  <option name="path" value="src/Foo.kt" />
+  <option name="text" value="why is this synchronized" />
+</RemarkState>
+```
 
 **Two fields were deleted in phase 11: `tag` and `severity`.** Neither was ever used. Severity was
 never changed from its default and a tag was never picked, so every remark ever published shipped as
 an untagged `should`, while the prompt spent a paragraph teaching a four-level scale it then used one
 value of and the input popup carried a chip row with five key bindings for a field nobody set. The
 enums `RemarkTag` and `RemarkSeverity` and both `label` extensions went with them. An element written
-before that carrying `severity="MUST"` and `tag="BUG"` still loads: `BaseState` ignores an attribute
-it has no property for, and the attributes are dropped on the next save. `RemarkStoreStateTest` pins
-that, and it is the reason nothing had to migrate.
+before that, carrying `<option name="severity" value="MUST"/>` and `<option name="tag" value="BUG"/>`,
+still loads: the deserializer skips an `<option>` it has no property for, and the two options are
+dropped on the next save. `RemarkStoreStateTest` pins that, and it is the reason nothing had to
+migrate.
+
+⚠️ **A migration test has to be written in that `<option>` form.** Attribute form —
+`<RemarkState id="r-1" severity="MUST"/>` — is not a shape any `workspace.xml` has ever held, and it
+parses into a `RemarkState` with every property still at its default. A test written that way passes
+against any `RemarkState` at all, including one that dropped every field the test claims to check.
+Four of the tests in `RemarkStoreStateTest` were written that way and were vacuous until phase 11's
+review rewrote them; the warning on the first of them says so.
 
 There is a second stored record beside this one since phase 11, `model/AnswerState.kt`. See "What an
 Answer Is" below.

@@ -23,7 +23,6 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.anchor.AnchorResult
 import dev.sasha.clauderemarks.anchor.resolveAnchor
-import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.REMARKS_CHANGED
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.RemarksListener
@@ -87,7 +86,11 @@ class RemarkGutter(private val project: Project) : Disposable {
      */
     private val tracked = mutableSetOf<Document>()
 
-    /** The highlighter painted for each remark id, per document. */
+    /**
+     * The highlighter painted for each remark and each answer, per document. The inner key is
+     * [GutterEntry.key] — `remark:<id>` or `answer:<id>` — not a bare id, so the two kinds cannot
+     * collide even if a remark and an answer ever shared an id.
+     */
     private val byDocument = mutableMapOf<Document, MutableMap<String, RangeHighlighter>>()
 
     fun start() {

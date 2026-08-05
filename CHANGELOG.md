@@ -25,8 +25,8 @@ back into the IDE, onto the line you asked about.
   never picked, so everything shipped as an untagged `should` while the prompt spent a paragraph
   teaching a four-level scale it then used one value of. `RemarkTag`, `RemarkSeverity`, the input
   popup's chip row with its five Alt bindings, the shared menu's Severity submenu and
-  `setRemarkSeverity` are all gone. An element stored with the old attributes still loads — they are
-  ignored and dropped on the next save. The chip row was also the only reason the build tolerated an
+  `setRemarkSeverity` are all gone. An element stored with the old fields still loads — their two
+  `<option>` entries are ignored and dropped on the next save. The chip row was also the only reason the build tolerated an
   internal-API usage, so that tolerance went with it.
 - **Publish is in the menu the gutter icon and the tree share**, beside Move to Bucket… and a new Ask
   for an Answer toggle. Publishing one remark used to exist only as a toolbar button, so asking one
