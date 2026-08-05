@@ -28,6 +28,7 @@ internal fun remark(
     startColumn: Int = 0,
     endColumn: Int = 0,
     text: String = "note",
+    asksForAnswer: Boolean = false,
     status: RemarkStatus = RemarkStatus.PENDING,
     createdAt: Long = 0L,
     textHash: String = "0000000000000000",
@@ -44,6 +45,7 @@ internal fun remark(
     it.startColumn = startColumn
     it.endColumn = endColumn
     it.text = text
+    it.asksForAnswer = asksForAnswer
     it.status = status
     it.createdAt = createdAt
     it.textHash = textHash

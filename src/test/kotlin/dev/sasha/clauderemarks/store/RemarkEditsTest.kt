@@ -6,7 +6,7 @@ import java.io.File
 import java.nio.file.Files
 
 /**
- * The ten functions that are the only way production code changes a remark. Each one must both
+ * The eleven functions that are the only way production code changes a remark. Each one must both
  * mutate and publish, so a caller cannot mutate without the tool window and the gutter hearing
  * about it.
  */
@@ -210,6 +210,64 @@ class RemarkEditsTest : BasePlatformTestCase() {
         setRemarkBucket(project, listOf(stored.id!!), "  auth refactor  ")
 
         assertEquals("auth refactor", RemarkStore.getInstance(project).all().single().bucket)
+    }
+
+    fun testSettingAsksForAnswerPublishes() {
+        val stored = addOne()
+
+        setRemarkAsksForAnswer(project, listOf(stored.id!!), true)
+
+        assertEquals(2, heard)
+        assertTrue(RemarkStore.getInstance(project).all().single().asksForAnswer)
+    }
+
+    /** The same no-op rule the bucket has: a toggle that changes nothing redraws nothing. */
+    fun testSettingAsksForAnswerToWhatItAlreadyIsDoesNotPublish() {
+        val stored = addOne()
+        val before = heard
+
+        setRemarkAsksForAnswer(project, listOf(stored.id!!), false)
+
+        assertEquals(before, heard)
+    }
+
+    fun testClearingAsksForAnswerPublishesToo() {
+        val stored = addOne()
+        setRemarkAsksForAnswer(project, listOf(stored.id!!), true)
+        val before = heard
+
+        setRemarkAsksForAnswer(project, listOf(stored.id!!), false)
+
+        assertEquals(before + 1, heard)
+        assertFalse(RemarkStore.getInstance(project).all().single().asksForAnswer)
+    }
+
+    /** The Ask Claude gesture's half: the flag is carried by the remark `addRemark` stores, not set
+     *  in a second call afterwards. */
+    fun testAddingARemarkStoresTheAsksForAnswerFlagItWasGiven() {
+        val stored = addRemark(
+            project,
+            path = "src/Foo.kt",
+            lines = listOf("alpha", "beta"),
+            range = 0..0,
+            text = "why beta?",
+            asksForAnswer = true,
+        )
+
+        assertTrue(stored.asksForAnswer)
+        assertTrue(RemarkStore.getInstance(project).all().single().asksForAnswer)
+    }
+
+    /** Every ordinary entry point leaves the parameter alone, so an ordinary remark asks nothing. */
+    fun testAddingARemarkTheOrdinaryWayAsksForNothing() {
+        assertFalse(addOne().asksForAnswer)
+    }
+
+    fun testAddingAGeneralRemarkStoresTheAsksForAnswerFlagItWasGiven() {
+        val stored = addGeneralRemark(project, "what is this change for?", asksForAnswer = true)
+
+        assertTrue(stored.asksForAnswer)
+        assertTrue(RemarkStore.getInstance(project).all().single().asksForAnswer)
     }
 
     fun testClearHandedOverPublishesOnlyWhenSomethingWentAway() {

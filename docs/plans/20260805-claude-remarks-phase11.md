@@ -161,7 +161,7 @@ marked.
 | 5 | Delete the tag and severity fields | complete |
 | 6 | Check whether the internal-API subtraction can leave the build file | complete |
 | 7 | Real descriptions on the six toolbar buttons | complete |
-| 8 | The asksForAnswer flag, and the function that sets it | not started |
+| 8 | The asksForAnswer flag, and the function that sets it | complete |
 | 9 | The shared menu gets Publish and Ask for an Answer | not started |
 | 10 | The Ask Claude action, its intention and its menu item | not started |
 | 11 | The prompt marks a remark that asks, and prints every remark's id | not started |
@@ -504,12 +504,12 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/TestRemarks.kt` (add `asksForAnswer` to `remark(...)`, defaulting to false)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/RemarkStoreStateTest.kt`, `src/test/kotlin/dev/sasha/clauderemarks/store/RemarkEditsTest.kt`
 
-- [ ] write the migration test: `asksForAnswer` defaults to false, is omitted from the serialized XML when false, and an element written before the field existed loads as false
-- [ ] write the test that `setRemarkAsksForAnswer` publishes `REMARKS_CHANGED`, and that `addRemark` stores the flag it was given
-- [ ] add the property to `RemarkState`, with a KDoc saying what sets it and what reads it
-- [ ] add `setAsksForAnswer` to `RemarksState` and `RemarkStore`, returning how many changed, the same shape `setBucket` uses
-- [ ] add `setRemarkAsksForAnswer` to `RemarkEdits.kt` and the parameter to the two add functions, and correct the function count in that file's header comment
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.RemarkStoreStateTest' --tests 'dev.sasha.clauderemarks.store.RemarkEditsTest'` - must pass before task 9
+- [x] write the migration test: `asksForAnswer` defaults to false, is omitted from the serialized XML when false, and an element written before the field existed loads as false
+- [x] write the test that `setRemarkAsksForAnswer` publishes `REMARKS_CHANGED`, and that `addRemark` stores the flag it was given
+- [x] add the property to `RemarkState`, with a KDoc saying what sets it and what reads it
+- [x] add `setAsksForAnswer` to `RemarksState` and `RemarkStore`, returning how many changed, the same shape `setBucket` uses
+- [x] add `setRemarkAsksForAnswer` to `RemarkEdits.kt` and the parameter to the two add functions, and correct the function count in that file's header comment
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.RemarkStoreStateTest' --tests 'dev.sasha.clauderemarks.store.RemarkEditsTest'` - must pass before task 9
 
 ### Task 9: The shared menu gets Publish and Ask for an Answer
 

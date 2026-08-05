@@ -38,6 +38,7 @@ class RemarkStoreStateTest {
             startColumn = 5,
             endColumn = 9,
             text = "why is this synchronized?",
+            asksForAnswer = true,
             status = RemarkStatus.PUBLISHED,
             createdAt = 1_700_000_000_000L,
             textHash = "abcdef0123456789",
@@ -411,6 +412,83 @@ class RemarkStoreStateTest {
         assertEquals(before, state.modificationCount)
     }
 
+    /**
+     * The migration half of the asks-for-an-answer flag, in the opposite direction to the severity
+     * one above: this field is arriving rather than leaving. False is the default, so BaseState omits
+     * it from the XML altogether, which is what makes every remark stored before the field existed
+     * load as an ordinary remark with nothing to migrate. If the attribute ever started being written
+     * at its default the omission argument would be quietly untrue, so it is asserted rather than
+     * assumed.
+     */
+    @Test
+    fun `asksForAnswer defaults to false and is left out of the xml`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+
+        val stored = state.snapshot().single()
+
+        assertFalse(stored.asksForAnswer)
+        assertFalse(asXml(stored), asXml(stored).contains("asksForAnswer"))
+    }
+
+    /** A remark written by a build that had no such field at all: no attribute, and false. */
+    @Test
+    fun `a remark stored before asksForAnswer existed loads as false`() {
+        val restored = XmlSerializer.deserialize(
+            JDOMUtil.load("""<RemarksState><remarks><RemarkState id="r-1" path="src/Foo.kt" /></remarks></RemarksState>"""),
+            RemarkStore.RemarksState::class.java,
+        )
+
+        assertFalse(restored.remarks.single().asksForAnswer)
+    }
+
+    /** The other half: once it is true it has to reach workspace.xml and come back. */
+    @Test
+    fun `asksForAnswer survives the round trip when it is set`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", asksForAnswer = true))
+
+        assertTrue(roundTrip(state).remarks.single().asksForAnswer)
+    }
+
+    @Test
+    fun `setting asksForAnswer writes it and clearing it writes false`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+
+        assertEquals(1, state.setAsksForAnswer(setOf("r-1"), true))
+        assertTrue(state.snapshot().single().asksForAnswer)
+
+        assertEquals(1, state.setAsksForAnswer(setOf("r-1"), false))
+        assertFalse(state.snapshot().single().asksForAnswer)
+    }
+
+    /** The toggle acts on several rows at once, and only the ids it was given. */
+    @Test
+    fun `setting asksForAnswer touches only the ids given`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1"))
+        state.addRemark(remark(id = "r-2"))
+        state.addRemark(remark(id = "r-3"))
+
+        assertEquals(2, state.setAsksForAnswer(setOf("r-1", "r-2"), true))
+
+        assertTrue(state.snapshot().first { it.id == "r-1" }.asksForAnswer)
+        assertTrue(state.snapshot().first { it.id == "r-2" }.asksForAnswer)
+        assertFalse(state.snapshot().first { it.id == "r-3" }.asksForAnswer)
+    }
+
+    @Test
+    fun `setting asksForAnswer to what it already is changes nothing`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", asksForAnswer = true))
+        val before = state.modificationCount
+
+        assertEquals(0, state.setAsksForAnswer(setOf("r-1"), true))
+
+        assertEquals(before, state.modificationCount)
+    }
+
     @Test
     fun `the commit survives the round trip and is null when there was none`() {
         val state = RemarkStore.RemarksState()
@@ -478,6 +556,7 @@ class RemarkStoreStateTest {
             startColumn = 5,
             endColumn = 9,
             text = "why is this synchronized?",
+            asksForAnswer = true,
             status = RemarkStatus.PUBLISHED,
             createdAt = 1_700_000_000_000L,
             textHash = "abcdef0123456789",

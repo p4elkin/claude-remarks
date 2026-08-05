@@ -45,6 +45,25 @@ class RemarkState : BaseState() {
     var startColumn by property(0)
     var endColumn by property(0)
     var text by string()
+
+    /**
+     * True when this remark asks Claude Code for an answer rather than for work to do.
+     *
+     * Set in two places, both of them the person's own choice: the Ask Claude gesture, which writes a
+     * remark already carrying it, and the Ask for an Answer toggle in the shared menu, which turns an
+     * ordinary remark into a question afterwards and back again. Read by the prompt renderer, which
+     * marks the heading, by the tree row, by the gutter tooltip, and by the skill, which answers only
+     * the remarks carrying it.
+     *
+     * There is no one-writer guard on this the way there is on RemarkStatus.READ. A person saying "I
+     * want an answer to this" is not a claim about what an agent did, so there is nothing for such a
+     * rule to protect.
+     *
+     * Defaults to false, so BaseState omits it when it serializes and every remark stored before this
+     * field existed loads as an ordinary remark — the same no-migration shape [startColumn],
+     * [endColumn] and [phrase] already use.
+     */
+    var asksForAnswer by property(false)
     var status by enum(RemarkStatus.PENDING)
     var createdAt by property(0L)
     var textHash by string()

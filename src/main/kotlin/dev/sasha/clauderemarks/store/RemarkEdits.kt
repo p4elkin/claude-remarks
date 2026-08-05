@@ -29,10 +29,10 @@ val REMARKS_CHANGED: Topic<RemarksListener> =
     Topic.create("Claude remarks changed", RemarksListener::class.java, Topic.BroadcastDirection.NONE)
 
 /**
- * These ten functions are the whole way production code reaches a remark. Nine of them change
+ * These eleven functions are the whole way production code reaches a remark. Ten of them change
  * one — nothing calls RemarkStore.add / RemarkStore.remove directly any more, and CLAUDE.md's rule
- * 3 greps to keep that true — and the tenth, notifyRemarksChanged, changes nothing itself: it is
- * what every one of the nine calls to announce the change.
+ * 3 greps to keep that true — and the eleventh, notifyRemarksChanged, changes nothing itself: it is
+ * what every one of the ten calls to announce the change.
  *
  * The reason is not tidiness. The tool window and the gutter both have to redraw after any change,
  * and pairing the mutation with the notification in one function is what stops a caller doing one
@@ -40,7 +40,12 @@ val REMARKS_CHANGED: Topic<RemarksListener> =
  * building RemarkStore() directly, with no fixture, in fourteen places.
  */
 
-/** Captures the anchor for [range] out of [lines] and stores a new remark. Returns what was stored. */
+/**
+ * Captures the anchor for [range] out of [lines] and stores a new remark. Returns what was stored.
+ *
+ * [asksForAnswer] defaults to false, so the ordinary entry points — the shortcut, the intention, the
+ * preview's menu item — read exactly as they did before. Only the Ask Claude gesture passes true.
+ */
 fun addRemark(
     project: Project,
     path: String,
@@ -49,6 +54,7 @@ fun addRemark(
     text: String,
     startColumn: Int = 0,
     endColumn: Int = 0,
+    asksForAnswer: Boolean = false,
 ): RemarkState {
     val anchor = captureAnchor(lines, range.first, range.last)
     val remark = RemarkState().apply {
@@ -59,6 +65,7 @@ fun addRemark(
         this.startColumn = startColumn
         this.endColumn = endColumn
         this.text = text
+        this.asksForAnswer = asksForAnswer
         this.createdAt = System.currentTimeMillis()
         this.textHash = anchor.textHash
         this.contextBefore = joinContext(anchor.contextBefore)
@@ -84,10 +91,11 @@ fun addRemark(
  * again. The commit stamp is still captured, the same as [addRemark], because it says what the
  * whole change was measured against even when no single file is named.
  */
-fun addGeneralRemark(project: Project, text: String): RemarkState {
+fun addGeneralRemark(project: Project, text: String, asksForAnswer: Boolean = false): RemarkState {
     val remark = RemarkState().apply {
         this.id = UUID.randomUUID().toString()
         this.text = text
+        this.asksForAnswer = asksForAnswer
         this.createdAt = System.currentTimeMillis()
         this.commit = project.basePath?.let { headCommit(Path.of(it)) }
     }
@@ -129,6 +137,20 @@ fun markRemarksRead(project: Project, ids: Collection<String>) {
 fun setRemarkBucket(project: Project, ids: Collection<String>, bucket: String?) {
     val clean = bucket?.trim()?.takeIf { it.isNotEmpty() }
     if (RemarkStore.getInstance(project).setBucket(ids.toSet(), clean) > 0) {
+        notifyRemarksChanged(project)
+    }
+}
+
+/**
+ * Marks remarks as asking Claude Code for an answer, or stops them asking.
+ *
+ * Two places set this, and both are the person's own choice: the Ask Claude gesture, which writes a
+ * remark already carrying the flag, and the Ask for an Answer toggle in the shared menu, which turns
+ * remarks already written into questions and back. There is deliberately no one-writer rule on this
+ * the way there is on [markRemarksRead] — READ is a claim about what an agent did, and this is not.
+ */
+fun setRemarkAsksForAnswer(project: Project, ids: Collection<String>, asksForAnswer: Boolean) {
+    if (RemarkStore.getInstance(project).setAsksForAnswer(ids.toSet(), asksForAnswer) > 0) {
         notifyRemarksChanged(project)
     }
 }
