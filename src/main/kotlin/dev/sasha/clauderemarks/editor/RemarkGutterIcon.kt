@@ -1,5 +1,6 @@
 package dev.sasha.clauderemarks.editor
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -17,6 +18,7 @@ import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.ui.RemarkStatusLook
 import dev.sasha.clauderemarks.ui.remarkChangeActions
+import dev.sasha.clauderemarks.ui.showAnswerPopup
 import java.util.Objects
 import javax.swing.Icon
 
@@ -26,6 +28,9 @@ data class RemarkPlacement(
     val text: String,
     val commit: String?,
     val status: RemarkStatus,
+    /** Whether this remark asks Claude Code for an answer. Straight out of
+     *  `RemarkState.asksForAnswer`, and shown as its own line in the tooltip. */
+    val asksForAnswer: Boolean,
     val startLine: Int,
     val endLine: Int,
     val orphaned: Boolean,
@@ -52,13 +57,15 @@ data class RemarkPlacement(
  * The phrase, when there is one, gets its own line under the remark text, escaped and newline-broken
  * the same way the text itself is: it is arbitrary source text, so it can hold "<" or "&" as easily
  * as the remark text can. A whole-line remark has no phrase, and adds nothing here.
+ *
+ * The asks line comes last, the same place the tree row draws its own grey `asks` word. It says only
+ * that the remark asks, never that it has been answered: an answer draws its own icon on the same
+ * lines, so "answered" is already on screen as a second balloon rather than as a word here.
  */
 fun tooltipFor(placement: RemarkPlacement): String = buildString {
     append("<html>")
-    append(StringUtil.escapeXmlEntities(placement.text).replace("\n", "<br/>"))
-    placement.phrase?.let {
-        append("<br/>").append(StringUtil.escapeXmlEntities(it).replace("\n", "<br/>"))
-    }
+    append(asHtml(placement.text))
+    placement.phrase?.let { append("<br/>").append(asHtml(it)) }
     placement.commit?.let { append("  commit ").append(it.take(8)) }
     if (placement.orphaned) append("<br/>(orphaned — these line numbers are stale)")
     when (placement.status) {
@@ -66,8 +73,60 @@ fun tooltipFor(placement: RemarkPlacement): String = buildString {
         RemarkStatus.READ -> append("<br/>(read)")
         RemarkStatus.PENDING -> {}
     }
+    if (placement.asksForAnswer) append("<br/>(asks for an answer)")
     append("</html>")
 }
+
+/**
+ * Everything the gutter needs about one answer, computed off the EDT — the same shape
+ * [RemarkPlacement] has, for the same reason.
+ *
+ * [markdown] is carried here rather than looked up when the icon is clicked, so the popup opens the
+ * body the icon was painted from and not whatever the store holds a moment later. That is the same
+ * rule `ui/RemarksTree.kt`'s `AnswerNode` follows for a double click on an answer row.
+ */
+data class AnswerPlacement(
+    val id: String,
+    /** The remark's text, copied when the answer was stored. Empty when the remark was already gone. */
+    val question: String,
+    /** The first non-blank line of [markdown], the same preview the tree's answer row draws. */
+    val firstLine: String,
+    val markdown: String,
+    val startLine: Int,
+    val endLine: Int,
+    val orphaned: Boolean,
+)
+
+/**
+ * The answer's gutter tooltip, as HTML, for the same reason [tooltipFor] is.
+ *
+ * It carries the question first and the answer's first line under it, so hovering says both what was
+ * asked and roughly what came back without opening anything. The question is skipped when it is
+ * blank, which is what an answer to a remark that was already gone carries — printing an empty line
+ * above the preview would only look broken.
+ *
+ * Both pieces are escaped: a question is whatever was typed, and an answer body is markdown a model
+ * wrote, so either can hold "<" or "&".
+ *
+ * The last line says the icon can be clicked, because nothing else on screen does. A gutter icon
+ * that opens something is not a convention a reader can assume.
+ */
+fun answerTooltipFor(placement: AnswerPlacement): String = buildString {
+    append("<html>")
+    if (placement.question.isNotBlank()) append(asHtml(placement.question)).append("<br/>")
+    append(asHtml(placement.firstLine))
+    if (placement.orphaned) append("<br/>(orphaned — these line numbers are stale)")
+    append("<br/>(click to read the whole answer)")
+    append("</html>")
+}
+
+/**
+ * Arbitrary text as it has to appear inside a tooltip: escaped, because an unescaped "<" swallows
+ * everything up to the next ">", and with newlines turned into breaks, because a raw "\n" is only
+ * whitespace in HTML.
+ */
+private fun asHtml(text: String): String =
+    StringUtil.escapeXmlEntities(text).replace("\n", "<br/>")
 
 /**
  * equals and hashCode are keyed on the remark id plus everything that changes what is painted.
@@ -106,6 +165,42 @@ class RemarkGutterIconRenderer(
             other.id == id && other.text == text && other.status == status
 
     override fun hashCode(): Int = Objects.hash(id, text, status)
+}
+
+/**
+ * The answer's own icon, on the lines the answer's own anchor resolves to.
+ *
+ * The answer is not hung off the remark's icon as a "Show Answer" menu item, and it does not wait
+ * for its remark to be cleared before it draws. An answer outliving its question is the ordinary
+ * case, and an icon that only sometimes appears makes the gutter conditional on something invisible.
+ * The cost is two icons on the same lines while both exist, which IntelliJ stacks.
+ *
+ * `AllIcons.General.Balloon` is the same icon the tree's answer row draws, so the two places a
+ * person meets an answer look like the same thing.
+ *
+ * equals and hashCode carry the same job they do on [RemarkGutterIconRenderer]: the platform
+ * compares the old and the new renderer on every highlighting pass, so identity equality would make
+ * the icon flicker. [markdown] is part of the key even though it is not drawn — it is what the click
+ * opens, and an answer replaced in place has to open the new body.
+ */
+class AnswerGutterIconRenderer(
+    private val project: Project,
+    private val id: String,
+    private val tooltip: String,
+    private val markdown: String,
+) : GutterIconRenderer() {
+
+    override fun getIcon(): Icon = AllIcons.General.Balloon
+
+    override fun getTooltipText(): String = tooltip
+
+    override fun getClickAction(): AnAction = DumbAwareAction.create { showAnswerPopup(project, markdown) }
+
+    override fun equals(other: Any?): Boolean =
+        other is AnswerGutterIconRenderer &&
+            other.id == id && other.tooltip == tooltip && other.markdown == markdown
+
+    override fun hashCode(): Int = Objects.hash(id, tooltip, markdown)
 }
 
 private fun menuFor(project: Project, editor: Editor, id: String): ActionGroup = DefaultActionGroup(

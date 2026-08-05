@@ -7,11 +7,15 @@ import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import dev.sasha.clauderemarks.anchor.hashLines
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
+import dev.sasha.clauderemarks.store.answer
+import dev.sasha.clauderemarks.store.deleteAnswer
 import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
+import dev.sasha.clauderemarks.store.recordAnswer
 import dev.sasha.clauderemarks.store.remark
 import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.io.File
@@ -150,6 +154,94 @@ class RemarkGutterTest : BasePlatformTestCase() {
     }
 
     /**
+     * An answer draws its own icon on the lines its own anchor resolves to, beside the remark's own
+     * icon rather than instead of it. Both counts are asserted, because an answer that quietly
+     * replaced the remark's icon would leave this at one and look right.
+     */
+    fun testAnAnswerGetsAnIconOfItsOwnBesideTheRemarksIcon() {
+        openFoo()
+        addRemark(project, "Foo.kt", LINES, 1..1, "why?")
+        gutter.start()
+        settleInvocationQueue()
+
+        recordAnswer(project, answerOnBeta())
+        settleInvocationQueue()
+
+        assertEquals(1, iconCount())
+        assertEquals(1, answerIconCount())
+    }
+
+    /** The icon sits on the lines the ANSWER's anchor resolves to, not on the remark's. */
+    fun testTheAnswerIconSitsOnTheLinesItsOwnAnchorResolvesTo() {
+        openFoo()
+        gutter.start()
+        settleInvocationQueue()
+
+        recordAnswer(project, answerOnBeta())
+        settleInvocationQueue()
+
+        assertEquals(1..1, answerIconLines())
+    }
+
+    /**
+     * The answer outlives its question. Deleting the remark takes the remark's icon and leaves the
+     * answer's, which is the whole reason an answer carries an anchor of its own.
+     */
+    fun testTheAnswerKeepsItsIconAfterItsRemarkIsDeleted() {
+        openFoo()
+        val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?")
+        gutter.start()
+        recordAnswer(project, answerOnBeta())
+        settleInvocationQueue()
+
+        deleteRemark(project, stored.id!!)
+        settleInvocationQueue()
+
+        assertEquals(0, iconCount())
+        assertEquals(1, answerIconCount())
+    }
+
+    /**
+     * An answer to a general remark carries an empty path, so it matches no document and produces
+     * no placement anywhere — the same rule the general remark itself already follows above.
+     */
+    fun testAnAnswerToAGeneralRemarkProducesNoPlacementAnywhere() {
+        openFoo()
+        gutter.start()
+        settleInvocationQueue()
+
+        recordAnswer(project, answer(id = "a-general", path = ""))
+        settleInvocationQueue()
+
+        assertEquals(0, answerIconCount())
+    }
+
+    /** Deleting the answer takes its icon away, the same way deleting a remark takes the remark's. */
+    fun testDeletingTheAnswerTakesItsIconAway() {
+        openFoo()
+        gutter.start()
+        recordAnswer(project, answerOnBeta())
+        settleInvocationQueue()
+
+        deleteAnswer(project, "a-1")
+        settleInvocationQueue()
+
+        assertEquals(0, answerIconCount())
+    }
+
+    /** The tooltip is built from the stored answer, so both halves of it travel from the store. */
+    fun testTheAnswerTooltipCarriesTheQuestionAndTheFirstLineFromTheStore() {
+        openFoo()
+        gutter.start()
+        recordAnswer(project, answerOnBeta())
+        settleInvocationQueue()
+
+        val tooltip = answerTooltips().single()
+        assertTrue(tooltip, tooltip.contains("why is this synchronized?"))
+        assertTrue(tooltip, tooltip.contains("because two threads write it"))
+    }
+
+    /**
      * A git checkout, a branch switch, a VCS revert or an external edit replaces the whole document
      * text in one write action. Nothing else in the service re-resolves after that, so the icons
      * kept whatever offsets the platform left them at — which after a branch switch can be
@@ -268,6 +360,39 @@ class RemarkGutterTest : BasePlatformTestCase() {
         val document = myFixture.editor.document
         return highlighters()
             .filter { it.gutterIconRenderer is RemarkGutterIconRenderer }
+            .map { document.getLineNumber(it.startOffset)..document.getLineNumber(it.endOffset) }
+            .distinct()
+            .single()
+    }
+
+    /**
+     * An answer anchored to the second line of the file, "beta", which is also the line the remark
+     * every test above adds points at. That overlap is deliberate: it is the ordinary case, a remark
+     * and its own answer on the same lines.
+     */
+    private fun answerOnBeta() = answer(
+        path = "Foo.kt",
+        startLine = 1,
+        endLine = 1,
+        textHash = hashLines(listOf("beta")),
+    )
+
+    /** How many distinct answers have an icon, collapsed the same way [iconCount] is. */
+    private fun answerIconCount(): Int =
+        highlighters().mapNotNull { it.gutterIconRenderer as? AnswerGutterIconRenderer }.distinct().size
+
+    /** The distinct answer tooltips on the document. */
+    private fun answerTooltips(): List<String> =
+        highlighters()
+            .mapNotNull { it.gutterIconRenderer as? AnswerGutterIconRenderer }
+            .map { it.tooltipText }
+            .distinct()
+
+    /** The line range the answer icons cover, the same shape [iconLines] reports for remarks. */
+    private fun answerIconLines(): IntRange {
+        val document = myFixture.editor.document
+        return highlighters()
+            .filter { it.gutterIconRenderer is AnswerGutterIconRenderer }
             .map { document.getLineNumber(it.startOffset)..document.getLineNumber(it.endOffset) }
             .distinct()
             .single()

@@ -182,8 +182,12 @@ private fun movedOrOrphanedLabel(
 /**
  * The first line of an answer worth showing on one row: the first line that is not blank, trimmed.
  * An answer that opens with a markdown heading therefore shows that heading, which reads well.
+ *
+ * Public rather than private to this file, because the answer's gutter tooltip shows the same
+ * preview and the two must not drift: a person who sees one line on the row and a different one on
+ * the icon would have no way to tell which is the answer.
  */
-private fun firstLineOf(markdown: String?): String =
+fun firstLineOf(markdown: String?): String =
     markdown.orEmpty().lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
 
 /**

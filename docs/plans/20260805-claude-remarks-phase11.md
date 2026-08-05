@@ -173,7 +173,7 @@ marked.
 | 17 | The answer endpoint action and AnswerReceipt | complete |
 | 18 | The fetch action loses its session requirement | complete |
 | 19 | The Answers group in the tree | complete |
-| 20 | The answer's gutter icon | not started |
+| 20 | The answer's gutter icon | complete |
 | 21 | The markdown popup | not started |
 | 22 | Clearing, the history file and the confirmation dialogs | not started |
 | 23 | watch-remarks.sh fetch mode without a session | not started |
@@ -666,11 +666,11 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/editor/RemarkGutter.kt` (`placementsFor` so it also builds answer placements, and `apply` so it paints them)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/editor/RemarkGutterTest.kt`, `src/test/kotlin/dev/sasha/clauderemarks/editor/RemarkGutterIconTest.kt`
 
-- [ ] write the tests: an answer produces a placement on its resolved lines, a general remark's answer produces none, and the answer renderer's `equals` and `hashCode` are keyed on what is painted
-- [ ] write the test that a marked remark's tooltip carries the asks line and an unmarked one does not
-- [ ] add `AnswerPlacement`, `answerTooltipFor` and `AnswerGutterIconRenderer` using `AllIcons.General.Balloon`
-- [ ] extend `placementsFor` and `apply` so answers get highlighters alongside remarks, keeping the existing rule that a live highlighter is kept when the fresh resolve orphans
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.editor.*'` - must pass before task 21
+- [x] write the tests: an answer produces a placement on its resolved lines, a general remark's answer produces none, and the answer renderer's `equals` and `hashCode` are keyed on what is painted
+- [x] write the test that a marked remark's tooltip carries the asks line and an unmarked one does not
+- [x] add `AnswerPlacement`, `answerTooltipFor` and `AnswerGutterIconRenderer` using `AllIcons.General.Balloon`
+- [x] extend `placementsFor` and `apply` so answers get highlighters alongside remarks, keeping the existing rule that a live highlighter is kept when the fresh resolve orphans
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.editor.*'` - must pass before task 21
 
 ### Task 21: The markdown popup
 

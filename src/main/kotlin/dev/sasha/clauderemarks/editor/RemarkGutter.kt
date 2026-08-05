@@ -11,6 +11,7 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.EditorFactoryEvent
 import com.intellij.openapi.editor.event.EditorFactoryListener
 import com.intellij.openapi.editor.impl.DocumentMarkupModel
+import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
@@ -29,12 +30,42 @@ import dev.sasha.clauderemarks.store.RemarksListener
 import dev.sasha.clauderemarks.store.anchorOf
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.projectRoot
+import dev.sasha.clauderemarks.store.storedAnchorOf
+import dev.sasha.clauderemarks.ui.firstLineOf
 
 /**
  * One document's placements, plus the modification stamp they were computed against. The line
  * numbers inside them mean nothing for any other stamp, which is why the stamp travels with them.
+ *
+ * The answers are a second list rather than a second field on [RemarkPlacement], because an answer
+ * is its own record with its own anchor: it resolves to its own lines, and it stays on the gutter
+ * after the remark it answers has been cleared. [answers] defaults to empty so a caller building
+ * placements by hand — every test that does — keeps compiling.
  */
-data class DocumentPlacements(val stamp: Long, val placements: List<RemarkPlacement>)
+data class DocumentPlacements(
+    val stamp: Long,
+    val placements: List<RemarkPlacement>,
+    val answers: List<AnswerPlacement> = emptyList(),
+)
+
+/**
+ * One thing to paint in the gutter, a remark or an answer, reduced to what [RemarkGutter.apply]
+ * needs of it.
+ *
+ * The two records differ in everything except where the icon goes and what it draws, and apply's
+ * rules are the same for both: keep a live highlighter when the fresh resolve orphans, repaint
+ * rather than rebuild when the offsets already match. Written once over this instead of twice.
+ *
+ * [key] carries which of the two kinds it is, so a remark and an answer can never collide in the
+ * painted map even if their ids somehow did.
+ */
+private data class GutterEntry(
+    val key: String,
+    val startLine: Int,
+    val endLine: Int,
+    val orphaned: Boolean,
+    val renderer: GutterIconRenderer,
+)
 
 /**
  * Keeps one RangeHighlighter per remark on every open document.
@@ -216,19 +247,39 @@ class RemarkGutter(private val project: Project) : Disposable {
                     text = remark.text.orEmpty(),
                     commit = remark.commit,
                     status = remark.status,
+                    asksForAnswer = remark.asksForAnswer,
                     startLine = result.startLine,
                     endLine = result.endLine,
                     orphaned = result is AnchorResult.Orphaned,
                     phrase = remark.phrase,
                 )
             }
-        return DocumentPlacements(stamp, placements)
+
+        // The same filter and the same resolve, against the answer's own stored anchor. An answer to
+        // a general remark carries an empty path, so it never matches a real document's relative
+        // path and produces no placement anywhere — the same way a general remark already does not.
+        val answers = RemarkStore.getInstance(project).allAnswers()
+            .filter { it.path == path && it.id != null }
+            .map { answer ->
+                val result = resolveAnchor(anchorOf(storedAnchorOf(answer)), lines)
+                AnswerPlacement(
+                    id = answer.id!!,
+                    question = answer.question.orEmpty(),
+                    firstLine = firstLineOf(answer.markdown),
+                    markdown = answer.markdown.orEmpty(),
+                    startLine = result.startLine,
+                    endLine = result.endLine,
+                    orphaned = result is AnchorResult.Orphaned,
+                )
+            }
+        return DocumentPlacements(stamp, placements, answers)
     }
 
     /**
-     * EDT. Adds an icon for a remark that appeared, removes one that went away, and repaints the
-     * rest. It does not clear and rebuild the whole document, because a live highlighter carries
-     * a position the platform has been keeping exact and a rebuild would throw that away.
+     * EDT. Adds an icon for a remark or an answer that appeared, removes one that went away, and
+     * repaints the rest. It does not clear and rebuild the whole document, because a live
+     * highlighter carries a position the platform has been keeping exact and a rebuild would throw
+     * that away.
      */
     private fun apply(document: Document, computed: DocumentPlacements) {
         if (project.isDisposed || document !in tracked) return
@@ -242,23 +293,24 @@ class RemarkGutter(private val project: Project) : Disposable {
 
         val model = DocumentMarkupModel.forDocument(document, project, true)
         val painted = byDocument.getOrPut(document) { mutableMapOf() }
-        val wanted = computed.placements.associateBy { it.id }
+        val entries = entriesOf(computed)
+        val wanted = entries.associateBy { it.key }
 
         // Deleted from the store, or no longer in this file.
         painted.keys.toList()
             .filter { it !in wanted }
-            .forEach { id -> painted.remove(id)?.let { model.removeHighlighter(it) } }
+            .forEach { key -> painted.remove(key)?.let { model.removeHighlighter(it) } }
 
         val lastLine = (document.lineCount - 1).coerceAtLeast(0)
-        for (placement in computed.placements) {
-            val existing = painted[placement.id]
+        for (entry in entries) {
+            val existing = painted[entry.key]
 
             // The end line is coerced against the START line, not against 0. A hand-edited
             // workspace.xml can store endLine < startLine, Anchoring hands that back as
             // Orphaned(startLine, endLine) unchanged, and addRangeHighlighter throws on an
             // inverted range — which would kill the sync for the whole document.
-            val startLine = placement.startLine.coerceIn(0, lastLine)
-            val endLine = placement.endLine.coerceIn(startLine, lastLine)
+            val startLine = entry.startLine.coerceIn(0, lastLine)
+            val endLine = entry.endLine.coerceIn(startLine, lastLine)
             val start = document.getLineStartOffset(startLine)
             val end = document.getLineEndOffset(endLine)
 
@@ -270,31 +322,46 @@ class RemarkGutter(private val project: Project) : Disposable {
             // opening and closing, and destroying and recreating every icon in the file each time
             // is exactly the churn the renderer's equals and hashCode exist to avoid.
             if (existing != null && existing.isValid &&
-                (placement.orphaned || (existing.startOffset == start && existing.endOffset == end))
+                (entry.orphaned || (existing.startOffset == start && existing.endOffset == end))
             ) {
-                existing.gutterIconRenderer = rendererFor(placement)
+                existing.gutterIconRenderer = entry.renderer
                 continue
             }
 
             existing?.let {
-                painted.remove(placement.id)
+                painted.remove(entry.key)
                 model.removeHighlighter(it)
             }
-            painted[placement.id] = model.addRangeHighlighter(
+            painted[entry.key] = model.addRangeHighlighter(
                 start,
                 end,
                 HighlighterLayer.ADDITIONAL_SYNTAX,
                 null,
                 HighlighterTargetArea.LINES_IN_RANGE,
-            ).also { it.gutterIconRenderer = rendererFor(placement) }
+            ).also { it.gutterIconRenderer = entry.renderer }
         }
     }
+
+    /** Both kinds of placement as the one shape [apply] paints, remarks first. */
+    private fun entriesOf(computed: DocumentPlacements): List<GutterEntry> =
+        computed.placements.map {
+            GutterEntry("remark:${it.id}", it.startLine, it.endLine, it.orphaned, rendererFor(it))
+        } + computed.answers.map {
+            GutterEntry("answer:${it.id}", it.startLine, it.endLine, it.orphaned, rendererFor(it))
+        }
 
     private fun rendererFor(placement: RemarkPlacement) = RemarkGutterIconRenderer(
         project = project,
         id = placement.id,
         text = tooltipFor(placement),
         status = placement.status,
+    )
+
+    private fun rendererFor(placement: AnswerPlacement) = AnswerGutterIconRenderer(
+        project = project,
+        id = placement.id,
+        tooltip = answerTooltipFor(placement),
+        markdown = placement.markdown,
     )
 
     /** EDT. */

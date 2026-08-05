@@ -73,10 +73,28 @@ class RemarkTooltipTest {
         )
     }
 
+    /**
+     * The grey `asks` word the tree row draws, said on the tooltip too. It says only that the
+     * remark asks: an answer draws its own balloon on the same lines, so "answered" is already on
+     * screen as a second icon rather than as a second word here.
+     */
+    @Test
+    fun `a remark that asks for an answer says so on its own line`() {
+        assertTrue(
+            tooltipFor(placement(asksForAnswer = true)).contains("<br/>(asks for an answer)"),
+        )
+    }
+
+    @Test
+    fun `an ordinary remark says nothing about asking`() {
+        assertFalse(tooltipFor(placement(asksForAnswer = false)).contains("asks"))
+    }
+
     private fun placement(
         text: String = "why?",
         commit: String? = null,
         status: RemarkStatus = RemarkStatus.PENDING,
+        asksForAnswer: Boolean = false,
         orphaned: Boolean = false,
         phrase: String? = null,
     ) = RemarkPlacement(
@@ -84,10 +102,77 @@ class RemarkTooltipTest {
         text = text,
         commit = commit,
         status = status,
+        asksForAnswer = asksForAnswer,
         startLine = 4,
         endLine = 6,
         orphaned = orphaned,
         phrase = phrase,
+    )
+}
+
+/**
+ * The answer's own tooltip, which has a different job from a remark's: a remark's tooltip is the
+ * whole remark, and an answer's is a preview of something that only opens on a click.
+ */
+class AnswerTooltipTest {
+
+    @Test
+    fun `the question comes first and the answer's first line under it`() {
+        val html = answerTooltipFor(answerPlacement())
+
+        assertTrue(html, html.contains("why is this synchronized?<br/>because two threads write it"))
+    }
+
+    /** An answer whose remark was already gone carries no question, and must not print a blank line. */
+    @Test
+    fun `an answer with no question starts at its own first line`() {
+        assertEquals(
+            "<html>because two threads write it<br/>(click to read the whole answer)</html>",
+            answerTooltipFor(answerPlacement(question = "")),
+        )
+    }
+
+    /** A question is whatever was typed and an answer body is markdown a model wrote. Both escape. */
+    @Test
+    fun `angle brackets survive on both halves instead of being eaten as tags`() {
+        val html = answerTooltipFor(
+            answerPlacement(question = "why List<String>?", firstLine = "because Map<K, V> is worse"),
+        )
+
+        assertTrue(html, html.contains("List&lt;String&gt;"))
+        assertTrue(html, html.contains("Map&lt;K, V&gt;"))
+        assertFalse(html, html.contains("<String>"))
+    }
+
+    @Test
+    fun `an orphaned answer says its line numbers are stale`() {
+        assertTrue(answerTooltipFor(answerPlacement(orphaned = true)).contains("<br/>(orphaned"))
+        assertFalse(answerTooltipFor(answerPlacement()).contains("orphaned"))
+    }
+
+    /** Nothing else on screen says a gutter icon can be clicked, so the tooltip has to. */
+    @Test
+    fun `the tooltip says the icon opens the answer`() {
+        assertTrue(answerTooltipFor(answerPlacement()).contains("click to read the whole answer"))
+    }
+
+    @Test
+    fun `the tooltip is wrapped in html, or the breaks would be printed literally`() {
+        assertTrue(answerTooltipFor(answerPlacement()).startsWith("<html>"))
+    }
+
+    private fun answerPlacement(
+        question: String = "why is this synchronized?",
+        firstLine: String = "because two threads write it",
+        orphaned: Boolean = false,
+    ) = AnswerPlacement(
+        id = "a-1",
+        question = question,
+        firstLine = firstLine,
+        markdown = "$firstLine\n\nand a second paragraph",
+        startLine = 4,
+        endLine = 4,
+        orphaned = orphaned,
     )
 }
 
@@ -121,4 +206,43 @@ class RemarkGutterRendererTest : BasePlatformTestCase() {
 
     private fun renderer(id: String = "r-1", text: String = "why?", status: RemarkStatus = RemarkStatus.PENDING) =
         RemarkGutterIconRenderer(project, id, text, status)
+}
+
+/**
+ * The answer renderer's equality, which carries the same job the remark renderer's does: the
+ * platform compares the old and the new one on every highlighting pass, so identity equality would
+ * make the balloon flicker.
+ *
+ * The markdown is part of the key even though it is not drawn. It is what a click opens, and an
+ * answer replaced in place has to open the second body, not the first.
+ */
+class AnswerGutterRendererTest : BasePlatformTestCase() {
+
+    fun testTwoRenderersForTheSameUnchangedAnswerAreEqual() {
+        assertEquals(renderer(), renderer())
+        assertEquals(renderer().hashCode(), renderer().hashCode())
+    }
+
+    fun testADifferentAnswerIdIsADifferentRenderer() {
+        assertFalse(renderer() == renderer(id = "a-2"))
+    }
+
+    fun testAChangedTooltipIsADifferentRendererSoTheHoverIsRepainted() {
+        assertFalse(renderer() == renderer(tooltip = "<html>something else</html>"))
+    }
+
+    fun testAReplacedBodyIsADifferentRendererSoTheClickOpensTheNewOne() {
+        assertFalse(renderer() == renderer(markdown = "a second, different answer"))
+    }
+
+    /** An answer and a remark are never the same renderer, whatever they carry. */
+    fun testAnAnswerRendererIsNeverEqualToARemarkRenderer() {
+        assertFalse(renderer() as Any == RemarkGutterIconRenderer(project, "a-1", "why?", RemarkStatus.PENDING))
+    }
+
+    private fun renderer(
+        id: String = "a-1",
+        tooltip: String = "<html>why?</html>",
+        markdown: String = "because two threads write it",
+    ) = AnswerGutterIconRenderer(project, id, tooltip, markdown)
 }
