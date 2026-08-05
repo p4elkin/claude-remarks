@@ -178,7 +178,7 @@ marked.
 | 22 | Clearing, the history file and the confirmation dialogs | complete |
 | 23 | watch-remarks.sh fetch mode without a session | complete |
 | 24 | The skill answers what is marked | complete |
-| 25 | The skill: listen mode claims, re-arms and reaches over the tunnel | not started |
+| 25 | The skill: listen mode claims, re-arms and reaches over the tunnel | complete |
 | 26 | Verify acceptance criteria | not started |
 | 27 | [Final] Update documentation | not started |
 
@@ -782,49 +782,49 @@ popup must `Disposer.register(popup, pane)`.
   project on the machine" paragraph in `## The watcher script`, and the "An exit code above 128 is a
   signal" paragraph beside it; the kill line at the end of step 6 that stops a watcher by pid)
 
-- [ ] add the startup claim: read the published file and take the nonce from line 2 **out of the file
+- [x] add the startup claim: read the published file and take the nonce from line 2 **out of the file
       on every run**, never from a value remembered from an earlier one, then POST `published-read`
       for it and act on each of the three answers — `ok` surfaces the batch, `already-read` skips it
       and names the session that got there first, `unknown-batch` surfaces it and says plainly that it
       may already have been done
-- [ ] add the loop in this exact order — the batch arrives, acknowledge it, **re-arm immediately,
+- [x] add the loop in this exact order — the batch arrives, acknowledge it, **re-arm immediately,
       before summarising**, then summarise and wait for go — and say why the third step is where it is
-- [ ] ⚠️ write the two rules that replace the one-watcher-per-project rule: several sessions may
+- [x] ⚠️ write the two rules that replace the one-watcher-per-project rule: several sessions may
       listen to one repository at once and **nothing kills a watcher**, and the batch claim is what
       decides who acts. A session answered `already-read` names the winner, does not act on the batch,
       and **keeps listening**. Losing a claim is an ordinary outcome, not a reason to stop
-- [ ] ⚠️ write the stopping rules, and state repository isolation as a guarantee rather than leaving
+- [x] ⚠️ write the stopping rules, and state repository isolation as a guarantee rather than leaving
       a reader to infer it from the script: never `pkill`, `killall` or `ps | grep | kill` matched on
       `watch-remarks.sh`, because every repository's watcher on this machine runs a program with that
       name and a blunt match stops all of them at once. A watcher is stopped only by the pid on the
       first line of its own repository's `.watch` file, and only after checking that the pid is alive
       and that its command line names the same watched path. That is what the pid file is for now —
       identifying one specific watcher, which is what makes a blunt match unnecessary
-- [ ] ⚠️ replace the exit-code-above-128 rule in both places that carry it, listen mode's exit list
+- [x] ⚠️ replace the exit-code-above-128 rule in both places that carry it, listen mode's exit list
       and step 6's: 143 is `128 + SIGTERM`, which any kill produces, so the session says in one line
       that the watcher was killed and starts a new one. **Add no pid-file check** — an earlier draft
       had one and it is deleted, because there are no takeovers left for it to detect. Listen mode
       re-arms. Review mode launches a new watcher for the same review, which is still waiting in the
       IDE, and sends no `ack` of any kind
-- [ ] say that a session which stops listening always says so and why, and never goes quiet: the
+- [x] say that a session which stops listening always says so and why, and never goes quiet: the
       deadline passing, a refusal, or the person asking it to stop, each in one line. The incident
       began with a session that stopped silently while the person kept publishing
-- [ ] add the remote branch: read the four stored values from `remote-<hash>.env` with a whitelist
+- [x] add the remote branch: read the four stored values from `remote-<hash>.env` with a whitelist
       parse and **never** by sourcing the file, build `base_url` once, get the startup nonce from a
       session-less `fetch` because there is no local file to read over a tunnel, and arm the watcher
       with `--fetch "$base_url" --project "$ide_project" --seen "$nonce" --deadline 43200`
-- [ ] state the one rule covering every remote POST — the startup claim, the acknowledgement and the
+- [x] state the one rule covering every remote POST — the startup claim, the acknowledgement and the
       answer all go to `$base_url` with the token on stdin — and delete the two promises listen mode
       makes today: that it acts on nothing published before it started, in the frontmatter and in the
       section, and that re-arming is a manual choice because one watcher owns the project
-- [ ] check by hand in the scratchpad, with `HOME` overridden, that the changed startup block runs
+- [x] check by hand in the scratchpad, with `HOME` overridden, that the changed startup block runs
       both ways: with no published file it prints a launch line whose `--seen` is empty, and with a
       file present it prints the nonce it read out of line 2 of that file
-- [ ] check by hand that the section forbids the blunt kill and no longer describes a takeover:
+- [x] check by hand that the section forbids the blunt kill and no longer describes a takeover:
       `grep -nE 'pkill|killall|took over' docs/skill/claude-remarks-review/SKILL.md` returns only the
       lines that forbid those things, and no line tells a session to stop because another watcher took
       over
-- [ ] run both hand checks above once each from a clean scratchpad `HOME` - must pass before the next
+- [x] run both hand checks above once each from a clean scratchpad `HOME` - must pass before the next
       task
 
 ### Task 26: Verify acceptance criteria

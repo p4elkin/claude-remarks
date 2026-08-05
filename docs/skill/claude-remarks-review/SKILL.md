@@ -12,12 +12,13 @@ description: >
   IntelliJ/JetBrains project, or read back remarks the person answers the waiting review with by
   pressing Publish in the Claude Remarks tool window. Listen for the next batch: start this only when a
   person asks, in words, to watch or listen for remarks — never on your own initiative, never
-  because a published file or a waiting review was noticed. It watches the same published file
-  and reports each new batch as it arrives, acting on nothing published before listening started.
+  because a published file or a waiting review was noticed. It claims whatever batch is already
+  waiting when it starts, then watches the same published file and reports each new batch as it
+  arrives, re-arming itself after every one until the person says to stop.
   The IDE and this skill running on the same machine is the normal case for all three. When the
-  IDE is on another machine, reached over SSH, review mode needs a tunnel the person sets up by
-  hand and four connection values from them, which this skill can also store so they are not
-  retyped every run — see "Over SSH: the IDE on another machine" below.
+  IDE is on another machine, reached over SSH, review mode and listen mode both need a tunnel the
+  person sets up by hand and four connection values from them, which this skill can also store so
+  they are not retyped every run — see "Over SSH: the IDE on another machine" below.
 ---
 
 # Claude Remarks review
@@ -36,8 +37,9 @@ overlap.
   a plain publish writes, with the review's own session id in the header. This skill waits for that
   file. That is `## Steps` below, and the section before it covers the case where the IDE sits on
   another machine.
-- **Listen for the next batch.** Watch the published file and report each new batch as it comes
-  in, with no review started and nothing sent anywhere else. Opt-in only: start this because a
+- **Listen for the next batch.** Claim whatever batch is already waiting, then watch the published
+  file and report each new batch as it comes in, arming a fresh watcher after every one, with no
+  review started and nothing sent anywhere else. Opt-in only: start this because a
   person asked, in words, to watch or listen, never because a published file was noticed or a
   review looked interesting. That is `## Listen for the next batch`, right after the next section.
 
@@ -214,9 +216,18 @@ listen for the next batch of remarks. Noticing a published file, or a review wai
 asking. Unlike the two modes above, this one runs open-ended in the background instead of
 answering once.
 
+**It claims whatever is already waiting, and it re-arms itself after every batch.** Both of those
+reverse what this section used to promise, so read them as reversals rather than as details. A batch
+already sitting in the published file when listening starts is claimed exactly like one that arrives
+later, so a person who publishes and then asks for a listener is not met with silence. And the loop
+does not stop at one batch: after each one it arms a new watcher on its own, without being asked and
+without saying "shall I", and keeps going until one of the three endings below.
+
 **What it never does.** It never posts to `/start` — it never starts a review — and it never posts
-to `/ack` — there is no review to acknowledge. The only request it ever sends is `published-read`,
-the same acknowledgement the one-shot mode above sends, keyed to a batch's own nonce.
+to `/ack` — there is no review to acknowledge. What it does send is `published-read`, the same
+acknowledgement the one-shot mode above sends, keyed to a batch's own nonce; `answer`, for the
+remarks a batch marks; and, when the IDE is on another machine, a session-less `fetch` to read the
+pending batch it cannot read off a local disk.
 
 **Starting it.** Run this as one Bash call, self-contained the same way the one-shot mode above is
 — every name in it starts with `listen_` so it cannot collide with that mode or with the review
@@ -233,6 +244,27 @@ fi
 listen_name=$(printf %s "$listen_root" | shasum -a 256 | cut -c1-16)
 listen_file="$HOME/.claude-remarks/$listen_name.md"
 listen_session=$(uuidgen)
+
+# The four connection values, for the case where the IDE is on another machine. Same stored file
+# and same whitelist parse step 1 of the review flow uses, and never `. "$listen_conf"` — sourcing
+# runs the file, and a value holding a space or a quote could change what a later line means. With
+# nothing stored all four stay empty and the local branch below runs exactly as it always did.
+listen_host=127.0.0.1
+listen_port=
+listen_project=
+listen_token=
+listen_conf="$HOME/.claude-remarks/remote-$listen_name.env"
+if [ -f "$listen_conf" ]; then
+  while IFS='=' read -r listen_key listen_value; do
+    case "$listen_key" in
+      ide_host) listen_host=$listen_value ;;
+      ide_port) listen_port=$listen_value ;;
+      ide_project) listen_project=$listen_value ;;
+      ide_token) listen_token=$listen_value ;;
+    esac
+  done < "$listen_conf"
+fi
+[ -n "$listen_project" ] || listen_project=$listen_root
 
 # Where the watcher script is. See "Where the two scripts are, and how to name them" below: the
 # skill's directory is not on PATH, so the launch line printed at the end of this block has to
@@ -253,31 +285,119 @@ if [ -z "$listen_skill_dir" ]; then
   exit 1
 fi
 
+# The connection values. Remote when the stored file gave a port, local otherwise.
+if [ -n "$listen_port" ]; then
+  listen_remote=yes
+else
+  listen_remote=
+  listen_handshake="$HOME/.claude-remarks/$listen_name.json"
+  if [ -f "$listen_handshake" ]; then
+    listen_port=$(jq -r .port "$listen_handshake")
+    listen_token=$(jq -r .token "$listen_handshake")
+  fi
+fi
+listen_base_url="http://$listen_host:$listen_port/api/claude-remarks"
+
+# The pending batch's nonce, taken OUT OF THE FILE (or off the wire) on every run, never from a
+# value remembered from an earlier one. Arming with a stale nonce makes the watcher exit 0 within a
+# second on a batch that was already handled, and nothing is listening afterwards. That has happened
+# twice in one day.
 listen_seen=
-if [ -f "$listen_file" ]; then
+if [ -n "$listen_remote" ]; then
+  # No local file to read over a tunnel, so a session-less fetch is what carries the pending
+  # batch's nonce back. An absent session means "any batch", which is what a listener wants.
+  listen_fetch_resp=$(mktemp)
+  listen_fetch_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$listen_token" \
+    | curl -s --config - -o "$listen_fetch_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+        -X POST "$listen_base_url/fetch" -H "Content-Type: application/json" \
+        -d "$(jq -n --arg project "$listen_project" '{project:$project}')")
+  listen_fetch_status=$(jq -r '.status // empty' "$listen_fetch_resp" 2>/dev/null)
+  case "$listen_fetch_status" in
+    ready)
+      listen_seen=$(jq -r '.nonce // empty' "$listen_fetch_resp")
+      ;;
+    no-review)
+      echo "nothing has ever been published for $listen_project — arming with no --seen"
+      ;;
+    *)
+      echo "fetch: http $listen_fetch_code, status ${listen_fetch_status:-unknown}"
+      cat "$listen_fetch_resp" ; echo
+      echo "report this and stop — too-large, failed and bad-request are not fixed by polling, and"
+      echo "http 000 with no status at all is a missing tunnel; see 'Over SSH' below"
+      rm -f "$listen_fetch_resp"
+      exit 2
+      ;;
+  esac
+  rm -f "$listen_fetch_resp"
+elif [ -f "$listen_file" ]; then
   listen_line=$(sed -n '2p' "$listen_file")
   case "$listen_line" in "nonce: "*) listen_seen=${listen_line#"nonce: "} ;; esac
-  echo "a batch is already sitting in $listen_file (nonce ${listen_seen:-unknown}). Read it now,"
-  echo "with the one-shot mode above, if it is wanted — listening starts from here and will not"
-  echo "act on it."
 fi
+
+# The startup claim. `published-read` is the claim: it is atomic in the IDE, so exactly one of the
+# sessions listening to this repository is answered ok and that one is the one that acts.
+if [ -n "$listen_seen" ] && [ -n "$listen_token" ]; then
+  listen_claim_resp=$(mktemp)
+  listen_claim_body=$(jq -n --arg session "$listen_session" --arg project "$listen_project" \
+    --arg nonce "$listen_seen" '{session:$session, project:$project, nonce:$nonce}')
+  # The token on stdin through a curl config file, never as an argument — see the one-shot mode's
+  # copy of this block above for why.
+  listen_claim_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$listen_token" \
+    | curl -s --config - -o "$listen_claim_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+        -X POST "$listen_base_url/published-read" \
+        -H "Content-Type: application/json" -d "$listen_claim_body")
+  listen_claim_answer=$(jq -r '.status // empty' "$listen_claim_resp" 2>/dev/null)
+  listen_claim_session=$(jq -r '.session // empty' "$listen_claim_resp" 2>/dev/null)
+  echo "startup claim on nonce $listen_seen: http $listen_claim_code, status ${listen_claim_answer:-unknown}${listen_claim_session:+, held by $listen_claim_session}"
+  rm -f "$listen_claim_resp"
+elif [ -n "$listen_seen" ]; then
+  echo "a batch is pending (nonce $listen_seen) and there is no token to claim it with — no IDE has"
+  echo "this project open. Say that plainly, do not act on the batch, and arm the watcher anyway."
+fi
+
 echo "listen_session=$listen_session"
-echo "listen_file=$listen_file"
+echo "listen_project=$listen_project"
 echo "listen_seen=$listen_seen"
-echo "watching $listen_file, up to twelve hours, until the next new batch. To stop early, kill the"
-echo "pid on the FIRST line of ~/.claude-remarks/$listen_name.watch (its second line is the path"
-echo "being watched, not a pid)."
+[ -n "$listen_remote" ] || echo "listen_file=$listen_file"
 echo "run this next, as its own Bash call, marked background:"
-printf "  '%s/watch-remarks.sh' --file '%s' --seen '%s' --deadline 43200\n" \
-  "$listen_skill_dir" "$listen_file" "$listen_seen"
+if [ -n "$listen_remote" ]; then
+  echo "with CLAUDE_REMARKS_TOKEN set in its environment to the stored token — never echo the token"
+  printf "  '%s/watch-remarks.sh' --fetch '%s' --project '%s' --seen '%s' --deadline 43200\n" \
+    "$listen_skill_dir" "$listen_base_url" "$listen_project" "$listen_seen"
+else
+  printf "  '%s/watch-remarks.sh' --file '%s' --seen '%s' --deadline 43200\n" \
+    "$listen_skill_dir" "$listen_file" "$listen_seen"
+fi
 ```
+
+**What the startup claim answered decides what to do with the pending batch**, and the three answers
+`published-read` already gives cover every case:
+
+| answer | what it means | what to do |
+|---|---|---|
+| `ok` | nobody had claimed that batch | genuine unhandled work. Surface it exactly as if the watcher had just caught it: read the file, answer what asks to be answered, summarise, wait for go |
+| `already-read` | another session got there first, and the answer names it | skip the batch and name the session that holds it. Do not read it, do not answer its marked remarks. Then go on listening |
+| `unknown-batch` | it fell off the IDE's remembered sixteen, or the IDE restarted since it was published | nobody can confirm whether it was handled. Surface it, and **say plainly that it may already have been done** rather than presenting it as fresh |
+| no nonce at all | nothing has ever been published for this project | nothing to claim. Arm the watcher with an empty `--seen` and wait |
+
+**A batch landing between the read and the arming is not lost.** The watcher is armed with `--seen`
+set to the nonce just read, so a newer batch carries a different nonce and the watcher reports it on
+its very first poll.
 
 **`--deadline 43200` is passed explicitly, always — twelve hours, not `watch-remarks.sh`'s own
 1800-second default.** That default is sized for one review's wait, not for a person asking to be
 watched over a working session. Leaving it off would silently reuse 1800 seconds, and listening
 would stop after half an hour with no explanation. Say plainly, when listening starts, what is
-being watched, that it stops after twelve hours with nothing new, and how to stop it early — both
-printed by the block above.
+being watched, that it stops after twelve hours with nothing new, and how to stop it — the stopping
+rules are further down this section.
+
+**One rule covers every request listen mode makes when the IDE is on another machine: it goes to
+`$listen_base_url`, with the token on stdin through `curl --config -`.** That is the startup claim
+above, the acknowledgement after each batch, and the answer POST, all three. They already use that
+exact shape; the only thing the remote case changes is the host and port they are pointed at, and
+where the token comes from — the stored `remote-<hash>.env` rather than a handshake file this
+machine does not have. In the remote case the `project` field carries `$listen_project`, the path
+**the IDE machine** uses, not this machine's own root.
 
 **When the watcher exits, act on what it printed — built with `$listen_session`, `$listen_root`
 and `$listen_name` typed again, since nothing carries a shell across two Bash calls:**
@@ -333,6 +453,19 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
     a foreign `review:` above: say so at the top, name that session, and do not act. `already-read`
     naming `$listen_session` itself is a retry after a lost response, not an anomaly — proceed as
     normal.
+  - **Then re-arm, immediately — before answering anything and before summarising anything.** Run
+    the same launch line again as its own new Bash call, marked background, by the same absolute
+    path the startup block resolved and printed and never by the bare name, with `--seen` set to
+    this batch's nonce and a fresh `--deadline 43200`. Re-arming is not a choice put to the person
+    and not something to ask about: listening carries on by itself until one of the three endings
+    below.
+
+    **This step is where it is for a reason.** Answering and summarising both take a while, and
+    while they are being written the person is often still publishing. Re-arming after them leaves
+    a gap with nothing listening, which is the exact failure this loop exists to remove.
+
+    Each re-arm gets its own `--deadline 43200`, so any batch resets the clock and listening
+    continues for as long as the person keeps working.
   - **Then answer whatever asks to be answered**, before summarising anything:
     `## Answer the remarks that ask for an answer` below, with line 2's nonce and the remark ids off
     the `id:` lines. Answering needs no go-ahead — it writes nothing to the working tree — and the
@@ -340,23 +473,67 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
     the call above skips this too: it lost the claim on the whole batch, marked remarks included.
   - Then summarise the batch and what is planned, and **wait for the person to say go.** Do not
     act unattended, unlike the one-shot and review modes above — a listener runs unattended for
-    hours, and nobody chose this exact moment for the work to start.
-  - Re-arming — running `watch-remarks.sh` again to wait for the next batch after this one — is a
-    choice, said out loud, run as its own new Bash call the same way the first one was, by the same
-    absolute path the block above resolved and printed, never by the bare name. It is never
-    automatic: the pid-file rule in `## The watcher script` still holds, one watcher per project on
-    the machine, so re-arming without saying so risks two sessions each believing they own the
-    listener.
+    hours, and nobody chose this exact moment for the work to start. Waiting for go stops nothing:
+    the watcher armed two steps ago is already running while the summary is being read.
 - **Exit 1.** The twelve-hour deadline passed with nothing new. Report it and stop. There is
   nothing to acknowledge — `published-read` is never sent for a batch that never arrived.
 - **Exit 2.** Something the watcher could not get past. Report what it printed verbatim and stop.
-- **Any exit code above 128, 143 in particular.** A signal, which means another watcher took over
-  this project and killed this one — a review starting, or a second listener. Nothing arrived and
-  nothing is owed: report that listening stopped because another watcher took over, and do not
-  acknowledge anything.
+- **Any exit code above 128, 143 in particular.** The watcher was killed. 143 is `128 + SIGTERM`,
+  which any kill produces — a harness restart, a machine going to sleep, a stray `kill`. Nothing
+  arrived and nothing is owed, so acknowledge nothing. Say in one line that the watcher was killed,
+  then **arm a new one** and go on listening. Do not read a pid file here and do not go looking for
+  a watcher that displaced this one: nothing takes over from anything any more, so there is nothing
+  for such a check to find.
 
 Nothing in listen mode ever sends `ack abandoned`: that request belongs to the review flow in
 `## Steps` alone, keyed to a review session listen mode never has.
+
+**Several sessions may listen to one repository at once, and nothing kills a watcher.** Starting a
+listener never takes over from a listener already running for the same repository. That used to be
+the rule and it was the wrong rule — the exclusion it was trying to provide already exists one layer
+up, in the batch claim, which is the only place that can do it correctly.
+
+**The batch claim is what decides who acts.** All the listening sessions wake on the same batch and
+all post `published-read` for it. Exactly one is answered `ok`, and that one acts on it. A session
+answered `already-read` names the session that got there first, does not act on the batch, does not
+answer its marked remarks, and **keeps listening**. Losing a claim is an ordinary outcome of two
+sessions doing their job, not a reason to stop.
+
+⚠️ **Never stop a watcher by matching on the program's name.** No `pkill`, no `killall`, no
+`ps | grep | kill` on `watch-remarks.sh`. Every repository's watcher on this machine runs a program
+with that name, so a blunt match stops all of them at once, including watchers belonging to work
+nobody here is doing. That has happened for real, and the sessions it silenced said nothing about
+it. A watcher is stopped **only** by the pid on the first line of its own repository's
+`~/.claude-remarks/<16 hex characters>.watch` file, and only after checking two things: that the pid
+is alive, and that the live process's command line names the same watched path that file's second
+line names.
+
+That is what the pid file is for now. It is not a claim of ownership and it excludes nobody. It
+identifies one specific watcher, and that is exactly what makes a blunt match unnecessary.
+
+**Repository isolation is a guarantee here, not something to work out from the script.** Two things
+hold it up and both already exist: the pid file is named from the project's own 16 hex characters,
+so two repositories never share one, and the check on the command line means a recycled pid
+belonging to another repository's watcher never matches.
+
+⚠️ **The pid file names the watcher that started most recently for that project.** With two sessions
+listening to one repository, stopping by the pid file stops the newer watcher. A session that has to
+stop an older one matches on **both** `watch-remarks.sh` **and** its own watched path, never on the
+program name alone.
+
+**Three things end the loop, and something must.**
+
+- The deadline passes with nothing new — twelve hours of silence.
+- A refusal, exit 2: a malformed header, or a file it cannot read.
+- The person asks the session to stop listening.
+
+**Nothing else ends it.** Another session listening to the same repository does not. Losing a batch
+claim does not. A watcher killed by something in the environment does not.
+
+⚠️ **A session that stops listening says so, and says why. It never goes quiet.** Whichever of the
+three ended it gets one line at the moment it happens. This is the failure the whole section exists
+to remove: a session stopped silently, and the person went on publishing into a listener that was no
+longer there.
 
 ## Answer the remarks that ask for an answer
 
@@ -624,17 +801,20 @@ section above gives.
 ```
 watch-remarks.sh --file <path> [--seen <nonce>] [--require-review <session>]
                   [--deadline <seconds>] [--poll <seconds>]
-watch-remarks.sh --fetch <base_url> --session <id> --project <path>
+watch-remarks.sh --fetch <base_url> --project <path> [--session <id>]
                   [--seen <nonce>] [--deadline <seconds>] [--poll <seconds>]
 ```
 
 - `--file <path>` is the local branch: poll the published file directly. Default poll interval 2
   seconds.
-- `--fetch <base_url> --session <id> --project <path>` is the remote branch: poll
-  `POST <base_url>/fetch` the same way step 6 below does by hand. Default poll interval 5 seconds,
-  because the built-in server allows 30 requests a minute from one address. `--require-review` is
-  not accepted here — the fetch endpoint already answers `ready` only for the session named in the
-  request, so there is nothing left to filter client-side.
+- `--fetch <base_url> --project <path>` is the remote branch: poll `POST <base_url>/fetch` the same
+  way step 6 below does by hand. Default poll interval 5 seconds, because the built-in server allows
+  30 requests a minute from one address. **`--session <id>` is optional here.** Review mode passes
+  one and gets back only that review's own batches; listen mode passes none, and the endpoint then
+  hands back any batch published for the project, which is the whole point of the remote listener.
+  `--require-review` is not accepted on this branch at all — a fetch carrying a session already
+  answers `ready` only for that session's review, and a fetch without one deliberately takes any
+  batch, so there is nothing left for the flag to filter either way.
 - `--seen <nonce>` is the nonce already known. Omit it, or pass an empty string, to mean "any batch
   is new." **Ignored whenever `--require-review` is given**, which is why review mode does not pass
   it at all — see step 6.
@@ -665,32 +845,47 @@ response), `failed` (the IDE reached the published file and could not use it: an
 header it could not parse, or a project directory that no longer resolves), `bad-request` and
 `unknown-project`.
 
-**An exit code above 128 is a signal, and it means another watcher took over.** 143 is the one to
-expect: the takeover below sends `SIGTERM`, and the killed watcher cleans up and exits 143. It is
-not a batch, not a deadline and not an error — see the exit-code lists in listen mode and in step 6
-for what to do with it.
+**An exit code above 128 is a signal, and it means this watcher was killed.** 143 is the one to
+expect, `128 + SIGTERM`, which any kill produces: a harness restart, a machine going to sleep, a
+stray `kill`. It does **not** mean another watcher took over, because nothing takes over from
+anything. It is not a batch, not a deadline and not an error — see the exit-code lists in listen
+mode and in step 6 for what to do with it, which in both cases is to say so in one line and start a
+new watcher.
 
-**One watcher per project on the machine.** On start it writes two lines to
-`~/.claude-remarks/<the file's own 16 hex characters>.watch` — its own pid, then the path it is
-watching — creating that directory `rwx------` first if the plugin has never run here. **Anything
-reading that file for a pid to kill must read the first line alone.** If a pid is already there and
-still belongs to a live `watch-remarks.sh` process **watching that same path**, it kills that
-process and waits for it to actually exit before taking over — whichever session started it. Both
-halves matter: a pid on its own gets recycled, and a recycled one can belong to another project's
-watcher, which is still a `watch-remarks.sh`. It removes its own pid file when it exits, on every
-exit path, signals included.
+**Several watchers may run for one project, and no watcher ever kills another.** On start a watcher
+writes two lines to `~/.claude-remarks/<the file's own 16 hex characters>.watch` — its own pid, then
+the path it is watching — creating that directory `rwx------` first if the plugin has never run
+here. A pid already sitting in that file is overwritten, never signalled. The exclusion that killing
+used to provide lives one layer up now, in the batch claim: `published-read` is atomic in the IDE,
+so of all the sessions woken by one batch exactly one is answered `ok` and acts on it.
 
-Reading that file, killing the old watcher and writing the new pid are three steps, so the whole
-claim is made under a lock: a directory beside the pid file, `<the same 16 hex
-characters>.watch.lock`, created with `mkdir`, which is atomic. That is the only reason a
-`.watch.lock` directory ever appears in `~/.claude-remarks`, and it is held for a moment, not for
-the wait. One left behind by a watcher killed mid-claim is broken by the next watcher after ten
-seconds, so a stale one delays a start once and never blocks it.
+**What the pid file is for: identifying one specific watcher, so a blunt match is never needed.**
+Anything stopping a watcher reads **the first line alone** for the pid, and then checks that the pid
+is alive and that the live process's command line names the path on the second line. Both halves
+matter: a pid on its own gets recycled, and a recycled one can belong to another project's watcher,
+which is still a `watch-remarks.sh`. ⚠️ Never `pkill`, `killall` or `ps | grep | kill` on the
+program's name — every repository's watcher on this machine answers to it. A watcher removes its own
+pid file when it exits, on every exit path, signals included, and only if the file still names its
+own pid: a later watcher for the same project may have overwritten it while this one was running.
+
+The pid file names the watcher that started most recently for that project, so with two listeners on
+one repository, stopping by that file stops the newer one. Writing those two lines is one step now
+and no longer a read-kill-write claim, but it is still made under a lock — a directory beside the pid
+file, `<the same 16 hex characters>.watch.lock`, created with `mkdir`, which is atomic — so that two
+watchers starting in the same moment cannot interleave their lines and leave a file holding one
+watcher's pid above the other's path. That is the only reason a `.watch.lock` directory ever appears
+in `~/.claude-remarks`, and it is held for a moment, not for the wait. One left behind by a watcher
+killed mid-write is broken by the next watcher after ten seconds, so a stale one delays a start once
+and never blocks it.
 
 The 16 hex characters come straight off the `--file` path's own basename when that basename really
 is 16 hex characters, which is what every path this file prints looks like. A `--file` pointed
-anywhere else is hashed instead, so the one-watcher rule still holds for it rather than quietly
-lapsing under a nonsense name.
+anywhere else is hashed instead, so the file still names one specific watcher rather than quietly
+lapsing under a nonsense name. In `--fetch` mode the name comes from `--project` instead, the path
+the **IDE machine** uses. ⚠️ When those two strings differ — the ordinary remote case — a local
+watcher and a remote watcher for one repository write two different pid files and never see each
+other. That is no conflict, since no watcher excludes another anyway. It costs one thing: stopping a
+watcher means knowing which of the two files names it.
 
 ## Steps
 
@@ -1059,9 +1254,10 @@ lapsing under a nonsense name.
    read.
 
    `--require-review` is file-mode only. Task 9 built `--fetch` to refuse it outright: the fetch
-   endpoint already answers `ready` only for the session named in the request, so there is nothing
-   left for the flag to filter, and `--seen` is left at its default there for the same reason — a
-   session invented moments ago in step 3 cannot already have been answered.
+   endpoint already answers `ready` only for the session named in the request, and review mode
+   always names one, so there is nothing left for the flag to filter, and `--seen` is left at its
+   default there for the same reason — a session invented moments ago in step 3 cannot already have
+   been answered.
 
    **Stop the foreground call there.** Launch the printed line as its own Bash call, marked
    background — the distinction "The watcher script" section above draws: a foreground call is
@@ -1135,11 +1331,13 @@ lapsing under a nonsense name.
      that has not arrived yet. The IDE's own scheduled deadline is what eventually clears the banner
      if nothing else does.
 
-   - **Any exit code above 128, 143 in particular.** A signal, which means another watcher took over
-     this project and killed this one — a second review starting, or a listener. **Do not send `ack`
-     of any kind, `abandoned` least of all.** Nothing has given up: the review is still waiting in
-     the IDE, and whichever watcher took over is the one that will see its answer. Report plainly
-     that this wait was displaced, and say which watcher now owns the project if it is known.
+   - **Any exit code above 128, 143 in particular.** The watcher was killed. 143 is
+     `128 + SIGTERM`, which any kill produces — a harness restart, a machine going to sleep, a stray
+     `kill`. It does **not** mean another watcher took over, because nothing takes over from
+     anything any more. **Do not send `ack` of any kind, `abandoned` least of all.** Nothing has
+     given up: the review is still waiting in the IDE. Say in one line that the watcher was killed,
+     then launch a new one for the same review, using the launch line the top of this step printed.
+     Add no pid-file check here — there is no takeover left for it to detect.
 
    **The trap goes, and nothing replaces it in the same shell.** The old code kept
    `trap 'ack abandoned' EXIT` in the same shell as the wait loop. With the wait moved to a
@@ -1153,9 +1351,22 @@ lapsing under a nonsense name.
 
    ```sh
    # The first line alone: the pid file's second line is the path that watcher is watching, and
-   # passing both to kill passes it one argument that is not a pid at all.
+   # passing both to kill passes it one argument that is not a pid at all. Then two checks before
+   # the signal — the pid is alive, and the live process really is watching that same path. Pids get
+   # recycled, and a recycled one can belong to another repository's watcher.
+   # NEVER pkill, killall or `ps | grep | kill` on watch-remarks.sh: every repository's watcher on
+   # this machine runs a program with that name, and a blunt match stops all of them at once.
    watch_hash=$(printf '%s' "$ide_project" | shasum -a 256 | cut -c1-16)
-   kill "$(sed -n '1p' "$HOME/.claude-remarks/$watch_hash.watch" 2>/dev/null)" 2>/dev/null
+   watch_pidfile="$HOME/.claude-remarks/$watch_hash.watch"
+   watch_pid=$(sed -n '1p' "$watch_pidfile" 2>/dev/null)
+   watch_path=$(sed -n '2p' "$watch_pidfile" 2>/dev/null)
+   if [ -n "$watch_pid" ] && [ -n "$watch_path" ] && kill -0 "$watch_pid" 2>/dev/null &&
+      ps -o command= -p "$watch_pid" 2>/dev/null | grep -qF -- "$watch_path"; then
+     kill "$watch_pid"
+     echo "stopped the watcher on $watch_path (pid $watch_pid)"
+   else
+     echo "no live watcher named by $watch_pidfile — nothing to stop"
+   fi
    ```
 
    **What this gives up, written down here so nobody re-adds the trap:** a session killed
