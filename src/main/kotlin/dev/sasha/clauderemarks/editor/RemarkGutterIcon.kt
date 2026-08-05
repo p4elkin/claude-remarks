@@ -1,6 +1,5 @@
 package dev.sasha.clauderemarks.editor
 
-import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -11,7 +10,6 @@ import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.text.StringUtil
 import dev.sasha.clauderemarks.action.openRemarkEdit
 import dev.sasha.clauderemarks.model.RemarkSeverity
@@ -20,17 +18,10 @@ import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.deleteRemark
+import dev.sasha.clauderemarks.ui.RemarkStatusLook
 import dev.sasha.clauderemarks.ui.remarkChangeActions
 import java.util.Objects
 import javax.swing.Icon
-
-private val PENDING_ICON: Icon = AllIcons.General.Note
-
-/** Half transparent, so a remark you have published reads as handed over without disappearing. */
-private val PUBLISHED_ICON: Icon = IconLoader.getTransparentIcon(AllIcons.General.Note, 0.45f)
-
-/** Fainter still: an agent said it actually read this one. */
-private val READ_ICON: Icon = IconLoader.getTransparentIcon(AllIcons.General.Note, 0.25f)
 
 /** Everything the gutter needs about one remark, computed off the EDT. */
 data class RemarkPlacement(
@@ -100,11 +91,7 @@ class RemarkGutterIconRenderer(
     private val status: RemarkStatus,
 ) : GutterIconRenderer() {
 
-    override fun getIcon(): Icon = when (status) {
-        RemarkStatus.PENDING -> PENDING_ICON
-        RemarkStatus.PUBLISHED -> PUBLISHED_ICON
-        RemarkStatus.READ -> READ_ICON
-    }
+    override fun getIcon(): Icon = RemarkStatusLook.icon(status)
 
     override fun getTooltipText(): String = text
 

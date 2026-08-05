@@ -1055,12 +1055,19 @@ changed whenever its status is not already `PUBLISHED`, which is what makes that
 `removeHandedOver` removes everything that is not `PENDING`, so Clear Handed Over takes `PUBLISHED`
 and `READ` remarks together, archiving them to the history file first exactly as before.
 
-The tree row and the gutter icon draw three appearances, one per state, all through the same
-`GRAYED_ATTRIBUTES`. The word at the end of the row, "published" or "read", is what actually tells
-the two grey states apart, because a second shade of grey is a distinction a person could not read
-reliably on screen. `PENDING` keeps `AllIcons.General.Note` at full strength and a black row.
-`PUBLISHED` keeps the icon at 45% opacity, exactly what "sent" used before this phase. `READ` is
-fainter still, at 25%, because it is one step further into "already dealt with."
+**The tree row and the gutter icon draw two appearances, not three, since the meaning of the three
+states changed under them.** Publish Unread now takes everything that is not `READ`, so `PUBLISHED`
+is still outstanding work, exactly like `PENDING` — only `READ` is done. The visual line follows
+that: it now sits between `READ` and the other two, not between `PENDING` and the other two the way
+it used to. `PENDING` and `PUBLISHED` both draw `AllIcons.General.Note` at full strength with
+`REGULAR_ATTRIBUTES`; `READ` alone draws it at 25% opacity (`IconLoader.getTransparentIcon`, the
+same value the old `READ` icon already used) with `GRAYED_ATTRIBUTES`. The word at the end of the
+row, "published" or "read", still marks the one distinction colour no longer carries: whether a
+`PUBLISHED` remark has been confirmed read yet. `ui/RemarkStatusLook.kt` is the one place that
+decides the icon and the text attributes for a status; `editor/RemarkGutterIcon.kt`'s
+`RemarkGutterIconRenderer.getIcon` and `ui/RemarksTree.kt`'s `RemarkTreeRenderer` both read it,
+instead of each carrying its own copy of the rule the way they did before. The tree row also now
+carries the status icon itself — `RemarkTreeRenderer` used to set no icon on a remark row at all.
 
 `RemarkStatus` used to be a two-value enum, `PENDING` and `SENT`, and its own KDoc said `SENT` meant
 "a copy reached the clipboard" while the review path wrote the same value for "an agent read it":
@@ -1847,8 +1854,9 @@ function and a second, nearly identical scan.
 Nothing in phase 6 writes to `RemarkHistory.kt`'s archive when a review is answered. Moving the
 remarks to `READ` (`markRemarksRead`, once an agent acknowledges reading them — over either of the
 two routes described under "The three states, and why published is not read" above, since phase 10)
-is the only state change: remarks stay in the active list, drawn gray, exactly as after a publish,
-and are only archived later when Clear Handed Over or Clear All runs. `docs/ideas.md`'s notes on
+is the only state change: remarks stay in the active list, now drawn gray and faded — a `PUBLISHED`
+remark, unlike a `READ` one, still draws at full strength; see "The three states, and why published
+is not read" above — and are only archived later when Clear Handed Over or Clear All runs. `docs/ideas.md`'s notes on
 revdiff recommended a second durable copy of the payload alongside the ephemeral handoff file,
 matching revdiff's own two-tier design. That was declined: revdiff needs the second tier because its
 handoff file is deleted by the calling script's `trap` the moment its own process is about to exit.

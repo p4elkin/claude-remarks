@@ -62,9 +62,11 @@ missing and everything else works as before. Press Publish Unread in the tool wi
 remark that is not yet `READ` into one markdown prompt on the clipboard, and also to write the same
 prompt, with an eight-line header on top, to one file under `~/.claude-remarks/` that a Claude Code
 skill can read on its own, with no review ever started; a balloon says how many remarks and files.
-Published remarks turn gray rather than disappearing, so Publish Selected can send them again if the
-paste went to the wrong place, and publishing a remark that was already read hands it over again the
-same way. Clearing (Clear Handed Over, Clear All) archives to a history file in the IDE configuration
+A published remark stays in the list rather than disappearing, and it still draws at full strength,
+because it is still the work the next publish carries — only once an agent confirms it read the
+remark does the row turn gray and the icon fade. So Publish Selected can send a published remark
+again if the paste went to the wrong place, and publishing a remark that was already read hands it
+over again the same way. Clearing (Clear Handed Over, Clear All) archives to a history file in the IDE configuration
 directory before it removes anything. If a Claude Code skill has started a review, a banner reads
 "Claude Code is waiting: <label>" above the tree, and pressing Publish — Publish Unread or Publish
 Selected, whichever is in reach — both hands the remarks to the clipboard as always and answers the
@@ -427,6 +429,11 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    their Alt keys, CLASS_NAME_STROKE to insert a class name
   ui/RemarkActions.kt              remarkChangeActions: the severity and bucket menu, shared by the
                                    gutter icon and the tree
+  ui/RemarkStatusLook.kt           RemarkStatusLook: the icon and the text attributes for a status,
+                                   shared by the gutter icon and the tree the same way RemarkActions.kt
+                                   is, since a status's look used to be decided twice and, after phase
+                                   10 changed what the three states mean, was about to be decided
+                                   twice again
   ui/ClassNameInsert.kt            projectClassNames, chooseClassName: the class-name chooser the
                                    input popup opens on Cmd+Ctrl+Shift+Space (Ctrl+Alt+Shift+Space
                                    off macOS — NOT Ctrl+Space, see CLASS_NAME_STROKE for why)
