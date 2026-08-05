@@ -3,6 +3,7 @@ package dev.sasha.clauderemarks.store
 import com.intellij.configurationStore.ComponentSerializationUtil
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
+import dev.sasha.clauderemarks.model.AnswerState
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import java.util.concurrent.atomic.AtomicReference
@@ -575,6 +576,45 @@ class RemarkStoreStateTest {
     }
 
     /**
+     * The answers half of the deep copy, and it exists for the same reason the remark half above
+     * does: a reader must not share an object with the live state. The tree, the gutter and the
+     * resolver all walk answers on a pooled thread long after they have left the lock, so a shallow
+     * `answers.toList()` would hand them the live objects.
+     *
+     * Compared as serialized XML rather than field by field, so a field added to AnswerState later is
+     * covered with no edit here — and, as in the remark twin, every field is set away from its
+     * default, because BaseState omits a property still at its default and a dropped field would
+     * otherwise compare equal.
+     */
+    @Test
+    fun `a snapshot carries every field an answer is stored with`() {
+        val state = RemarkStore.RemarksState()
+        val original = answer(
+            id = "a-1",
+            remarkId = "r-7",
+            question = "why is this synchronized?",
+            markdown = "# Because\n\ntwo threads write it.",
+            answeredAt = 1_700_000_000_000L,
+            path = "src/main/kotlin/Foo.kt",
+            startLine = 10,
+            endLine = 12,
+            startColumn = 5,
+            endColumn = 9,
+            textHash = "abcdef0123456789",
+            contextBefore = "line a\nline b",
+            contextAfter = "line c\nline d",
+            phrase = "is this synchronized",
+            commit = "0123456789abcdef0123456789abcdef01234567",
+        )
+        state.putAnswer(original)
+
+        val copy = state.answersSnapshot().single()
+
+        assertNotSame(original, copy)
+        assertEquals(asXml(original), asXml(copy))
+    }
+
+    /**
      * The race the deep copy closes, probed the same way the modification-count race below is: not
      * a deterministic reproduction, a bounded loop in which a bad pair may simply never appear.
      *
@@ -644,6 +684,44 @@ class RemarkStoreStateTest {
         store.add(remark(id = "r-1"))
 
         assertNotSame(store.getState().remarks, store.getState().remarks)
+    }
+
+    /**
+     * getState() builds a fresh RemarksState by hand, so a second list is a second line to write and
+     * a second line to forget. Forgetting it loses every answer on the next save with nothing logged,
+     * which is the same silent loss the missing @get:XCollection would cause and looks identical from
+     * the outside.
+     */
+    @Test
+    fun `what getState hands the serializer carries the answers too`() {
+        val store = RemarkStore()
+        store.putAnswer(answer(id = "a-1", remarkId = "r-1"))
+
+        assertEquals(listOf("a-1"), store.getState().answers.map { it.id })
+    }
+
+    /** The answers half of the guard above it: the serializer never iterates a list anyone can
+     *  still mutate. */
+    @Test
+    fun `every call to getState hands out its own answers list instance`() {
+        val store = RemarkStore()
+        store.putAnswer(answer(id = "a-1", remarkId = "r-1"))
+
+        assertNotSame(store.getState().answers, store.getState().answers)
+    }
+
+    /** The half with teeth: an answer added after the serializer was handed its state must not
+     *  appear in what it is holding. */
+    @Test
+    fun `the state handed to the serializer does not change when an answer is added afterwards`() {
+        val store = RemarkStore()
+        store.putAnswer(answer(id = "a-1", remarkId = "r-1"))
+        val handedOut = store.getState()
+
+        store.putAnswer(answer(id = "a-2", remarkId = "r-2"))
+
+        assertEquals(listOf("a-1"), handedOut.answers.map { it.id })
+        assertEquals(listOf("a-1", "a-2"), store.getState().answers.map { it.id })
     }
 
     @Test
@@ -720,6 +798,8 @@ class RemarkStoreStateTest {
     }
 
     private fun asXml(remark: RemarkState) = JDOMUtil.write(XmlSerializer.serialize(remark))
+
+    private fun asXml(answer: AnswerState) = JDOMUtil.write(XmlSerializer.serialize(answer))
 
     private fun roundTrip(state: RemarkStore.RemarksState) = XmlSerializer.deserialize(
         JDOMUtil.load(JDOMUtil.write(XmlSerializer.serialize(state))),

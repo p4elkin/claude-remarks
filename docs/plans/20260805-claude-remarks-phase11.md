@@ -165,7 +165,7 @@ marked.
 | 9 | The shared menu gets Publish and Ask for an Answer | complete |
 | 10 | The Ask Claude action, its intention and its menu item | complete |
 | 11 | The prompt marks a remark that asks, and prints every remark's id | complete |
-| 12 | The regression test for the answers list annotation | not started |
+| 12 | The regression test for the answers list annotation | complete |
 | 13 | AnswerState and the answers list in the store | not started |
 | 14 | recordAnswer and deleteAnswer, and the new guard | not started |
 | 15 | StoredAnchor, and resolving an answer against its file | not started |
@@ -560,11 +560,11 @@ popup must `Disposer.register(popup, pane)`.
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/store/AnswerStateTest.kt`
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/RemarkStoreStateTest.kt` (beside the existing `@get:XCollection` guard for the `remarks` list)
 
-- [ ] ⚠️ write the guard first, before task 13 adds the list: a `RemarksState` holding one answer must serialize to XML that actually contains that answer's fields, and must deserialize back to one answer
-- [ ] write the guard that `snapshot()` copies answers deeply, so no reader shares an object with the live state
-- [ ] write the guard that two `getState()` calls never return the same answers list instance
-- [ ] confirm each of the three fails right now, for the right reason, before task 13 makes them pass — a guard that was green before the feature existed is guarding nothing
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.AnswerStateTest' --tests 'dev.sasha.clauderemarks.store.RemarkStoreStateTest'` - expected to fail here, and must pass at the end of task 13
+- [x] ⚠️ write the guard first, before task 13 adds the list: a `RemarksState` holding one answer must serialize to XML that actually contains that answer's fields, and must deserialize back to one answer
+- [x] write the guard that `snapshot()` copies answers deeply, so no reader shares an object with the live state
+- [x] write the guard that two `getState()` calls never return the same answers list instance
+- [x] confirm each of the three fails right now, for the right reason, before task 13 makes them pass — a guard that was green before the feature existed is guarding nothing (proven by mutation against a temporary scaffold, which was then reverted; see the progress log)
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.AnswerStateTest' --tests 'dev.sasha.clauderemarks.store.RemarkStoreStateTest'` - expected to fail here, and must pass at the end of task 13
 
 ### Task 13: AnswerState and the answers list in the store
 

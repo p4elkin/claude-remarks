@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.ui.UIUtil
+import dev.sasha.clauderemarks.model.AnswerState
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import java.io.File
@@ -54,6 +55,45 @@ internal fun remark(
     it.bucket = bucket
     it.commit = commit
     it.phrase = phrase
+}
+
+/**
+ * The same builder for an answer, so an answer test only spells out the fields it cares about.
+ * The defaults are a valid, boring answer to the boring remark [remark] builds: it names `r-1`, it
+ * points at the same file, and it carries a one-line body.
+ */
+internal fun answer(
+    id: String = "a-1",
+    remarkId: String = "r-1",
+    question: String = "why is this synchronized?",
+    markdown: String = "because two threads write it",
+    answeredAt: Long = 0L,
+    path: String? = "src/Foo.kt",
+    startLine: Int = 0,
+    endLine: Int = 0,
+    startColumn: Int = 0,
+    endColumn: Int = 0,
+    textHash: String? = "0000000000000000",
+    contextBefore: String? = "",
+    contextAfter: String? = "",
+    phrase: String? = null,
+    commit: String? = null,
+) = AnswerState().also {
+    it.id = id
+    it.remarkId = remarkId
+    it.question = question
+    it.markdown = markdown
+    it.answeredAt = answeredAt
+    it.path = path
+    it.startLine = startLine
+    it.endLine = endLine
+    it.startColumn = startColumn
+    it.endColumn = endColumn
+    it.textHash = textHash
+    it.contextBefore = contextBefore
+    it.contextAfter = contextAfter
+    it.phrase = phrase
+    it.commit = commit
 }
 
 /**
