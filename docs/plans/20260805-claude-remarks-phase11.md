@@ -154,7 +154,7 @@ marked.
 
 | # | Task | Status |
 |---|---|---|
-| 1 | Stop printing the tag and the level in the published prompt | not started |
+| 1 | Stop printing the tag and the level in the published prompt | complete |
 | 2 | Stop showing the tag and the level in the tree, the gutter and the history file | not started |
 | 3 | Take the tag chip row out of the input popup | not started |
 | 4 | Take the Severity submenu out of the shared menu | not started |
@@ -403,11 +403,11 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/render/PromptRendererTest.kt`
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/render/PromptPayloadTest.kt`
 
-- [ ] rewrite `PromptRendererTest` so a remark heading carries neither a tag nor a level, and so the renamed note still carries the commit paragraph and the `⟦`/`⟧` paragraph
-- [ ] delete the `tag` and `severity` properties from `RenderedRemark` and the two `append` calls from `appendRemarkTail`
-- [ ] rename `SEVERITY_SCALE_NOTE` to `PROMPT_NOTES` and delete only its first paragraph, the four-level scale — the commit paragraph and the marker paragraph both stay, and its comment about why it lives here rather than in the header stays
-- [ ] drop the two field assignments in `collectForPrompt`, and update `PromptPayloadTest`
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.render.*'` - must pass before task 2
+- [x] rewrite `PromptRendererTest` so a remark heading carries neither a tag nor a level, and so the renamed note still carries the commit paragraph and the `⟦`/`⟧` paragraph
+- [x] delete the `tag` and `severity` properties from `RenderedRemark` and the two `append` calls from `appendRemarkTail`
+- [x] rename `SEVERITY_SCALE_NOTE` to `PROMPT_NOTES` and delete only its first paragraph, the four-level scale — the commit paragraph and the marker paragraph both stay, and its comment about why it lives here rather than in the header stays
+- [x] drop the two field assignments in `collectForPrompt`, and update `PromptPayloadTest`
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.render.*'` - must pass before task 2
 
 ### Task 2: Stop showing the tag and the level in the tree, the gutter and the history file
 

@@ -3,7 +3,6 @@ package dev.sasha.clauderemarks.render
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import dev.sasha.clauderemarks.anchor.AnchorResult
-import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import dev.sasha.clauderemarks.store.fileForStoredPath
 import dev.sasha.clauderemarks.store.projectRoot
@@ -111,8 +110,6 @@ fun collectForPrompt(
             // the ⟦/⟧ markers with it, and a remark with no phrase resolves to its stored pair.
             startColumn = row.startColumn,
             endColumn = row.endColumn,
-            tag = row.remark.tag?.label,
-            severity = row.remark.severity.label,
             commit = row.remark.commit,
             text = row.remark.text.orEmpty(),
             orphaned = orphaned,

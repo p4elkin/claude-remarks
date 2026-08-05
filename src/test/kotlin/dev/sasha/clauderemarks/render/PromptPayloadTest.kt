@@ -2,15 +2,12 @@ package dev.sasha.clauderemarks.render
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.anchor.AnchorResult
-import dev.sasha.clauderemarks.model.RemarkSeverity
-import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.remark
 import dev.sasha.clauderemarks.store.resolveAll
-import dev.sasha.clauderemarks.store.setRemarkSeverity
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -74,19 +71,13 @@ class CollectForPromptTest : BasePlatformTestCase() {
 
     fun testTheAnchoredLinesComeBackWithContextEitherSide() {
         writeFile("Foo.kt", (1..20).joinToString("\n") { "line $it" })
-        val stored =
-            addRemark(project, "Foo.kt", (1..20).map { "line $it" }, 9..10, "why?", RemarkTag.BUG)
-        // A non-default level on purpose: with the default, hardcoding severity = "should" in
-        // collectForPrompt would pass this assertion.
-        setRemarkSeverity(project, listOf(stored.id!!), RemarkSeverity.MUST)
+        addRemark(project, "Foo.kt", (1..20).map { "line $it" }, 9..10, "why?", null)
 
         val collected = collectForPrompt(project, resolveAll(project)).single()
 
         assertEquals("Foo.kt", collected.path)
         assertEquals(9, collected.startLine)
         assertEquals(10, collected.endLine)
-        assertEquals("bug", collected.tag)
-        assertEquals("must", collected.severity)
         assertEquals(6, collected.codeStartLine)
         assertEquals(
             listOf("line 7", "line 8", "line 9", "line 10", "line 11", "line 12", "line 13", "line 14"),

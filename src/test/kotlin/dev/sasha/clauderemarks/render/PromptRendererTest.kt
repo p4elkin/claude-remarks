@@ -16,8 +16,6 @@ class PromptRendererTest {
                     path = "src/Foo.kt",
                     startLine = 2,
                     endLine = 3,
-                    tag = "bug",
-                    severity = "should",
                     text = "why is this here?",
                     orphaned = false,
                     codeStartLine = 1,
@@ -26,11 +24,11 @@ class PromptRendererTest {
             ),
         )
 
-        // Built from the constant rather than hand-copied, so a wording change to the scale note
-        // does not also require editing this expected string.
-        val expected = "HEADER\n\n" + SEVERITY_SCALE_NOTE.trim() + "\n\n---\n" +
+        // Built from the constant rather than hand-copied, so a wording change to the notes does
+        // not also require editing this expected string.
+        val expected = "HEADER\n\n" + PROMPT_NOTES.trim() + "\n\n---\n" +
             "\n## src/Foo.kt\n" +
-            "\n### 1. lines 3-4 — bug — should\n\n" +
+            "\n### 1. lines 3-4\n\n" +
             "why is this here?\n\n" +
             "```text\n" +
             "  2 | beta\n" +
@@ -61,12 +59,10 @@ class PromptRendererTest {
     }
 
     @Test
-    fun `a remark with no tag has no tag on its heading`() {
-        val out = renderPrompt("H", listOf(remark("a.kt", 0, tag = null)))
+    fun `a heading carries the line range and nothing else`() {
+        val out = renderPrompt("H", listOf(remark("a.kt", 0)))
 
-        // Severity is now always printed, so "no tag" means the heading goes straight from the
-        // line range to the severity with nothing in between.
-        assertTrue(out.contains("### 1. lines 1-1 — should\n"))
+        assertTrue(out, out.contains("### 1. lines 1-1\n"))
     }
 
     @Test
@@ -75,7 +71,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 99, endLine = 99, tag = null, severity = "should", text = "t",
+                    path = "a.kt", startLine = 99, endLine = 99, text = "t",
                     orphaned = false, codeStartLine = 97,
                     code = listOf("a", "b", "c", "d", "e"),
                 )
@@ -116,7 +112,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 0, endLine = 0, tag = null, severity = "should",
+                    path = "a.kt", startLine = 0, endLine = 0,
                     text = "like this:\n```\nval a = 1\n```\n## not a heading\n---",
                     orphaned = false, codeStartLine = 0, code = listOf("one"),
                 )
@@ -141,7 +137,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 0, endLine = 0, tag = null, severity = "should",
+                    path = "a.kt", startLine = 0, endLine = 0,
                     text = "this is important\n-\nand this\n===",
                     orphaned = false, codeStartLine = 0, code = listOf("one"),
                 )
@@ -163,7 +159,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 4, endLine = 4, tag = null, severity = "should", text = "why?",
+                    path = "a.kt", startLine = 4, endLine = 4, text = "why?",
                     orphaned = true, codeStartLine = 4, code = emptyList(),
                     capturedBefore = listOf("fun foo() {"),
                     capturedAfter = listOf("} // end"),
@@ -198,7 +194,7 @@ class PromptRendererTest {
 
     @Test
     fun `the renderer never emits the word null`() {
-        val out = renderPrompt("H", listOf(remark("a.kt", 0, tag = null)))
+        val out = renderPrompt("H", listOf(remark("a.kt", 0)))
 
         assertFalse(out.contains("null"))
     }
@@ -207,41 +203,46 @@ class PromptRendererTest {
     fun `the heading carries the short commit when there is one`() {
         val out = renderPrompt(
             "H",
-            listOf(remark(severity = "must", commit = "0123456789abcdef0123456789abcdef01234567")),
+            listOf(remark(commit = "0123456789abcdef0123456789abcdef01234567")),
         )
 
-        assertTrue(out, out.contains("— must — commit 01234567"))
-    }
-
-    @Test
-    fun `the heading carries the severity after the tag`() {
-        val out = renderPrompt("H", listOf(remark(tag = "bug", severity = "must")))
-
-        assertTrue(out, out.contains("### 1. lines 1-1 — bug — must"))
-    }
-
-    @Test
-    fun `a remark with no tag still carries its severity`() {
-        val out = renderPrompt("H", listOf(remark(tag = null, severity = "vibe")))
-
-        assertTrue(out, out.contains("### 1. lines 1-1 — vibe"))
+        assertTrue(out, out.contains("### 1. lines 1-1 — commit 01234567"))
     }
 
     /**
-     * The scale is appended by the renderer, not stored in the editable header. Somebody who
-     * rewrites the header in settings must not silently lose the meaning of the levels while the
-     * levels keep being printed.
+     * The notes are appended by the renderer, not stored in the editable header. Somebody who
+     * rewrites the header in settings must not silently lose what the commit stamp and the ⟦/⟧
+     * markers mean while both keep being printed.
      */
     @Test
-    fun `the scale is explained under whatever header the user wrote`() {
+    fun `the notes are printed under whatever header the user wrote`() {
         val out = renderPrompt("my own header", listOf(remark()))
 
         assertTrue(out.startsWith("my own header"))
-        assertTrue(out.contains(SEVERITY_SCALE_NOTE.trim()))
+        assertTrue(out.contains(PROMPT_NOTES.trim()))
         assertTrue(
-            "the scale belongs above the remarks, not after them",
-            out.indexOf(SEVERITY_SCALE_NOTE.trim()) < out.indexOf("### 1."),
+            "the notes belong above the remarks, not after them",
+            out.indexOf(PROMPT_NOTES.trim()) < out.indexOf("### 1."),
         )
+    }
+
+    /**
+     * Only the four-level scale left the notes. The commit paragraph and the ⟦/⟧ paragraph both
+     * describe things the renderer still prints, so both have to stay.
+     */
+    @Test
+    fun `the notes still explain the commit stamp and the selection markers`() {
+        assertTrue(PROMPT_NOTES, PROMPT_NOTES.contains("commit <sha>"))
+        assertTrue(PROMPT_NOTES, PROMPT_NOTES.contains("⟦"))
+        assertTrue(PROMPT_NOTES, PROMPT_NOTES.contains("⟧"))
+    }
+
+    /** The scale is gone, so the words that only ever named a level must be gone with it. */
+    @Test
+    fun `the notes no longer teach a four-level scale`() {
+        assertFalse(PROMPT_NOTES, PROMPT_NOTES.contains("four levels"))
+        assertFalse(PROMPT_NOTES, PROMPT_NOTES.contains("suggestion"))
+        assertFalse(PROMPT_NOTES, PROMPT_NOTES.contains("vibe"))
     }
 
     @Test
@@ -276,7 +277,7 @@ class PromptRendererTest {
             listOf(
                 RenderedRemark(
                     path = "a.kt", startLine = 1, endLine = 2, startColumn = 1, endColumn = 3,
-                    tag = null, severity = "should", text = "why?", orphaned = false,
+                    text = "why?", orphaned = false,
                     codeStartLine = 0, code = listOf("alpha", "beta", "gamma", "delta"),
                 )
             ),
@@ -302,7 +303,7 @@ class PromptRendererTest {
             listOf(
                 RenderedRemark(
                     path = "a.kt", startLine = 1, endLine = 2, startColumn = 1, endColumn = 3,
-                    tag = null, severity = "should", text = "why?", orphaned = false,
+                    text = "why?", orphaned = false,
                     codeStartLine = 0, code = listOf("alpha", "beta", "gamma", "delta"),
                 )
             ),
@@ -329,7 +330,7 @@ class PromptRendererTest {
             listOf(
                 RenderedRemark(
                     path = "a.kt", startLine = 1, endLine = 2, startColumn = 3, endColumn = 2,
-                    tag = null, severity = "should", text = "why?", orphaned = false,
+                    text = "why?", orphaned = false,
                     codeStartLine = 0, code = listOf("alpha", "beta-long", "gamma", "delta"),
                 )
             ),
@@ -415,17 +416,16 @@ class PromptRendererTest {
     }
 
     @Test
-    fun `a general remark still carries its tag, its level and its commit`() {
+    fun `a general remark still carries its commit`() {
         val out = renderPrompt(
             "H",
-            listOf(remark(path = "", startLine = 0, tag = "question", severity = "must", commit = "abc123def456")),
+            listOf(remark(path = "", startLine = 0, commit = "abc123def456")),
         )
 
-        // Asserted on the heading line itself, not with contains() over the whole document.
-        // SEVERITY_SCALE_NOTE is appended to every non-empty prompt and spells out all four level
-        // names, so a contains("must") passes whatever level the remark actually carries.
+        // Asserted on the heading line itself, not with contains() over the whole document, so a
+        // stray match inside PROMPT_NOTES or the remark text cannot pass for a heading.
         assertEquals(
-            "### 1. — question — must — commit abc123de",
+            "### 1. — commit abc123de",
             out.lines().single { it.startsWith("### ") },
         )
     }
@@ -443,8 +443,6 @@ class PromptRendererTest {
     private fun remark(
         path: String = "a.kt",
         startLine: Int = 0,
-        tag: String? = "note",
-        severity: String = "should",
         commit: String? = null,
         orphaned: Boolean = false,
         code: List<String> = listOf("one", "two", "three"),
@@ -456,8 +454,6 @@ class PromptRendererTest {
         endLine = startLine,
         startColumn = startColumn,
         endColumn = endColumn,
-        tag = tag,
-        severity = severity,
         commit = commit,
         text = "a note",
         orphaned = orphaned,

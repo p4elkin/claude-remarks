@@ -35,15 +35,9 @@ data class RenderedRemark(
      */
     val startColumn: Int = 0,
     val endColumn: Int = 0,
-    /** "bug" | "question" | "refactor" | "note", already lowercase, or null. */
-    val tag: String?,
-    /** "vibe" | "suggestion" | "should" | "must", already lowercase. Never null: every remark has
-     *  a level, defaulted when it was written. */
-    val severity: String,
     /**
-     * The repository HEAD when the remark was written, short-formed, or null. Defaulted to null
-     * here, unlike severity: a remark genuinely may not have one, so a caller that omits it is not
-     * necessarily a caller that forgot.
+     * The repository HEAD when the remark was written, short-formed, or null. A remark genuinely
+     * may not have one, so a caller that omits it is not necessarily a caller that forgot.
      */
     val commit: String? = null,
     val text: String,
@@ -65,7 +59,7 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
 
     val out = StringBuilder(header.trimEnd())
         .append("\n\n")
-        .append(SEVERITY_SCALE_NOTE.trim())
+        .append(PROMPT_NOTES.trim())
         .append("\n\n---\n")
     var number = 0
 
@@ -101,9 +95,9 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
 }
 
 /**
- * The rest of a remark's heading and its text, the part both sections write the same way: the tag,
- * the severity, the eight-character commit, then the remark text, escaped. Written once so a new
- * field in a heading is added in one place rather than two.
+ * The rest of a remark's heading and its text, the part both sections write the same way: the
+ * eight-character commit, then the remark text, escaped. Written once so a new field in a heading
+ * is added in one place rather than two.
  *
  * What comes before differs and stays at each call site: a general remark's heading names no lines,
  * because it is about no file. [suffix] is what goes between the commit and the text, and it is a
@@ -112,8 +106,6 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
  * broken one. The quoted code block a file remark ends with stays at its call site too.
  */
 private fun StringBuilder.appendRemarkTail(remark: RenderedRemark, suffix: String = "") {
-    remark.tag?.let { append(" — ").append(it) }
-    append(" — ").append(remark.severity)
     remark.commit?.let { append(" — commit ").append(it.take(8)) }
     append(suffix)
     append("\n\n").append(escapeMarkdown(remark.text.trim())).append("\n\n")
@@ -124,18 +116,11 @@ private fun StringBuilder.appendRemarkTail(remark: RenderedRemark, suffix: Strin
  *
  * Not part of DEFAULT_PROMPT_HEADER, and that is the whole point. The header is editable in
  * settings, so anything living only inside it is gone the moment somebody rewrites it — and the
- * levels would keep being printed with nothing left to say what they mean. This is part of the
+ * document would keep printing things with nothing left to say what they mean. This is part of the
  * rendered document instead, so it survives any header.
  */
-const val SEVERITY_SCALE_NOTE: String = """
-Each remark carries one of four levels, saying how strongly to act on it:
-
-- must — do it, whatever it costs.
-- should — do it unless there is a concrete reason not to. If you skip it, say why.
-- suggestion — do it if it is cheap and does not fight the surrounding code.
-- vibe — an idle thought. You may decline it. Say in one line whether you took it.
-
-A remark may also carry "commit <sha>". That is the revision the author was reading when they wrote
+const val PROMPT_NOTES: String = """
+A remark may carry "commit <sha>". That is the revision the author was reading when they wrote
 it. For a remark marked orphaned, comparing the file against that revision is the fastest way to
 find where its code went.
 
@@ -179,7 +164,7 @@ private val STRUCTURE_LINE = Regex("""^ {0,3}(`{3,}|~{3,}|#{1,6}(\s|$)|[-=]+\s*$
  * code and prose constantly, which would make an escaped ⟦ or ⟧ indistinguishable from a real one
  * the moment a remark's own line happened to contain either. These two do not occur in ordinary
  * source or English text, so a model reading the prompt can tell the marker apart from the file's
- * own content without needing to escape anything — and SEVERITY_SCALE_NOTE tells it, explicitly,
+ * own content without needing to escape anything — and PROMPT_NOTES tells it, explicitly,
  * that the markers are prompt furniture and must never be copied into an edit.
  */
 private const val SELECTION_START = "⟦"
