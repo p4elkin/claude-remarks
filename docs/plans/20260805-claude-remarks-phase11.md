@@ -174,7 +174,7 @@ marked.
 | 18 | The fetch action loses its session requirement | complete |
 | 19 | The Answers group in the tree | complete |
 | 20 | The answer's gutter icon | complete |
-| 21 | The markdown popup | not started |
+| 21 | The markdown popup | complete |
 | 22 | Clearing, the history file and the confirmation dialogs | not started |
 | 23 | watch-remarks.sh fetch mode without a session | not started |
 | 24 | The skill answers what is marked | not started |
@@ -680,12 +680,12 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `build.gradle.kts` (the `pluginVerification` comment, adding a paragraph naming `JBHtmlPane`)
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/ui/AnswerPopupTest.kt`
 
-- [ ] write the one fixture-backed test that `DocMarkdownToHtmlConverter.convert(project, markdown)` works in this build: a `# heading` produces an `<h` and a fenced block produces a `<pre` — it tests that the platform call resolves and returns, not that it renders
-- [ ] write `showAnswerPopup`, converting inside a `ReadAction.nonBlocking` and showing in `finishOnUiThread`, because `convert` is `@RequiresReadLock` and builds a `PsiFile` per fence
-- [ ] build the popup from a `JBHtmlPane` inside a `JBScrollPane`, resizable and movable, with `setCancelKeyEnabled(true)`
-- [ ] ⚠️ `Disposer.register(popup, pane)` — `JBHtmlPane` implements `Disposable`, nothing else in this plugin creates a `Disposable` Swing component, and forgetting it leaks quietly
-- [ ] add a paragraph to the `pluginVerification` comment naming `JBHtmlPane` as a second reason the experimental subtraction exists, so removing the preview later does not remove the subtraction the popup needs
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.AnswerPopupTest'` and `./gradlew verifyPlugin` - must pass before task 22
+- [x] write the one fixture-backed test that `DocMarkdownToHtmlConverter.convert(project, markdown)` works in this build: a `# heading` produces an `<h` and a fenced block produces a `<pre` — it tests that the platform call resolves and returns, not that it renders
+- [x] write `showAnswerPopup`, converting inside a `ReadAction.nonBlocking` and showing in `finishOnUiThread`, because `convert` is `@RequiresReadLock` and builds a `PsiFile` per fence
+- [x] build the popup from a `JBHtmlPane` inside a `JBScrollPane`, resizable and movable, with `setCancelKeyEnabled(true)`
+- [x] ⚠️ `Disposer.register(popup, pane)` — `JBHtmlPane` implements `Disposable`, nothing else in this plugin creates a `Disposable` Swing component, and forgetting it leaks quietly
+- [x] add a paragraph to the `pluginVerification` comment naming `JBHtmlPane` as a second reason the experimental subtraction exists, so removing the preview later does not remove the subtraction the popup needs
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.AnswerPopupTest'` and `./gradlew verifyPlugin` - must pass before task 22
 
 ### Task 22: Clearing, the history file and the confirmation dialogs
 

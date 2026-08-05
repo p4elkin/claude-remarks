@@ -61,6 +61,14 @@ intellijPlatform {
         // @ApiStatus.Internal class and would be worse. So the choice was to drop the preview remark
         // feature or to accept this.
         //
+        // EXPERIMENTAL_API_USAGES has a second reason since phase 11, and both have to go before the
+        // subtraction can. ui/AnswerPopup.kt builds a JBHtmlPane to draw an answer as rendered
+        // markdown, and JBHtmlPane carries @ApiStatus.Experimental at class level, as do
+        // JBHtmlPaneStyleConfiguration and JBHtmlPaneConfiguration. It is the pane the platform's own
+        // quick documentation popup uses, and there is no non-experimental pane that renders the
+        // <pre><code>, <kbd> and <details> an answer needs. So removing the markdown preview later
+        // does NOT make this line removable — check the popup too.
+        //
         // What this costs: a future experimental-API use is no longer reported either. If those
         // getters ever lose the annotation, delete this half of the expression.
         //
