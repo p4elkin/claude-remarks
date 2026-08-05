@@ -1,10 +1,8 @@
 package dev.sasha.clauderemarks.ui
 
 import dev.sasha.clauderemarks.anchor.AnchorResult
-import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import javax.swing.tree.DefaultMutableTreeNode
 import org.junit.Assert.assertEquals
@@ -48,14 +46,13 @@ class RemarksTreeTest {
     @Test
     fun `a leaf carries what the row needs to draw and to navigate`() {
         val node = remarkNode(
-            row(id = "r-1", text = "why?", tag = RemarkTag.BUG, result = AnchorResult.Exact(4, 6))
+            row(id = "r-1", text = "why?", result = AnchorResult.Exact(4, 6))
         )
 
         assertEquals("r-1", node.id)
         assertEquals("src/Foo.kt", node.path)
         assertEquals("5-7", node.position)
         assertEquals("why?", node.text)
-        assertEquals("bug", node.tag)
         assertEquals(4, node.startLine)
         assertEquals(RemarkStatus.PENDING, node.status)
     }
@@ -133,11 +130,6 @@ class RemarksTreeTest {
     fun `a published remark's node carries PUBLISHED and a read one carries READ`() {
         assertEquals(RemarkStatus.PUBLISHED, remarkNode(row(status = RemarkStatus.PUBLISHED)).status)
         assertEquals(RemarkStatus.READ, remarkNode(row(status = RemarkStatus.READ)).status)
-    }
-
-    @Test
-    fun `a remark with no tag has no tag on its node`() {
-        assertEquals(null, remarkNode(row(tag = null)).tag)
     }
 
     /** Shift+Enter in the input popup makes this ordinary, and a row is one line of text. */
@@ -389,11 +381,8 @@ class RemarksTreeTest {
     }
 
     @Test
-    fun `a leaf carries its bucket and its severity`() {
-        val node = remarkNode(row(bucket = "b", severity = RemarkSeverity.MUST))
-
-        assertEquals("b", node.bucket)
-        assertEquals("must", node.severity)
+    fun `a leaf carries its bucket`() {
+        assertEquals("b", remarkNode(row(bucket = "b")).bucket)
     }
 
     @Test
@@ -504,11 +493,9 @@ class RemarksTreeTest {
         path: String = "src/Foo.kt",
         id: String = "r-1",
         text: String = "why?",
-        tag: RemarkTag? = null,
         status: RemarkStatus = RemarkStatus.PENDING,
         result: AnchorResult = AnchorResult.Exact(4, 6),
         bucket: String? = null,
-        severity: RemarkSeverity = RemarkSeverity.SHOULD,
         commit: String? = null,
         startColumn: Int = 0,
         endColumn: Int = 0,
@@ -519,10 +506,8 @@ class RemarksTreeTest {
             it.startLine = 4
             it.endLine = 6
             it.text = text
-            it.tag = tag
             it.status = status
             it.bucket = bucket
-            it.severity = severity
             it.commit = commit
         },
         result,

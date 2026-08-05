@@ -1,9 +1,7 @@
 package dev.sasha.clauderemarks.editor
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.model.RemarkTag
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -28,16 +26,6 @@ class RemarkTooltipTest {
     @Test
     fun `a newline in a remark becomes a line break`() {
         assertTrue(tooltipFor(placement(text = "one\ntwo")).contains("one<br/>two"))
-    }
-
-    @Test
-    fun `the tag is shown lowercase`() {
-        assertTrue(tooltipFor(placement(tag = RemarkTag.BUG)).contains("[bug]"))
-    }
-
-    @Test
-    fun `the severity is shown lowercase`() {
-        assertTrue(tooltipFor(placement(severity = RemarkSeverity.MUST)).contains("must"))
     }
 
     /**
@@ -80,15 +68,13 @@ class RemarkTooltipTest {
     @Test
     fun `a whole-line remark's tooltip has nothing extra for the phrase`() {
         assertEquals(
-            "<html>why?  should</html>",
+            "<html>why?</html>",
             tooltipFor(placement(phrase = null)),
         )
     }
 
     private fun placement(
         text: String = "why?",
-        tag: RemarkTag? = null,
-        severity: RemarkSeverity = RemarkSeverity.SHOULD,
         commit: String? = null,
         status: RemarkStatus = RemarkStatus.PENDING,
         orphaned: Boolean = false,
@@ -96,8 +82,6 @@ class RemarkTooltipTest {
     ) = RemarkPlacement(
         id = "r-1",
         text = text,
-        tag = tag,
-        severity = severity,
         commit = commit,
         status = status,
         startLine = 4,

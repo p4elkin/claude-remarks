@@ -4,7 +4,6 @@ import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.project.Project
 import dev.sasha.clauderemarks.anchor.positionLabel
 import dev.sasha.clauderemarks.model.RemarkState
-import dev.sasha.clauderemarks.model.label
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -102,8 +101,6 @@ internal fun renderHistory(
                 )
             )
         }
-        remark.tag?.let { append(" — ").append(it.label) }
-        append(" — ").append(remark.severity.label)
         // Flattened, because the heading is one line and the bucket is the only free-form field on
         // it. setRemarkBucket trims the ends but does not touch an inner newline, and a newline here
         // would put whatever follows it at document level, outside the indent that protects the text

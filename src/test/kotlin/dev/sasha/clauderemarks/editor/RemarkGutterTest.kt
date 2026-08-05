@@ -7,15 +7,12 @@ import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import dev.sasha.clauderemarks.model.RemarkSeverity
-import dev.sasha.clauderemarks.model.RemarkTag
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.remark
-import dev.sasha.clauderemarks.store.setRemarkSeverity
 import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.io.File
 
@@ -45,7 +42,7 @@ class RemarkGutterTest : BasePlatformTestCase() {
         gutter.start()
         settleInvocationQueue()
 
-        addRemark(project, "Foo.kt", LINES, 1..1, "why?", RemarkTag.BUG)
+        addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
         settleInvocationQueue()
 
         assertEquals(1, iconCount())
@@ -106,21 +103,19 @@ class RemarkGutterTest : BasePlatformTestCase() {
     }
 
     /**
-     * The severity and the commit travel from the store into the placement, and the placement is
-     * what the tooltip is built from. Nothing asserted on either before this: `severity =
-     * remark.severity` could be hardcoded to SHOULD, and `commit = remark.commit` to null, with the
-     * whole suite still green and every gutter tooltip reading "should" and no commit for ever.
+     * The commit travels from the store into the placement, and the placement is what the tooltip
+     * is built from. Nothing asserted on it before this: `commit = remark.commit` could be
+     * hardcoded to null with the whole suite still green and every gutter tooltip showing no commit
+     * for ever.
      */
-    fun testTheTooltipCarriesTheSeverityAndTheCommitFromTheStore() {
+    fun testTheTooltipCarriesTheCommitFromTheStore() {
         writeGitHead(SHA)
         openFoo()
-        val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
-        setRemarkSeverity(project, listOf(stored.id!!), RemarkSeverity.MUST)
+        addRemark(project, "Foo.kt", LINES, 1..1, "why?", null)
         gutter.start()
         settleInvocationQueue()
 
         val tooltip = tooltips().single()
-        assertTrue(tooltip, tooltip.contains("must"))
         assertTrue(tooltip, tooltip.contains("commit ${SHA.take(8)}"))
     }
 

@@ -1,7 +1,5 @@
 package dev.sasha.clauderemarks.store
 
-import dev.sasha.clauderemarks.model.RemarkSeverity
-import dev.sasha.clauderemarks.model.RemarkTag
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,8 +20,6 @@ class RemarkHistoryTest {
                     startLine = 9,
                     endLine = 11,
                     text = "why is this locked?",
-                    tag = RemarkTag.QUESTION,
-                    severity = RemarkSeverity.MUST,
                     bucket = "auth refactor",
                     commit = "0123456789abcdef0123456789abcdef01234567",
                 )
@@ -32,8 +28,6 @@ class RemarkHistoryTest {
         )
 
         assertTrue(out, out.contains("**src/Foo.kt** lines 10-12"))
-        assertTrue(out, out.contains("question"))
-        assertTrue(out, out.contains("must"))
         assertTrue(out, out.contains("bucket auth refactor"))
         assertTrue(out, out.contains("commit 01234567"))
         assertTrue(out, out.contains("why is this locked?"))
@@ -92,8 +86,6 @@ class RemarkHistoryTest {
                     startLine = 9,
                     endLine = 11,
                     text = "why is this locked?",
-                    tag = RemarkTag.QUESTION,
-                    severity = RemarkSeverity.MUST,
                     bucket = "auth refactor",
                     commit = "0123456789abcdef0123456789abcdef01234567",
                 )
@@ -102,7 +94,7 @@ class RemarkHistoryTest {
         )
 
         assertEquals(
-            "**src/Foo.kt** lines 10-12 — question — must — bucket auth refactor — " +
+            "**src/Foo.kt** lines 10-12 — bucket auth refactor — " +
                 "commit 01234567\n\n      why is this locked?\n",
             out.substringAfter("\n- "),
         )
@@ -121,12 +113,13 @@ class RemarkHistoryTest {
     }
 
     @Test
-    fun `a remark with no tag no bucket and no commit renders without empty separators`() {
-        val out = renderHistory(listOf(remark(id = "r-1", tag = null, bucket = null, commit = null)), now = 0L)
+    fun `a remark with no bucket and no commit renders without empty separators`() {
+        val out = renderHistory(listOf(remark(id = "r-1", bucket = null, commit = null)), now = 0L)
 
         assertFalse(out, out.contains("bucket "))
         assertFalse(out, out.contains("commit "))
-        assertTrue(out, out.contains("should"))
+        // The heading ends at the line range, with no dangling em dash where a field used to be.
+        assertTrue(out, out.contains("**src/Foo.kt** lines 1-1\n"))
     }
 
     /**

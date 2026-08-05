@@ -214,8 +214,6 @@ class RemarkGutter(private val project: Project) : Disposable {
                 RemarkPlacement(
                     id = remark.id!!,
                     text = remark.text.orEmpty(),
-                    tag = remark.tag,
-                    severity = remark.severity,
                     commit = remark.commit,
                     status = remark.status,
                     startLine = result.startLine,

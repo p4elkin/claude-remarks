@@ -155,7 +155,7 @@ marked.
 | # | Task | Status |
 |---|---|---|
 | 1 | Stop printing the tag and the level in the published prompt | complete |
-| 2 | Stop showing the tag and the level in the tree, the gutter and the history file | not started |
+| 2 | Stop showing the tag and the level in the tree, the gutter and the history file | complete |
 | 3 | Take the tag chip row out of the input popup | not started |
 | 4 | Take the Severity submenu out of the shared menu | not started |
 | 5 | Delete the tag and severity fields | not started |
@@ -418,11 +418,11 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/store/RemarkHistory.kt` (the two `append` calls in `renderHistory`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksTreeTest.kt`, `src/test/kotlin/dev/sasha/clauderemarks/editor/RemarkGutterIconTest.kt`, `src/test/kotlin/dev/sasha/clauderemarks/editor/RemarkGutterTest.kt`, `src/test/kotlin/dev/sasha/clauderemarks/store/RemarkHistoryTest.kt`
 
-- [ ] update the four test classes so no assertion expects a tag or a level in a row, a tooltip or a history heading
-- [ ] delete the two properties from `RemarkNode` and the two `append` calls from the cell renderer
-- [ ] delete the two properties from `RemarkPlacement` and the two `append` calls from `tooltipFor`, keeping the phrase line and the status lines untouched
-- [ ] delete the two `append` calls from `renderHistory`, keeping the phrase line and the bucket line
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest' --tests 'dev.sasha.clauderemarks.editor.*' --tests 'dev.sasha.clauderemarks.store.RemarkHistoryTest'` - must pass before task 3
+- [x] update the four test classes so no assertion expects a tag or a level in a row, a tooltip or a history heading
+- [x] delete the two properties from `RemarkNode` and the two `append` calls from the cell renderer
+- [x] delete the two properties from `RemarkPlacement` and the two `append` calls from `tooltipFor`, keeping the phrase line and the status lines untouched
+- [x] delete the two `append` calls from `renderHistory`, keeping the phrase line and the bucket line
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest' --tests 'dev.sasha.clauderemarks.editor.*' --tests 'dev.sasha.clauderemarks.store.RemarkHistoryTest'` - must pass before task 3
 
 ### Task 3: Take the tag chip row out of the input popup
 

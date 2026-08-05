@@ -12,10 +12,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.text.StringUtil
 import dev.sasha.clauderemarks.action.openRemarkEdit
-import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.model.RemarkTag
-import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.ui.RemarkStatusLook
@@ -27,8 +24,6 @@ import javax.swing.Icon
 data class RemarkPlacement(
     val id: String,
     val text: String,
-    val tag: RemarkTag?,
-    val severity: RemarkSeverity,
     val commit: String?,
     val status: RemarkStatus,
     val startLine: Int,
@@ -64,8 +59,6 @@ fun tooltipFor(placement: RemarkPlacement): String = buildString {
     placement.phrase?.let {
         append("<br/>").append(StringUtil.escapeXmlEntities(it).replace("\n", "<br/>"))
     }
-    placement.tag?.let { append("  [").append(it.label).append("]") }
-    append("  ").append(placement.severity.label)
     placement.commit?.let { append("  commit ").append(it.take(8)) }
     if (placement.orphaned) append("<br/>(orphaned — these line numbers are stale)")
     when (placement.status) {

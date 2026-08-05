@@ -5,7 +5,6 @@ import com.intellij.ui.SimpleTextAttributes
 import dev.sasha.clauderemarks.anchor.AnchorResult
 import dev.sasha.clauderemarks.anchor.positionLabel
 import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.model.label
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import dev.sasha.clauderemarks.store.isAboutNoFile
 import javax.swing.JTree
@@ -57,8 +56,6 @@ data class RemarkNode(
     val path: String,
     val position: String,
     val text: String,
-    val tag: String?,
-    val severity: String,
     val bucket: String?,
     val status: RemarkStatus,
     val startLine: Int,
@@ -89,8 +86,6 @@ fun remarkNode(row: ResolvedRemark): RemarkNode {
         // text ordinary rather than exotic. The stored text keeps its newlines; only the row is
         // flattened, and the copied prompt still gets the remark as written.
         text = row.remark.text.orEmpty().replace('\n', ' '),
-        tag = row.remark.tag?.label,
-        severity = row.remark.severity.label,
         bucket = row.remark.bucket,
         status = row.remark.status,
         startLine = result.startLine,
@@ -113,7 +108,7 @@ private fun rowPosition(result: AnchorResult, startColumn: Int, endColumn: Int):
     if (result is AnchorResult.Orphaned) positionLabel(result.startLine, result.endLine, 0, 0)
     else positionLabel(result.startLine, result.endLine, startColumn, endColumn)
 
-/** Short, because a tree row is already carrying a position, a text, a tag and a level. */
+/** Short, because a tree row is already carrying a position, a text and a status word. */
 private fun writtenAt(commit: String?): String =
     commit?.let { ", written at ${it.take(8)}" }.orEmpty()
 
@@ -307,8 +302,6 @@ class RemarkTreeRenderer : ColoredTreeCellRenderer() {
                 val body = RemarkStatusLook.textAttributes(user.status)
                 append("${user.position}  ", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 append(user.text, body)
-                user.tag?.let { append("  [$it]", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
-                append("  ${user.severity}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 when (user.status) {
                     RemarkStatus.PUBLISHED -> append("  published", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     RemarkStatus.READ -> append("  read", SimpleTextAttributes.GRAYED_ATTRIBUTES)
