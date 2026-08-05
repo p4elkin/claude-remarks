@@ -13,6 +13,7 @@ class PromptRendererTest {
             "HEADER",
             listOf(
                 RenderedRemark(
+                    id = "r1",
                     path = "src/Foo.kt",
                     startLine = 2,
                     endLine = 3,
@@ -29,6 +30,7 @@ class PromptRendererTest {
         val expected = "HEADER\n\n" + PROMPT_NOTES.trim() + "\n\n---\n" +
             "\n## src/Foo.kt\n" +
             "\n### 1. lines 3-4\n\n" +
+            "id: r1\n\n" +
             "why is this here?\n\n" +
             "```text\n" +
             "  2 | beta\n" +
@@ -71,7 +73,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 99, endLine = 99, text = "t",
+                    id = "r1", path = "a.kt", startLine = 99, endLine = 99, text = "t",
                     orphaned = false, codeStartLine = 97,
                     code = listOf("a", "b", "c", "d", "e"),
                 )
@@ -112,7 +114,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 0, endLine = 0,
+                    id = "r1", path = "a.kt", startLine = 0, endLine = 0,
                     text = "like this:\n```\nval a = 1\n```\n## not a heading\n---",
                     orphaned = false, codeStartLine = 0, code = listOf("one"),
                 )
@@ -137,7 +139,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 0, endLine = 0,
+                    id = "r1", path = "a.kt", startLine = 0, endLine = 0,
                     text = "this is important\n-\nand this\n===",
                     orphaned = false, codeStartLine = 0, code = listOf("one"),
                 )
@@ -159,7 +161,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 4, endLine = 4, text = "why?",
+                    id = "r1", path = "a.kt", startLine = 4, endLine = 4, text = "why?",
                     orphaned = true, codeStartLine = 4, code = emptyList(),
                     capturedBefore = listOf("fun foo() {"),
                     capturedAfter = listOf("} // end"),
@@ -276,7 +278,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 1, endLine = 2, startColumn = 1, endColumn = 3,
+                    id = "r1", path = "a.kt", startLine = 1, endLine = 2, startColumn = 1, endColumn = 3,
                     text = "why?", orphaned = false,
                     codeStartLine = 0, code = listOf("alpha", "beta", "gamma", "delta"),
                 )
@@ -302,7 +304,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 1, endLine = 2, startColumn = 1, endColumn = 3,
+                    id = "r1", path = "a.kt", startLine = 1, endLine = 2, startColumn = 1, endColumn = 3,
                     text = "why?", orphaned = false,
                     codeStartLine = 0, code = listOf("alpha", "beta", "gamma", "delta"),
                 )
@@ -329,7 +331,7 @@ class PromptRendererTest {
             "H",
             listOf(
                 RenderedRemark(
-                    path = "a.kt", startLine = 1, endLine = 2, startColumn = 3, endColumn = 2,
+                    id = "r1", path = "a.kt", startLine = 1, endLine = 2, startColumn = 3, endColumn = 2,
                     text = "why?", orphaned = false,
                     codeStartLine = 0, code = listOf("alpha", "beta-long", "gamma", "delta"),
                 )
@@ -440,6 +442,81 @@ class PromptRendererTest {
         )
     }
 
+    /**
+     * The marker is what the skill looks for to decide which remarks it answers, so it is asserted
+     * as a literal here rather than built from the renderer's own constant. A test that shares the
+     * constant cannot notice the wording changing, and the wording is the contract.
+     */
+    @Test
+    fun `a remark that asks for an answer says so in its heading`() {
+        val out = renderPrompt("H", listOf(remark(asksForAnswer = true)))
+
+        assertTrue(out, out.contains("### 1. lines 1-1 — asks for an answer\n"))
+    }
+
+    /**
+     * The whole document cannot be checked for the marker's absence: PROMPT_NOTES explains it and
+     * therefore says the words on every render. The remarks start after the "---" separator.
+     */
+    @Test
+    fun `a remark that does not ask carries no marker`() {
+        val body = renderPrompt("H", listOf(remark())).substringAfter("---\n")
+
+        assertFalse(body, body.contains("asks for an answer"))
+    }
+
+    /**
+     * The marker before the commit, because the marker changes what the reader should do with the
+     * remark and the commit is only provenance.
+     */
+    @Test
+    fun `the asks marker comes before the commit stamp`() {
+        val out = renderPrompt("H", listOf(remark(asksForAnswer = true, commit = "abcdef1234567890")))
+
+        assertTrue(out, out.contains("### 1. lines 1-1 — asks for an answer — commit abcdef12\n"))
+    }
+
+    /** A general remark can ask too: it is about the whole change rather than about one file. */
+    @Test
+    fun `a general remark that asks says so in its heading as well`() {
+        val out = renderPrompt("H", listOf(remark(path = "", asksForAnswer = true)))
+
+        assertEquals("### 1. — asks for an answer", out.lines().single { it.startsWith("### ") })
+    }
+
+    /**
+     * Without this line an agent cannot name the remark it is answering: the "### 3." numbering is
+     * counted per prompt, so it is a different number in the next batch.
+     */
+    @Test
+    fun `every remark carries its id on a line of its own`() {
+        val out = renderPrompt("H", listOf(remark(id = "7f1c2a9e"), remark(path = "", id = "beef-1234")))
+
+        assertTrue(out, out.contains("\nid: 7f1c2a9e\n"))
+        assertTrue(out, out.contains("\nid: beef-1234\n"))
+    }
+
+    /** Directly under the heading, with one blank line between, so it can be found by prefix. */
+    @Test
+    fun `the id line sits under the heading, above the remark text`() {
+        val lines = renderPrompt("H", listOf(remark(id = "abc123"))).lines()
+        val heading = lines.indexOfFirst { it.startsWith("### ") }
+
+        assertEquals(lines.joinToString("\n"), "", lines[heading + 1])
+        assertEquals(lines.joinToString("\n"), "id: abc123", lines[heading + 2])
+        assertEquals(lines.joinToString("\n"), "a note", lines[heading + 4])
+    }
+
+    /**
+     * The marker and the id line are both printed by the renderer, so what they mean has to travel
+     * with the document. The header is editable in settings; the notes are not.
+     */
+    @Test
+    fun `the notes explain the asks marker and the id line`() {
+        assertTrue(PROMPT_NOTES, PROMPT_NOTES.contains("asks for an answer"))
+        assertTrue(PROMPT_NOTES, PROMPT_NOTES.contains("id:"))
+    }
+
     private fun remark(
         path: String = "a.kt",
         startLine: Int = 0,
@@ -448,7 +525,11 @@ class PromptRendererTest {
         code: List<String> = listOf("one", "two", "three"),
         startColumn: Int = 0,
         endColumn: Int = 0,
+        id: String = "r1",
+        asksForAnswer: Boolean = false,
     ) = RenderedRemark(
+        id = id,
+        asksForAnswer = asksForAnswer,
         path = path,
         startLine = startLine,
         endLine = startLine,

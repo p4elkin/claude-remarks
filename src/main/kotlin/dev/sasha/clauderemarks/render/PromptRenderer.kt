@@ -14,6 +14,14 @@ import dev.sasha.clauderemarks.anchor.hasSubLineRange
 /** One remark, with the code already sliced out of its file. Line numbers are 0-based. */
 data class RenderedRemark(
     /**
+     * The remark's own id, printed on a line of its own under the heading.
+     *
+     * It has to reach the document because an agent that sends an answer back names the remark by
+     * this id. The "### 3." numbering cannot stand in for it: that number is counted per prompt, so
+     * the same remark is a different number in the next batch.
+     */
+    val id: String,
+    /**
      * The file this remark is about, or "" for a remark about no file at all — a general remark,
      * written from the tool window rather than from an editor selection. A nullable path would
      * touch every construction site and every test that builds one, for the same expressiveness a
@@ -41,6 +49,12 @@ data class RenderedRemark(
      */
     val commit: String? = null,
     val text: String,
+    /**
+     * True when the person wrote this remark through Ask Claude, or marked it afterwards. Its
+     * heading then says so, and [PROMPT_NOTES] explains what that asks the reader to do. Nothing
+     * here guesses: a remark that reads like a question but was never marked is ordinary work.
+     */
+    val asksForAnswer: Boolean = false,
     val orphaned: Boolean,
     /** The 0-based line number that code[0] came from. */
     val codeStartLine: Int,
@@ -95,9 +109,14 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
 }
 
 /**
- * The rest of a remark's heading and its text, the part both sections write the same way: the
- * eight-character commit, then the remark text, escaped. Written once so a new field in a heading
- * is added in one place rather than two.
+ * The rest of a remark's heading, then its id, then its text, the part both sections write the same
+ * way: the asks marker, the eight-character commit, the id on a line of its own, and the remark
+ * text, escaped. Written once so a new field in a heading is added in one place rather than two.
+ *
+ * The marker goes before the commit because it changes what the reader should do with the remark,
+ * and the commit is provenance. The id goes under the heading rather than in it: the prompt is read
+ * by a model as prose, and a raw uuid in the middle of a sentence is noise, while a line starting
+ * "id: " is easy to find and easy to skip.
  *
  * What comes before differs and stays at each call site: a general remark's heading names no lines,
  * because it is about no file. [suffix] is what goes between the commit and the text, and it is a
@@ -106,10 +125,20 @@ fun renderPrompt(header: String, remarks: List<RenderedRemark>): String {
  * broken one. The quoted code block a file remark ends with stays at its call site too.
  */
 private fun StringBuilder.appendRemarkTail(remark: RenderedRemark, suffix: String = "") {
+    if (remark.asksForAnswer) append(" — ").append(ASKS_MARKER)
     remark.commit?.let { append(" — commit ").append(it.take(8)) }
     append(suffix)
+    append("\n\nid: ").append(remark.id)
     append("\n\n").append(escapeMarkdown(remark.text.trim())).append("\n\n")
 }
+
+/**
+ * What a heading says when its remark asks for an answer. Private, and asserted on as a literal in
+ * the tests: a test that builds its expectation out of the same constant the code prints cannot
+ * fail when the wording changes, and the wording is the whole contract with the skill that greps
+ * for it.
+ */
+private const val ASKS_MARKER = "asks for an answer"
 
 /**
  * Appended under the header on every copy.
@@ -120,6 +149,12 @@ private fun StringBuilder.appendRemarkTail(remark: RenderedRemark, suffix: Strin
  * rendered document instead, so it survives any header.
  */
 const val PROMPT_NOTES: String = """
+A heading that says "asks for an answer" is a question the author wants answered, not work to
+carry out. Answer it and send the answer back, and do not change the code for it even when the
+question implies an edit. Every other remark is work to do or a topic to raise, and nothing here
+asks you to sort them out for yourself: the marker is set when the remark is written. The "id:"
+line under each heading is that remark's own id, and an answer names its remark by it.
+
 A remark may carry "commit <sha>". That is the revision the author was reading when they wrote
 it. For a remark marked orphaned, comparing the file against that revision is the fastest way to
 find where its code went.

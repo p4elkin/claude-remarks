@@ -12,6 +12,7 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -83,6 +84,31 @@ class CollectForPromptTest : BasePlatformTestCase() {
             listOf("line 7", "line 8", "line 9", "line 10", "line 11", "line 12", "line 13", "line 14"),
             collected.code,
         )
+    }
+
+    /**
+     * The two fields the answer round trip needs out of the store. Mutation: drop either line in
+     * collectForPrompt and this fails, while every other test in this class still passes — the
+     * renderer's own tests build a RenderedRemark by hand and so never see the wiring.
+     */
+    fun testTheIdAndTheAsksFlagComeThroughFromTheStoredRemark() {
+        writeFile("Asked.kt", "a\nb\nc\nd")
+        val stored = addRemark(
+            project, "Asked.kt", listOf("a", "b", "c", "d"), 0..0, "why?",
+            asksForAnswer = true,
+        )
+
+        val collected = collectForPrompt(project, resolveAll(project)).single()
+
+        assertEquals(stored.id, collected.id)
+        assertTrue(collected.asksForAnswer)
+    }
+
+    fun testARemarkThatWasNotAskedCarriesTheFlagAsFalse() {
+        writeFile("Plain.kt", "a\nb\nc\nd")
+        addRemark(project, "Plain.kt", listOf("a", "b", "c", "d"), 0..0, "why?")
+
+        assertFalse(collectForPrompt(project, resolveAll(project)).single().asksForAnswer)
     }
 
     fun testContextIsClampedAtTheStartOfAFile() {

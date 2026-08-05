@@ -8,17 +8,21 @@ import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 
 /**
- * What is put at the top of every copied prompt. Modelled on revdiff: each remark is a directive,
- * and a remark that asks something is answered rather than turned into an edit.
+ * What is put at the top of every copied prompt. Modelled on revdiff: each remark is a directive
+ * about the code it points at.
+ *
+ * It deliberately says nothing about which remarks are questions. It used to, in two bullets that
+ * asked the model to sort each remark into QUESTION or INSTRUCTION by reading it. A remark that
+ * asks for an answer now says so in its own heading, set when the remark was written, so there is
+ * nothing left to guess. The marker's meaning is explained in `PROMPT_NOTES` rather than here,
+ * because this text is editable in settings and a rewritten header would take the explanation with
+ * it while the renderer kept printing the marker.
  */
 val DEFAULT_PROMPT_HEADER: String = """
     You are given a set of remarks left in an IDE while reading this codebase.
 
     Treat each remark as a directive about the code it points at.
 
-    - A remark that asks something ("why is this...", "explain...", "is this...") is a QUESTION.
-      Answer it in your reply. Do not change the code for it.
-    - Any other remark is an INSTRUCTION. Carry it out.
     - A remark marked "orphaned" has stale line numbers: the code moved or changed after the
       remark was written, so its own lines are not quoted. What is quoted for it instead, when
       anything is, are the lines that sat just above and just below it at the time. Search the

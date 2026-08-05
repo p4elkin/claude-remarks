@@ -103,6 +103,7 @@ fun collectForPrompt(
         val to = if (lines == null) from else (end + contextLines + 1).coerceAtMost(lines.size)
 
         RenderedRemark(
+            id = row.remark.id.orEmpty(),
             path = path,
             startLine = start,
             endLine = end,
@@ -112,6 +113,7 @@ fun collectForPrompt(
             endColumn = row.endColumn,
             commit = row.remark.commit,
             text = row.remark.text.orEmpty(),
+            asksForAnswer = row.remark.asksForAnswer,
             orphaned = orphaned,
             codeStartLine = from,
             code = if (orphaned || lines == null || from >= to) emptyList()

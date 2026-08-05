@@ -164,7 +164,7 @@ marked.
 | 8 | The asksForAnswer flag, and the function that sets it | complete |
 | 9 | The shared menu gets Publish and Ask for an Answer | complete |
 | 10 | The Ask Claude action, its intention and its menu item | complete |
-| 11 | The prompt marks a remark that asks, and prints every remark's id | not started |
+| 11 | The prompt marks a remark that asks, and prints every remark's id | complete |
 | 12 | The regression test for the answers list annotation | not started |
 | 13 | AnswerState and the answers list in the store | not started |
 | 14 | recordAnswer and deleteAnswer, and the new guard | not started |
@@ -547,12 +547,12 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/settings/RemarkSettings.kt` (`DEFAULT_PROMPT_HEADER`, the two QUESTION-versus-INSTRUCTION bullets)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/render/PromptRendererTest.kt`
 
-- [ ] write the tests: a marked remark's heading carries `— asks for an answer` and an unmarked one does not, every remark carries an `id:` line under its heading, and `PROMPT_NOTES` explains the marker
-- [ ] add `id` and `asksForAnswer` to `RenderedRemark` and fill them in `collectForPrompt`
-- [ ] print the marker in the heading and the id on its own line under it, in both the General section and the per-file sections
-- [ ] add the marker's meaning to `PROMPT_NOTES` — it belongs there and not in the header, because the header is editable and a rewritten one would take the explanation with it
-- [ ] delete the two QUESTION-versus-INSTRUCTION bullets from `DEFAULT_PROMPT_HEADER`, which told the model to work out for itself which remarks are questions
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.render.*' --tests 'dev.sasha.clauderemarks.settings.*'` - must pass before task 12
+- [x] write the tests: a marked remark's heading carries `— asks for an answer` and an unmarked one does not, every remark carries an `id:` line under its heading, and `PROMPT_NOTES` explains the marker
+- [x] add `id` and `asksForAnswer` to `RenderedRemark` and fill them in `collectForPrompt`
+- [x] print the marker in the heading and the id on its own line under it, in both the General section and the per-file sections
+- [x] add the marker's meaning to `PROMPT_NOTES` — it belongs there and not in the header, because the header is editable and a rewritten one would take the explanation with it
+- [x] delete the two QUESTION-versus-INSTRUCTION bullets from `DEFAULT_PROMPT_HEADER`, which told the model to work out for itself which remarks are questions
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.render.*' --tests 'dev.sasha.clauderemarks.settings.*'` - must pass before task 12
 
 ### Task 12: The regression test for the answers list annotation
 
