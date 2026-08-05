@@ -394,6 +394,7 @@ class RemarkGutter(private val project: Project) : Disposable {
         project = project,
         id = placement.id,
         tooltip = answerTooltipFor(placement),
+        question = placement.question,
         markdown = placement.markdown,
     )
 

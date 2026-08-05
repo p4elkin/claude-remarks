@@ -2637,6 +2637,16 @@ deliberately so: the answer that just arrived is the one you want to read. A row
 position in grey, then the answer's first line, then the source file's name in grey. The first line
 inline is what makes the group scannable without opening anything.
 
+⚠️ **The row shows the answer's first line and not the question, and that is a decision.** The row
+carries the question — `AnswerNode.question`, which the popup needs — but never draws it. The Answers
+group is read to see what came back, and the question is already on screen in three other places: on
+the remark's own row in its file group, which says `answered`; in the answer's gutter tooltip, which
+puts the question first; and, since the popup drew it, in the popup itself. A row already carrying a
+position, a preview and a file name would have to give up the preview to fit the question, which
+trades away the one thing only this row shows for a fourth copy of something shown elsewhere. Showing
+both was rejected for the same reason the tooltip does not show the phrase on a tree row: a row crops
+on the right, so a second string means neither is readable.
+
 ⚠️ An answer row is an `AnswerNode` and not a `RemarkNode`, and three places notice.
 `remarkNodesUnder` returns remark rows only, so selecting the Answers group gives `selectedIds()` an
 empty list — Publish Selected and the Ask for an Answer toggle then correctly do nothing, because an
@@ -2654,7 +2664,10 @@ The row carries the two fields that navigation needs, `path` and `startLine`, an
 from what the rebuild resolved (`row.result.startLine`), not from the stored field — the same source
 the position label beside it is built from, so the row cannot say one line and jump to another.
 ⚠️ Both fields were deleted once by a simplification review as write-only, correctly at the time, and
-both now carry a comment on the field saying who reads them. Two cases are decided rather than
+both now carry a comment on the field saying who reads them. So does `question`, deleted by the same
+review and restored for the popup — three of that review's four removals have since turned out to be
+wanted, so "nothing reads it" on this record is a claim to check against the callers rather than a
+fact. Two cases are decided rather than
 stumbled into. An answer with no file — one to a general remark, or one whose remark was deleted
 before the answer arrived — carries an empty path, so it shows the popup and navigates nowhere. An
 orphaned answer navigates to its stale line anyway: the row already says `(orphaned…)`, the file is
@@ -2702,12 +2715,36 @@ the offsets already match — are identical for both records. The `byDocument` m
 `remark:<id>` / `answer:<id>` so the two kinds cannot collide.
 
 **A popup rendering the markdown**, opened by the gutter icon or by double-clicking the row.
-`ui/AnswerPopup.kt`'s `showAnswerPopup(project, markdown)` converts with
+`ui/AnswerPopup.kt`'s `showAnswerPopup(project, question, markdown)` converts with
 `DocMarkdownToHtmlConverter` — the platform's own converter for this exact case, named in its KDoc
 for the Quick Doc popup — and shows the result in a `JBHtmlPane` inside a `JBScrollPane`, resizable
 and movable, with `setCancelKeyEnabled(true)`. The converter does three things a raw parser would
 not: it colours code fences, it swaps tags the Swing HTML renderer handles badly, and it turns a
 markdown table into a real table.
+
+**The question is drawn above the answer**, by `answerBodyHtml(question, answerHtml)`. Until it was,
+the popup showed the answer alone, and the first real IDE session found that at once: the place a
+person actually reads an answer was the one place with no sign of what had been asked. The order is
+the gutter tooltip's order — question first, answer under it — so the hover and the popup cannot
+disagree about which is which. The shape is a labelled quote block and then a rule:
+`<blockquote><b>You asked</b><br/>…</blockquote><hr/>`. Both tags are styled by `JBHtmlPane`'s own
+stylesheet, a grey rule down the left and a line across, so the separation costs no CSS of ours. Two
+plain paragraphs were rejected: an answer is markdown a model wrote and may itself open with a
+heading or with a blockquote, so the two would blur. The label is what settles the case where the
+answer really does begin with a quote.
+
+⚠️ **The question is escaped, never converted.** It is the person's own typing, so "<" is a character
+and "**" is a character. It goes through this file's own `asHtml` — escape, then newlines to `<br/>` —
+which is a second copy of `RemarkGutterIcon`'s private helper of the same name rather than a shared
+one, because each belongs to the surface it draws and each is three lines. Handing the question to
+`DocMarkdownToHtmlConverter` instead would let typed text restructure the popup.
+
+A blank question produces the answer alone: no label, no empty quote block, no rule. That is what an
+answer whose remark was already gone when it arrived carries. Blank rather than empty, matching
+`answerTooltipFor`, which skips a whitespace-only question the same way. `answerBodyHtml` is built
+inside the same `ReadAction.nonBlocking` that converts, so the EDT is left with nothing but the popup,
+and it is `internal` for the reason `answerPane` is: the popup needs a window, and what it is made of
+does not.
 
 ⚠️ **The conversion runs off the EDT.** `convert` is `@RequiresReadLock` and builds an intermediate
 `PsiFile` for every fence it highlights, so on a long answer it is a stall a person can feel. It runs

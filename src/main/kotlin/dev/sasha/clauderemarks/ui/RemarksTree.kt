@@ -82,8 +82,7 @@ data class RemarkNode(
 )
 
 /**
- * One answer row. Everything the row needs to draw itself, to navigate, and to open its popup. The
- * question it answers is not here: it is read off the store, rather than duplicated onto the row.
+ * One answer row. Everything the row needs to draw itself, to navigate, and to open its popup.
  *
  * [position] and [fileName] are both empty for an answer to a general remark: such an answer has no
  * file, so there is no position to print and no file name to print beside it. Every other answer
@@ -116,6 +115,29 @@ data class AnswerNode(
     val startLine: Int,
     val position: String,
     val fileName: String,
+    /**
+     * The remark this answers, copied off the stored answer, or empty when the answer carries none —
+     * an answer whose remark was already gone when it arrived.
+     *
+     * ⚠️ Read by `RemarksPanel.navigateToSelected` in `RemarksToolWindowFactory.kt`, which hands it
+     * to `showAnswerPopup` so the popup can draw the question above the answer. Read by nothing
+     * else. A simplification review in phase 11 deleted this field as write-only, which was true
+     * then: the popup showed the answer alone. Three of the four fields that review removed —
+     * [path], [startLine] and this one — have since turned out to be wanted, so treat "nothing reads
+     * it" here as a claim to check against that one caller, not as a fact about the field.
+     */
+    val question: String,
+    /**
+     * The answer's first non-blank line, and what the row draws as its text.
+     *
+     * ⚠️ The row deliberately shows this rather than [question], and does not show both. The Answers
+     * group is sorted newest first and is read to see *what came back*; the question is already on
+     * screen twice — on the remark's own row in its file group, which says `answered`, and in the
+     * answer's gutter tooltip, which puts the question first — and since this change it is in the
+     * popup as well, which is where an answer is actually read. A row already carrying a position,
+     * a preview and a file name would have to give up the preview to fit the question, which trades
+     * the one thing only this row shows for a third copy of something shown elsewhere.
+     */
     val firstLine: String,
     val markdown: String,
     val answeredAt: Long,
@@ -162,6 +184,7 @@ fun answerNode(row: ResolvedAnswer): AnswerNode {
         startLine = row.result.startLine,
         position = if (general) "" else rowPosition(row.result, row.startColumn, row.endColumn) + label,
         fileName = if (general) "" else path.substringAfterLast('/'),
+        question = answer.question.orEmpty(),
         firstLine = firstLineOf(answer.markdown),
         markdown = answer.markdown.orEmpty(),
         answeredAt = answer.answeredAt,

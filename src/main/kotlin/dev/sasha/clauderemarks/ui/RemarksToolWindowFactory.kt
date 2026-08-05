@@ -430,7 +430,7 @@ class RemarksPanel(
     internal fun navigateToSelected() {
         selectedAnswerRow()?.let { answer ->
             navigateTo(answer.path, answer.startLine)
-            showAnswerPopup(project, answer.markdown)
+            showAnswerPopup(project, answer.question, answer.markdown)
             return
         }
         val node = selectedNodes().firstOrNull() ?: return

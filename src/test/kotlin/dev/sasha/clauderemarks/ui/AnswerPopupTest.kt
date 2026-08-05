@@ -50,6 +50,64 @@ class AnswerPopupTest : BasePlatformTestCase() {
         assertTrue("expected the converted HTML in the pane, was: ${pane.text}", pane.text.contains("<h"))
     }
 
+    /**
+     * The whole reason [answerBodyHtml] exists: the popup used to show the answer with no sign of
+     * what had been asked, so a person reading one could not see their own question.
+     */
+    fun testTheQuestionIsDrawnAboveTheAnswer() {
+        val body = answerBodyHtml("why is this synchronized?", convert("Because two threads write it.\n"))
+
+        assertTrue("expected the question in: $body", body.contains("why is this synchronized?"))
+        assertTrue("expected a label in: $body", body.contains("You asked"))
+        assertTrue(
+            "the question must come before the answer, was: $body",
+            body.indexOf("why is this synchronized?") < body.indexOf("Because two threads write it"),
+        )
+    }
+
+    /** The question is quoted and ruled off, so it cannot read as the answer's opening paragraph. */
+    fun testTheQuestionIsSetApartFromTheAnswerBody() {
+        val body = answerBodyHtml("why?", convert("Because.\n"))
+
+        assertTrue("expected a quote block in: $body", body.contains("<blockquote>"))
+        assertTrue("expected a rule between the two in: $body", body.contains("<hr/>"))
+        assertTrue(
+            "the rule must sit between the question and the answer, was: $body",
+            body.indexOf("<hr/>") in (body.indexOf("why?") + 1) until body.indexOf("Because"),
+        )
+    }
+
+    /**
+     * The question is the person's own text, so "<" is a character and "#" is a character. Escaped
+     * the way `RemarkGutterIcon.asHtml` escapes a tooltip, never handed to the markdown converter.
+     */
+    fun testTheQuestionIsEscapedRatherThanInterpreted() {
+        val body = answerBodyHtml("why `a < b` and **not** <b>this</b>?", convert("Because.\n"))
+
+        assertTrue("expected the < escaped in: $body", body.contains("a &lt; b"))
+        assertTrue("expected the tag escaped in: $body", body.contains("&lt;b&gt;this&lt;/b&gt;"))
+        assertTrue("the ** must stay literal in: $body", body.contains("**not**"))
+    }
+
+    /**
+     * An answer whose remark was deleted before it arrived stores an empty question. Such an answer
+     * shows alone — no label, no empty quote block, no rule hanging over nothing.
+     */
+    fun testAnEmptyQuestionLeavesNoLabelAndNoQuoteBlock() {
+        val answer = convert("Because two threads write it.\n")
+
+        assertEquals(answer, answerBodyHtml("", answer))
+        assertEquals(answer, answerBodyHtml("   \n  ", answer))
+    }
+
+    /** The two halves reach the pane together, which is what a person actually sees. */
+    fun testThePaneCarriesTheQuestionAndTheAnswer() {
+        val pane = answerPane(answerBodyHtml("why?", convert("# Because\n\nTwo threads write it.\n")))
+
+        assertTrue("expected the question in the pane, was: ${pane.text}", pane.text.contains("why?"))
+        assertTrue("expected the converted HTML in the pane, was: ${pane.text}", pane.text.contains("<h"))
+    }
+
     private fun convert(markdown: String): String =
         ReadAction.compute<String, RuntimeException> {
             DocMarkdownToHtmlConverter.convert(project, markdown)

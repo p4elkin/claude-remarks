@@ -244,5 +244,11 @@ class AnswerGutterRendererTest : BasePlatformTestCase() {
         id: String = "a-1",
         tooltip: String = "<html>why?</html>",
         markdown: String = "because two threads write it",
-    ) = AnswerGutterIconRenderer(project, id, tooltip, markdown)
+    ) = AnswerGutterIconRenderer(
+        project = project,
+        id = id,
+        tooltip = tooltip,
+        question = "why?",
+        markdown = markdown,
+    )
 }

@@ -8,6 +8,7 @@ import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.components.JBHtmlPane
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.concurrency.AppExecutorUtil
@@ -32,9 +33,14 @@ import java.util.concurrent.CancellationException
  *
  * `expireWith(project)` is what stops a conversion still running when the project closes from
  * reaching the EDT afterwards.
+ *
+ * [question] is the remark the answer replies to, drawn above the answer by [answerBodyHtml]. It is
+ * built into the same string in the background, so the EDT is left with nothing but the popup.
  */
-fun showAnswerPopup(project: Project, markdown: String) {
-    ReadAction.nonBlocking<String> { DocMarkdownToHtmlConverter.convert(project, markdown) }
+fun showAnswerPopup(project: Project, question: String, markdown: String) {
+    ReadAction.nonBlocking<String> {
+        answerBodyHtml(question, DocMarkdownToHtmlConverter.convert(project, markdown))
+    }
         .expireWith(project)
         .finishOnUiThread(ModalityState.defaultModalityState()) { html -> showRenderedAnswer(project, html) }
         .submit(AppExecutorUtil.getAppExecutorService())
@@ -94,3 +100,43 @@ internal fun answerPane(html: String): JBHtmlPane = JBHtmlPane().apply {
     isEditable = false
     text = html
 }
+
+/**
+ * The whole popup body: the question that was asked, then the answer that came back.
+ *
+ * Without this the popup showed the answer alone, and a person reading one had no way to see what
+ * they had asked. The order is the gutter tooltip's order — question first, answer under it — so the
+ * hover and the popup cannot say opposite things about which is which.
+ *
+ * **The question is a quote block with a label, not a paragraph.** The answer is markdown a model
+ * wrote and it may itself open with a heading, or with a blockquote of its own, so two plain
+ * paragraphs would blur into one piece of text. `<blockquote>` draws a grey rule down the left in
+ * `JBHtmlPane`'s own stylesheet and `<hr/>` draws a line under it, which is separation the answer
+ * cannot accidentally imitate. The label is what settles the remaining ambiguity, because an answer
+ * that genuinely begins with a quote would otherwise look like this block.
+ *
+ * ⚠️ **The question is escaped, never converted.** It is the person's own text, so "<" or "&" in it
+ * is a character and not markup, and "*" or "#" is a character and not markdown. `RemarkGutterIcon`'s
+ * own `asHtml` is the precedent every other place this plugin puts typed text into HTML follows.
+ *
+ * A blank question — what an answer whose remark was already gone carries — produces the answer
+ * alone: no label, no empty quote block, no rule. Blank rather than empty, matching
+ * `answerTooltipFor`, which skips a whitespace-only question for the same reason.
+ *
+ * Internal for the same reason [answerPane] is: it is what the popup is made of, and it can be
+ * checked without a window.
+ */
+internal fun answerBodyHtml(question: String, answerHtml: String): String =
+    if (question.isBlank()) answerHtml
+    else "<blockquote><b>You asked</b><br/>${asHtml(question)}</blockquote><hr/>$answerHtml"
+
+/**
+ * Typed text as it has to appear inside HTML: escaped, and with newlines turned into breaks, because
+ * a raw "\n" is only whitespace in HTML and a multi-line question would run together on one line.
+ *
+ * A second copy of `RemarkGutterIcon`'s private `asHtml` rather than a shared function: that one
+ * belongs to the tooltip and this one to the popup, they are three lines, and pulling them together
+ * would put a UI helper in a third file that neither side owns.
+ */
+private fun asHtml(text: String): String =
+    StringUtil.escapeXmlEntities(text).replace("\n", "<br/>")

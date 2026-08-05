@@ -187,6 +187,10 @@ class AnswerGutterIconRenderer(
     private val project: Project,
     private val id: String,
     private val tooltip: String,
+    /** The question the popup draws above the answer. Not part of equals and hashCode below, and it
+     *  does not need to be: [tooltip] is built by [answerTooltipFor] from this very string, so two
+     *  renderers with the same tooltip cannot carry different questions. */
+    private val question: String,
     private val markdown: String,
 ) : GutterIconRenderer() {
 
@@ -194,7 +198,8 @@ class AnswerGutterIconRenderer(
 
     override fun getTooltipText(): String = tooltip
 
-    override fun getClickAction(): AnAction = DumbAwareAction.create { showAnswerPopup(project, markdown) }
+    override fun getClickAction(): AnAction =
+        DumbAwareAction.create { showAnswerPopup(project, question, markdown) }
 
     override fun equals(other: Any?): Boolean =
         other is AnswerGutterIconRenderer &&
