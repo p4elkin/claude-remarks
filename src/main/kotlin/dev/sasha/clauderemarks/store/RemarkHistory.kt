@@ -3,6 +3,7 @@ package dev.sasha.clauderemarks.store
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.project.Project
 import dev.sasha.clauderemarks.anchor.positionLabel
+import dev.sasha.clauderemarks.model.AnswerState
 import dev.sasha.clauderemarks.model.RemarkState
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -49,23 +50,31 @@ fun historyFile(project: Project): Path =
 internal fun safeName(name: String): String = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
 
 /**
- * Appends [remarks] to [file] and returns how many were written.
+ * Appends [remarks] and [answers] to [file] and returns how many records were written in all.
  *
  * Throws IOException, and the caller must not delete anything when it does. An archive that failed
  * to write, followed by a delete that succeeded, is a remark lost silently — the one thing this
  * plugin promises never to do.
+ *
+ * [answers] defaults to none, because only one of the two callers has any: Clear All takes remarks
+ * and answers together, Clear Handed Over takes remarks alone. See `store/RemarkEdits.kt`'s
+ * `clearHandedOverRemarks` for why an answer is never "handed over".
  */
-fun appendToHistory(file: Path, remarks: List<RemarkState>): Int {
-    if (remarks.isEmpty()) return 0
+fun appendToHistory(
+    file: Path,
+    remarks: List<RemarkState>,
+    answers: List<AnswerState> = emptyList(),
+): Int {
+    if (remarks.isEmpty() && answers.isEmpty()) return 0
     file.parent?.let { Files.createDirectories(it) }
     Files.writeString(
         file,
-        renderHistory(remarks),
+        renderHistory(remarks, answers),
         StandardCharsets.UTF_8,
         StandardOpenOption.CREATE,
         StandardOpenOption.APPEND,
     )
-    return remarks.size
+    return remarks.size + answers.size
 }
 
 /**
@@ -76,31 +85,20 @@ fun appendToHistory(file: Path, remarks: List<RemarkState>): Int {
  */
 internal fun renderHistory(
     remarks: List<RemarkState>,
+    answers: List<AnswerState> = emptyList(),
     now: Long = System.currentTimeMillis(),
 ): String = buildString {
     append("\n## cleared ").append(WHEN.format(Instant.ofEpochMilli(now))).append("\n")
     remarks.forEach { remark ->
         append("\n- ")
-        if (isAboutNoFile(remark)) {
-            // A general remark has no file and no line range, so there is nothing for
-            // positionLabel to describe. "(general)" is the same word render/PromptRenderer.kt's
-            // "## General" heading and ui/RemarksTree.kt's GENERAL_KEY group use for it.
-            append("**(general)**")
-        } else {
-            // The same positionLabel the tree row draws, shared rather than copied: a history entry
-            // and a tree row describing one remark must read the same way. Read straight off what
-            // was STORED, not off a resolve — renderHistory never resolves anything, by its own
-            // KDoc above — so unlike the tree there is no AnchorResult and no orphaned case to skip.
-            // A history entry's stored columns are the only columns it has ever had.
-            append("**").append(remark.path).append("** lines ").append(
-                positionLabel(
-                    remark.startLine,
-                    remark.endLine,
-                    remark.startColumn,
-                    remark.endColumn,
-                )
-            )
-        }
+        appendPosition(
+            isAboutNoFile(remark),
+            remark.path,
+            remark.startLine,
+            remark.endLine,
+            remark.startColumn,
+            remark.endColumn,
+        )
         // Flattened, because the heading is one line and the bucket is the only free-form field on
         // it. setRemarkBucket trims the ends but does not touch an inner newline, and a newline here
         // would put whatever follows it at document level, outside the indent that protects the text
@@ -108,12 +106,74 @@ internal fun renderHistory(
         remark.bucket?.let { append(" — bucket ").append(it.lines().joinToString(" ")) }
         remark.commit?.let { append(" — commit ").append(it.take(8)) }
         append("\n\n")
-        // Indented, so a remark holding a markdown heading or a fence cannot restructure the
-        // document around it. The same problem the prompt renderer solves with backslash escapes;
-        // here nothing has to survive as prose, so an indent is enough. The phrase, when there is
-        // one, is source text too and gets the same treatment, ahead of the remark text.
-        remark.phrase?.let { phrase -> phrase.lines().forEach { append("      ").append(it).append("\n") } }
-        remark.text.orEmpty().lines().forEach { append("      ").append(it).append("\n") }
+        // The phrase, when there is one, is source text too and gets the same indent as the remark
+        // text, ahead of it.
+        remark.phrase?.let { appendIndented(it) }
+        appendIndented(remark.text.orEmpty())
     }
+    // Under the same dated heading, in a subsection of its own, because a reading pass being cleared
+    // is one event and the archive should read as one entry for it. Only Clear All gets here — see
+    // appendToHistory above — so an empty list is the ordinary case and prints no subsection at all.
+    if (answers.isNotEmpty()) {
+        append("\n### answers\n")
+        answers.forEach { answer ->
+            append("\n- ")
+            appendPosition(
+                isAboutNoFile(answer),
+                answer.path,
+                answer.startLine,
+                answer.endLine,
+                answer.startColumn,
+                answer.endColumn,
+            )
+            answer.commit?.let { append(" — commit ").append(it.take(8)) }
+            append("\n\n")
+            // The question first, then the body, both indented, with a plain label line between them
+            // so the two blocks can be told apart. The label is our own literal text and the two
+            // blocks are not, which is the whole reason the label is the only thing written flat.
+            appendIndented(answer.question.orEmpty())
+            append("\n  answered:\n\n")
+            appendIndented(answer.markdown.orEmpty())
+        }
+    }
+}
+
+/**
+ * The heading's position, written the same way for a remark and for an answer.
+ *
+ * "(general)" is the same word `render/PromptRenderer.kt`'s "## General" heading and
+ * `ui/RemarksTree.kt`'s GENERAL_KEY group use for a record about no file: there is no file and no
+ * line range, so [positionLabel] has nothing to describe.
+ *
+ * Otherwise the same [positionLabel] the tree row draws, shared rather than copied: a history entry
+ * and a tree row describing one record must read the same way. Read straight off what was STORED,
+ * not off a resolve — `renderHistory` never resolves anything, by its own KDoc above — so unlike the
+ * tree there is no AnchorResult and no orphaned case to skip. A history entry's stored columns are
+ * the only columns it has ever had.
+ */
+private fun StringBuilder.appendPosition(
+    aboutNoFile: Boolean,
+    path: String?,
+    startLine: Int,
+    endLine: Int,
+    startColumn: Int,
+    endColumn: Int,
+) {
+    if (aboutNoFile) {
+        append("**(general)**")
+    } else {
+        append("**").append(path).append("** lines ")
+            .append(positionLabel(startLine, endLine, startColumn, endColumn))
+    }
+}
+
+/**
+ * Indented, so a record holding a markdown heading or a fence cannot restructure the document around
+ * it. The same problem the prompt renderer solves with backslash escapes; here nothing has to survive
+ * as prose, so an indent is enough. An answer holds a heading or a fence far more often than a remark
+ * does, which is why this is the one rule both halves of the file share.
+ */
+private fun StringBuilder.appendIndented(text: String) {
+    text.lines().forEach { append("      ").append(it).append("\n") }
 }
 

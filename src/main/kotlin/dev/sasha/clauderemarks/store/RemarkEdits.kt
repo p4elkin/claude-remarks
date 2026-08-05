@@ -213,9 +213,21 @@ fun clearHandedOverRemarks(project: Project, historyFile: Path? = null): Int {
     return removed
 }
 
+/**
+ * Writes every remark AND every answer to the history file, then removes both. Returns how many
+ * records went in all.
+ *
+ * Both lists go in one [appendToHistory] call, not two, so a person clearing once finds one
+ * `## cleared` entry rather than two carrying half the pass each. The all-or-nothing rule [archive]
+ * enforces then covers both: if that single write fails, neither list is touched.
+ *
+ * [clearHandedOverRemarks] deliberately does not do this. An answer was never handed anywhere, so
+ * "handed over" says nothing about it, and the button that takes handed-over remarks keeps answers.
+ */
 fun clearAllRemarks(project: Project, historyFile: Path? = null): Int {
-    if (!archive(project, historyFile, RemarkStore.getInstance(project).all())) return 0
-    val removed = RemarkStore.getInstance(project).clear()
+    val store = RemarkStore.getInstance(project)
+    if (!archive(project, historyFile, store.all(), store.allAnswers())) return 0
+    val removed = store.clear()
     if (removed > 0) notifyRemarksChanged(project)
     return removed
 }
@@ -229,12 +241,17 @@ fun clearAllRemarks(project: Project, historyFile: Path? = null): Int {
  * now and can fail on its own. ProcessCanceledException is rethrown: it is a RuntimeException, and
  * turning a cancellation into a red balloon would be a lie.
  */
-private fun archive(project: Project, file: Path?, remarks: List<RemarkState>): Boolean {
+private fun archive(
+    project: Project,
+    file: Path?,
+    remarks: List<RemarkState>,
+    answers: List<AnswerState> = emptyList(),
+): Boolean {
     var target = file?.toString() ?: "the remark history file"
     return try {
         val path = file ?: historyFile(project)
         target = path.toString()
-        appendToHistory(path, remarks)
+        appendToHistory(path, remarks, answers)
         true
     } catch (e: ProcessCanceledException) {
         throw e

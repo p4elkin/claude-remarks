@@ -32,6 +32,7 @@ import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.action.openGeneralRemarkInput
 import dev.sasha.clauderemarks.action.plural
 import dev.sasha.clauderemarks.action.publishRemarks
+import dev.sasha.clauderemarks.model.AnswerState
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.review.ReviewPhase
@@ -166,6 +167,7 @@ class RemarksPanel(
             REMARKS_CHANGED,
             RemarksListener {
                 remarksCache = null
+                answersCache = null
                 refresh()
             },
         )
@@ -499,9 +501,19 @@ class RemarksPanel(
      */
     private var remarksCache: List<RemarkState>? = null
 
+    /**
+     * The answers half of [remarksCache], cached for the same reason and dropped in the same place:
+     * a toolbar predicate runs on every update tick, and allAnswers() is a deep copy of every answer.
+     */
+    private var answersCache: List<AnswerState>? = null
+
     /** Internal, not private, so RemarksPanelTest can prove the cache is dropped on a change. */
     internal fun remarks(): List<RemarkState> =
         remarksCache ?: RemarkStore.getInstance(project).all().also { remarksCache = it }
+
+    /** The answers half of [remarks], read by Clear All so it can say how many it is about to take. */
+    internal fun answers(): List<AnswerState> =
+        answersCache ?: RemarkStore.getInstance(project).allAnswers().also { answersCache = it }
 
     private fun handedOverCount() = remarks().count { it.status != RemarkStatus.PENDING }
 
@@ -542,9 +554,14 @@ class RemarksPanel(
         ToolbarAction("Clear Handed Over", "Remove handed-over remarks, keeping answers", AllIcons.Actions.GC, { handedOverCount() > 0 }) {
             confirmClearHandedOver()
         },
-        ToolbarAction("Clear All", "Remove all remarks and answers", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
-            confirmClearAll()
-        },
+        // Enabled on either list, not on remarks alone: Clear All is the only thing that prunes
+        // answers, so a project whose remarks have all been cleared must still be able to take them.
+        ToolbarAction(
+            "Clear All",
+            "Remove all remarks and answers",
+            AllIcons.Actions.Cancel,
+            { remarks().isNotEmpty() || answers().isNotEmpty() },
+        ) { confirmClearAll() },
         // notifyRemarksChanged, not refresh(): this panel's own subscription rebuilds the tree
         // either way, and publishing resyncs the gutter icons too. A file reload (a branch
         // switch, a VCS revert, an external edit) already publishes this on its own now — both
@@ -594,14 +611,18 @@ class RemarksPanel(
 
     /** The other destructive one, and the only one that also throws away work not handed over. */
     private fun confirmClearAll() {
-        val total = remarks().size
-        if (total == 0) return
-        val answer = Messages.showYesNoDialog(
+        val remarkCount = remarks().size
+        val answerCount = answers().size
+        if (remarkCount == 0 && answerCount == 0) return
+        // Both counts, because Clear All takes both. A message naming only remarks while the button
+        // also throws away every answer is exactly the quiet loss the history file exists to prevent.
+        val chose = Messages.showYesNoDialog(
             project,
-            "Delete all $total remarks, including the ones not yet published? This cannot be undone.",
+            "Delete all $remarkCount remarks and $answerCount answers, including the remarks " +
+                "not yet published? This cannot be undone.",
             "Clear All Claude Remarks",
             Messages.getWarningIcon(),
         )
-        if (answer == Messages.YES) clearAllRemarks(project)
+        if (chose == Messages.YES) clearAllRemarks(project)
     }
 }

@@ -175,7 +175,7 @@ marked.
 | 19 | The Answers group in the tree | complete |
 | 20 | The answer's gutter icon | complete |
 | 21 | The markdown popup | complete |
-| 22 | Clearing, the history file and the confirmation dialogs | not started |
+| 22 | Clearing, the history file and the confirmation dialogs | complete |
 | 23 | watch-remarks.sh fetch mode without a session | not started |
 | 24 | The skill answers what is marked | not started |
 | 25 | The skill: listen mode claims, re-arms and reaches over the tunnel | not started |
@@ -695,12 +695,12 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/ui/RemarksToolWindowFactory.kt` (`confirmClearAll`'s message)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/RemarkHistoryTest.kt`, `src/test/kotlin/dev/sasha/clauderemarks/store/RemarkEditsTest.kt`
 
-- [ ] write the tests: an answer's history entry carries its position, its question and its markdown indented; `clearAllRemarks` archives both lists and clears both; `clearHandedOverRemarks` archives and clears only remarks
-- [ ] add the answers parameter to `appendToHistory` and the answers section to `renderHistory`, indenting the markdown the way a remark's text already is so a heading or a fence cannot restructure the document
-- [ ] make `clearAllRemarks` collect answers as well as remarks, archive both in one write, and clear both only if that write succeeded
-- [ ] leave `clearHandedOverRemarks` alone — an answer was never handed anywhere, so "handed over" says nothing about it
-- [ ] change the Clear All dialog to count both, so it never silently takes answers a person was not told about
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.RemarkHistoryTest' --tests 'dev.sasha.clauderemarks.store.RemarkEditsTest'` - must pass before task 23
+- [x] write the tests: an answer's history entry carries its position, its question and its markdown indented; `clearAllRemarks` archives both lists and clears both; `clearHandedOverRemarks` archives and clears only remarks
+- [x] add the answers parameter to `appendToHistory` and the answers section to `renderHistory`, indenting the markdown the way a remark's text already is so a heading or a fence cannot restructure the document
+- [x] make `clearAllRemarks` collect answers as well as remarks, archive both in one write, and clear both only if that write succeeded
+- [x] leave `clearHandedOverRemarks` alone — an answer was never handed anywhere, so "handed over" says nothing about it
+- [x] change the Clear All dialog to count both, so it never silently takes answers a person was not told about
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.RemarkHistoryTest' --tests 'dev.sasha.clauderemarks.store.RemarkEditsTest'` - must pass before task 23
 
 ### Task 23: watch-remarks.sh fetch mode without a session
 

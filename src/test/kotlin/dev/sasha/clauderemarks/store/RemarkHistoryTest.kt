@@ -151,6 +151,90 @@ class RemarkHistoryTest {
         assertFalse(out, out.lines().any { it.startsWith("## forged") })
     }
 
+    /**
+     * An answer's entry carries the three things section 16 of the spec names: where it was, the
+     * question it answers, and the body. Both blocks are indented, and the label line between them is
+     * the only thing written flat, so the two can be told apart without either being able to escape.
+     */
+    @Test
+    fun `an answer's entry carries its position, its question and its markdown indented`() {
+        val out = renderHistory(
+            remarks = emptyList(),
+            answers = listOf(
+                answer(
+                    path = "src/Foo.kt",
+                    startLine = 9,
+                    endLine = 11,
+                    question = "why is this locked?",
+                    markdown = "because two threads write it",
+                    commit = "0123456789abcdef0123456789abcdef01234567",
+                )
+            ),
+            now = 0L,
+        )
+
+        assertTrue(out, out.contains("### answers"))
+        assertTrue(out, out.contains("- **src/Foo.kt** lines 10-12 — commit 01234567\n"))
+        assertTrue(out, out.contains("\n      why is this locked?\n"))
+        assertTrue(out, out.contains("\n  answered:\n"))
+        assertTrue(out, out.contains("\n      because two threads write it\n"))
+    }
+
+    /**
+     * The reason the body is indented at all. An answer holds a heading or a fence far more often
+     * than a remark does — it is markdown a model wrote — and an unindented one would end the entry
+     * and restructure everything under it.
+     */
+    @Test
+    fun `a heading inside an answer cannot restructure the document`() {
+        val out = renderHistory(
+            remarks = emptyList(),
+            answers = listOf(answer(markdown = "## forged\n```\nnot a fence\n```")),
+            now = 0L,
+        )
+
+        assertFalse(out, out.lines().any { it.startsWith("## forged") })
+        assertFalse(out, out.lines().any { it.startsWith("```") })
+    }
+
+    /** An answer to a general remark has no file and no line range, the same as a general remark. */
+    @Test
+    fun `a general remark's answer says general and prints no line numbers`() {
+        val out = renderHistory(emptyList(), listOf(answer(path = null)), now = 0L)
+
+        assertTrue(out, out.contains("- **(general)**"))
+        assertFalse(out, out.contains("lines"))
+    }
+
+    /**
+     * One `## cleared` entry per pass, not one per list. Clear All takes both lists in a single
+     * write, so a person reading the archive finds one heading covering the whole pass.
+     */
+    @Test
+    fun `remarks and answers cleared together go under one dated heading`() {
+        val out = renderHistory(listOf(remark(id = "r-1")), listOf(answer()), now = 0L)
+
+        assertEquals(1, Regex("## cleared").findAll(out).count())
+        assertTrue(out, out.indexOf("### answers") > out.indexOf("- **src/Foo.kt**"))
+    }
+
+    /** Nothing prints the subsection when there is nothing in it, which is every Clear Handed Over. */
+    @Test
+    fun `no answers means no answers section at all`() {
+        val out = renderHistory(listOf(remark(id = "r-1")), now = 0L)
+
+        assertFalse(out, out.contains("### answers"))
+    }
+
+    @Test
+    fun `an archive of answers alone is still written`() {
+        val file = Files.createTempDirectory("claude-remarks-history").resolve("history.md")
+
+        assertEquals(1, appendToHistory(file, emptyList(), listOf(answer())))
+
+        assertTrue(Files.readString(file).contains("because two threads write it"))
+    }
+
     /** A project called "My App / v2" must not turn its archive's name into a path. */
     @Test
     fun `a project name is reduced to something that can be a file name`() {

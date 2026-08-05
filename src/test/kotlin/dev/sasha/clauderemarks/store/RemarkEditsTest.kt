@@ -383,16 +383,66 @@ class RemarkEditsTest : BasePlatformTestCase() {
     }
 
     /**
+     * Clear All is the only thing that prunes answers, and it archives them on the way out. Both
+     * lists go into one write, so the count covers both and the file holds both.
+     */
+    fun testClearAllArchivesAndClearsAnswersAsWellAsRemarks() {
+        addOne()
+        recordAnswer(project, answer(markdown = "because two threads write it"))
+        val history = Files.createTempDirectory("h").resolve("history.md")
+
+        assertEquals(2, clearAllRemarks(project, history))
+
+        assertEquals(0, RemarkStore.getInstance(project).all().size)
+        assertEquals(0, RemarkStore.getInstance(project).allAnswers().size)
+        val written = Files.readString(history)
+        assertTrue(written, written.contains("note"))
+        assertTrue(written, written.contains("because two threads write it"))
+    }
+
+    /** A project holding answers and no remarks still has something for Clear All to take. */
+    fun testClearAllTakesAnswersEvenWithNoRemarksLeft() {
+        recordAnswer(project, answer())
+        val history = Files.createTempDirectory("h").resolve("history.md")
+
+        assertEquals(1, clearAllRemarks(project, history))
+
+        assertEquals(0, RemarkStore.getInstance(project).allAnswers().size)
+    }
+
+    /**
+     * An answer was never handed anywhere, so "handed over" says nothing about it: Clear Handed Over
+     * archives and removes remarks alone, and the answer is still there afterwards with nothing about
+     * it in the file.
+     */
+    fun testClearHandedOverLeavesAnswersAloneAndOutOfTheArchive() {
+        val stored = addOne()
+        markRemarksPublished(project, listOf(stored.id!!))
+        recordAnswer(project, answer(markdown = "because two threads write it"))
+        val history = Files.createTempDirectory("h").resolve("history.md")
+
+        assertEquals(1, clearHandedOverRemarks(project, history))
+
+        assertEquals(1, RemarkStore.getInstance(project).allAnswers().size)
+        val written = Files.readString(history)
+        assertFalse(written, written.contains("because two threads write it"))
+        assertFalse(written, written.contains("### answers"))
+    }
+
+    /**
      * The rule that matters. A remark that could not be archived must still be in the store: an
      * archive that failed followed by a delete that succeeded is a remark lost with nothing said.
      */
     fun testNothingIsDeletedWhenTheHistoryFileCannotBeWritten() {
         addOne()
+        recordAnswer(project, answer())
         val blocked = Files.createTempFile("blocked", ".txt").resolve("history.md")
 
         assertEquals(0, clearAllRemarks(project, blocked))
 
         assertEquals(1, RemarkStore.getInstance(project).all().size)
+        // The same rule for the second list: one failed write leaves both exactly as they were.
+        assertEquals(1, RemarkStore.getInstance(project).allAnswers().size)
     }
 
     private fun addOne() = addRemark(
