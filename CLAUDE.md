@@ -3,14 +3,13 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-10 are implemented and covered by unit tests. Phase 10 (the published file and the review's
-handoff file merge into one file with one eight-line header; an agent's read of it now goes through
-one of two acknowledgement routes, a review's own session id or a published batch's nonce; Publish
-All Pending is renamed to Publish Unread and carries every remark that is not yet `READ`; Publish
-answers a waiting review directly, so the three separate Send controls are gone; and a background
-watcher script, launched by the skill, is what lets both review mode and the published-file modes
-wait past the ten-minute cap on a foreground shell call) is complete, including task 13's version
-bump to `0.7.0` and this final documentation sweep.
+Phases 1-11 are implemented and covered by unit tests. Phase 11 (a remark loses its tag and its
+severity level; Publish moves into the menu the gutter icon and the tree share; an Ask Claude
+gesture writes a remark that asks for an answer and publishes it on the spot; an answer comes back
+into the IDE as its own stored record with its own anchor, its own row in the tree and its own
+gutter icon; and listen mode claims the batch already waiting, re-arms itself after each one, and
+works over an SSH tunnel) is complete, including the version bump to `0.8.0` and this final
+documentation sweep.
 
 **The plugin has now been seen running in a real IDE, on version `0.6.0`.** A review was started
 over the endpoint, the waiting banner appeared, the file the request named opened, remarks were
@@ -22,9 +21,13 @@ acknowledgement was accepted. The published file it carried had correct sub-line
 That closes the one gating check phases 6 to 9 all owed — whether any of this works outside the
 tests at all — and no others. **Still unchecked by hand:** the markdown preview entry point,
 dragging a remark onto a bucket, phase 7's scheduled deadline and its diff opening, and everything
-phase 10 itself built. The one build ever installed on either machine when those checks ran was
-`0.6.0`, which predates phase 10, so none of phase 10's own hand checks — listed in section 8 of
-`docs/plans/completed/20260805-claude-remarks-phase10.md` — have been run either.
+phases 10 and 11 themselves built. The one build ever installed on either machine when those checks
+ran was `0.6.0`, which predates both, so none of phase 10's own hand checks — listed in section 8 of
+`docs/plans/completed/20260805-claude-remarks-phase10.md` — and none of phase 11's twenty-four —
+listed under "Hand checks" in `docs/plans/completed/20260805-claude-remarks-phase11.md` — have been
+run either. Phase 11's list is the one that matters most right now, because the whole Ask Claude
+round trip, the markdown popup and listen mode's re-arming are all in it and none of the three is
+reachable by `./gradlew test`.
 
 What has and has not been in front of a real IDE otherwise, per phase: **phase 6's seven security
 hand checks were run in a real IDE before 0.3.0 was released**, and phase 5's commit stamp was
@@ -47,12 +50,16 @@ browser selection reaches Kotlin as the right character range, and whether the p
 cleanly with the markdown plugin disabled. Section 12 of
 `docs/plans/completed/20260803-claude-remarks-phase9.md` lists the whole set, split by which of them
 also needs a second machine. Select lines, press `Ctrl+Alt+Shift+R`
-(or use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag and a
-severity level, and press Enter. A gutter icon appears on the marked lines and follows the code as
+(or use the "Add Claude Remark" intention through Alt+Enter), type a note, and press Enter. Press
+`Ctrl+Alt+Shift+A` instead to ask a question rather than leave a note: that remark is stored marked
+as asking for an answer, published on the spot, and answered back onto the line.
+A gutter icon appears on the marked lines and follows the code as
 you keep editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts a
 class name from the project. The tool window lists every remark as a tree grouped by file, with a
 General group at the top for a remark about the whole change and a bucket level above the files once
-any remark is put in one; right-click a row for the severity and bucket menu. Press Add General
+any remark is put in one; right-click a row for the shared menu — Ask for an Answer, Publish, and
+Move to Bucket…. An Answers group sits above the General group whenever any answer has come back.
+Press Add General
 Remark in the toolbar to write a remark that is not about any one file; it always shows up in the
 General group, whatever bucket it also carries. A remark can also be written from the rendered
 markdown preview instead of from the source: select words there, right-click, and pick Add Claude
@@ -77,14 +84,17 @@ is waiting to read them. There is no separate Send control any more: since phase
 how a waiting review gets answered. See "The Shared Review Session" below for how the IDE finds the
 skill and hands the remarks back.
 
-For the design — how anchoring, the gutter, the change notification, severity and buckets, the
+For the design — how anchoring, the gutter, the change notification, buckets, the
 commit stamp, the history file, the publish pipeline, the published file, the phrase a remark points
-at, a remark about no file, and the shared review session work. See `docs/claude/design.md`.
+at, a remark about no file, the shared review session, the Ask Claude gesture and what an answer is
+all work. See `docs/claude/design.md`.
 
 **Phase 5 is built.** It added a severity level and named buckets to a remark, tag chips with Alt
 keys in place of the old tag drop-down, a commit stamp read straight out of `.git`, a history file
 that cleared remarks are archived to instead of deleted, and a keystroke that inserts a class name
-into the remark text. One specific automated-dispatch idea was dropped before it was built: a
+into the remark text. ⚠️ **Two of those are gone again since phase 11**: the severity level and the
+tag, field, chips, menu and all. Buckets, the commit stamp, the history file and the class-name
+keystroke all stay. One specific automated-dispatch idea was dropped before it was built: a
 pluggable `Dispatcher` interface, a tmux pane, a file inside `.idea/`. See `docs/claude/design.md`,
 section "The Publish Pipeline" (called "The Copy Pipeline" until phase 9 renamed it), for why. That
 idea stays dropped. Phase 6 below does not revive it.
@@ -255,6 +265,59 @@ remember a remote IDE's four connection values (host, port, project path, token)
 time. See `docs/claude/design.md`, sections "The three states, and why published is not read", "The
 published file" and "The Shared Review Session", for the whole design.
 
+**Phase 11 is built.** It carries six changes, and the headline one is that the arrow now points
+both ways: a person can ask, and an agent's answer comes back into the IDE.
+
+*Tags and severity are gone.* `RemarkTag`, `RemarkSeverity`, both `label` extensions, both stored
+fields, the input popup's chip row with its five Alt bindings, the shared menu's Severity submenu,
+`setRemarkSeverity`, and the four-level scale the prompt used to explain are all deleted. The reason
+is use: severity was never changed from its default and a tag was never picked, so every remark ever
+published shipped as an untagged `should` while the prompt spent a paragraph teaching a scale it
+then used one value of. An old element carrying `severity="MUST"` and `tag="BUG"` still deserializes
+— `BaseState` ignores an attribute it has no property for — and the attributes are dropped on the
+next save. `RemarkStoreStateTest` pins that.
+
+*Publish is in the shared menu, and the toolbar buttons say what they take.* `remarkChangeActions`
+offers Ask for an Answer, Publish and Move to Bucket…, in that order, from both the gutter icon's
+click menu and the tree's right-click menu — so publishing one remark is one right-click instead of
+five steps. `ToolbarAction` gained a `description` parameter, and all six buttons carry one that
+says what the button takes rather than repeating its own name.
+
+*The Ask Claude gesture.* `Ctrl+Alt+Shift+A`, the `AskClaudeIntention` under `Alt+Enter`, and an
+editor popup-menu entry all open the same input box `Ctrl+Alt+Shift+R` opens, then store the remark
+with `asksForAnswer = true` and call `publishRemarks` on that one id. `action/AskClaudeAction.kt`
+holds the action and the intention. The published prompt marks such a remark `— asks for an answer`
+in its heading and prints every remark's `id:` on its own line, which is what a session needs to
+answer one.
+
+*An answer comes back.* This is the first thing an agent sends that a person reads rather than a
+control signal. `POST /api/claude-remarks/answer` carries the batch's nonce, the remark's id and the
+answer as markdown; `review/AnswerReceipt.kt` resolves the remark, captures a **fresh** anchor at the
+position it resolves to now, and stores an `AnswerState` of its own through `recordAnswer`. An answer
+is its own record with its own anchor, so it survives its question being cleared and follows the code
+on its own. It gets a row in an Answers group at the very top of the tree, a balloon icon on the
+gutter, and a popup rendering its markdown when either is clicked. At most one answer per remark:
+`putAnswer` upserts on `remarkId`, because a re-publish mints a fresh nonce and a watcher compares
+nonces rather than content, so the same question reaching a session twice is ordinary.
+
+*Listen mode stops needing to be babysat.* It claims the batch already sitting in the published file
+at startup, by reading the nonce out of line 2 and posting `published-read` for it, and it re-arms
+its watcher immediately after each batch instead of waiting to be asked. Several sessions may now
+listen to one repository at once, **nothing kills a watcher**, and the batch claim in the IDE is what
+decides who acts: a session answered `already-read` names the winner, acts on nothing and keeps
+listening. ⚠️ A watcher is stopped only by the pid on the first line of its own repository's `.watch`
+file, after checking that the pid is alive and that its command line names the same watched path —
+never by `pkill`, `killall` or a `ps | grep` match on `watch-remarks.sh`, because every repository's
+watcher on the machine runs a program with that name.
+
+*Listen mode works over the tunnel.* `handleFetch`'s `session` is optional now, so a session-less
+fetch takes any batch in the file rather than only one whose header names the caller's own review.
+That is what lets a remote session claim a plain publish, which `review: none` in the header made
+impossible before. A caller that still sends a session gets today's behaviour byte for byte.
+
+See `docs/claude/design.md`, sections "The Ask Claude Gesture" and "What an Answer Is", for the whole
+design, and its Known Issues for the two limits this phase accepts.
+
 ## Rules that must not break
 
 1. **The anchoring module stays free of the platform.** `anchor/` is pure Kotlin, which is what
@@ -272,21 +335,31 @@ published file" and "The Shared Review Session", for the whole design.
    grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt   # must find nothing
    ```
 
-3. **`store/RemarkEdits.kt` holds the only eleven functions that touch a remark.**
+3. **`store/RemarkEdits.kt` holds the only thirteen functions that touch a remark or an answer.**
    `RemarkStore`'s own mutators stay public, and `RemarkEdits.kt` sits in the same package, so
-   nothing but this check keeps the claim true. A caller that reaches past the ten that change a
-   remark mutates the store without telling the gutter or the tool window to redraw. The grep
+   nothing but this check keeps the claim true. A caller that reaches past the twelve that change
+   stored data mutates the store without telling the gutter or the tool window to redraw. The grep
    allows through the two read-only methods by name, `all()` and `allAnswers()`, rather than listing the mutator names
    by hand: a hand-picked list has to be edited every time a mutator is added, and forgetting is
    silent — the guard keeps passing while it stops covering the new function. That is exactly
    what happened here: phase 5 added `setSeverity`/`setBucket`, and the old six-name list never
-   saw them. The count moved from eight to nine in phase 9's group one, when `markRemarksSent`
-   split into `markRemarksPublished` and `markRemarksRead`, and `clearSentRemarks` was renamed to
-   `clearHandedOverRemarks`. That is a rename, not a new function, so it did not change the count on
-   its own. Group three's `addGeneralRemark` moved it from nine to ten mutators. The eleventh
-   function in the file, `notifyRemarksChanged`, changes nothing itself. It is what every one of the
-   ten calls to announce the change. It is counted here too, because it is public, it lives in this
-   file, and this line has to match what a reader finds by opening the file and counting.
+   saw them. The exempted names are readers, not mutators, which is why exempting a second one in
+   phase 11 costs the guard nothing: `allAnswers()` is what the tree, the gutter and the resolver
+   read the answers list through, the same way they read remarks through `all()`.
+
+   How the count got here, since the line has to match what a reader finds by opening the file and
+   counting. It moved from eight to nine in phase 9's group one, when `markRemarksSent` split into
+   `markRemarksPublished` and `markRemarksRead`, and `clearSentRemarks` was renamed to
+   `clearHandedOverRemarks` — that is a rename, not a new function, so it did not change the count on
+   its own. Group three's `addGeneralRemark` moved it from nine to ten mutators. Phase 11 deleted
+   `setRemarkSeverity`, taking it back to nine, then added `setRemarkAsksForAnswer`, `recordAnswer`
+   and `deleteAnswer`, giving twelve. They are `addRemark`, `addGeneralRemark`, `editRemark`,
+   `deleteRemark`, `markRemarksPublished`, `markRemarksRead`, `setRemarkBucket`,
+   `setRemarkAsksForAnswer`, `recordAnswer`, `deleteAnswer`, `clearHandedOverRemarks` and
+   `clearAllRemarks`. The thirteenth function in the file, `notifyRemarksChanged`, changes nothing
+   itself. It is what every one of the twelve calls to announce the change. It is counted here too,
+   because it is public and it lives in this file. `RemarksListener` is a type and `archive` is
+   private, so neither counts.
 
    ```bash
    grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include='*.kt' \
@@ -363,6 +436,16 @@ published file" and "The Shared Review Session", for the whole design.
    `toRealPath()` is allowed above. The comment trap is still live: the grep is line-based, so a
    comment naming any of the five forbidden symbols would trip it, even to say they are absent.
 
+   **Phase 11 adds a fifth action and relaxes one, and the grep needed no edit for either.** It names
+   the whole file, so `handleAnswer` — the `answer` action, `POST /api/claude-remarks/answer` — is
+   covered the moment it is written. `handleAnswer` does four things and nothing else: it parses the
+   body, checks the size cap, calls `matchProject`, calls one function in another file, and writes the
+   status fields. Every consequence of an answer lives in `review/AnswerReceipt.kt`, the way the
+   `ack` action's live in `review/ReviewLifecycle.kt` and `published-read`'s live in
+   `review/PublishedAck.kt`. Building an answer resolves a remark against a file, which reaches the
+   VFS, so it could not have lived here. The relaxed action is `handleFetch`, whose `session` field is
+   optional since phase 11; that changes what it answers, not what it touches.
+
 6. **Only `store/RemarkEdits.kt`, `review/ReviewLifecycle.kt` and `review/PublishedAck.kt` may call
    `markRemarksRead`.** `READ` means an agent said it read the remarks. There are, since phase 10,
    two routes that can say so, and both are answers to something the IDE itself minted: a `read`
@@ -393,6 +476,34 @@ published file" and "The Shared Review Session", for the whole design.
    fix, if this is ever found in use, is to keep the two allowed callers as they are, not to grow the
    pattern chasing every way a call can be spelled.
 
+7. **Only `store/RemarkEdits.kt` and `review/AnswerReceipt.kt` may create an answer.** An answer is a
+   record that a Claude Code session answered a question. There is exactly one route that can say so:
+   a `POST /api/claude-remarks/answer` request carrying the nonce of a published batch and the id of
+   a remark that batch carried, handled by `reportAnswer` in `review/AnswerReceipt.kt`. Nothing else
+   may mint one. Guard 6 makes the same argument about `markRemarksRead`, where there are two routes;
+   here there is one.
+
+   ```bash
+   grep -rn "recordAnswer(" src/main --include='*.kt' \
+     | grep -v "store/RemarkEdits.kt" | grep -v "review/AnswerReceipt.kt"   # must be empty
+   ```
+
+   The function is `recordAnswer` and not `addAnswer`, and the name is load-bearing: it upserts on
+   `remarkId`, so a second answer to the same question replaces the first, and a function called
+   `addAnswer` that silently replaced would be a lie in the one file this guard points at.
+
+   **One way past it, named rather than patched.** The grep is a line-based search on the literal
+   substring `recordAnswer(`. A method reference, `::recordAnswer`, or an aliased import would reach
+   the function without ever writing it, and the grep would not see it. Nothing exploits this today.
+   Following guard 3's own argument: the fix, if it is ever found in use, is to keep the two allowed
+   callers as they are, not to grow the pattern chasing every way a call can be spelled.
+
+   **There is deliberately no matching guard for `asksForAnswer`.** That flag is set by the person,
+   from two places on purpose — the Ask Claude gesture and the toggle in `remarkChangeActions` — so
+   there is nothing for a one-writer rule to protect. Guards 6 and 7 exist because `READ` and an
+   answer are both claims about what an agent did, and only an agent's own message may make one. A
+   person saying "I want an answer to this" is not a claim about anybody else.
+
 Every command above must come back empty.
 
 ## Project structure
@@ -408,14 +519,23 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    Asked by phraseAt, by markersValid in render/PromptRenderer.kt,
                                    by the tree row and by the history heading. Pure Kotlin, so the
                                    renderer can import it without breaking rule 2 below
-  model/RemarkState.kt             the persisted record, RemarkTag (+ its label extension), RemarkStatus,
-                                   phrase (the sub-line text between startColumn and endColumn, phase 9)
-  store/RemarkStore.kt             @Service project component, state in workspace.xml
-  store/RemarkEdits.kt             the ten mutation functions plus notifyRemarksChanged (eleven in
-                                   all), the REMARKS_CHANGED topic
+  model/RemarkState.kt             the persisted record, RemarkStatus, phrase (the sub-line text
+                                   between startColumn and endColumn, phase 9), and asksForAnswer
+                                   (phase 11). RemarkTag and RemarkSeverity were deleted in phase 11
+  model/AnswerState.kt             the answer record (phase 11): remarkId, the question copied at
+                                   answer time, the markdown, answeredAt, and its own nine anchor
+                                   fields. Its KDoc argues why it does not share a superclass with
+                                   RemarkState
+  store/RemarkStore.kt             @Service project component, state in workspace.xml. Two lists
+                                   since phase 11, remarks and answers, both @get:XCollection
+  store/RemarkEdits.kt             the twelve mutation functions plus notifyRemarksChanged (thirteen
+                                   in all), the REMARKS_CHANGED topic
   store/RemarkResolver.kt          projectRoot, resolveAll, anchorOf, and isAboutNoFile, which
                                    resolveOne checks before treating a remark with no path as
-                                   itself rather than as an orphan
+                                   itself rather than as an orphan. Since phase 11 also the pure
+                                   StoredAnchor value type and resolveStored, which resolveOne and
+                                   resolveAnswers both go through, so the file lookup, the Document
+                                   lookup, the no-file case and the five refusals are written once
   store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, the diff fallback, and the
                                    refusal for a remark on the revision side of a diff.
                                    fileTargetProblem (phase 9) is the file-only half of that refusal,
@@ -426,11 +546,15 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    .git. Reads .git directly, no platform import, no Git4Idea
   store/RemarkHistory.kt           historyFile, appendToHistory, renderHistory: the archive, with
                                    a phrase line under a sub-line heading and a plain "(general)"
-                                   heading for a remark about no file
-  ui/RemarkInputPanel.kt           the popup's panel, the Enter/Shift+Enter keys, the tag chips and
-                                   their Alt keys, CLASS_NAME_STROKE to insert a class name
-  ui/RemarkActions.kt              remarkChangeActions: the severity and bucket menu, shared by the
-                                   gutter icon and the tree
+                                   heading for a remark about no file, and since phase 11 an
+                                   "### answers" subsection whose markdown is indented so a heading
+                                   or a fence inside an answer cannot restructure the document
+  ui/RemarkInputPanel.kt           the popup's panel, the Enter/Shift+Enter keys, CLASS_NAME_STROKE
+                                   to insert a class name. The tag chips and their Alt keys were
+                                   deleted in phase 11, and the panel now returns a plain String
+  ui/RemarkActions.kt              remarkChangeActions: the Ask for an Answer toggle, Publish and
+                                   Move to Bucket…, shared by the gutter icon and the tree. The
+                                   Severity submenu was deleted in phase 11
   ui/RemarkStatusLook.kt           RemarkStatusLook: the icon and the text attributes for a status,
                                    shared by the gutter icon and the tree the same way RemarkActions.kt
                                    is, since a status's look used to be decided twice and, after phase
@@ -439,17 +563,27 @@ src/main/kotlin/dev/sasha/clauderemarks/
   ui/ClassNameInsert.kt            projectClassNames, chooseClassName: the class-name chooser the
                                    input popup opens on Cmd+Ctrl+Shift+Space (Ctrl+Alt+Shift+Space
                                    off macOS — NOT Ctrl+Space, see CLASS_NAME_STROKE for why)
-  ui/RemarksTree.kt                node building: a General group at the very top for a remark
-                                   about no file, then buckets, then files, and the tree cell
-                                   renderer
+  ui/RemarksTree.kt                node building: an Answers group at the very top (phase 11), then
+                                   a General group for a remark about no file, then buckets, then
+                                   files, and the tree cell renderer. asksLabel is the pure function
+                                   deciding whether a remark row says "asks" or "answered"
   ui/RemarksTreeDnd.kt             the drag wiring beside that node building: the private drag bean,
                                    installDragToBucket, and the node lookup under the pointer. The
                                    decision a drop makes is bucketDropTarget, in RemarksTree.kt
-  ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar (including Add General
-                                   Remark), self-refresh on REMARKS_CHANGED
+  ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar (six buttons, each with its
+                                   own description since phase 11), self-refresh on REMARKS_CHANGED.
+                                   Since phase 11 it also resolves answers, deletes answer rows, and
+                                   opens the popup instead of navigating when the row is an answer
+  ui/AnswerPopup.kt                showAnswerPopup (phase 11): DocMarkdownToHtmlConverter inside a
+                                   ReadAction.nonBlocking, then a JBHtmlPane in a JBScrollPane on the
+                                   EDT. Disposer.register(popup, pane) is not optional — JBHtmlPane
+                                   is Disposable and nothing else in this plugin is
   action/AddRemarkAction.kt        the shortcut / popup-menu entry point, selectedLines(), and
                                    openGeneralRemarkInput, the tool window's entry point for a
                                    remark about no file
+  action/AskClaudeAction.kt        the Ctrl+Alt+Shift+A gesture and AskClaudeIntention beside it
+                                   (phase 11): the same input popup, then addRemark with
+                                   asksForAnswer = true, then publishRemarks on that one id
   action/AddRemarkIntention.kt     the Alt+Enter entry point
   action/AddPreviewRemarkAction.kt the entry point in the rendered markdown preview's right-click
                                    menu (phase 9). Reads only what PreviewSelectionService already
@@ -458,7 +592,10 @@ src/main/kotlin/dev/sasha/clauderemarks/
   action/PublishRemarks.kt         publishRemarks(project, ids), the whole publish pipeline, plus the
                                    Tools-menu action (PublishUnreadRemarksAction) that calls it without
                                    the tool window; renamed from CopyRemarks.kt/copyRemarks in phase 9
-  editor/RemarkGutterIcon.kt       the placement record, the tooltip, the gutter icon renderer
+  editor/RemarkGutterIcon.kt       the placement record, the tooltip, the gutter icon renderer, and
+                                   since phase 11 AnswerPlacement, answerTooltipFor and
+                                   AnswerGutterIconRenderer, whose equals/hashCode include the
+                                   markdown because that is what its click opens
   editor/RemarkGutter.kt           the project service that keeps gutter icons in step
   editor/RemarkGutterStartup.kt    the ProjectActivity that starts RemarkGutter, and
                                    ReviewHandshakeService
@@ -466,6 +603,9 @@ src/main/kotlin/dev/sasha/clauderemarks/
   settings/RemarkSettingsConfigurable.kt
   render/PromptRenderer.kt         pure Kotlin, zero platform imports. Remarks to markdown, general
                                    remarks first under their own heading and with no code block.
+                                   PROMPT_NOTES (called SEVERITY_SCALE_NOTE until phase 11) is the
+                                   text appended under the editable header: what the asks marker and
+                                   the id: line mean, the commit paragraph, the ⟦/⟧ paragraph
   render/PromptPayload.kt          collectForPrompt and clipboardPayload
   preview/PreviewSelection.kt      SourceRange, PreviewSelection, parseSelectionMessage and
                                    narrowToSelection: what a selection in the rendered markdown
@@ -498,7 +638,16 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    sixteen published batches, @Synchronized record/acknowledge) and
                                    reportPublishedRead: the second acknowledgement route, added in
                                    phase 10, keyed to a published batch's nonce rather than to a review
-                                   session
+                                   session. Since phase 11 also BatchLookup and batchCarries, the
+                                   non-destructive read the answer action asks "did this batch carry
+                                   this remark" with — it never stamps readBy
+  review/AnswerReceipt.kt          reportAnswer and buildAnswer (phase 11): everything the answer
+                                   action causes, kept out of ReviewRestService.kt by rule 5 the way
+                                   ReviewLifecycle.kt keeps the ack's consequences out. It resolves
+                                   the remark and captures a FRESH anchor inside a
+                                   ReadAction.nonBlocking, then calls recordAnswer and the balloon on
+                                   the EDT. Never touches WaitingReviewService: an answer works with
+                                   no review ever started
   review/WaitingReview.kt          WaitingReviewState (with its ReviewPhase and deadlineAt/isStale;
                                    outputPath and endedOutputPath removed in phase 10, once the review
                                    stopped owning a directory of its own), StartResult, the pure
@@ -506,9 +655,11 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    Disposable) — at most one waiting review per project, in memory
                                    only, plus markSent, acknowledge and the scheduled expiry
   review/ReviewRestService.kt      the RestService at
-                                   POST /api/claude-remarks/{start,ack,fetch,published-read} (the
-                                   fourth action added in phase 10): isHostTrusted, execute (dispatches
-                                   on the sub-path), clampDeadlineSeconds, readPublished/PublishedRead
+                                   POST /api/claude-remarks/{start,ack,fetch,published-read,answer}
+                                   (the fourth action added in phase 10, the fifth in phase 11, which
+                                   also made handleFetch's session optional): isHostTrusted, execute
+                                   (dispatches on the sub-path), clampDeadlineSeconds,
+                                   handleAnswer with MAX_ANSWER_BYTES, readPublished/PublishedRead
                                    (renamed from readHandoff/HandoffRead in phase 10, the merged file
                                    read back with a size cap), handlePublishedRead, and the pure
                                    requestIsAllowed/projectForPath helpers. Rule 5 above governs this
@@ -547,6 +698,7 @@ src/main/resources/dev/sasha/clauderemarks/preview/claude-remarks-preview.js
                                                   from the page's own meta tag), and posts four
                                                   offsets plus the highlighted text
 src/main/resources/intentionDescriptions/AddRemarkIntention/description.html
+src/main/resources/intentionDescriptions/AskClaudeIntention/description.html
 src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
 ```
 
@@ -561,9 +713,20 @@ src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
 - `org.intellij.plugins.markdown` is an optional dependency, declared in `plugin.xml` with
   `config-file="claude-remarks-markdown.xml"`, so the plugin still loads with it disabled. Because of
   it, `build.gradle.kts`'s `pluginVerification` subtracts `EXPERIMENTAL_API_USAGES` from
-  `verifyPlugin`'s failure level, alongside the pre-existing `INTERNAL_API_USAGES` subtraction: the
-  three `MarkdownHtmlPanel` getters the preview extension calls all carry `@ApiStatus.Experimental`,
-  and there is no non-experimental route to a preview's `BrowserPipe`.
+  `verifyPlugin`'s failure level: the three `MarkdownHtmlPanel` getters the preview extension calls
+  all carry `@ApiStatus.Experimental`, and there is no non-experimental route to a preview's
+  `BrowserPipe`. ⚠️ Since phase 11 that subtraction has a **second** reason, and both have to go
+  before the line can: `ui/AnswerPopup.kt` builds a `JBHtmlPane`, which is experimental at class
+  level. Removing the markdown preview later does not make the subtraction removable — check the
+  popup too.
+- `INTERNAL_API_USAGES` is no longer subtracted. It was there for `SegmentedButton.component`,
+  reached from the tag chip row, and phase 11 deleted the chip row. The verifier now reports no
+  internal API usage at all, so a new one fails the build rather than passing unnoticed. Keep it that
+  way: if a future change needs an internal API, weigh it on its own rather than reviving the
+  subtraction.
+- `com.intellij.markdown.utils.doc.DocMarkdownToHtmlConverter` and `com.intellij.ui.components.JBHtmlPane`
+  are both in `lib/app-client.jar`, already on the compile classpath. The answer popup needed no
+  change to the `dependencies` block and no `bundledModule` line.
 
 ## Reading the platform
 
@@ -635,12 +798,20 @@ need a light IDE fixture
 resolved against real files, including a path that tries to climb out of the project, and, since
 phase 9, that a resolved row carries the phrase's refreshed columns),
 `SelectedLinesTest` (the selection line math against a real `Document`), `RemarkEditsTest` (the
-ten mutation functions publish `REMARKS_CHANGED`), the key-binding half of
+twelve mutation functions publish `REMARKS_CHANGED`; since phase 11 also that `recordAnswer` upserts
+on the remark id rather than appending, that `deleteAnswer` is keyed on the answer's own id, and that
+`clearAllRemarks` archives and clears both lists while `clearHandedOverRemarks` leaves answers
+alone), the key-binding half of
 `RemarkInputPanelTest`, `AddRemarkActionTest`, `ActionIdsTest` (pins the two action ids and the
 tool window's derived activation id, so a rename is caught rather than silently breaking every
-`.ideavimrc`), `RemarkActionsTest` (the severity and bucket menu acts on the ids it is given at
-press time, not at build time), `ClassNameInsertTest` (inserting a class name at the caret, and
-over a selection), `DiffRemarkTargetTest` (adding a remark from a diff pane: a real
+`.ideavimrc`), `RemarkActionsTest` (the shared menu offers Ask for an Answer, Publish and Move to
+Bucket… in that order, and acts on the ids it is given at press time, not at build time; the toggle
+is off when there is nothing to act on and flips across several ids at once), `ClassNameInsertTest`
+(inserting a class name at the caret, and over a selection; its two extension-point tests assert
+that the contributed names are present, that a repeated name comes back once and that the list is
+sorted, rather than comparing the whole list — the light fixture also answers the Kotlin builtin
+names now, and the old exact comparison broke on that, which is fixture drift and not a plugin
+change), `DiffRemarkTargetTest` (adding a remark from a diff pane: a real
 `DiffContentFactory` content standing in for a VCS revision, since a light fixture cannot build a
 diff viewer), the renderer-equality half of `RemarkGutterIconTest`, `RemarkGutterTest` (the gutter
 service, including that a general remark produces no placement anywhere), `RemarksPanelTest` (the
@@ -663,7 +834,12 @@ fetch action's answers since phase 8 — `waiting` before a send, `ready` with t
 one, that a fetch marks nothing read and leaves the review alone, that a fetch still carries a
 rejection's body, `no-review` for a session nothing knows about, `too-large` over the size cap,
 `bad-request` for a missing field, and `unknown-project` for a project nothing has open — and, since
-phase 10, the `published-read` action's five answers, mirroring `PublishedAckTest` at the HTTP layer),
+phase 10, the `published-read` action's five answers, mirroring `PublishedAckTest` at the HTTP layer;
+and, since phase 11, the `answer` action's six answers plus a second answer for the same remark, an
+answer for a remark that was never marked as asking — deliberately accepted, and pinned so that
+decision cannot be quietly reversed — and the relaxed fetch: no `session` returns `ready` for a plain
+publish, a fetch that still carries one behaves exactly as it did, and a session-less fetch with no
+published file still answers `no-review`),
 `OpenReviewFilesTest` (the string-only half of the path
 filter: absolute paths and `..` segments are dropped, plus a fixture-backed class for the
 diff-or-editor decision, since a light fixture project has no VCS root and every file takes the
@@ -686,11 +862,33 @@ phase 8's `endedOutputPath` tests were removed in phase 10 along with the field 
 or a published-read started resolving the one predictable published-file path instead of a path the
 review had to hand back).
 
+**Phase 11 added four test classes.** `AnswerStateTest` is the answer's own storage guard, and its
+first three tests were written before the feature existed and confirmed failing for the right reason:
+a `RemarksState` holding one answer must serialize to XML that really contains that answer's fields,
+`answersSnapshot()` must deep-copy, and two `getState()` calls must never hand back the same list
+instance. ⚠️ That is the `@get:XCollection` trap this project has already paid for once with the
+`remarks` list — without the annotation the whole list serializes to an empty element and every
+answer is lost on restart with nothing logged. `AnswerResolveTest` resolves an answer against a real
+file: it follows the code when twenty lines are inserted above it, orphans when the code is gone, and
+an answer with an empty path resolves as itself the way a general remark does. `AnswerReceiptTest`
+covers what the endpoint causes rather than what it returns — answering marks nothing read, does not
+consume the batch, captures the anchor at the position the remark resolves to *now* rather than
+copying the stored one, and stores an answer with no anchor rather than dropping it when the remark
+was deleted in between. `AnswerPopupTest` is one fixture-backed test that
+`DocMarkdownToHtmlConverter.convert` resolves and returns in this build — a `# heading` produces an
+`<h` and a fenced block produces a `<pre`. It tests that the platform call works, not that anything
+renders, and it is what would catch that class changing shape on a platform bump, since it carries no
+`@ApiStatus` annotation at all.
+
 Two more files are checked by hand, not by `./gradlew test`, because this repository's suite is
 Kotlin and runs no shell: `docs/skill/claude-remarks-review/watch-remarks.sh` (added in phase 10; each
 check is its own run, in the scratchpad directory, covering a deadline timeout, a nonce that has
 already changed, a file that appears after the watcher starts, `--require-review`, a malformed
-header, and that a second watcher on the same project kills the first) and
+header, and — since phase 11 reversed this one — that a second watcher on the same project does
+**not** kill the first, that both are still alive afterwards, that the pid file then holds the second
+watcher's pid, and that a watcher on another path is left completely untouched; plus that fetch mode
+now starts with no `--session` while still refusing with no `--project` and no
+`CLAUDE_REMARKS_TOKEN`) and
 `docs/skill/claude-remarks-review/remote-config.sh` (added in phase 10; each check is its own run too,
 with `HOME` pointed at a temporary directory, covering `save`/`show`/`forget`, that the token never
 appears in any output, permission and validation refusals, and that two repository roots produce two
@@ -705,5 +903,6 @@ deliberately leaves a review waiting when it finishes, so the next test class to
 window must not find it still there.
 
 There are no UI-rendering or end-to-end tests. The popup appearing at the caret, the gutter icon
-painting, the tree colours, the balloon, and the settings page layout are checked by hand in a
-sandbox IDE, not automated.
+painting, the tree colours, the balloon, the settings page layout, and — since phase 11 — whether the
+answer popup actually draws a heading, a bullet list, a fence and a table as themselves rather than
+as literal markdown, are all checked by hand in a sandbox IDE, not automated.

@@ -180,7 +180,7 @@ marked.
 | 24 | The skill answers what is marked | complete |
 | 25 | The skill: listen mode claims, re-arms and reaches over the tunnel | complete |
 | 26 | Verify acceptance criteria | complete |
-| 27 | [Final] Update documentation | not started |
+| 27 | [Final] Update documentation | complete |
 
 ---
 
@@ -862,12 +862,12 @@ for the whole list.
 - Modify: `docs/ideas.md` (the two built-idea sections that point at the deleted design subsections)
 - Modify: `docs/plans/20260805-claude-remarks-phase11.md` (move to `docs/plans/completed/`)
 
-- [ ] update `CLAUDE.md`: the phase 11 paragraph, the new seventh guard, guard 3's count of thirteen and its second exempted read-only name, guard 5's fifth action, the project structure block for the four new files, and the testing section
-- [ ] update `docs/claude/design.md`: delete the "Severity" and "Tag chips" subsections, add sections for the Ask Claude gesture and for what an answer is, and record the two new Known Issues — Ask Claude answering a waiting review, and a local and a remote watcher not seeing each other
-- [ ] update `README.md`: the Ask Claude gesture beside `Ctrl+Alt+Shift+R`, the deleted tag and severity paragraphs, and the two listen-mode promises this phase reverses
-- [ ] update `docs/ideas.md` so the two built-idea sections no longer point at design subsections that are gone
-- [ ] bump the version in `build.gradle.kts` and add a `CHANGELOG.md` entry
-- [ ] move this plan to `docs/plans/completed/20260805-claude-remarks-phase11.md`
+- [x] update `CLAUDE.md`: the phase 11 paragraph, the new seventh guard, guard 3's count of thirteen and its second exempted read-only name, guard 5's fifth action, the project structure block for the four new files, and the testing section
+- [x] update `docs/claude/design.md`: delete the "Severity" and "Tag chips" subsections, add sections for the Ask Claude gesture and for what an answer is, and record the two new Known Issues — Ask Claude answering a waiting review, and a local and a remote watcher not seeing each other
+- [x] update `README.md`: the Ask Claude gesture beside `Ctrl+Alt+Shift+R`, the deleted tag and severity paragraphs, and the two listen-mode promises this phase reverses
+- [x] update `docs/ideas.md` so the two built-idea sections no longer point at design subsections that are gone
+- [x] bump the version in `build.gradle.kts` and add a `CHANGELOG.md` entry
+- [x] move this plan to `docs/plans/completed/20260805-claude-remarks-phase11.md` (not done here on purpose — the harness moves the plan once every phase has finished, and moving it mid-run would break every later phase that reads this path)
 
 ---
 

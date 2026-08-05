@@ -10,8 +10,9 @@ Claude Code session has already read; the box in the middle is the next one bein
 You read the code in the IDE, where you can actually navigate it, and mark the places you have
 something to say about. The plugin holds those remarks next to the code without writing a single
 byte into it, and when you are done it renders all of them into one markdown prompt: your note, the
-lines it points at, the code itself, how strongly you mean it. You paste that into a Claude Code
-session, or let the bundled skill pick it up on its own.
+lines it points at, the code itself. You paste that into a Claude Code session, or let the bundled
+skill pick it up on its own. A remark can also be a question, and then the answer comes back into
+the IDE, onto the line you asked about.
 
 The alternative is typing "in `Foo.kt`, the thing around line 140, could you..." three times in a
 row and hoping the model finds it. This is that, but the model gets the exact lines.
@@ -26,6 +27,7 @@ a real IDE. See [Status](#status) before you decide to rely on it.
 - [What it does](#what-it-does)
 - [Installing](#installing)
 - [Working with it](#working-with-it)
+- [Asking instead of telling](#asking-instead-of-telling)
 - [The Claude Code skill](#the-claude-code-skill)
 - [When the IDE is on another machine](#when-the-ide-is-on-another-machine)
 - [Status](#status)
@@ -43,8 +45,11 @@ Mark up what you are reading, in the IDE, and hand the marks to Claude Code.
 - **Nothing is written into your files.** Remarks live in IDE state only, and stay out of version
   control.
 - **A remark remembers the code it points at**, and follows it as you keep editing.
-- **One press turns every remark into one markdown prompt** — your note, the lines, the code, and how
-  strongly you mean it — on the clipboard and in a file.
+- **One press turns every remark into one markdown prompt** — your note, the lines, the code — on the
+  clipboard and in a file.
+- **Ask a question instead, and read the answer on the line.** `Ctrl+Alt+Shift+A` writes a remark
+  that asks, publishes it on the spot, and the answer comes back as its own row in the tool window
+  and its own gutter icon on the code.
 - **A bundled Claude Code skill reads that file**, so the prompt does not have to be pasted by hand.
   Tell a session `listen for my remarks in this project` and it waits in the background while you
   read, then picks up each batch you publish. See
@@ -72,15 +77,18 @@ Building for the first time needs a JDK (17 through 25) and network access; see
 The loop is: read, mark, publish.
 
 1. Read the code. When something is worth saying, select the lines and press `Ctrl+Alt+Shift+R`.
-   Type the note. Tag it if the tag helps you; set the severity later, from the tree, when you are
-   triaging rather than reading.
+   Type the note.
 2. Keep going. The tool window fills up on its own — no refresh needed. Sort the pass into buckets
    if it is large enough to be worth sorting.
 3. Press **Publish Unread**. Every remark that has not been read becomes one markdown prompt on the
    clipboard: general remarks first under their own heading, then a section per remark carrying its
-   tag, its severity, the short sha of the commit it was written against, and the code it points at.
+   line range, the short sha of the commit it was written against, and the code it points at.
    A balloon says how many remarks across how many files.
 4. Paste it into a Claude Code session.
+
+There is a shorter loop for a question. Select the lines, press `Ctrl+Alt+Shift+A`, type the
+question, press Enter — that one remark is published immediately, and a session that is listening
+answers it back into the IDE. See [Asking instead of telling](#asking-instead-of-telling).
 
 The rows do not disappear when you publish. They stay listed and stay full-strength, because the
 next Publish Unread carries them again — that is what makes Publish Selected useful when a paste
@@ -89,25 +97,23 @@ list only when you clear them.
 
 **Writing a remark.** Select some lines, press `Ctrl+Alt+Shift+R`, type a note, press Enter. The
 same box opens from `Alt+Enter` ("Add Claude Remark") and from the editor's right-click menu,
-including inside a diff. Optionally pick a tag from the chip row — `Alt+1` through `Alt+4` for
-`bug`, `question`, `refactor` and `note`, `Alt+0` for none. `Cmd+Ctrl+Shift+Space`
+including inside a diff. `Cmd+Ctrl+Shift+Space`
 (`Ctrl+Alt+Shift+Space` off macOS) inserts a class name from the project at the caret; it is
 deliberately not `Ctrl+Space`, because the IDE offers Basic Completion even inside a popup and macOS
 takes that combination for switching input source.
 
-**A severity, decided later.** Every remark carries one of `vibe` / `suggestion` / `should` /
-`must`, defaulting to `should`. It tells the model how strongly to act: a `must` gets done whatever
-it costs, a `vibe` is an idle thought. The input box does not ask for it, on purpose — that box has
-to stay fast, and a second chooser in it would turn a keystroke into a form. Change it afterwards
-from the gutter icon's menu or the tree's right-click menu. The prompt always explains the scale to
-the model in its own words, appended below your header rather than inside it, so rewriting the
-header cannot silently drop the explanation.
+The box asks for nothing but the text. It used to offer a tag chip row and every remark carried a
+severity level, and both are gone: in real use the severity was never changed from its default and a
+tag was never picked, so every remark ever published went out as an untagged `should` while the
+prompt spent a paragraph teaching a scale it then used one value of.
 
 **Remarks follow the code.** A gutter icon appears on the marked lines. As you keep editing, the
 plugin re-finds the marked block by hashing it and by matching the lines around it — so text that
 moved is followed, and text that cannot be found is shown as orphaned with its stale line numbers
 rather than being quietly relocated onto the wrong code. Nothing is ever moved silently. Click the
-icon to edit or delete that remark, or to change its severity or bucket.
+icon for that remark's own menu: edit, delete, Ask for an Answer, Publish, or Move to Bucket…. That
+Publish takes exactly the one remark under the icon, which is the short way to hand over a single
+note without opening the tool window at all.
 
 **A remark can point at part of a line.** Select a phrase rather than whole lines and the remark
 stores the exact words as well as the columns, so it can find them again after the paragraph
@@ -123,11 +129,12 @@ it disabled, that one entry point is simply absent and everything else is unchan
 about the whole change rather than one file. It is rendered first in the prompt, under its own
 `## General` heading with no code block, and sits at the very top of the tree.
 
-**The tool window is a tree.** Grouped by file, with a General group above everything, and a bucket
+**The tool window is a tree.** Grouped by file, with an Answers group at the very top whenever any
+answer has come back, a General group under it, and a bucket
 level above the files once you put any remark in a bucket. Buckets are names you pick, like "auth
 refactor", assigned to a whole selection at once — sorting a reading pass is the point, so there is
 nothing to assign one at a time. Drag rows onto a bucket to move them, or onto `(no bucket)` to
-clear it. Right-click a row for the same severity-and-bucket menu the gutter icon offers. Delete
+clear it. Right-click a row for the same menu the gutter icon offers. Delete
 removes the rows you picked out without asking; on a file or bucket node it stands for everything
 underneath and asks first.
 
@@ -138,9 +145,12 @@ underneath and asks first.
 | Add General Remark | Nothing. Opens the input box for a remark about no file |
 | Publish Unread | Every remark that is not yet **read** — pending and published alike |
 | Publish Selected | Exactly the selected rows, already-published and already-read ones included |
-| Clear Handed Over | Every remark that has been published or read. Asks first, archives first |
-| Clear All | Everything, including work you never published. Asks first, archives first |
+| Clear Handed Over | Every remark that has been published or read. Answers are kept. Asks first, archives first |
+| Clear All | Everything, including work you never published, and the answers too. Asks first, archives first |
 | Refresh | Nothing. Re-resolves every remark against the files as they are now |
+
+Each button's tooltip carries that second line, so hovering says what the button *takes* rather than
+repeating its own name.
 
 Selecting a bucket node and pressing Publish Selected publishes that whole bucket, which is why
 there is no separate Publish Bucket button. **Tools → Publish Unread Claude Remarks** does the same
@@ -165,7 +175,7 @@ Publishing can never produce `READ`, however many times it runs. Only an agent's
 acknowledgement can, over one of two routes the IDE itself minted. Publishing a read remark again
 hands it over as `PUBLISHED`, because nothing has confirmed that second handover.
 
-**Where all this lives.** Remarks are stored in `.idea/workspace.xml`, which the IDE's own generated
+**Where all this lives.** Remarks and answers are both stored in `.idea/workspace.xml`, which the IDE's own generated
 `.idea/.gitignore` excludes — so they stay out of version control with no extra work. A repository
 that deliberately tracks `workspace.xml` is the exception, and there they would be committed like
 any other change to that file. Clearing archives the remarks to a markdown file in the IDE's
@@ -178,6 +188,42 @@ it means "this one was a mistake", and archiving every typo would make the histo
 
 Everything above works with nothing installed on the other end and nothing listening. The rest of
 this file is about the other end.
+
+## Asking instead of telling
+
+An ordinary remark is work to do, or a topic to raise. It travels with the next publish and nothing
+comes back. A question is different, and the gesture says which one you meant, so nothing has to
+guess from your wording.
+
+Select the lines, press `Ctrl+Alt+Shift+A`, type the question, press Enter. The same box opens from
+`Alt+Enter` ("Ask Claude about these lines") and from the editor's right-click menu. That remark is
+stored marked as asking for an answer **and published immediately** — asking is one motion, not five
+steps through the tool window. Two things follow from it being an ordinary publish: it writes the
+clipboard, as every publish does, and if a review is waiting in the banner it answers that review and
+uses up that review's one answer.
+
+You can also mark a remark you already wrote: right-click it, or click its gutter icon, and turn
+**Ask for an Answer** on. That only sets the flag — it publishes nothing. A marked row says `asks` in
+grey until an answer arrives, and `answered` afterwards.
+
+**The answer comes back into the IDE.** A session that reads the batch sees which remarks are marked,
+answers each one, and posts the answer back. In the IDE it becomes:
+
+- a row at the top of the tool window, in the **Answers** group, newest first, showing the answer's
+  first line;
+- a gutter icon on the code the question was about, which follows that code as you keep editing;
+- a popup rendering the whole answer — headings, lists, tables, code fences — opened by clicking the
+  gutter icon or double-clicking the row.
+
+An answer is its own thing, not a property of the question. It keeps its own anchor, so it follows
+the code by itself, and it survives its question being cleared: Clear Handed Over takes the remarks
+and leaves the answers, so a reading pass can be cleared while what you learned stays. Clear All
+takes both, says so before it does, and archives both to the history file first. Asking the same
+question twice replaces the answer rather than adding a second one.
+
+This needs a Claude Code session that is actually listening, below. With nothing listening, an Ask
+Claude remark is just a published remark with a marker in the prompt, and pasting the prompt by hand
+works as it always did.
 
 ## The Claude Code skill
 
@@ -210,15 +256,27 @@ not the same as being asked. This is a design decision, not an oversight: a skil
 watching because it saw something interesting would be watching a person who did not ask to be
 watched. You have to say it.
 
-Two more things it will not do unasked. The watcher stops at the first batch it sees, and starting
-another one to wait for the next batch is a choice said out loud rather than something that happens
-automatically — one watcher per project on the machine, so a silent re-arm would risk two sessions
-each believing they own the listener. And when a batch does arrive, it summarises what came in and
-waits for you to say go, rather than acting on it: a listener runs unattended for hours, and nobody
-chose that exact moment for the work to start.
+One thing it will not do unasked: when a batch arrives, it summarises what came in and waits for you
+to say go, rather than acting on it. A listener runs unattended for hours, and nobody chose that
+exact moment for the work to start. Answering a question marked with Ask Claude is the exception, and
+a deliberate one — you already asked.
 
-It waits up to twelve hours, acts on nothing published before it started, and says at the start how
-to stop it early.
+**Two earlier promises are reversed, and both were reversed because they made the loop worse.**
+
+- **It re-arms itself after every batch.** It used to stop at the first batch and wait to be asked
+  again, because only one watcher per repository could run at a time. That rule is gone: several
+  sessions may listen to one repository now, nothing kills a watcher, and the IDE decides who acts on
+  a batch — the first session to claim it gets it, and any other is told the batch is already read,
+  names who got it, and goes back to listening.
+- **It claims what is already waiting.** It used to act on nothing published before it started. So
+  publishing and then asking a session to listen left the batch sitting there. Now the first thing it
+  does is read the batch already in the file and claim it.
+
+It waits up to twelve hours, every batch resets that clock, and it says at the start how to stop it
+early. ⚠️ Stopping it means the pid on the first line of that repository's `.watch` file, never a
+`pkill` or `killall` matched on the script's name: every repository's watcher on the machine runs a
+program with that name, and a blunt match stops all of them at once. That happened once, and it is
+why the rule is written down here as well as in the skill.
 
 ### Read what is already published
 
@@ -316,10 +374,14 @@ was run end to end between two machines — a tunnel carried the requests, the r
 banner appeared in the IDE on the far side, a fetch carried the remarks back across the tunnel, and
 the acknowledgement was accepted. That is all of it.
 
-Everything phase 10 built is therefore unproven, because `0.6.0` predates it: the merged published
-file, the two acknowledgement routes, publishing answering a waiting review, the watcher script, the
-skill's three modes, and the appearance rules described above. Several earlier things are unproven
-too. `CHANGELOG.md` says which, and points at the per-phase hand-check lists in `docs/plans/`.
+Everything phases 10 and 11 built is therefore unproven, because `0.6.0` predates both: the merged
+published file, the two acknowledgement routes, publishing answering a waiting review, the watcher
+script, the skill's modes, and the appearance rules described above. ⚠️ **That includes the whole
+Ask Claude round trip** — the gesture, the answer coming back, the Answers group, the answer's gutter
+icon and the markdown popup. The automated suite covers the storage, the resolving and the endpoint;
+it cannot cover anything that is drawn, and there is no end-to-end test at all. Several earlier
+things are unproven too. `CHANGELOG.md` says which, and points at the per-phase hand-check lists in
+`docs/plans/`.
 
 If you try it, expect to find things. It has had very little real use outside its own test suite.
 
@@ -340,13 +402,14 @@ renamed:
 Publish Unread since phase 10, but the id is the part promised above, and renaming it would break
 every mapping to it with no error anywhere — IdeaVim fails an unknown id inside IdeaVim, not here.
 
-There is a fourth id, `ClaudeRemarks.AddPreviewRemark`, for the markdown preview entry point. It is
+There is a fifth id, `ClaudeRemarks.AddPreviewRemark`, for the markdown preview entry point. It is
 deliberately not in that table: it is registered only where the markdown preview exists, so it is
 absent when the Markdown plugin is off, and a mapping to it would then do nothing.
 
 ```vim
 nnoremap <leader>r :action ClaudeRemarks.AddRemark<CR>
 vnoremap <leader>r :action ClaudeRemarks.AddRemark<CR>
+vnoremap <leader>a :action ClaudeRemarks.AskClaude<CR>
 nnoremap <leader>c :action ClaudeRemarks.CopyAll<CR>
 nnoremap <leader>R :action ActivateClaudeRemarksToolWindow<CR>
 ```
@@ -399,20 +462,25 @@ icon painting, the tree colours, the balloon and the settings page layout are al
   milliseconds. Hashing lines, capturing an anchor, the two-pass resolve, and the sub-line phrase
   functions. `SubLineRange.kt` is the one place that decides whether a column pair is a real
   sub-line range and how a position is written down.
-- **`model/`** — the persisted `RemarkState` record and its enums.
-- **`store/`** — `RemarkStore.kt`, the project service that persists remarks; `RemarkEdits.kt`, the
+- **`model/`** — the persisted `RemarkState` record, and `AnswerState`, the answer's own record with
+  its own copy of the anchor fields.
+- **`store/`** — `RemarkStore.kt`, the project service that persists both lists; `RemarkEdits.kt`, the
   only functions production code may use to change one, plus the `REMARKS_CHANGED` notification;
-  `RemarkResolver.kt`, which turns stored remarks into resolved rows; `RemarkTarget.kt`, which
+  `RemarkResolver.kt`, which turns stored remarks and answers into resolved rows through one shared
+  `resolveStored`; `RemarkTarget.kt`, which
   decides where a remark on the current editor would go and refuses the revision side of a diff;
   `ContextFormat.kt`; `GitHead.kt`, which reads the repository HEAD straight out of `.git` with no
-  Git4Idea dependency; `RemarkHistory.kt`, the archive cleared remarks are written to.
-- **`ui/`** — the input popup and its key bindings; `RemarkActions.kt`, the severity-and-bucket menu
-  shared by the gutter and the tree; `RemarkStatusLook.kt`, the one place a status's icon and colour
-  are decided; `ClassNameInsert.kt`; `RemarksTree.kt` and `RemarksTreeDnd.kt`, the tree and its
-  drag-to-bucket wiring; `RemarksToolWindowFactory.kt`, the panel, the toolbar and the review banner.
+  Git4Idea dependency; `RemarkHistory.kt`, the archive cleared remarks and answers are written to.
+- **`ui/`** — the input popup and its key bindings; `RemarkActions.kt`, the Ask-for-an-Answer,
+  Publish and bucket menu shared by the gutter and the tree; `RemarkStatusLook.kt`, the one place a
+  status's icon and colour are decided; `ClassNameInsert.kt`; `RemarksTree.kt` and
+  `RemarksTreeDnd.kt`, the tree and its drag-to-bucket wiring; `RemarksToolWindowFactory.kt`, the
+  panel, the toolbar and the review banner; `AnswerPopup.kt`, the popup that renders an answer's
+  markdown.
 - **`action/`** — every entry point that opens the same input popup: the shortcut and popup-menu
   action, the `Alt+Enter` intention, the preview action, and the tool window's general remark. Plus
-  `PublishRemarks.kt`, the whole publish pipeline and the Tools-menu action.
+  `AskClaudeAction.kt`, the Ask Claude gesture and its intention, and `PublishRemarks.kt`, the whole
+  publish pipeline and the Tools-menu action.
 - **`editor/`** — the gutter icon renderer and the project service that keeps gutter icons in step
   with the code.
 - **`render/`** — `PromptRenderer.kt`, pure Kotlin, remarks to markdown; `PromptPayload.kt`, which
@@ -423,17 +491,19 @@ icon painting, the tree colours, the balloon and the settings page layout are al
 - **`review/`** — the shared review session and the one file that carries both a plain publish and a
   review's answer. `ReviewHandshake.kt` writes the file a skill reads to find this IDE;
   `ReviewRestService.kt` is the endpoint at
-  `POST /api/claude-remarks/{start,ack,fetch,published-read}`; `WaitingReview.kt` holds the one
+  `POST /api/claude-remarks/{start,ack,fetch,published-read,answer}`; `WaitingReview.kt` holds the one
   waiting review per project; `ReviewLifecycle.kt` answers or rejects it and carries out what an
   acknowledgement means; `PublishedRemarks.kt` is the merged file every publish, answer and
   rejection writes; `PublishedAck.kt` is the second acknowledgement route, keyed to a batch's nonce;
-  `OpenReviewFiles.kt` is the only file in the package that touches the VFS or the editor;
-  `AtomicWrite.kt` is the temp-file-then-rename write they all use.
+  `AnswerReceipt.kt` is everything an incoming answer causes, kept out of the endpoint file because
+  it reaches the VFS; `OpenReviewFiles.kt` is the only other file in the package that touches the VFS
+  or the editor; `AtomicWrite.kt` is the temp-file-then-rename write they all use.
 - **`settings/`** — the app-level service holding the editable prompt header, and its page.
 
 `docs/claude/design.md` is the deeper version of all of this, and is kept current with the code:
 anchoring, the gutter, the change notification, the publish pipeline, the three states, the
-published file, a remark about no file, and the shared review session. `CLAUDE.md` holds the six
+published file, a remark about no file, the shared review session, the Ask Claude gesture and what an
+answer is. `CLAUDE.md` holds the seven
 grep-checkable rules that must not break. `CHANGELOG.md` is how the project got here.
 
 ## Licence

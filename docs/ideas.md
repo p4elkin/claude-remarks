@@ -184,15 +184,23 @@ or refreshed. Once is right — the point is to record what the author was looki
 
 ## Pick the tag without the drop-down
 
-**Built in phase 5.** See `docs/claude/design.md`, section "Tag chips, and picking one from the
-keyboard". The chips are `Row.segmentedButton`, as this note expected, with one correction the
-phase 5 plan made and recorded: the lambda's first parameter is a receiver (`$this$segmentedButton`
-in the bytecode), so the call is `segmentedButton(items) { text = it }`, not the
-`{ presentation, item -> ... }` two-parameter shape written below. `Alt+0` through `Alt+4` pick the
-chips from the keyboard, added as Swing input-map bindings — the same mechanism as Enter and
-Shift+Enter — before the class-name-completion idea's `EditorTextField` swap, which this repo also
-decided against (see "Class name completion in the remark input" above), so the ordering question
-raised below never came up.
+**Built in phase 5, and deleted again in phase 11.** The chips were `Row.segmentedButton`, as this
+note expected, with one correction the phase 5 plan made and recorded: the lambda's first parameter
+is a receiver (`$this$segmentedButton` in the bytecode), so the call is
+`segmentedButton(items) { text = it }`, not the `{ presentation, item -> ... }` two-parameter shape
+written below. `Alt+0` through `Alt+4` picked the chips from the keyboard, added as Swing input-map
+bindings — the same mechanism as Enter and Shift+Enter — before the class-name-completion idea's
+`EditorTextField` swap, which this repo also decided against (see "Class name completion in the
+remark input" above), so the ordering question raised below never came up.
+
+**What actually settled it was use.** Over every remark ever published, a tag was never once picked.
+So phase 11 deleted the tag itself, not just the chooser: the field, the enum, the chips, the Alt
+keys and the tag's line in the prompt. The input box asks for the text and nothing else now. The
+design document's own subsection describing the chips went with the code — the surviving part of that
+subsection, the class-name keystroke, is under "Inserting a class name from the keyboard" in
+`docs/claude/design.md`, and "What a Remark Contains" there carries the argument for the deletion.
+Nothing about this idea was wrong; the field it made faster to set turned out not to be worth
+setting.
 
 Replace the tag drop-down in the input popup with a row of chip buttons, and let the tag be chosen
 from the keyboard so writing a remark never needs the mouse.
@@ -271,15 +279,25 @@ the same result.
 
 ## How much a remark matters
 
-**Built in phase 5, as `RemarkSeverity`.** See `docs/claude/design.md`, section "Severity". Named
+**Built in phase 5 as `RemarkSeverity`, and deleted in phase 11.** It was named
 `vibe / suggestion / should / must` as this note suggested, defaulting to `should`. The chooser
 question below was answered by the second option listed: default the level and change it afterwards
 from the gutter icon menu or the tree's right-click menu, rather than adding a second chooser to the
-input popup or folding it into the tag chips. The scale note is appended by the renderer
-(`SEVERITY_SCALE_NOTE` in `render/PromptRenderer.kt`), not stored in the editable header, exactly as
-recommended: rewriting the header cannot silently strip the levels' meaning out from under them. The
-copied prompt keeps its file grouping rather than leading with the must-dos, as this note also
-recommended.
+input popup or folding it into the tag chips. The scale note was appended by the renderer, not stored
+in the editable header, exactly as recommended. The copied prompt kept its file grouping rather than
+leading with the must-dos, as this note also recommended.
+
+**Every one of those choices held up, and the feature still went.** The level was never once changed
+from its default, so every remark ever published shipped as a `should` while the prompt spent a
+paragraph teaching a four-level scale it then used one value of. The prediction this note is built on
+— that the tag says what kind of remark it is and never how much it matters — is not what turned out
+to matter in practice. What did was a different distinction the note does not make: some remarks are
+work to do and some are questions, and the model cannot tell them apart from the wording. Phase 11
+replaced the four-level scale with one boolean, `asksForAnswer`, set by a gesture rather than chosen
+from a menu, and gave the question an answer that comes back. See `docs/claude/design.md`, sections
+"The Ask Claude Gesture" and "What an Answer Is". The one piece of this note that survived intact is
+its warning about the editable header: the marker's meaning is appended by the renderer in
+`PROMPT_NOTES` — the same constant, renamed — for exactly the reason given below.
 
 A second axis next to the tag: how strongly the remark should be acted on. The range runs from
 "this is a vibe, take it or leave it" to "do this whatever it costs".
@@ -1269,6 +1287,19 @@ arguably correct — if the words changed, the remark about them is stale — bu
 remarks than today, and the orphan path has to stay good enough to be useful when it does.
 
 ## Ask the running session a question, instead of leaving it a remark
+
+**Built in phase 11.** See `docs/claude/design.md`, sections "The Ask Claude Gesture" and "What an
+Answer Is". The shape it took is not the one this note weighs below: neither forking the session nor
+typing into it. The arrow was turned around a different way — the IDE keeps publishing, exactly as it
+already did, and the answer comes back over a new endpoint action the session posts to,
+`POST /api/claude-remarks/answer`. So there is no session to find, no pty to write to and no fork to
+reconcile. What the gesture adds is one stored bit saying this remark is a question, a marker in the
+prompt so a reading session knows which ones to answer, and a stored answer record with its own
+anchor, its own tree row and its own gutter icon. The "where the answer goes on screen" question
+below was answered with all three: a row at the top of the tree, an icon on the line, and a popup
+rendering the markdown.
+
+The original note is kept below as the reasoning that got there.
 
 Sasha's idea, and it is a different thing from every other idea in this file. Every existing feature
 collects something for Claude to read *later*. This one wants an answer *now*, while reading the code.

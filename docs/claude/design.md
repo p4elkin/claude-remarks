@@ -18,10 +18,12 @@
 14. [One Pass Over The Tree](#one-pass-over-the-tree)
 15. [A Remark on the Rendered Preview](#a-remark-on-the-rendered-preview)
 16. [The Shared Review Session](#the-shared-review-session)
-17. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
-18. [Build Choices Worth Remembering](#build-choices-worth-remembering)
-19. [Performance Tuning Knobs](#performance-tuning-knobs)
-20. [Known Issues](#known-issues)
+17. [The Ask Claude Gesture](#the-ask-claude-gesture)
+18. [What an Answer Is](#what-an-answer-is)
+19. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
+20. [Build Choices Worth Remembering](#build-choices-worth-remembering)
+21. [Performance Tuning Knobs](#performance-tuning-knobs)
+22. [Known Issues](#known-issues)
 
 ## Overview
 
@@ -39,8 +41,11 @@ A remark has these fields:
 - `path`: The file path, relative to the project root. Produced by `VfsUtilCore.getRelativePath(file, projectRoot)`. This is what gets shown in the tool window and written into dispatch prompts.
 - `startLine`, `endLine`: The 0-based, inclusive line numbers of the anchored range.
 - `text`: The user's note (what they wrote in the remark).
-- `tag`: An optional category from `RemarkTag.BUG | QUESTION | REFACTOR | NOTE`, picked in the
-  input popup (`ui/RemarkInputPanel.kt`) when the remark is written or edited.
+- `asksForAnswer`: A boolean, false by default. True means this remark is a question the agent is
+  meant to answer, not work to do. Set by the Ask Claude gesture (`action/AskClaudeAction.kt`) or by
+  the Ask for an Answer toggle in the shared menu, and read by the prompt renderer, which marks such
+  a remark's heading, and by the tree row. Defaults to false, so `BaseState` omits it from the XML
+  and nothing migrates. See "The Ask Claude Gesture" below.
 - `status`: One of `RemarkStatus.PENDING`, `PUBLISHED` or `READ`. Defaults to `PENDING`. Set to
   `PUBLISHED` by `markRemarksPublished` once a publish reaches the clipboard or the published file,
   and to `READ` by `markRemarksRead` once a review acknowledgement says an agent read it. See "The
@@ -49,11 +54,6 @@ A remark has these fields:
 - `createdAt`: Timestamp when the remark was created.
 - `textHash`: The first 16 hex characters of a SHA-256 hash of the lines at creation time.
 - `contextBefore`, `contextAfter`: A few lines of context from above and below the remark, joined with newlines in a single string. Stored this way instead of as a list because the serializer handles single strings more predictably.
-- `severity`: One of `RemarkSeverity.VIBE | SUGGESTION | SHOULD | MUST`, low to high. Defaults to
-  `SHOULD` rather than being nullable — a remark you bothered to write is usually something you want
-  done, the two ends of the scale are the ones worth choosing on purpose, and a non-null default
-  means a remark stored before this field existed loads with `SHOULD` instead of a null nothing
-  downstream checks for. See "Severity" under "What Phase 5 Built" below.
 - `bucket`: An optional name the user picks, like "auth refactor", or null for no bucket. Set only
   from the gutter icon menu or the tree's right-click menu, never in the input popup — see
   "Buckets" below.
@@ -61,6 +61,18 @@ A remark has these fields:
   when there was no readable git repository. Never refreshed. See "The commit stamp" below.
 
 All fields are stored flat as XML attributes on a single element.
+
+**Two fields were deleted in phase 11: `tag` and `severity`.** Neither was ever used. Severity was
+never changed from its default and a tag was never picked, so every remark ever published shipped as
+an untagged `should`, while the prompt spent a paragraph teaching a four-level scale it then used one
+value of and the input popup carried a chip row with five key bindings for a field nobody set. The
+enums `RemarkTag` and `RemarkSeverity` and both `label` extensions went with them. An element written
+before that carrying `severity="MUST"` and `tag="BUG"` still loads: `BaseState` ignores an attribute
+it has no property for, and the attributes are dropped on the next save. `RemarkStoreStateTest` pins
+that, and it is the reason nothing had to migrate.
+
+There is a second stored record beside this one since phase 11, `model/AnswerState.kt`. See "What an
+Answer Is" below.
 
 ### Where Remarks are Stored
 
@@ -95,6 +107,18 @@ val remarks by list<RemarkState>()
 ```
 
 **This annotation is critical.** Without `@get:XCollection(style = XCollection.Style.v2)`, the entire list serializes to an empty element and every remark is silently lost on IDE restart, with no error logged. See `RemarkStoreStateTest` in the test suite — it is the regression guard for this exact trap.
+
+`RemarksState` holds a second list since phase 11, on exactly the same terms:
+
+```kotlin
+@get:XCollection(style = XCollection.Style.v2)
+val answers by list<AnswerState>()
+```
+
+⚠️ The annotation is not optional there either, and this trap had already cost this project once. So
+the guard was written *before* the list existed — `AnswerStateTest` and the two new tests in
+`RemarkStoreStateTest` were confirmed failing for the right reason first, which is what makes them
+worth anything. A guard that was green before the feature existed guards nothing.
 
 The mutators (`addRemark`, `removeRemark`) live on the state class, not on the store, because
 `incrementModificationCount()` is protected: it is only reachable from inside a `BaseState`
@@ -577,40 +601,19 @@ half-built.
 
 ## What Phase 5 Built
 
-Phase 5 adds three scalar fields to a remark — `severity`, `bucket`, `commit` — and everything that
-reads and writes them. Nothing about how a remark is stored changes: they are plain `BaseState`
-properties, the same shape as `tag`, and the eight-function rule in "The Change Notification" above
-covers the two new mutators the same way it covers the older six.
+Phase 5 added three scalar fields to a remark — `severity`, `bucket`, `commit` — and everything that
+read and wrote them. Nothing about how a remark is stored changed: they were plain `BaseState`
+properties, and the function-count rule in "The Change Notification" above covered the new mutators
+the same way it covered the older ones.
 
-### Severity
-
-`RemarkSeverity` (`model/RemarkState.kt`) is a four-level enum, low to high: `VIBE`, `SUGGESTION`,
-`SHOULD`, `MUST`. It is a second axis next to the tag. The tag says what kind of remark it is;
-severity says how strongly to act on it. Without it a `refactor` remark reads the same in the
-prompt whether it was an idle thought or the whole point of the reading pass, so the model reading
-it either does everything or guesses.
-
-`RemarkState.severity` defaults to `SHOULD` rather than being nullable. A remark you bothered to
-write is usually something you want done, and the two ends of the scale are the ones worth choosing
-on purpose. Non-null also means the renderer, the tree and the gutter tooltip can print it with no
-null check, and a remark stored before this field existed loads with the default instead of a
-null — `RemarkStoreStateTest` pins that by deserializing a hand-written XML element with no
-`severity` attribute at all.
-
-Severity is worthless unless the prompt acts on it, so `render/PromptRenderer.kt` carries a second
-piece of text next to the header: `SEVERITY_SCALE_NOTE`, a `const val` appended under the header on
-every publish, spelling out what each level asks of the reader — do a `must` whatever it costs, do a
-`should` unless there is a concrete reason not to and say why if you skip it, and so on down to
-`vibe`. It is deliberately not folded into `DEFAULT_PROMPT_HEADER`: the header is the one setting
-this plugin lets the user rewrite, and anything living only inside it would vanish the moment
-somebody replaced it with their own words, while the levels kept printing with nothing left to say
-what they mean. Appending the note in the renderer instead means it survives any header, including
-one written from scratch.
-
-The input popup does not ask for a severity. That popup is the action that has to stay fast, and a
-second chooser in it would turn a fast action into a form. The default is applied when the remark is
-written, and changed afterwards from the gutter icon menu or the tree's right-click menu — see "One
-menu, two places" below.
+⚠️ **Two of the three are gone again since phase 11, and this section is kept as history.** The
+`severity` field and the whole tag mechanism were deleted, because neither was ever used: see "What
+a Remark Contains" above for the argument and for why nothing had to migrate. What phase 5 built that
+is still live is buckets, the commit stamp, the history file and the class-name keystroke. The two
+subsections describing severity and the tag chips were deleted with the code rather than left
+describing something that no longer exists; the paragraph that argued severity belonged in the
+renderer rather than in the editable header is not lost, because the same argument now carries
+`PROMPT_NOTES`, described under "The Ask Claude Gesture" below.
 
 ### Buckets
 
@@ -645,29 +648,20 @@ bucket row and press Publish Selected. The one-level walk this replaced would ha
 under a bucket rather than `RemarkNode`s, and silently answered an empty list, so Publish Selected and
 Delete on a bucket node would have done nothing at all, with no message saying why.
 
-### Tag chips, and picking one from the keyboard
+### Inserting a class name from the keyboard
 
-The tag drop-down (a Swing `ComboBox`) is gone from `ui/RemarkInputPanel.kt`, replaced by a row of
-chips built with the Kotlin UI DSL: `row("Tag:") { chips = segmentedButton(TAG_CHOICES) { text = it
-} }`. `TAG_CHOICES` is `(no tag)` followed by the four tags in enum order, and the Alt keys below
-index into that same list, so the chips and the keys cannot drift apart from each other.
+This subsection described the tag chip row first and the class-name chooser second. **The chip row
+is gone since phase 11** — the row itself, `TAG_CHOICES`, `tagLabel`, `tagFromLabel`, the `Alt+0`
+through `Alt+4` bindings, and the `RemarkInput` result type, which collapsed back to a plain
+`String`. The input popup is a text area and nothing else again. One thing worth keeping from what
+was deleted: the chip row existed because the drop-down before it made Enter ambiguous, and the
+plugin's own Enter-submits binding won that fight and saved the remark with the wrong tag. Both
+mechanisms are gone now, so Enter means one thing.
 
-This removes a special case rather than adding one. The drop-down made Enter ambiguous: with the
-list open, Enter meant "commit the highlighted item"; closed, it meant "save the remark" — and the
-plugin's own Enter-submits binding won both times, so arrowing down to "bug" and pressing Enter
-saved the remark with whatever tag had been selected before. A chip selection is immediate, with no
-open state, so that branch of behaviour no longer exists to reason about — for everyone whose chips
-really are chips. With a screen reader active they are not: `SegmentedButtonImpl.rebuildUI` builds a
-combo box when `ScreenReader.isActive()`, and the old ambiguity is back there. It is recorded in the
-known limits of the phase 5 plan rather than fixed, because a correct guard would have to read the
-combo popup's highlighted item and commit it by hand, which is more code than the case is worth on a
-path no test can reach.
-
-`Alt+0` through `Alt+4` pick a chip directly: `Alt+0` clears the tag, `Alt+1` through `Alt+4` pick
-the four tags in the order `TAG_CHOICES` lists them. They are Swing input-map bindings on the text
-area, the same mechanism Enter and Shift+Enter already use — ten lines added onto a mechanism that
-already existed, rather than waiting on the larger rewrite covered next. See "What is proven and
-what is not" below for the real limit of what this proves.
+The chip row was also the only reason `build.gradle.kts` subtracted `INTERNAL_API_USAGES` from
+`verifyPlugin`'s failure level, for `SegmentedButton.component`. That subtraction went with it, and
+the verifier now reports no internal API usage at all — so a new one fails the build rather than
+passing unnoticed.
 
 `Cmd+Ctrl+Shift+Space` in the text area (`Ctrl+Alt+Shift+Space` off macOS) opens a chooser
 (`ui/ClassNameInsert.kt`) listing every class name the project knows about — the same source,
@@ -719,9 +713,26 @@ up is the chooser.
 
 ### One menu, two places
 
-`ui/RemarkActions.kt`'s `remarkChangeActions(project, ids)` builds one `ActionGroup` — a Severity
-submenu plus "Move to Bucket…" — used from two places: the gutter icon's click menu, which acts on
-the one remark under the icon, and the tree's right-click menu, which acts on whatever is selected.
+`ui/RemarkActions.kt`'s `remarkChangeActions(project, ids)` builds one `ActionGroup`, used from two
+places: the gutter icon's click menu, which acts on the one remark under the icon, and the tree's
+right-click menu, which acts on whatever is selected.
+
+It had two children until phase 11 — a Severity submenu and "Move to Bucket…" — and has three now:
+**Ask for an Answer**, **Publish**, then **Move to Bucket…**, in that order. The Severity submenu
+went with the field. Publish is the addition that mattered: publishing one remark used to exist only
+as a toolbar button, so asking one question took five steps, and every toolbar tooltip repeated the
+button's own name, which is why a selected-only publish looked as if it did not exist. From the
+gutter, Publish now takes exactly the remark under the icon; from the tree, exactly the rows picked.
+The Publish item returns early on an empty list rather than calling through, because `publishRemarks`
+reads a null id collection as "every unread remark" and an empty selection must not be confused with
+that.
+
+Ask for an Answer is a `ToggleAction`. Its `isSelected` is true when every remark in `ids()` carries
+`asksForAnswer` — and false for an empty selection, which the literal reading would have got wrong,
+since `all {}` over an empty list is true and would have drawn a checked item beside nothing. Its
+`setSelected` writes the flag across every id at once, the same shape Move to Bucket… uses, because
+a reading pass is triaged in groups. It declares `ActionUpdateThread.EDT`, not BGT: `isSelected`
+calls `ids()`, which in the tool window is `selectedIds()`, and that reads the `JTree` selection.
 
 On the tree side, "whatever is selected" needs one thing the platform does not give for free.
 `PopupHandler.installPopupMenu` only shows the menu, and `BasicTreeUI` moves the tree selection on
@@ -826,31 +837,40 @@ handed over" and "the archive failed", the handed-over count is already known no
 can only mean failure. "Removed 0 handed-over remarks." beside a red error balloon was therefore the
 wrong half of the truth.
 
-`appendToHistory` writes what was STORED about each remark — its stored line numbers, text, tag,
-severity, bucket and commit — not a fresh resolve against the file as it stands now: by the time
+`appendToHistory` writes what was STORED about each remark — its stored line numbers, text, bucket
+and commit — not a fresh resolve against the file as it stands now: by the time
 anyone reads the archive the code has likely moved on, and the file it once lived in may not even
 exist any more. Each entry is indented under its heading, the same defence the prompt renderer uses
 against backtick fences and stray headings in a remark's own text, so a remark whose text happens to
 contain a markdown heading cannot restructure the archive around it.
+
+**Answers are archived too, since phase 11.** `appendToHistory` takes a second, defaulted list, and
+`renderHistory` gives it an `### answers` subsection under the same `## cleared <time>` heading. An
+entry is the answer's position, then the question indented, then a flat `answered:` label line, then
+the markdown indented. The label line is the only flat text in an entry, so the question and the body
+can be told apart while neither can escape its indent — which matters more for an answer than for a
+remark, because an answer is written by a model and routinely contains headings and fenced code.
+`clearAllRemarks` collects both lists, archives both in one write, and clears both only if that write
+succeeded. `clearHandedOverRemarks` was deliberately left alone: an answer was never handed anywhere,
+so "handed over" says nothing about it, and an answer therefore survives its own question being
+cleared.
 
 ### What is proven and what is not
 
 Everything above is covered by a plain JUnit test, a fixture-backed test, or both, except for the
 keystrokes, which are flagged here rather than claimed as working:
 
-- **Whether `Alt+1` through `Alt+4` actually reach the popup.** They are Swing input-map bindings on
-  a `JBTextArea` inside a `JBPopup`, and the IDE's default keymap binds those same key combinations
-  to the four numbered tool windows. The automated tests (`RemarkInputPanelTest`) prove the bindings
-  exist and act on the right chip when invoked directly — they cannot prove the key event reaches
-  the text area rather than the tool-window shortcut first. The reasoning for why it should still
-  work is source-level: the popup is a heavyweight, modal-context popup, and the platform does not
-  dispatch a modal-context-disabled action (`ActivateToolWindowAction`, behind the default Alt+1..4
-  bindings, is one) while such a popup is focused. That reasoning was worked out across several
-  platform classes during phase 5, not observed in a live IDE — `./gradlew runIde` is not run from
-  an agent session. Hand check 1 in the phase 5 plan (`docs/plans/20260803-claude-remarks-phase5.md`,
-  section 10) is the actual authority on this until someone runs it.
-- **Whether `Cmd+Ctrl+Shift+Space` reaches the popup, and how it behaves on macOS.** Same shape of
-  gap as the Alt keys, and the same kind of reasoning behind the choice — see "Why not `Ctrl+Space`"
+- **The `Alt+1` through `Alt+4` question is closed, because the keys are gone.** They picked a tag
+  chip, and phase 11 deleted the chip row. The open question used to be whether such a binding on a
+  `JBTextArea` inside a `JBPopup` beats the IDE's default keymap, which binds the same combinations
+  to the four numbered tool windows. The reasoning worked out during phase 5 was that it does: the
+  popup is a heavyweight, modal-context popup, and the platform does not dispatch a
+  modal-context-disabled action (`ActivateToolWindowAction`, behind the default Alt+1..4 bindings, is
+  one) while such a popup is focused. It was never observed in a live IDE, so it stays a hypothesis
+  rather than a fact — recorded here because the class-name keystroke below rests on the same
+  reasoning.
+- **Whether `Cmd+Ctrl+Shift+Space` reaches the popup, and how it behaves on macOS.** The same shape
+  of gap the Alt keys had, and the same kind of reasoning behind the choice — see "Why not `Ctrl+Space`"
   above. `RemarkInputPanelTest` proves the binding exists on the right keystroke and that `Ctrl+Space`
   is no longer bound; it cannot prove the key event arrives, and it says nothing about how the chooser
   and the remark popup behave next to each other on screen. Hand check 10 in the phase 5 plan is the
@@ -973,29 +993,33 @@ out of the store is about cost, not purity: adding a `Project` constructor param
 `RemarkStore` would touch fourteen call sites that build it directly, and keeping the store free
 of the message bus is what lets `RemarkStoreStateTest` stay a plain JUnit test with no IDE fixture.
 
-`store/RemarkEdits.kt` holds the only ten functions production code uses to change a remark:
-`addRemark`, `editRemark`, `deleteRemark`, `markRemarksPublished`, `markRemarksRead`,
-`setRemarkSeverity`, `setRemarkBucket`, `clearHandedOverRemarks`, `clearAllRemarks`, and
-`addGeneralRemark`. Phase 9 grew this list from eight in two steps: group one split
-`markRemarksSent` into `markRemarksPublished` and the new `markRemarksRead`, and renamed
+`store/RemarkEdits.kt` holds the only twelve functions production code uses to change stored data:
+`addRemark`, `addGeneralRemark`, `editRemark`, `deleteRemark`, `markRemarksPublished`,
+`markRemarksRead`, `setRemarkBucket`, `setRemarkAsksForAnswer`, `recordAnswer`, `deleteAnswer`,
+`clearHandedOverRemarks` and `clearAllRemarks`. Phase 9 grew this list from eight in two steps: group
+one split `markRemarksSent` into `markRemarksPublished` and the new `markRemarksRead`, and renamed
 `clearSentRemarks` to `clearHandedOverRemarks`. See "The three states, and why published is not
 read" below. Group three added `addGeneralRemark`, the one entry point for a remark about no file.
-See "A Remark About No File" below. The file's eleventh public function, `notifyRemarksChanged`, is
-what every one of the ten calls to publish the topic; it counts too, because `CLAUDE.md` rule 3
+See "A Remark About No File" below. Phase 11 deleted `setRemarkSeverity` and added the last three:
+`setRemarkAsksForAnswer`, and `recordAnswer`/`deleteAnswer`, which are the only route to the answers
+list. The file's thirteenth public function, `notifyRemarksChanged`, is
+what every one of the twelve calls to publish the topic; it counts too, because `CLAUDE.md` rule 3
 checks the file by counting every public function it finds there, not by naming the mutators by
 hand. Each one mutates through `RemarkStore` and then
 publishes. That pairing is the whole mechanism. There is no separate listener list or observer
-class. `RemarkStore`'s own `add`/`remove`/`edit`/`setSeverity`/`setBucket`/... stay public, and
-nothing in the language stops a caller from reaching past the ten functions and calling them
+class. `RemarkStore`'s own `add`/`remove`/`edit`/`setBucket`/`putAnswer`/... stay public, and
+nothing in the language stops a caller from reaching past the twelve functions and calling them
 directly, so the rule is checked rather than assumed. The check used to list the mutator names by
 hand, which is exactly what let phase 5 add `setSeverity`/`setBucket` to `RemarkStore` without the
 old grep noticing: a hand-picked list has to be edited every time a mutator is added, and forgetting
 is silent — the guard keeps passing while it stops covering the new function. The grep in
-`CLAUDE.md` now allows through the one read-only method by name, `all()`, instead:
+`CLAUDE.md` allows through the read-only methods by name instead — `all()` since phase 9's group one,
+and `allAnswers()` since phase 11, which is how the tree, the gutter and the resolver read the
+answers list:
 
 ```bash
 grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include='*.kt' \
-  | grep -v RemarkEdits.kt | grep -v "\.all()"   # must be empty
+  | grep -v RemarkEdits.kt | grep -v "\.all()" | grep -v "\.allAnswers()"   # must be empty
 ```
 
 The glob has to be quoted. Unquoted, zsh expands `*.kt` itself before `grep` ever runs, and if
@@ -1301,6 +1325,27 @@ one batch. Waiting, in review mode and in listen mode alike, is a launched backg
 `watch-remarks.sh` (see "Why a file, not a socket" and "The watcher script, and why it has to exit"
 under "The Shared Review Session" below), not a foreground poll loop: a foreground `Bash` call is
 capped at ten minutes, and the skill's declared deadline can be much longer than that.
+
+**All three modes gained an answering step in phase 11**, written once and referenced from each: find
+every remark whose heading carries the asks marker, answer each one in this turn from the conversation
+and from the batch payload, and POST each answer to `/api/claude-remarks/answer` with the batch's
+nonce and the remark's own id. A subagent is the escalation and not the default — it starts with an
+empty context, so making it the default pays to re-derive what the session already knows. Two rules
+come with it: answering a question is not licence to do the work the question implies, and a failed
+POST is reported rather than retried more than once. ⚠️ A third comes from several sessions listening
+at once: a session answered `already-read` for a batch does not answer that batch's marked remarks
+either. The session answered `ok` is the one that answers them. The loser names the winner, answers
+nothing, and goes back to listening.
+
+**Listen mode also stopped needing to be babysat.** It claims the batch already sitting in the file
+when it starts — reading the nonce out of line 2 **on every run**, never from a value remembered from
+an earlier one, then posting `published-read` for it — so publishing first and asking afterwards now
+works. And it re-arms its watcher after each batch, in this exact order: the batch arrives,
+acknowledge it, **re-arm immediately, before summarising**, then summarise and wait for go. Re-arming
+sits third because summarising and answering both take a turn, and a batch published during those
+turns would otherwise be missed. A session that stops listening always says so and why, in one line —
+the deadline passing, a refusal, or the person asking it to stop — and never goes quiet. The incident
+that produced that rule began with a session that stopped silently while the person kept publishing.
 
 ## A Remark About No File
 
@@ -1633,18 +1678,28 @@ prints while it runs. So a watcher that loops forever would never notify anybody
 sit waiting for a signal that cannot arrive, and the deadline would pass unnoticed. Every path out of
 the script is therefore an explicit exit, and none of them loops back — a new batch exits 0 with the
 whole file on stdout, the deadline exits 1 with one sentence, anything wrong exits 2 with a reason,
-and a watcher killed by the one that replaced it exits 143 (128 plus `SIGTERM`), which a session must
-read as "another watcher took over", never as a batch or a deadline. The skill reads the exit code
+and a killed watcher exits 143 (128 plus `SIGTERM`). The skill reads the exit code
 and the output once, in a fresh foreground call, and decides what to do from those two things alone.
 Nothing is left behind for it to go and read.
 
+⚠️ **143 used to mean "another watcher took over", and since phase 11 it means nothing of the kind.**
+Nothing takes over any more, so 143 is just a kill: a harness restart, a machine going to sleep, a
+stray `kill`, or the person stopping it. The session says in one line that the watcher was killed and
+starts a new one. Listen mode re-arms; review mode launches a new watcher for the same review, which
+is still waiting in the IDE, and sends no `ack` of any kind. An earlier draft of that rule had the
+session check the pid file before deciding, and it is deleted rather than kept: there are no takeovers
+left for it to detect, and a check that can only ever answer one way is a rule nobody can reason
+about. This mattered in practice — the first version read 143 as a takeover and stopped the listener,
+so a stray signal made a session go quiet while the person kept publishing.
+
 **Two modes, one per transport, matching the two ways a skill can see the published file.** `--file
 <path>` polls the published file directly, every 2 seconds by default; this is the same-machine case,
-and it is also the only mode the two published-file modes can use. `--fetch <base_url>`, with
-`--session` and `--project` beside it, posts to the fetch action instead, every 5 seconds by
-default, for a review whose IDE is on the other end of a tunnel — 5 rather than 2 because the
+and it is what the one-shot read and a same-machine listener use. `--fetch <base_url>`, with
+`--project` beside it and `--session` optional since phase 11, posts to the fetch action instead,
+every 5 seconds by default, for an IDE on the other end of a tunnel — 5 rather than 2 because the
 built-in server allows 30 requests a minute from one address and every tunnelled request shares
-`127.0.0.1`.
+`127.0.0.1`. Dropping the session requirement is what lets listen mode work remotely at all: a plain
+publish writes `review: none`, so before phase 11 a fetch could never carry one back.
 
 **Two ways of deciding a batch is new, and only one of them is used at a time.** `--seen <nonce>` is
 the batch already known: report the first batch whose nonce differs from it. `--require-review
@@ -1655,8 +1710,9 @@ current nonce in the same shell that posts to `start`, so a publish landing betw
 would already be recorded as seen, and a watcher filtering on the nonce would then wait out its whole
 deadline for an answer that had already arrived. The session id has no such gap, because it is
 invented moments before the `start` it is sent with. `--require-review` is refused outright with
-`--fetch` rather than ignored: the fetch action already answers `ready` only for the session named in
-the request, so there is nothing left to filter on the skill's side.
+`--fetch` rather than ignored: a fetch carrying a session already answers `ready` only for that
+review's own batches, and a fetch without one deliberately takes any batch, so in neither case is
+there anything left for the skill to filter on.
 
 **Why it polls a copy of the file rather than the file.** In file mode the watcher copies the
 published file with `cp` and reads the header and the body out of the copy. `cp` opens an inode, and
@@ -1677,35 +1733,46 @@ nonce is a fresh UUID on every write, so it moves whenever the file does. It als
 its own: once it says the file moved, the copy is taken and every field is read again out of the
 copy, that line included.
 
-**One watcher per project, through a pid file.** On start the watcher writes two lines to
-`~/.claude-remarks/<16 hex characters>.watch` — its own pid, then the path it was launched on
-(`--file`'s file, or `--fetch`'s project) — creating that directory `rwx------` first if the plugin
-has never run here. The 16 characters are the same `projectHash` computes for the handshake and
-published files, so the pid file sits beside them: in file mode they are taken straight off the
-published file's own name when that name really is 16 hex characters, and hashed from the given path
-when it is not. If a pid is already there and still belongs to a live `watch-remarks.sh` process
-watching the same path, the new watcher kills it and waits for it to actually exit before taking
-over. Without that, two sessions asked to listen on one repository would both wake on the same batch
-and both acknowledge it, and the second would be told `already-read` for a batch it had every right
-to think was its own. Both the command line and the second line's path are checked before anything is
-killed, since a recycled pid can belong to another project's watcher, which is still a
-`watch-remarks.sh`. On exit the watcher removes the pid file only if the first line is still its own
-pid, so a watcher that has already been replaced cannot delete the live one's file — and it traps
-`INT`, `TERM` and `HUP` as well as `EXIT`, because a shell killed by a signal never runs an `EXIT`
-trap, and a signal is exactly how a takeover ends the previous watcher.
+**A pid file that names one specific watcher, so it can be stopped by pid.** On start the watcher
+writes two lines to `~/.claude-remarks/<16 hex characters>.watch` — its own pid, then the path it was
+launched on (`--file`'s file, or `--fetch`'s project) — creating that directory `rwx------` first if
+the plugin has never run here. The 16 characters are the same `projectHash` computes for the
+handshake and published files, so the pid file sits beside them: in file mode they are taken straight
+off the published file's own name when that name really is 16 hex characters, and hashed from the
+given path when it is not. On exit the watcher removes the pid file only if the first line is still
+its own pid, so a watcher whose file has since been overwritten by a newer one cannot delete the live
+one's — and it traps `INT`, `TERM` and `HUP` as well as `EXIT`, because a shell killed by a signal
+never runs an `EXIT` trap.
 
-**The claim on that pid file is made under a lock, because reading it and writing it are separate
-steps.** Read the pid, kill the old watcher, write ours: two watchers launched for the same project
-in the same moment both walk through all three, both write, and both run, which is exactly what the
-one-watcher rule is there to stop. The lock is a directory beside the pid file,
-`~/.claude-remarks/<16 hex characters>.watch.lock`, taken with `mkdir` — atomic on every POSIX
-filesystem, and it fails rather than quietly succeeding when the directory is already there. It is
-held for the takeover and the pid write only, and released before the poll loop starts. A watcher
-killed before it can release it leaves the directory behind, so the wait for it is bounded: after
-ten seconds the next watcher breaks the lock and takes it. Ten rather than five, so a watcher
-legitimately waiting for the old one to die is never mistaken for a stale lock. The direction of
-that fallback is deliberate — the worst it can cost is one extra watcher, and it can never leave a
-project where no watcher can start at all.
+⚠️ **Phase 11 deleted the one-watcher-per-project rule, and the takeover with it.** The script used
+to read the pid file on start, kill whichever watcher was already there, and wait five seconds for it
+to die. The argument was that two sessions listening on one repository would both wake on the same
+batch and both acknowledge it, and the loser would be told `already-read` for a batch it thought was
+its own. That is now the *designed* behaviour rather than the problem: the batch claim in the IDE is
+what decides who acts, several sessions may listen to one repository at once, and losing a claim is an
+ordinary outcome — the loser names the winner, acts on nothing, and keeps listening. Nothing kills a
+watcher any more.
+
+⚠️ **A watcher is stopped only by the pid on the first line of its own repository's `.watch` file,
+after checking that the pid is alive and that its command line names the same watched path.** Never
+by `pkill`, `killall` or a `ps | grep | kill` match on `watch-remarks.sh`. This is not a preference.
+It happened on 2026-08-05: a session stopped a watcher by matching on the program name, every
+repository's watcher on the machine runs a program with that name, and watchers for unrelated
+repositories died with it while those sessions went quiet. Identifying one specific watcher is what
+the pid file is *for* now, and that is exactly what makes a blunt match unnecessary. The identity
+check the deleted takeover block used to perform is now the reader's job, and `SKILL.md` is where it
+is written down.
+
+**The pid write is still made under a lock**, though it now guards less than it used to. The lock is
+a directory beside the pid file, `~/.claude-remarks/<16 hex characters>.watch.lock`, taken with
+`mkdir` — atomic on every POSIX filesystem, and it fails rather than quietly succeeding when the
+directory is already there. With the read-kill-write sequence gone, what is left to protect is the
+two-line write itself: two watchers starting for the same project in the same moment must not
+interleave their lines and leave a file whose pid and path belong to different processes. It is held
+for that write only and released before the poll loop starts. A watcher killed before it can release
+it leaves the directory behind, so the wait is bounded: after ten seconds the next watcher breaks the
+lock and takes it. The direction of that fallback is deliberate — the worst it can cost is a pid file
+written by two processes at once, and it can never leave a project where no watcher can start at all.
 
 **The token for `--fetch` never appears in an argument.** It is read from `CLAUDE_REMARKS_TOKEN` in
 the environment, and it reaches `curl` through a config file on stdin rather than through a `-H`
@@ -2035,8 +2102,9 @@ review.** `execute` splits the request path the same way the platform's own `Upl
 does — `urlDecoder.path().split(getServiceName()).last().trimStart('/')` — so every action
 reaches the same handler under one `isHostTrusted` check and one rate limit. Before this phase `execute`
 never looked at the path at all, so any sub-path — including a typo — silently started a review.
-Phase 7 recognized two actions, `start` and `ack`. There are four today: phase 8 added `fetch` and
-phase 10 added `published-read`. Anything else answers `bad-request` and starts nothing.
+Phase 7 recognized two actions, `start` and `ack`. There are five today: phase 8 added `fetch`,
+phase 10 added `published-read`, and phase 11 added `answer` — see "What an Answer Is" above.
+Anything else answers `bad-request` and starts nothing.
 
 ### Opening the diff the skill asked for
 
@@ -2235,6 +2303,299 @@ acknowledgement, is one copy of code instead of two. The loop is written as
 `while :; do handoff_ready && break; ...`, never as `while ! handoff_ready`. `!` collapses the
 function's three possible answers, ready, not yet, and stop, down to two, so a hard stop would be
 read as "keep waiting" until the deadline.
+
+## The Ask Claude Gesture
+
+Until phase 11 every remark wore one shape and meant two different things. Most were work to do or a
+topic to raise, carried along by the next publish. Some were questions, and a question is only useful
+if somebody answers it — but nothing in the record said which was which, so the prompt header asked
+the model to work it out for itself from the wording. That guess is the thing this section removes.
+
+**The gesture carries the intent, so nothing has to guess.** `Ctrl+Alt+Shift+R` writes an ordinary
+remark. `Ctrl+Alt+Shift+A` writes a question. Both open the same input box, and the difference is one
+stored bit and what happens after the box closes.
+
+`action/AskClaudeAction.kt` holds three things: the action, the `AskClaudeIntention` beside it, and
+`openAskClaudeInput`. That last one is a sibling of `openNewRemarkInput` rather than a flag on it —
+the two differ in the popup's title and in what happens once the remark is stored, and threading a
+boolean through would put "and then publish" inside the function every other entry point calls.
+Everything genuinely shared is shared code already: `remarkTargetProblem`, `selectedLines`,
+`selectedColumns` and `showRemarkInput`. The gesture has the same three entry points an ordinary
+remark has — the shortcut, the `Alt+Enter` intention, and the editor's right-click menu.
+
+The stroke is free. Checked against `platform/platform-resources/src/keymaps` in the IntelliJ
+Community checkout: `control alt shift A` is bound in neither `$default.xml` nor the Mac OS X,
+Mac OS X 10.5+, GNOME, KDE or XWin keymaps. `ClaudeRemarks.AskClaude` is pinned by `ActionIdsTest`
+alongside the two ids that were already public, because `README.md` promises those ids will not be
+renamed and this one joined the promise. That test also pins the shortcut itself, since an action
+registered without its `keyboard-shortcut` element still works from the menu and from `Alt+Enter`
+and would fail nowhere.
+
+### It publishes on the spot, and that is the point
+
+Asking is one motion. So `AskClaudeAction` stores the remark and immediately calls
+`publishRemarks(project, listOf(remark.id))` on that one id. Asking a question used to mean writing
+the remark, opening the tool window, finding the row, selecting it, and pressing Publish Selected.
+
+Two side effects come with that, because this is the ordinary publish and not a second kind of one.
+It writes the clipboard, as every publish does, so asking one question replaces whatever was on it —
+arguably wanted, since the person may well paste the question somewhere. And it answers a waiting
+review if one is waiting, which consumes that review's single answer. See Known Issues for that
+second one: it is accepted rather than guarded, because phase 10 deliberately made a publish the one
+way a review is answered and splitting that in two is a bigger change than this gesture justifies.
+
+### How the prompt carries a question
+
+`render/PromptRenderer.kt` marks a remark that asks, in its own heading:
+
+```
+### 3. lines 41-47 — asks for an answer — commit a1b2c3d4
+id: 7f3a1c94-...
+```
+
+Every remark now prints its `id:` on its own line under the heading, marked or not, because the
+answer endpoint is keyed to that id and a session with no id has nothing to send back. `id` is a
+required constructor parameter on `RenderedRemark` with no default: every construction site uses
+named arguments, so the ordering is safe, and a default of `""` would let a caller silently print an
+empty `id:` line that the endpoint could never match.
+
+The marker's meaning is written into `PROMPT_NOTES`, not into `DEFAULT_PROMPT_HEADER`. That constant
+was called `SEVERITY_SCALE_NOTE` until phase 11 and it is the same argument as before, applied to a
+different fact: the header is the one thing this plugin lets a person rewrite, and an explanation
+living only inside it vanishes the moment somebody replaces it with their own words, while the
+marker keeps printing with nothing left to say what it means. The notes end the phase with three
+paragraphs — what the marker and the `id:` line mean, the commit paragraph, and the `⟦`/`⟧`
+paragraph. The new one is placed first, because it changes what a reader *does* with a remark, where
+the other two are provenance and notation.
+
+The two QUESTION-versus-INSTRUCTION bullets in `DEFAULT_PROMPT_HEADER` were deleted at the same time.
+They told the model to work out for itself which remarks were questions, which is exactly the job the
+marker now does.
+
+### The flag can also be set afterwards
+
+`asksForAnswer` is a plain boolean on `RemarkState`, false by default, so `BaseState` omits it from
+the XML and nothing migrates. Besides the gesture, the Ask for an Answer toggle in
+`remarkChangeActions` sets it — see "One menu, two places" above. That second writer is why there is
+no one-writer guard on this field, unlike `markRemarksRead` and `recordAnswer`: a person saying "I
+want an answer to this" is not a claim about what an agent did.
+
+## What an Answer Is
+
+**An answer is its own stored record with its own anchor, not a field on `RemarkState`.** Both halves
+of that are load-bearing:
+
+- **It re-resolves as the code moves**, reusing `anchor/` with no new machinery. An answer about lines
+  40 to 45 still points at that code after the file is edited.
+- **It survives its question being cleared.** A reading pass can be cleared while what was learned
+  stays. That is only possible because the answer does not hang off the remark record.
+
+```mermaid
+erDiagram
+    RemarkState ||..o| AnswerState : "remarkId, at most one answer"
+    RemarkState {
+        string id PK
+        string text
+        boolean asksForAnswer
+        string status
+        string path_and_anchor "9 fields"
+    }
+    AnswerState {
+        string id PK
+        string remarkId "may name a remark that is gone"
+        string question "the remark text, copied at answer time"
+        string markdown "the answer body"
+        long answeredAt
+        string path_and_anchor "its own copy of the same 9 fields"
+    }
+```
+
+`model/AnswerState.kt` declares those nine anchor fields again rather than pulling them up into a
+shared `AnchoredState : BaseState()`. Inheritance would work — `BaseState` builds its property list
+in the constructors, so a subclass registers the parent's properties too — but it would change the
+serialization shape of `RemarkState`, and that is the record every remark already on disk lives in.
+Silent data loss on a `BaseState` list is the one failure mode this project has already paid for
+once. Nine duplicated declarations is a cheap price for not touching the shape of data that exists.
+
+The *logic* is shared even though the fields are not. `store/RemarkResolver.kt` holds a pure
+`StoredAnchor` value type and one `resolveStored(root, stored, label)`, and both `resolveOne` and
+`resolveAnswers` go through it, so the `isAncestor` check, the `Document` lookup, the no-file case
+and the five refusals are written once. `resolveStored` returns the existing `ResolvedAnchor` from
+`anchor/Anchoring.kt` rather than a new type: that record is already exactly (result, start column,
+end column). The `label` parameter is only for the debug line that names what was refused — a
+`StoredAnchor` is a position with no id of its own, so callers pass `"remark <id>"` or
+`"answer <id>"`. The "about no file" rule lives in one private `namesNoFile(path)` that
+`isAboutNoFile(RemarkState)`, `isAboutNoFile(AnswerState)` and `resolveStored` all ask, so three
+copies of `path.isNullOrEmpty()` cannot drift.
+
+### The anchor is captured fresh, not copied
+
+When an answer is stored, the plugin resolves the remark first and captures a new anchor **at the
+position it resolves to now**. Copying the remark's stored fields verbatim was the other option and
+is simpler, but an answer usually outlives its remark, so it needs the longer runway: a fresh capture
+starts with the full 200-line search radius ahead of it rather than whatever the remark has already
+spent. A replacement captures its own fresh anchor too, so an answer re-sent after the code moved
+points at where the code is now. The cost is one `resolveWithPhrase` plus one `captureAnchor` per
+answer, off the EDT inside a read action — the same work the tool window already does for every
+remark on every refresh.
+
+The columns come from the resolve, not from the remark's stored pair, and the phrase is re-read out
+of the file at those columns with `phraseAt`. A sub-line remark whose line was reindented keeps its
+phrase and moves its columns, so copying the stored pair would anchor the answer to text it does not
+actually cover.
+
+Three cases fall back to the remark's stored fields as they are, and one falls back further:
+
+- A remark that **orphans** has no resolved position worth capturing.
+- A **general remark** has no file at all, so its answer gets an empty path and resolves as itself,
+  the way `isAboutNoFile` already handles the remark. Such an answer has no gutter icon and its tree
+  row shows no position.
+- The three plumbing refusals — no project root, no file at the path, no `Document` — are the same
+  fallback. `freshAnchorFor` returns null for all five, and the caller falls back once.
+- The remark is **gone** by the time the answer is stored. Then the answer is stored with an empty
+  path, an empty question and no anchor, rather than being dropped. The answer is the thing worth
+  keeping; losing it because the person deleted the question in the seconds in between would be the
+  silent loss this plugin refuses everywhere else. The resulting row has no position and no file,
+  which looks broken until you know why.
+
+### At most one answer per remark
+
+`RemarksState.putAnswer` is an upsert keyed on `remarkId`, not a plain add: it removes any existing
+answer for that remark, then appends. A second answer for the same question replaces the first and
+captures its own fresh anchor.
+
+This is enforced in the store rather than avoided in the skill, because the duplicate is ordinary
+rather than rare. Every publish mints a fresh nonce through `PublishedBatchService.record`, and a
+watcher's `--seen` guard compares nonces and not content, so pressing Publish twice with nothing
+changed sends the same remarks to a listening session twice under two different nonces, and the
+session cannot tell that from new work. That was observed live: two presses, the same two remarks,
+nonces `3c926fc7` and `8893a879`. What it costs after replacement is one duplicated answering turn,
+not a duplicated row.
+
+`removeAnswer` takes the **answer's own id**, not the `remarkId` `putAnswer` keys on. Deleting a row
+in the Answers group names the answer it is looking at, and mirroring `removeRemark(id)` keeps the
+two delete paths the same shape.
+
+`RemarksState.clear()` returns `remarks.size + answers.size`, not the remark count alone.
+`clearAllRemarks` returns that number straight to its caller and skips `notifyRemarksChanged` when it
+is zero, so a project holding only answers would otherwise have them cleared while the tree kept
+drawing rows that were gone.
+
+### The endpoint that receives one
+
+`POST /api/claude-remarks/answer` is the fifth action on the same `RestService`. The body carries the
+session, the project path as the IDE sees it, the published batch's `nonce`, the `remarkId`, and the
+answer as markdown. Every reply is HTTP 200 with a `status` field: `ok`, `unknown-batch`,
+`unknown-remark`, `too-large` (over 16 KiB), `unknown-project` or `bad-request`.
+
+`handleAnswer` does four things and nothing else, because rule 5 in `CLAUDE.md` governs that file: it
+parses the body, checks the size cap, calls `matchProject`, calls `reportAnswer`, and writes the
+status fields. The size cap is checked *before* `matchProject`, so an oversized body is refused
+without walking every open project. A blank `session` is refused even though nothing reads it,
+matching `handlePublishedRead`: the request shape lists the field, and a caller that omits it is told
+so rather than silently accepted.
+
+**The lookup is `batchCarries`, not `acknowledge`.** `review/PublishedAck.kt` gained a `BatchLookup`
+enum with three values and a `@Synchronized batchCarries` that reads and returns and never stamps
+`readBy`. Answering must not consume the batch: the batch still has to be acknowledgeable afterwards,
+and several marked remarks in one batch each get their own answer. `BatchLookup` is its own enum
+rather than a reuse of `PublishedAckOutcome` because an acknowledgement can answer `ALREADY_READ`,
+which a lookup never can, and a lookup can answer `UNKNOWN_REMARK`, which an acknowledgement never
+can.
+
+**The endpoint deliberately does not check `asksForAnswer`.** An answer to an unmarked remark is
+accepted. A session that decides a remark is worth answering is not wrong just because the person did
+not press the gesture, and a refusal there would be a rule the skill would have to model. There is a
+test pinning that decision, so it cannot be quietly reversed.
+
+`review/AnswerReceipt.kt` holds every consequence, the way `review/ReviewLifecycle.kt` holds the
+`ack` action's and `review/PublishedAck.kt` holds `published-read`'s. `reportAnswer` returns its
+outcome synchronously — that is what the response body carries — and queues the rest as a
+`ReadAction.nonBlocking` finishing on the EDT. Not a plain `invokeLater`: `buildAnswer` resolves the
+remark against its file, and `FileDocumentManager.getDocument` on a file with no editor open loads it
+from disk, which on the EDT is a stall a person can feel. The ordering race `reportPublishedRead`
+queues on the EDT to avoid does not apply here — an answer touches no `status` field and no review
+phase, and writes only to a list nothing else writes. The balloon is one sentence, "Claude Code
+answered a remark", because the answer itself is paragraphs and a balloon is a line.
+
+**This never touches `WaitingReviewService`.** The action is keyed to a batch's nonce exactly the way
+`published-read` is, so it works with no review ever started — which is the ordinary case for a
+question asked through the gesture.
+
+### Reading an answer: three places
+
+**An Answers group at the very top of the tree**, above General, above the buckets, above the files.
+Keyed on the bare word `answers`, which cannot collide with a `file:` or `bucket:` key — the same
+argument `GENERAL_KEY` already makes. It appears only when an answer exists. Flat, like General, and
+**sorted newest first**, which is a different order from every other group in the tree and
+deliberately so: the answer that just arrived is the one you want to read. A row carries the resolved
+position in grey, then the answer's first line, then the source file's name in grey. The first line
+inline is what makes the group scannable without opening anything.
+
+⚠️ An answer row is an `AnswerNode` and not a `RemarkNode`, and three places notice.
+`remarkNodesUnder` returns remark rows only, so selecting the Answers group gives `selectedIds()` an
+empty list — Publish Selected and the Ask for an Answer toggle then correctly do nothing, because an
+answer is never published and never asks. `deleteSelected` handles answer rows, or Delete on one
+would silently do nothing. And `navigateToSelected`, which runs on double click, opens the popup
+instead of navigating.
+
+The remark row itself gained a grey word beside `published` and `read`: `asks` when it is marked with
+no answer yet, `answered` once one has come back. Text and not a new icon, because the icon axis
+already carries status. The word is decided by a pure `asksLabel(node)` in `ui/RemarksTree.kt` rather
+than inline in the cell renderer, because `RemarksTreeTest` is a plain JUnit class and driving the
+renderer would need a real `JTree` and a painted `SimpleColoredComponent` — the literal words would
+otherwise be unpinned. `hasAnswer` is looked up from the answers the *same* rebuild resolved, not
+from the store again, so the row and the Answers group can never disagree.
+
+**A gutter icon of its own**, `AllIcons.General.Balloon`, on the lines the answer's own anchor
+resolves to. The alternative was to hang the answer off the remark's existing icon and give it one of
+its own only once the remark was gone; that was rejected because it makes the gutter's behaviour
+conditional on something invisible, and because an answer outliving its remark is the ordinary case.
+⚠️ What it costs is two icons on the same lines while both exist. That is honest but busy, and it is
+listed in Known Issues rather than treated as solved. `AnswerGutterIconRenderer`'s `equals` and
+`hashCode` include the markdown, not just the id and the tooltip: the markdown is not painted, but it
+is what the click opens, and an answer replaced in place must open the second body.
+
+`RemarkGutter.apply()` runs one loop over a private `GutterEntry` (key, start line, end line,
+orphaned, renderer) rather than carrying a second copy of itself for answers. The two rules that loop
+enforces — keep a live highlighter when the fresh resolve orphans, repaint rather than rebuild when
+the offsets already match — are identical for both records. The `byDocument` map is keyed
+`remark:<id>` / `answer:<id>` so the two kinds cannot collide.
+
+**A popup rendering the markdown**, opened by the gutter icon or by double-clicking the row.
+`ui/AnswerPopup.kt`'s `showAnswerPopup(project, markdown)` converts with
+`DocMarkdownToHtmlConverter` — the platform's own converter for this exact case, named in its KDoc
+for the Quick Doc popup — and shows the result in a `JBHtmlPane` inside a `JBScrollPane`, resizable
+and movable, with `setCancelKeyEnabled(true)`. The converter does three things a raw parser would
+not: it colours code fences, it swaps tags the Swing HTML renderer handles badly, and it turns a
+markdown table into a real table.
+
+⚠️ **The conversion runs off the EDT.** `convert` is `@RequiresReadLock` and builds an intermediate
+`PsiFile` for every fence it highlights, so on a long answer it is a stall a person can feel. It runs
+inside `ReadAction.nonBlocking(...).expireWith(project).finishOnUiThread(...)`, the same shape the
+publish pipeline, the gutter sync and the tool window refresh all use. The build of the popup itself
+lives in a private `showRenderedAnswer(project, html)`, so no single function is half background
+thread and half EDT.
+
+⚠️ **`Disposer.register(popup, pane)` is not optional.** `JBHtmlPane` implements `Disposable`,
+nothing else in this plugin creates a `Disposable` Swing component, and forgetting it leaks quietly.
+The pane is also built with `isEditable = false`: `JEditorPane` is editable by default, so without it
+a caret blinks in the answer and invites typing into what is not a text field.
+
+Both classes live in `lib/app-client.jar`, already on the compile classpath, so this needed no change
+to the `dependencies` block. `JBHtmlPane` is `@ApiStatus.Experimental`, which the build file already
+tolerated for the markdown preview — see the Toolchain notes in `CLAUDE.md` for why that subtraction
+now has two reasons and both have to go before the line can.
+
+### A session-less fetch, so this works over the tunnel
+
+`handleFetch` used the session in three places, and the third is what stopped a listener using it:
+`header.reviewSession == session` means only a batch answering the caller's own review comes back, so
+a plain publish, which writes `review: none`, never could. Making `session` optional is purely
+additive — a caller that sends one gets the previous behaviour byte for byte — and it is what lets a
+remote session claim an ordinary published batch. A blank session is treated as absent rather than
+refused, since the field is optional now; that differs from `handleAnswer` and `handlePublishedRead`,
+which still require a non-blank one.
 
 ## Two Positions On Screen, And When They Differ
 
@@ -2489,11 +2850,47 @@ A session that stops answering without saying either now leaves the banner up un
 scheduled deadline the same way a `SIGKILL`ed session always did. Nothing is lost: the remarks were
 never marked read, so they stay exactly where they were.
 
-**CERTAIN, MINOR: the published file cannot be read from a session on another machine.** The remote
-review path still works, because a fetch is keyed to a session and crosses the tunnel phase 8 built.
-There is no remote equivalent of the one-shot read or listen mode: reading or watching a published
-batch with no review open only ever resolves the file locally. The direction for solving this later is
-a small push service on the IDE machine that a remote session subscribes to, not a further extension
-of the tunnel-and-poll pattern, which would run straight into the built-in server's 30-requests-a-minute
-limit. See `docs/ideas.md`, "Sending remarks to a remote agent session", for the reasoning this is
-deferred with.
+**RESOLVED IN PHASE 11: the published file used to be unreadable from a session on another machine.**
+A fetch was keyed to a session and the header gate — `header.reviewSession == session` — meant only a
+batch answering the caller's own review could come back, so a plain publish, which writes
+`review: none`, never crossed the tunnel. There was no remote equivalent of the one-shot read or of
+listen mode. Phase 11 made `session` optional on `handleFetch` rather than adding a sixth action: an
+absent session skips the live-review short-circuit and skips the header gate, so a session-less fetch
+takes whatever batch the file holds. The push service this entry used to point at is not needed for
+this case and stays deferred; see `docs/ideas.md`, "Sending remarks to a remote agent session".
+
+Four more since phase 11, recorded in its own plan rather than found by review, because each is a
+limit the phase's design accepts rather than a defect in it.
+
+**OCCASIONAL, MAJOR: Ask Claude answers a waiting review.** `publishRemarks` calls
+`answerWaitingReview` whenever a review is waiting, and the Ask Claude gesture is an ordinary publish.
+So pressing it while a banner is up hands that one question to the waiting session, stamps the review
+`Sent`, and the session's watcher exits on it. The person's actual reading pass then has nothing left
+to answer that review with, and the banner says so — "A further publish will not go to this review."
+Not guarded in code, deliberately: phase 10 made a publish the single way a review is answered, and
+splitting that into publishes that answer a review and publishes that do not is a larger change than
+this gesture justifies. The balloon explaining itself is what makes it survivable, and hand check 12
+in the phase 11 plan is to watch it happen once.
+
+**OCCASIONAL, MINOR: a session-less fetch hands back somebody else's review answer.** With the header
+gate gone, the endpoint returns whatever the published file holds, including a batch that answers a
+review belonging to another session. Listen mode's existing anomaly rule covers it — line 6 is not
+`review: none`, so the session says so, names the review's session, acts on nothing and acknowledges
+nothing. Listed because that rule was written for the local branch and has never been exercised over
+a tunnel.
+
+**RARE, MINOR: a local and a remote watcher on one repository write two pid files and cannot see each
+other.** The pid file's name comes from the local file's basename in file mode and from the
+IDE-machine project path in fetch mode, and those differ whenever the two machines mount the
+repository at different paths. Both watchers report the same batch, and the batch claim in the IDE is
+what decides which session acts on it, so nothing is done twice. What it costs is that stopping one
+of them means knowing which of the two files names it. Accepted rather than fixed: a shared name
+would have to be agreed across two machines, which is more coordination than a stop command is worth.
+The same shape, one machine only, is that the file names whichever watcher for a repository started
+last — several sessions may listen to one repository now, and the file is a handle for stopping one
+specific watcher, not a register of all of them.
+
+**RARE, MAJOR: `workspace.xml` grows and nothing prunes it.** Only Clear All removes an answer.
+Twenty answers at the 16 KiB endpoint cap is over 300 KB in a file the platform saves on every remark
+change and the tool window resolves against. The cap and the one-answer-per-remark rule together are
+what keep this rare. Written down rather than solved.

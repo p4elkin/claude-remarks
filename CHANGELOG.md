@@ -1,6 +1,6 @@
 # Changelog
 
-This project was built in ten phases over four days, each one planned in a file under
+This project was built in eleven phases over five days, each one planned in a file under
 `docs/plans/` before any code was written. The entries below are the record of those phases,
 newest first.
 
@@ -13,6 +13,55 @@ The design that came out of all this lives in `docs/claude/design.md`, which is 
 the code. These entries are how the work happened; that document is what the system now is.
 
 ---
+
+## 0.8.0 — 2026-08-05 — phase 11: the answer comes back
+
+Until now everything the plugin did pointed one way: a person marks code, an agent reads it. This
+phase turns the arrow around for one kind of remark. You can ask a question, and the answer comes
+back into the IDE, onto the line you asked about.
+
+- **A remark loses its tag and its severity level.** Both were dead weight, and use is what settled
+  it: over every remark ever published, the severity was never changed from its default and a tag was
+  never picked, so everything shipped as an untagged `should` while the prompt spent a paragraph
+  teaching a four-level scale it then used one value of. `RemarkTag`, `RemarkSeverity`, the input
+  popup's chip row with its five Alt bindings, the shared menu's Severity submenu and
+  `setRemarkSeverity` are all gone. An element stored with the old attributes still loads — they are
+  ignored and dropped on the next save. The chip row was also the only reason the build tolerated an
+  internal-API usage, so that tolerance went with it.
+- **Publish is in the menu the gutter icon and the tree share**, beside Move to Bucket… and a new Ask
+  for an Answer toggle. Publishing one remark used to exist only as a toolbar button, so asking one
+  question took five steps. The six toolbar buttons also got real descriptions, saying what each one
+  *takes* rather than repeating its own name.
+- **`Ctrl+Alt+Shift+A` asks a question.** Same input box, plus one stored bit and an immediate
+  publish of that one remark — asking is one motion. The `Alt+Enter` intention and the editor's
+  right-click menu offer it too. The published prompt marks such a remark's heading
+  `— asks for an answer` and prints every remark's `id:` on its own line, which is what a session
+  needs in order to answer one.
+- **An answer is a stored record of its own**, with its own anchor captured fresh at the position the
+  remark resolves to when the answer arrives. So it follows the code by itself, and it survives its
+  question being cleared: Clear Handed Over takes the remarks and leaves the answers. At most one
+  answer per remark — a second one replaces the first, because re-publishing the same remarks is
+  ordinary and a watcher compares nonces rather than content.
+- **Reading an answer, three ways.** An Answers group at the very top of the tree, newest first,
+  showing the answer's first line; a gutter icon on the code; and a popup rendering the whole thing
+  as markdown, with headings, lists, tables and coloured code fences.
+- **The endpoint gains a fifth action**, `POST /api/claude-remarks/answer`, keyed to a published
+  batch's nonce and a remark id, capped at 16 KiB. It never consumes the batch, works with no review
+  ever started, and deliberately accepts an answer to a remark nobody marked.
+- **Listen mode stops needing to be babysat.** It claims the batch already waiting when it starts,
+  and re-arms itself after each one. Two earlier promises are reversed on purpose: it no longer acts
+  on nothing published before it started, and re-arming is no longer a choice said out loud. The
+  one-watcher-per-repository rule is gone with them — several sessions may listen at once, nothing
+  kills a watcher, and the batch claim in the IDE decides who acts.
+- **Listen mode works over the tunnel**, because `fetch` no longer requires a session. A plain
+  publish writes `review: none`, so the old header gate meant a remote session could never see one.
+
+Two things found live during the phase and fixed in it. A session read exit code 143 as "another
+watcher took over" and stopped listening — 143 is just `128 + SIGTERM`, which any kill produces, so a
+stray signal made a session go quiet while the person kept publishing. And a session stopped a
+watcher by matching on the program name, which killed every repository's watcher on the machine at
+once. A watcher is now stopped only by the pid in its own repository's pid file, after checking that
+the pid is alive and that its command line names the same watched path.
 
 ## 0.7.0 — 2026-08-05 — phase 10: one file, two acknowledgements
 
