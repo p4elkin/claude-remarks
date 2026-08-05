@@ -10,6 +10,7 @@ import dev.sasha.clauderemarks.store.addGeneralRemark
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.deleteRemark
 import dev.sasha.clauderemarks.store.fileUnderProjectRoot
+import dev.sasha.clauderemarks.store.recordAnswer
 import dev.sasha.clauderemarks.store.remark
 import dev.sasha.clauderemarks.store.settleInvocationQueue
 
@@ -275,6 +276,58 @@ class AnswerReceiptTest : BasePlatformTestCase() {
             stored.answeredAt >= before,
         )
         assertEquals("0123456789abcdef0123456789abcdef01234567", stored.commit)
+    }
+
+    /**
+     * The stamp comes from the caller, taken when the request arrived, and is not read off the clock
+     * inside the read action. That distinction is the whole ordering guard: `buildAnswer` runs on a
+     * pooled thread whenever the read action gets scheduled, so a stamp taken there would order two
+     * answers by which one finished rather than by which one was asked for.
+     *
+     * The stamp used here is a date in 2023, so it can never coincide with a clock reading and the
+     * assertion cannot pass by accident. The remark id names nothing in the store on purpose: this is
+     * about the four fields set before the lookup, and no anchor work is needed to see them.
+     */
+    fun testTheAnswerCarriesTheStampTakenWhenTheRequestArrived() {
+        val built = buildAnswer(project, "r-not-in-the-store", "an answer", 1_700_000_000_000L)
+
+        assertEquals(1_700_000_000_000L, built.answeredAt)
+    }
+
+    /**
+     * The race itself, over the real store route. `reportAnswer` accepts the POST and then does its
+     * work asynchronously, so two answers for one remark can reach `recordAnswer` in either order.
+     * Here the later request's answer is stored first and the earlier request's answer arrives after
+     * it — a completion order the executor is free to produce and this test forces by hand, since two
+     * real `reportAnswer` calls cannot be made to finish in a chosen order.
+     *
+     * Without the stamp comparison the store would keep whichever landed last, so the person would
+     * read the first body after asking a second time.
+     */
+    fun testAnAnswerFinishingLateDoesNotOverwriteANewerOne() {
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
+        val first = buildAnswer(project, remark.id!!, "the first body", nextReceivedAt())
+        val second = buildAnswer(project, remark.id!!, "the second body", nextReceivedAt())
+
+        recordAnswer(project, second)
+        recordAnswer(project, first)
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertEquals("the second body", answers().single().markdown)
+    }
+
+    /**
+     * Two requests inside the same millisecond must still come out in the order they arrived. A plain
+     * clock reading would give both the same number, and the store's comparison would then have
+     * nothing to separate them — the tie would be settled by whichever read action finished first,
+     * which is the defect. A thousand calls in a row take far less than a thousand milliseconds, so
+     * the clock cannot supply a distinct value for each one and the bump has to.
+     */
+    fun testStampsTakenInTheSameMillisecondAreStillDistinctAndInOrder() {
+        val stamps = (1..1_000).map { nextReceivedAt() }
+
+        assertEquals(stamps.size, stamps.distinct().size)
+        assertEquals(stamps.sorted(), stamps)
     }
 
     private fun record(vararg ids: String) =

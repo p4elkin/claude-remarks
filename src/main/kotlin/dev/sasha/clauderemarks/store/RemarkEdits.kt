@@ -177,6 +177,11 @@ fun setRemarkAsksForAnswer(project: Project, ids: Collection<String>, asksForAns
  *
  * A replaced answer is not archived, the same way [editRemark] overwrites a remark's text without
  * archiving it. The archive covers a deletion the person asked for, not a rewrite.
+ *
+ * The upsert can also decline: an answer whose `answeredAt` is older than the one already stored for
+ * that remark is dropped, so two requests in flight at once cannot end with the older body winning
+ * because it finished last. Nothing is reported when that happens — the newer answer is already
+ * stored and is the one the person wants. See `RemarkStore.RemarksState.putAnswer`.
  */
 fun recordAnswer(project: Project, answer: AnswerState) {
     RemarkStore.getInstance(project).putAnswer(answer)

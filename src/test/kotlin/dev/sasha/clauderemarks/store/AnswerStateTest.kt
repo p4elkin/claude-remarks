@@ -148,6 +148,44 @@ class AnswerStateTest {
         assertEquals("the second try", stored.single().markdown)
     }
 
+    /**
+     * The race, from the store's side. Two `answer` requests for the same remark are two asynchronous
+     * pipelines in flight at once, and they can finish in either order — so the store is handed the
+     * newer answer first and the older one second. Without the stamp comparison in `putAnswer` the
+     * second write would win simply for arriving second, and the person would read the stale body
+     * with nothing to show it had happened.
+     *
+     * The two stamps are the arrival stamps, not build times: `answeredAt` is taken when the request
+     * was accepted, which is what makes "older" mean "asked for earlier" here.
+     */
+    @Test
+    fun `an answer that arrived earlier does not overwrite one that arrived later`() {
+        val state = RemarkStore.RemarksState()
+        state.putAnswer(answer(id = "a-2", remarkId = "r-1", markdown = "the second try", answeredAt = 200L))
+
+        state.putAnswer(answer(id = "a-1", remarkId = "r-1", markdown = "the first try", answeredAt = 100L))
+
+        val stored = state.answersSnapshot()
+        assertEquals(1, stored.size)
+        assertEquals("a-2", stored.single().id)
+        assertEquals("the second try", stored.single().markdown)
+    }
+
+    /**
+     * The other direction, and the promise the guard must not break: re-asking a question still
+     * replaces its answer. A refusal that also turned this case away would quietly kill the whole
+     * re-ask story, which is the reason replacement is keyed on the remark in the first place.
+     */
+    @Test
+    fun `an answer that arrived later still replaces the one already stored`() {
+        val state = RemarkStore.RemarksState()
+        state.putAnswer(answer(id = "a-1", remarkId = "r-1", markdown = "the first try", answeredAt = 100L))
+
+        state.putAnswer(answer(id = "a-2", remarkId = "r-1", markdown = "the second try", answeredAt = 200L))
+
+        assertEquals("the second try", state.answersSnapshot().single().markdown)
+    }
+
     /** The other half: the key is the remark, so two questions keep two answers. */
     @Test
     fun `an answer for a different remark sits beside the first`() {

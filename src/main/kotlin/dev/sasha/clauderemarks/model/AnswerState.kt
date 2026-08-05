@@ -54,6 +54,15 @@ class AnswerState : BaseState() {
     /** The answer body, as markdown. Rendered to HTML only when the popup opens. */
     var markdown by string()
 
+    /**
+     * When the `answer` request arrived, in wall-clock milliseconds — not when the answer was built.
+     *
+     * The Answers group sorts newest first on it, and it does a second job that is easy to undo by
+     * accident: it is the field `RemarkStore.RemarksState.putAnswer` compares to refuse an older
+     * answer replacing a newer one, so two answers to the same question end up ordered by which was
+     * asked for rather than by which pipeline finished first. `review/AnswerReceipt.kt` stamps it
+     * through `nextReceivedAt`, which never hands out the same value twice.
+     */
     var answeredAt by property(0L)
 
     /** Empty for an answer to a general remark, and for an answer whose remark was already gone. */

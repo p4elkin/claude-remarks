@@ -30,6 +30,7 @@ import java.util.UUID
 import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * What the `answer` action found before it accepted anything. OK is the ordinary case: the nonce
@@ -60,6 +61,16 @@ internal enum class AnswerOutcome { OK, UNKNOWN_BATCH, UNKNOWN_REMARK }
  * `status` field and no review phase; it writes only to a list nothing else writes. There is nothing
  * for it to race with a publish that is still finishing.
  *
+ * **It can still race another answer to the same question**, and that one is guarded here. Two
+ * `answer` POSTs for the same remark, close together, are two of these pipelines in flight at once,
+ * and the store's upsert replaces on `remarkId` — so whichever pipeline finishes last would win, no
+ * matter which request arrived first. That would silently overwrite a newer answer with an older
+ * one, and replacement on `remarkId` is exactly the mechanism re-asking rests on. The stamp is
+ * therefore taken **here, before anything is scheduled** ([nextReceivedAt]), and carried into
+ * [buildAnswer] as the answer's `answeredAt`; `RemarkStore.RemarksState.putAnswer` then refuses a
+ * write whose stamp is older than the one already stored. Ordering is decided by arrival, and
+ * completion order stops mattering.
+ *
  * **This never touches [WaitingReviewService].** The action is keyed to a published batch's nonce
  * exactly the way `published-read` is, so it works with no review ever started — which is the
  * ordinary case for a question asked through the Ask Claude gesture.
@@ -79,12 +90,17 @@ internal fun reportAnswer(
         BatchLookup.UNKNOWN_REMARK -> return AnswerOutcome.UNKNOWN_REMARK
         BatchLookup.OK -> Unit
     }
-    ReadAction.nonBlocking<AnswerState> { buildAnswer(project, remarkId, markdown) }
+    // Before anything is scheduled: this is the request's place in line, and the whole point is
+    // that it is fixed now rather than whenever the read action happens to finish.
+    val receivedAt = nextReceivedAt()
+    ReadAction.nonBlocking<AnswerState> { buildAnswer(project, remarkId, markdown, receivedAt) }
         .expireWith(project)
         .finishOnUiThread(ModalityState.defaultModalityState()) { answer ->
             // recordAnswer goes through the store's upsert, so THIS is the moment a second answer
             // for the same remark replaces the first — with the fresh anchor buildAnswer just
-            // captured, so the replacement points at where the code is now.
+            // captured, so the replacement points at where the code is now. The upsert compares
+            // `answeredAt`, so an answer that gets here after a newer one already landed is
+            // dropped there rather than overwriting it.
             recordAnswer(project, answer)
             // One sentence, not the answer itself: an answer is paragraphs and a balloon is a line.
             announceAnswer(project)
@@ -107,6 +123,36 @@ internal fun reportAnswer(
             }
         }
     return AnswerOutcome.OK
+}
+
+private val LAST_RECEIVED_AT = AtomicLong(0L)
+
+/**
+ * The stamp that fixes one answer request's place in line, taken the moment the request is accepted.
+ *
+ * Wall-clock milliseconds, because it is also the answer's `answeredAt` — the field the Answers group
+ * sorts newest-first on and the field the history archive prints. Reusing it is why this fix adds no
+ * property to [AnswerState]: a second field ordering the same records would be a second thing to
+ * serialize, to migrate and to keep in step with the first.
+ *
+ * **Strictly increasing, not merely non-decreasing**, and that is the part worth reading twice. Two
+ * requests can land inside the same millisecond, and `System.currentTimeMillis()` would then hand both
+ * the same number — leaving the tie to be settled by whichever read action finished first, which is
+ * the race this whole guard exists to remove. So the value is bumped past the last one handed out when
+ * the clock has not moved: every accepted request gets a number nothing else has, in arrival order.
+ * The same bump is what keeps ordering sane when the system clock steps backwards.
+ *
+ * One counter for the whole application rather than one per project. The numbers are only ever
+ * compared between answers to the same remark, which is inside one project by construction, so a
+ * shared counter costs nothing and needs no per-project service to live in.
+ */
+internal fun nextReceivedAt(): Long {
+    while (true) {
+        val previous = LAST_RECEIVED_AT.get()
+        val now = System.currentTimeMillis()
+        val next = if (now > previous) now else previous + 1
+        if (LAST_RECEIVED_AT.compareAndSet(previous, next)) return next
+    }
 }
 
 /**
@@ -166,13 +212,24 @@ private fun announceAnswer(project: Project) {
  * rather than whatever its remark has already spent. [freshAnchorFor] returns null for the two cases
  * that have nothing fresh to capture — a general remark, and one whose code is gone — and then the
  * remark's stored fields are copied as they are.
+ *
+ * **[receivedAt] is a parameter and has no default**, so nobody can build an answer without saying
+ * where its place in line came from. It is taken by [reportAnswer] through [nextReceivedAt] when the
+ * request arrives, not read from the clock here: this function runs on a pooled thread whenever the
+ * read action gets scheduled, and a stamp taken at that moment would order two answers by completion
+ * rather than by arrival — which is the whole defect.
  */
-internal fun buildAnswer(project: Project, remarkId: String, markdown: String): AnswerState {
+internal fun buildAnswer(
+    project: Project,
+    remarkId: String,
+    markdown: String,
+    receivedAt: Long,
+): AnswerState {
     val answer = AnswerState().also {
         it.id = UUID.randomUUID().toString()
         it.remarkId = remarkId
         it.markdown = markdown
-        it.answeredAt = System.currentTimeMillis()
+        it.answeredAt = receivedAt
     }
     // all(), not a mutator: guard 3 in CLAUDE.md exempts it by name as a read-only accessor.
     val remark = RemarkStore.getInstance(project).all().firstOrNull { it.id == remarkId }

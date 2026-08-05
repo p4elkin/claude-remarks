@@ -2506,6 +2506,42 @@ session cannot tell that from new work. That was observed live: two presses, the
 nonces `3c926fc7` and `8893a879`. What it costs after replacement is one duplicated answering turn,
 not a duplicated row.
 
+**Replacement is ordered by when the request arrived, not by when its answer finished building.**
+`reportAnswer` accepts the POST and answers the caller straight away, then does the work of building
+the answer asynchronously, so two `answer` requests for the same remark can be two pipelines in
+flight at once and can finish in either order. Left alone, the upsert above would keep whichever
+finished last — an older body could overwrite a newer one silently, and the person would read the
+wrong answer with nothing to show it had happened. That is precisely the promise re-asking rests on,
+broken in the direction that looks like nothing went wrong.
+
+The fix is one number, taken at the one moment that carries the request's real order:
+
+- `reportAnswer` calls `nextReceivedAt()` **before it schedules anything**, and passes the value into
+  `buildAnswer` as the answer's `answeredAt`. The field already existed — the Answers group sorts
+  newest first on it — so nothing new is serialized, nothing needs migrating, and the stamp still
+  means what it used to mean to within a few milliseconds.
+- `putAnswer` refuses a write whose `answeredAt` is older than the stamp already stored for that
+  remark. The comparison sits inside the same `@Synchronized` method as the removal, because reading
+  the stored stamp outside the lock would be the same race one level up.
+- `nextReceivedAt()` is strictly increasing, not just non-decreasing: when the clock has not moved it
+  hands out the previous value plus one. Without that, two requests inside the same millisecond would
+  carry the same number, and the tie would fall back to whichever pipeline finished first — the exact
+  thing being removed. It also keeps ordering sane when the system clock steps backwards.
+- Equal stamps still replace. That cannot happen through the endpoint, and refusing it would make two
+  records written by hand with the same stamp quietly do nothing.
+
+`AnswerReceiptTest` pins all three parts: the stamp comes from the caller and not from a clock read
+inside the read action, an answer landing after a newer one does not overwrite it, and a thousand
+stamps taken in a row are distinct and ascending.
+
+**The other asynchronous paths do not have this shape.** `RemarksToolWindowFactory.refresh` and
+`RemarkGutter.scheduleSync` both use `coalesceBy`, so the platform drops the older submission before
+it can land, and the gutter additionally throws away a result whose document modification stamp has
+moved. `AnswerPopup.showAnswerPopup` and `ClassNameInsert.chooseClassName` write no shared state at
+all; each completion belongs to the one gesture that started it. An answer is the one case that must
+*not* coalesce — every request carries different data that has to be stored — which is why it needs an
+ordering stamp instead.
+
 `removeAnswer` takes the **answer's own id**, not the `remarkId` `putAnswer` keys on. Deleting a row
 in the Answers group names the answer it is looking at, and mirroring `removeRemark(id)` keeps the
 two delete paths the same shape.

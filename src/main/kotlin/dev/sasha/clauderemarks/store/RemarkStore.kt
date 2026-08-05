@@ -199,9 +199,28 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
          *
          * A replaced answer is not archived, which matches [editRemark] overwriting a remark's text
          * with no archive either. The clear-then-archive rule covers a deletion the person asked for.
+         *
+         * **An older answer never replaces a newer one.** Two `answer` requests for the same remark,
+         * arriving close together, are two asynchronous pipelines in flight at once
+         * (`review/AnswerReceipt.kt`), and without this line the one that happened to finish last
+         * would win — so a stale body could overwrite the fresh one with nothing to show it had
+         * happened, and the person would read the wrong answer. `answeredAt` is the arrival stamp,
+         * taken when the request was accepted rather than when its answer was built, so comparing it
+         * here restores request order. It is strictly increasing per request, so two answers can
+         * never carry the same stamp and the comparison never has a tie to settle by luck.
+         *
+         * The comparison sits inside this method, under the same lock as the removal, because the
+         * two together have to be one step: read the stored stamp outside, and the answer being
+         * compared against can be replaced before this write lands.
+         *
+         * Equal stamps still replace. That case cannot come from the endpoint at all, and treating
+         * it as a refusal would mean two records written by hand with the same stamp — a test, or a
+         * future caller with its own stamping scheme — silently doing nothing.
          */
         @Synchronized
         fun putAnswer(answer: AnswerState) {
+            val stored = answers.firstOrNull { it.remarkId == answer.remarkId }
+            if (stored != null && stored.answeredAt > answer.answeredAt) return
             answers.removeIf { it.remarkId == answer.remarkId }
             answers.add(answer)
             incrementModificationCount()
