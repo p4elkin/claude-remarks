@@ -160,7 +160,7 @@ marked.
 | 4 | Take the Severity submenu out of the shared menu | complete |
 | 5 | Delete the tag and severity fields | complete |
 | 6 | Check whether the internal-API subtraction can leave the build file | complete |
-| 7 | Real descriptions on the six toolbar buttons | not started |
+| 7 | Real descriptions on the six toolbar buttons | complete |
 | 8 | The asksForAnswer flag, and the function that sets it | not started |
 | 9 | The shared menu gets Publish and Ask for an Answer | not started |
 | 10 | The Ask Claude action, its intention and its menu item | not started |
@@ -490,10 +490,10 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/ui/RemarksToolWindowFactory.kt` (the `ToolbarAction` inner class constructor and its `DumbAwareAction(text, text, icon)` call, and the six `ToolbarAction(...)` constructions in `toolbarActions()`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksPanelTest.kt`
 
-- [ ] add a test that every toolbar action's description differs from its own text — assert they differ rather than asserting the exact wording, so the table stays prose and not a fixture
-- [ ] give `ToolbarAction` a `description` parameter and pass it through to `DumbAwareAction(text, description, icon)`
-- [ ] write the six descriptions from the plan's own table, saying what each button takes rather than repeating its name — Clear Handed Over says answers are kept, Clear All says it takes them
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest'` - must pass before task 8
+- [x] add a test that every toolbar action's description differs from its own text — assert they differ rather than asserting the exact wording, so the table stays prose and not a fixture
+- [x] give `ToolbarAction` a `description` parameter and pass it through to `DumbAwareAction(text, description, icon)`
+- [x] write the six descriptions from the plan's own table, saying what each button takes rather than repeating its name — Clear Handed Over says answers are kept, Clear All says it takes them
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest'` - must pass before task 8
 
 ### Task 8: The asksForAnswer flag, and the function that sets it
 

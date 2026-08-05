@@ -280,6 +280,26 @@ class RemarksPanelTest : BasePlatformTestCase() {
     }
 
     /**
+     * Every toolbar action's description differs from its own text — not a repeat of the button name.
+     * This is what the user sees when hovering over the button.
+     */
+    fun testEveryToolbarActionDescriptionDiffersFromItsText() {
+        val panel = panel()
+
+        val actions = panel.toolbarActions().getChildren(null)
+        for (action in actions) {
+            val text = action.templatePresentation.text.orEmpty()
+            val description = action.templatePresentation.description.orEmpty()
+
+            assertFalse("Action '$text' has an empty description", description.isEmpty())
+            assertTrue(
+                "Description should differ from the button text for '$text'",
+                text != description
+            )
+        }
+    }
+
+    /**
      * Publish Unread's enablement is "not yet READ", not "still PENDING". A remark published but
      * never acknowledged is exactly the case this button exists for, and gating it on PENDING would
      * grey the button out just when a person wants to hand the remarks over again.

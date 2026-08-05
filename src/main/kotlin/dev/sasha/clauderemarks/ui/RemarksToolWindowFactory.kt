@@ -409,10 +409,11 @@ class RemarksPanel(
      */
     private inner class ToolbarAction(
         text: String,
+        description: String,
         icon: Icon,
         private val enabled: () -> Boolean,
         private val onPress: () -> Unit,
-    ) : DumbAwareAction(text, text, icon) {
+    ) : DumbAwareAction(text, description, icon) {
         override fun getActionUpdateThread() = ActionUpdateThread.EDT
         override fun update(e: AnActionEvent) {
             e.presentation.isEnabled = enabled()
@@ -454,7 +455,7 @@ class RemarksPanel(
      * whole point of a remark about no file.
      */
     internal fun toolbarActions(): ActionGroup = DefaultActionGroup(
-        ToolbarAction("Add General Remark", AllIcons.General.Add, { true }) {
+        ToolbarAction("Add General Remark", "Add a remark about the whole change", AllIcons.General.Add, { true }) {
             openGeneralRemarkInput(project, tree)
         },
         // Upload, not Copy: the button stopped being a copy in phase 9, when publishing gained the
@@ -464,18 +465,20 @@ class RemarksPanel(
         // the meaning rather than the control that went away.
         ToolbarAction(
             "Publish Unread",
+            "Send unread remarks to Claude Code",
             AllIcons.Actions.Upload,
             { remarks().any { it.status != RemarkStatus.READ } },
         ) { publishRemarks(project, null) },
         ToolbarAction(
             "Publish Selected",
+            "Send the selected remarks to Claude Code",
             AllIcons.Actions.InSelection,
             { selectedIds().isNotEmpty() },
         ) { publishRemarks(project, selectedIds()) },
-        ToolbarAction("Clear Handed Over", AllIcons.Actions.GC, { handedOverCount() > 0 }) {
+        ToolbarAction("Clear Handed Over", "Remove handed-over remarks, keeping answers", AllIcons.Actions.GC, { handedOverCount() > 0 }) {
             confirmClearHandedOver()
         },
-        ToolbarAction("Clear All", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
+        ToolbarAction("Clear All", "Remove all remarks and answers", AllIcons.Actions.Cancel, { remarks().isNotEmpty() }) {
             confirmClearAll()
         },
         // notifyRemarksChanged, not refresh(): this panel's own subscription rebuilds the tree
@@ -483,7 +486,7 @@ class RemarksPanel(
         // switch, a VCS revert, an external edit) already publishes this on its own now — both
         // the gutter and this tree re-resolve without any button — so Refresh is left as the
         // manual catch-all for anything else that could leave either view stale.
-        ToolbarAction("Refresh", AllIcons.Actions.Refresh, { true }) {
+        ToolbarAction("Refresh", "Re-resolve remarks against the current text", AllIcons.Actions.Refresh, { true }) {
             notifyRemarksChanged(project)
         },
     )
