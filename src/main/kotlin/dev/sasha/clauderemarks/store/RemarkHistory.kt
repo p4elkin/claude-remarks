@@ -91,14 +91,7 @@ internal fun renderHistory(
     append("\n## cleared ").append(WHEN.format(Instant.ofEpochMilli(now))).append("\n")
     remarks.forEach { remark ->
         append("\n- ")
-        appendPosition(
-            isAboutNoFile(remark),
-            remark.path,
-            remark.startLine,
-            remark.endLine,
-            remark.startColumn,
-            remark.endColumn,
-        )
+        appendPosition(storedAnchorOf(remark), GENERAL_HEADING)
         // Flattened, because the heading is one line and the bucket is the only free-form field on
         // it. setRemarkBucket trims the ends but does not touch an inner newline, and a newline here
         // would put whatever follows it at document level, outside the indent that protects the text
@@ -117,33 +110,50 @@ internal fun renderHistory(
     if (answers.isNotEmpty()) {
         append("\n### answers\n")
         answers.forEach { answer ->
+            val question = answer.question.orEmpty()
             append("\n- ")
+            // Two different reasons an answer carries no path, and they must not read the same. A
+            // general remark never had a file. An answer whose remark was deleted between the
+            // publish and the answer had one and lost it, and calling that "(general)" says
+            // something that was never true. The question is what tells the two apart: buildAnswer
+            // copies the remark's text, so an answer with no question is one whose remark was gone.
             appendPosition(
-                isAboutNoFile(answer),
-                answer.path,
-                answer.startLine,
-                answer.endLine,
-                answer.startColumn,
-                answer.endColumn,
+                storedAnchorOf(answer),
+                if (question.isBlank()) DELETED_QUESTION_HEADING else GENERAL_HEADING,
             )
             answer.commit?.let { append(" — commit ").append(it.take(8)) }
             append("\n\n")
             // The question first, then the body, both indented, with a plain label line between them
             // so the two blocks can be told apart. The label is our own literal text and the two
             // blocks are not, which is the whole reason the label is the only thing written flat.
-            appendIndented(answer.question.orEmpty())
+            //
+            // A blank question is written as a sentence rather than as itself: appendIndented on an
+            // empty string writes one line of six spaces, which reads as a stray blank line and says
+            // nothing at all about the question having been lost.
+            appendIndented(question.ifBlank { "(the question was deleted before the answer arrived)" })
             append("\n  answered:\n\n")
             appendIndented(answer.markdown.orEmpty())
         }
     }
 }
 
+/** What a record about no file gets instead of a path and a line range. */
+private const val GENERAL_HEADING = "**(general)**"
+
+/** The other reason an answer can have no path: its remark went before the answer arrived. */
+private const val DELETED_QUESTION_HEADING = "**(the remark was already deleted)**"
+
 /**
  * The heading's position, written the same way for a remark and for an answer.
  *
- * "(general)" is the same word `render/PromptRenderer.kt`'s "## General" heading and
- * `ui/RemarksTree.kt`'s GENERAL_KEY group use for a record about no file: there is no file and no
- * line range, so [positionLabel] has nothing to describe.
+ * One [StoredAnchor] rather than six loose values, and the "about no file" question asked of its own
+ * path rather than passed in beside it. Both call sites threaded six positional arguments through,
+ * where swapping `startColumn` and `endColumn` would have compiled.
+ *
+ * [noFileLabel] is what to write when there is no path: "(general)" for a record that never had a
+ * file, which is the same word `render/PromptRenderer.kt`'s "## General" heading and
+ * `ui/RemarksTree.kt`'s GENERAL_KEY group use, and something else for an answer whose remark was
+ * deleted in between.
  *
  * Otherwise the same [positionLabel] the tree row draws, shared rather than copied: a history entry
  * and a tree row describing one record must read the same way. Read straight off what was STORED,
@@ -151,19 +161,12 @@ internal fun renderHistory(
  * tree there is no AnchorResult and no orphaned case to skip. A history entry's stored columns are
  * the only columns it has ever had.
  */
-private fun StringBuilder.appendPosition(
-    aboutNoFile: Boolean,
-    path: String?,
-    startLine: Int,
-    endLine: Int,
-    startColumn: Int,
-    endColumn: Int,
-) {
-    if (aboutNoFile) {
-        append("**(general)**")
+private fun StringBuilder.appendPosition(stored: StoredAnchor, noFileLabel: String) {
+    if (stored.path.isNullOrEmpty()) {
+        append(noFileLabel)
     } else {
-        append("**").append(path).append("** lines ")
-            .append(positionLabel(startLine, endLine, startColumn, endColumn))
+        append("**").append(stored.path).append("** lines ")
+            .append(positionLabel(stored.startLine, stored.endLine, stored.startColumn, stored.endColumn))
     }
 }
 

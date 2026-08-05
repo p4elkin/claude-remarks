@@ -590,6 +590,61 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         assertTrue(RemarkStore.getInstance(project).allAnswers().isEmpty())
     }
 
+    /**
+     * The cap is on the UTF-8 byte length, and the boundary is where that matters: one byte under it
+     * is accepted and one byte over it is refused. The 20 000-character body above is far enough over
+     * to pass whether the cap counts bytes or characters, and whether it is `>` or `>=`.
+     */
+    fun testTheAnswerSizeCapIsCheckedAtItsExactBoundary() {
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+
+        val atTheLimit = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "x".repeat(MAX_ANSWER_BYTES)))
+        settleInvocationQueue()
+        assertTrue(atTheLimit, atTheLimit.contains("\"ok\""))
+
+        val oneOver = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "x".repeat(MAX_ANSWER_BYTES + 1)))
+        settleInvocationQueue()
+        assertTrue(oneOver, oneOver.contains("\"too-large\""))
+    }
+
+    /**
+     * A two-byte character counts as two. Counting characters instead would let a body of
+     * MAX_ANSWER_BYTES multi-byte characters through at twice the intended size, and the cap is about
+     * what lands in workspace.xml.
+     */
+    fun testTheAnswerSizeCapCountsBytesAndNotCharacters() {
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+
+        // Half the cap in characters, the whole cap plus two bytes in UTF-8.
+        val body = "ä".repeat(MAX_ANSWER_BYTES / 2 + 1)
+        val sent = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, body))
+        settleInvocationQueue()
+
+        assertTrue(sent, sent.contains("\"too-large\""))
+    }
+
+    /** The `answer` action requires a session the same way `published-read` does, even though
+     *  nothing reads it: a caller that omits the field is told so rather than silently accepted. */
+    fun testAnAnswerWithABlankSessionAnswersBadRequest() {
+        val sent = post(
+            "/api/claude-remarks/answer",
+            """{"session":"  ","project":"${projectPath()}","nonce":"n1","remarkId":"r1","answer":"because"}""",
+        )
+
+        assertTrue(sent, sent.contains("\"bad-request\""))
+    }
+
+    fun testAnAnswerWithNoSessionAtAllAnswersBadRequest() {
+        val sent = post(
+            "/api/claude-remarks/answer",
+            """{"project":"${projectPath()}","nonce":"n1","remarkId":"r1","answer":"because"}""",
+        )
+
+        assertTrue(sent, sent.contains("\"bad-request\""))
+    }
+
     fun testAnAnswerWithNoRemarkIdAnswersBadRequest() {
         val sent = post(
             "/api/claude-remarks/answer",

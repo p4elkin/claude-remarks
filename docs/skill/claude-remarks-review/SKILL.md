@@ -303,6 +303,11 @@ listen_base_url="http://$listen_host:$listen_port/api/claude-remarks"
 # second on a batch that was already handled, and nothing is listening afterwards. That has happened
 # twice in one day.
 listen_seen=
+# Line 6 and line 8 of the same header, read at the same time. Line 2 alone says WHICH batch is
+# pending; these two say whether this session may claim it at all. Reading the nonce without them is
+# how a startup claim closed somebody else's review — see the check below the fetch.
+listen_review=
+listen_rejected=
 if [ -n "$listen_remote" ]; then
   # No local file to read over a tunnel, so a session-less fetch is what carries the pending
   # batch's nonce back. An absent session means "any batch", which is what a listener wants.
@@ -315,6 +320,11 @@ if [ -n "$listen_remote" ]; then
   case "$listen_fetch_status" in
     ready)
       listen_seen=$(jq -r '.nonce // empty' "$listen_fetch_resp")
+      # The response body carries the whole published file, header included, so the same three
+      # header lines are read here as on the local branch. Discarding .content and keeping only
+      # .nonce is what used to leave the remote claim blind to lines 6 and 8.
+      listen_review=$(jq -r '.content // empty' "$listen_fetch_resp" | sed -n '6p')
+      listen_rejected=$(jq -r '.content // empty' "$listen_fetch_resp" | sed -n '8p')
       ;;
     no-review)
       echo "nothing has ever been published for $listen_project — arming with no --seen"
@@ -332,11 +342,44 @@ if [ -n "$listen_remote" ]; then
 elif [ -f "$listen_file" ]; then
   listen_line=$(sed -n '2p' "$listen_file")
   case "$listen_line" in "nonce: "*) listen_seen=${listen_line#"nonce: "} ;; esac
+  listen_review=$(sed -n '6p' "$listen_file")
+  listen_rejected=$(sed -n '8p' "$listen_file")
 fi
+
+# May this session claim the pending batch at all? Two header lines say no, and the exit-0 path
+# further down already refuses both for the same reasons — the startup claim used to be the one
+# place that did not look.
+#
+# Line 6 is not `review: none`: the batch answers somebody's review. Claiming it is answered `ok`,
+# which ends that review in the IDE, clears its banner, marks its remarks READ, and leaves the
+# session that actually started the review getting `no-review` for its own `ack read`. The review's
+# own acknowledgement is what should mark those, never this mode.
+#
+# Line 8 is `rejected: yes`: the batch is a rejection, carrying no remarks. There is nothing to mark
+# read, so there is nothing to claim.
+#
+# In both cases the nonce is KEPT and passed as --seen, so the watcher waits for the next batch
+# rather than reporting this one all over again.
+# A header line that could not be read at all is also a no. If line 6 is missing the file is not one
+# this plugin wrote, or it is older than the eight-line header, and neither is something to claim on.
+listen_claimable=yes
+listen_why=
+case "$listen_review" in
+  "review: none") ;;
+  "") listen_claimable= ; listen_why="its header could not be read (no line 6)" ;;
+  *) listen_claimable= ; listen_why="it answers a review this session did not start ($listen_review)" ;;
+esac
+case "$listen_rejected" in
+  "rejected: yes") listen_claimable= ; listen_why="it is a rejection and carries no remarks" ;;
+esac
 
 # The startup claim. `published-read` is the claim: it is atomic in the IDE, so exactly one of the
 # sessions listening to this repository is answered ok and that one is the one that acts.
-if [ -n "$listen_seen" ] && [ -n "$listen_token" ]; then
+if [ -n "$listen_seen" ] && [ -z "$listen_claimable" ]; then
+  echo "a batch is pending (nonce $listen_seen) and this session is not claiming it, because"
+  echo "$listen_why. Say that plainly, act on nothing, and arm the watcher with --seen so it waits"
+  echo "for the NEXT batch."
+elif [ -n "$listen_seen" ] && [ -n "$listen_token" ]; then
   listen_claim_resp=$(mktemp)
   listen_claim_body=$(jq -n --arg session "$listen_session" --arg project "$listen_project" \
     --arg nonce "$listen_seen" '{session:$session, project:$project, nonce:$nonce}')
@@ -350,6 +393,20 @@ if [ -n "$listen_seen" ] && [ -n "$listen_token" ]; then
   listen_claim_session=$(jq -r '.session // empty' "$listen_claim_resp" 2>/dev/null)
   echo "startup claim on nonce $listen_seen: http $listen_claim_code, status ${listen_claim_answer:-unknown}${listen_claim_session:+, held by $listen_claim_session}"
   rm -f "$listen_claim_resp"
+  # A claim that never reached the IDE — a stale token answered 403, a dead tunnel, an http 000 with
+  # no status at all — tells us nothing about whether the batch was handled. Arming with --seen set
+  # to its nonce would then skip it for good, silently. Arming with an empty --seen instead makes the
+  # watcher report it on its first poll, which is the honest answer: nobody knows, so look at it.
+  case "$listen_claim_code" in
+    2??) ;;
+    *)
+      echo "the claim did not reach the IDE (http $listen_claim_code). Nobody can say whether that"
+      echo "batch was handled, so it is NOT being skipped: arming with an empty --seen, which makes"
+      echo "the watcher report it on its first poll. Say so, and say the token or the tunnel may be"
+      echo "the reason."
+      listen_seen=
+      ;;
+  esac
 elif [ -n "$listen_seen" ]; then
   echo "a batch is pending (nonce $listen_seen) and there is no token to claim it with — no IDE has"
   echo "this project open. Say that plainly, do not act on the batch, and arm the watcher anyway."
@@ -379,6 +436,8 @@ fi
 | `already-read` | another session got there first, and the answer names it | skip the batch and name the session that holds it. Do not read it, do not answer its marked remarks. Then go on listening |
 | `unknown-batch` | it fell off the IDE's remembered sixteen, or the IDE restarted since it was published | nobody can confirm whether it was handled. Surface it, and **say plainly that it may already have been done** rather than presenting it as fresh |
 | no nonce at all | nothing has ever been published for this project | nothing to claim. Arm the watcher with an empty `--seen` and wait |
+| no claim was made at all | the block refused to claim: line 6 names a review this session did not start, or line 8 says `rejected: yes`, or the header could not be read | say which of the three it was, act on nothing, acknowledge nothing, and go on listening. The nonce is still passed as `--seen`, so the watcher waits for the next batch |
+| any non-2xx http code | the claim never reached the IDE — a stale token, a dead tunnel, `http 000` with no status | nobody can say whether the batch was handled. The block already cleared `--seen`, so the watcher will report the batch on its first poll; say that, and say the token or the tunnel is the likely reason |
 
 **A batch landing between the read and the arming is not lost.** The watcher is armed with `--seen`
 set to the nonce just read, so a newer batch carries a different nonce and the watcher reports it on

@@ -82,7 +82,9 @@ data class RemarkNode(
 )
 
 /**
- * One answer row. Everything the row needs to draw itself and to open its popup.
+ * One answer row. Everything the row needs to draw itself and to open its popup, and nothing else:
+ * an answer row does not navigate, so it carries no path and no line to navigate to, and the
+ * question it answers is read off the store rather than duplicated here.
  *
  * [position] and [fileName] are both empty for an answer to a general remark: such an answer has no
  * file, so there is no position to print and no file name to print beside it. Every other answer
@@ -93,15 +95,11 @@ data class RemarkNode(
  */
 data class AnswerNode(
     val id: String,
-    val remarkId: String,
-    val path: String,
     val position: String,
     val fileName: String,
     val firstLine: String,
-    val question: String,
     val markdown: String,
     val answeredAt: Long,
-    val startLine: Int,
 )
 
 /**
@@ -139,15 +137,11 @@ fun answerNode(row: ResolvedAnswer): AnswerNode {
     val label = movedOrOrphanedLabel(row.result, answer.startLine, answer.endLine, answer.commit)
     return AnswerNode(
         id = answer.id.orEmpty(),
-        remarkId = answer.remarkId.orEmpty(),
-        path = path,
         position = if (general) "" else rowPosition(row.result, row.startColumn, row.endColumn) + label,
         fileName = if (general) "" else path.substringAfterLast('/'),
         firstLine = firstLineOf(answer.markdown),
-        question = answer.question.orEmpty(),
         markdown = answer.markdown.orEmpty(),
         answeredAt = answer.answeredAt,
-        startLine = row.result.startLine,
     )
 }
 
@@ -271,7 +265,12 @@ fun buildTreeRoot(
 ): DefaultMutableTreeNode {
     val root = DefaultMutableTreeNode("remarks")
 
-    val answerRows = answers.filter { it.answer.id != null }
+    // Filtered once, then used twice. An answer with no id draws no row — the same rule a remark
+    // with no id follows below — so it must not flip its remark's suffix from "asks" to "answered"
+    // either: a row saying the question was answered, with no answer anywhere to open, is worse
+    // than the row saying nothing.
+    val withIds = answers.filter { it.answer.id != null }
+    val answerRows = withIds
         .map(::answerNode)
         .sortedByDescending { it.answeredAt }
     if (answerRows.isNotEmpty()) {
@@ -283,7 +282,7 @@ fun buildTreeRoot(
     // Which remarks already have an answer, so a marked row can say "answered" rather than "asks".
     // Read off the answers this same rebuild resolved, not from the store again: the two views must
     // agree, and the answer's own remarkId is the only link between them.
-    val answered = answers.mapNotNull { it.answer.remarkId }.toSet()
+    val answered = withIds.mapNotNull { it.answer.remarkId }.toSet()
 
     // Split on the stored remark, then map and sort each side, rather than mapping first and asking
     // the node. Same rows in the same order either way — partition keeps order and the sort is

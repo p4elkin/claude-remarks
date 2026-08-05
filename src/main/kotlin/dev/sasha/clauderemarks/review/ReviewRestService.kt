@@ -191,7 +191,7 @@ private const val MAX_PUBLISHED_BYTES = 1_048_576L
  * Refused rather than truncated, the same argument [MAX_PUBLISHED_BYTES] makes in the other
  * direction: a markdown document cut in the middle looks complete to whoever reads it next.
  */
-private const val MAX_ANSWER_BYTES = 16_384
+internal const val MAX_ANSWER_BYTES = 16_384
 
 /**
  * The skill declares how long it will wait. The number arrives over HTTP, so it is bounded here,

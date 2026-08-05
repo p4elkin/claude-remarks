@@ -704,6 +704,11 @@ popup must `Disposer.register(popup, pane)`.
 
 ### Task 23: watch-remarks.sh — fetch without a session, and nothing that kills another watcher
 
+> Tasks 23, 24 and 25 below are the spliced replacements for the three the plan originally carried.
+> `docs/plans/20260805-phase11-task-23-25-replacement.md` is the record of what changed in them and
+> why — the reasoning that produced these three, kept beside the plan rather than folded into it.
+> The three tasks as executed are the ones written out here.
+
 **Files:**
 - Modify: `docs/skill/claude-remarks-review/watch-remarks.sh` (the `fetch)` branch of the mode `case`,
   which requires `session_id`; the `jq -n` body built at the top of the fetch loop; the

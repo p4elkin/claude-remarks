@@ -249,6 +249,34 @@ class AnswerReceiptTest : BasePlatformTestCase() {
         assertEquals(7, stored.endLine)
     }
 
+    /**
+     * The two fields nothing else asserts on. The Answers group sorts newest first on `answeredAt`,
+     * so an answer stored with it left at 0 sorts as if it arrived at the epoch and every new answer
+     * lands at the bottom. The commit is what the history archive prints and what an orphaned answer
+     * row names, and it is the REMARK's stored stamp on purpose — see AnswerState.commit's own KDoc.
+     */
+    fun testTheAnswerRecordsWhenItArrivedAndTheQuestionsCommit() {
+        val before = System.currentTimeMillis()
+        val stamped = remark(
+            id = "r-stamped",
+            path = "A.kt",
+            text = "why is this synchronized?",
+            commit = "0123456789abcdef0123456789abcdef01234567",
+        )
+        RemarkStore.getInstance(project).add(stamped)
+        val nonce = record("r-stamped")
+
+        reportAnswer(project, nonce, "r-stamped", "because two threads write it")
+        settleInvocationQueue()
+
+        val stored = answers().single()
+        assertTrue(
+            "answeredAt was ${stored.answeredAt}, expected at or after $before",
+            stored.answeredAt >= before,
+        )
+        assertEquals("0123456789abcdef0123456789abcdef01234567", stored.commit)
+    }
+
     private fun record(vararg ids: String) =
         PublishedBatchService.getInstance(project).record(ids.toList())
 

@@ -215,17 +215,6 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
             return removed
         }
 
-        /** Returns how many were removed. */
-        @Synchronized
-        fun clearAnswers(): Int {
-            val removed = answers.size
-            if (removed > 0) {
-                answers.clear()
-                incrementModificationCount()
-            }
-            return removed
-        }
-
         /**
          * A copy of the list AND of every remark in it, taken under the lock the mutators hold, so
          * a reader never touches an object anything can still change.
@@ -234,10 +223,11 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
          * on a remark that is already in the list. A shallow copy hands those same objects to
          * readers running on other threads: `resolveAll` and `collectForPrompt` walk them inside a
          * non-blocking read action on a pooled thread, for as long as a copy of the whole project
-         * takes. An edit landing in that window is seen half-applied — `editRemark` writes `text`
-         * and then `tag`, so a prompt could be rendered with the new text under the old tag. The
-         * lock on the mutators did not stop that, because the reader had already left the lock and
-         * was reading fields outside it.
+         * takes. A remark a reader is holding must not change under it: with a shallow copy the
+         * reader holds the live object, so the same field read twice can come back with two answers
+         * and a prompt gets rendered from a remark that was never in one piece. The lock on the
+         * mutators did not stop that, because the reader had already left the lock and was reading
+         * fields outside it.
          *
          * `BaseState.copyFrom` walks the property list every `BaseState` registers for itself, so a
          * field added to `RemarkState` later is copied without touching this line. That was the one
@@ -246,7 +236,7 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
          * "a snapshot carries every field a remark is stored with" in RemarkStoreStateTest pins it.
          *
          * The cost is one small object per remark per call, and snapshot() runs on every resolve. A
-         * RemarkState is eleven stored properties, so a project with a hundred remarks pays tens of
+         * RemarkState is sixteen stored properties, so a project with a hundred remarks pays tens of
          * microseconds — against a resolve that SHA-256s candidate positions and splits whole
          * documents into lines.
          */
@@ -309,8 +299,6 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
     }
 
     fun removeAnswer(id: String): Boolean = liveState.removeAnswer(id)
-
-    fun clearAnswers(): Int = liveState.clearAnswers()
 
     /**
      * A fresh state carrying a copy of both lists, taken under the same lock the mutators hold, so

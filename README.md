@@ -237,10 +237,11 @@ cp -r docs/skill/claude-remarks-review ~/.claude/skills/claude-remarks-review
 ```
 
 It is kept in this repository rather than only under `~/.claude/skills` because the skill and the
-IDE endpoint it talks to are one protocol, with three pairs of halves that have to agree — the
-request shapes, the eight fixed header lines and their three readers, and the values each endpoint
-action answers. Keeping both halves of each in one place is what stops them drifting.
-`docs/skill/README.md` spells all three out.
+IDE endpoint it talks to are one protocol, with four pairs of halves that have to agree — the
+request shapes (where `fetch`'s `session` is optional since phase 11 and every other action's is
+not), the eight fixed header lines and their three readers, the values each endpoint action answers,
+and, since phase 11, the `answer` action's six values plus its 16 KiB body cap. Keeping both halves
+of each in one place is what stops them drifting. `docs/skill/README.md` spells all four out.
 
 The skill has three modes.
 

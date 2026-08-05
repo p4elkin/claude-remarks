@@ -36,19 +36,11 @@ class AskClaudeAction : AnAction() {
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
-    /** Enabled on the same terms [AddRemarkAction] is, and refusing in the same place. */
-    override fun update(e: AnActionEvent) {
-        val editor = e.getData(CommonDataKeys.EDITOR)
-        val project = e.project
-        val problem = when {
-            project == null -> "No project is open."
-            editor == null -> "No editor is focused."
-            else -> remarkTargetProblem(project, editor, e.dataContext)
-        }
-        e.presentation.isVisible = true
-        e.presentation.isEnabled = project != null && editor != null
-        e.presentation.description = problem ?: ASK_HINT
-    }
+    /**
+     * Enabled on the same terms [AddRemarkAction] is, and refusing in the same place — literally the
+     * same rules, through [updateRemarkEntryPoint]. Only the hint differs.
+     */
+    override fun update(e: AnActionEvent) = updateRemarkEntryPoint(e, ASK_HINT)
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
@@ -121,13 +113,37 @@ fun openAskClaudeInput(project: Project, editor: Editor, dataContext: DataContex
             )
             return@showRemarkInput
         }
-        val remark = addRemark(
-            project, path, document.text.split("\n"), range, typed,
-            startColumn = columns.first, endColumn = columns.second,
-            asksForAnswer = true,
-        )
-        // The same publish the gutter's and the tree's Publish item calls, on this one remark. No
-        // second pipeline: asking is Add Remark plus Publish, in that order, with the flag set.
-        publishRemarks(project, listOf(remark.id ?: return@showRemarkInput))
+        askClaude(project, path, document.text.split("\n"), range, columns, typed)
     }
+}
+
+/**
+ * What the gesture does once the question is typed: store the remark marked as asking for an answer,
+ * then publish that one remark. The two together are the gesture — a question that is stored but not
+ * handed over is an ordinary remark, and a remark handed over without the flag is a note nobody will
+ * answer.
+ *
+ * Internal, and split out of the popup's callback, so both halves can be pinned without a window:
+ * showing the input needs one. [publish] is a parameter with the real publish as its default for the
+ * same reason — `action/PublishRemarks.kt`'s own KDoc says the async pipeline is deliberately not
+ * driven from a test, so the test asserts that this function *calls* it with the one new id rather
+ * than pumping a read action, an EDT callback and the real clipboard.
+ */
+internal fun askClaude(
+    project: Project,
+    path: String,
+    lines: List<String>,
+    range: IntRange,
+    columns: Pair<Int, Int>,
+    typed: String,
+    publish: (Project, Collection<String>) -> Unit = ::publishRemarks,
+) {
+    val remark = addRemark(
+        project, path, lines, range, typed,
+        startColumn = columns.first, endColumn = columns.second,
+        asksForAnswer = true,
+    )
+    // The same publish the gutter's and the tree's Publish item calls, on this one remark. No
+    // second pipeline: asking is Add Remark plus Publish, in that order, with the flag set.
+    publish(project, listOf(remark.id ?: return))
 }

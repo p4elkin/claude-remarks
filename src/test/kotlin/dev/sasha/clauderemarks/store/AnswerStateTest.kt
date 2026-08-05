@@ -208,16 +208,6 @@ class AnswerStateTest {
         assertEquals(listOf("a-1"), state.answersSnapshot().map { it.id })
     }
 
-    @Test
-    fun `clearAnswers takes every answer and returns how many went`() {
-        val state = RemarkStore.RemarksState()
-        state.putAnswer(answer(id = "a-1", remarkId = "r-1"))
-        state.putAnswer(answer(id = "a-2", remarkId = "r-2"))
-
-        assertEquals(2, state.clearAnswers())
-        assertEquals(0, state.clearAnswers())
-    }
-
     private fun asXml(answer: AnswerState) = JDOMUtil.write(XmlSerializer.serialize(answer))
 
     private fun roundTrip(state: RemarkStore.RemarksState) = XmlSerializer.deserialize(

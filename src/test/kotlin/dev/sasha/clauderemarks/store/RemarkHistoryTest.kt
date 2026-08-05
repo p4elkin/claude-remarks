@@ -207,6 +207,33 @@ class RemarkHistoryTest {
     }
 
     /**
+     * The other reason an answer can have no path, and it must not read as "(general)". A remark
+     * deleted between the publish and the answer leaves an answer with no path and no question, and
+     * calling that general says something that was never true: it was about a file, and the question
+     * went.
+     */
+    @Test
+    fun `an answer whose remark was deleted says so instead of saying general`() {
+        val out = renderHistory(emptyList(), listOf(answer(path = null, question = "")), now = 0L)
+
+        assertTrue(out, out.contains("- **(the remark was already deleted)**"))
+        assertFalse(out, out.contains("(general)"))
+    }
+
+    /**
+     * A blank question used to be written through the same indent as a real one, which produced a
+     * line of six spaces and nothing else — a stray blank line saying nothing about the question
+     * having been lost.
+     */
+    @Test
+    fun `a blank question is written as a sentence rather than as an indented blank line`() {
+        val out = renderHistory(emptyList(), listOf(answer(question = "")), now = 0L)
+
+        assertTrue(out, out.contains("(the question was deleted before the answer arrived)"))
+        assertFalse(out, out.lines().any { it.isBlank() && it.isNotEmpty() })
+    }
+
+    /**
      * One `## cleared` entry per pass, not one per list. Clear All takes both lists in a single
      * write, so a person reading the archive finds one heading covering the whole pass.
      */

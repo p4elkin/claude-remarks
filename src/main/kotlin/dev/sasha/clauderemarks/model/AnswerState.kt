@@ -77,6 +77,14 @@ class AnswerState : BaseState() {
     /** The exact text between [startColumn] and [endColumn], for a sub-line anchor only, or null. */
     var phrase by string()
 
-    /** The repository HEAD when the answer was stored, or null with no readable git repository. */
+    /**
+     * The remark's own commit stamp, copied across when the answer was stored, or null when the
+     * remark had none — or when the remark was already gone by the time the answer arrived.
+     *
+     * Deliberately the *question's* revision and not a fresh HEAD read at answer time. The answer is
+     * a reply to something written against that revision, and that is the revision worth naming when
+     * the row goes orphaned and somebody has to decide which version of the file to diff against.
+     * `ui/RemarksTree.kt`'s ", written at <sha>" prints exactly that.
+     */
     var commit by string()
 }

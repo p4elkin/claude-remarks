@@ -127,33 +127,6 @@ if [ ! -d "$remarks_dir" ]; then
   mkdir -m 700 "$remarks_dir"
 fi
 
-# The pid file below is two lines, and two watchers starting for the same project in the same
-# moment would otherwise interleave them — a file holding one watcher's pid and the other's watched
-# path names neither. `mkdir` is what makes that write one step: creating a directory is atomic on
-# every POSIX filesystem, and creating one that already exists fails rather than quietly succeeding.
-# It is held only for the pid write, and released before the poll loop starts, so it is never held
-# for hours. It excludes nobody from running: both watchers start, one after the other, and both
-# keep running afterwards.
-lockdir="$remarks_dir/$project_hash.watch.lock"
-lock_waited=0
-# The write this guards takes microseconds, so ten seconds is already far longer than any live
-# holder can need. Anything past it is a lock left behind by a watcher that died holding it.
-lock_wait_limit=10
-while ! mkdir "$lockdir" 2>/dev/null; do
-  if [ "$lock_waited" -ge "$lock_wait_limit" ]; then
-    # A watcher killed before it could release the lock leaves the directory behind. Waiting for it
-    # for ever would mean no watcher can ever start for this project again, which is far worse than
-    # the race the lock closes — so the lock is broken and taken instead. The worst this can cost is
-    # one extra watcher; it can never cost the only one. It also costs the wait once and not again:
-    # whoever breaks the lock replaces it with a live one.
-    rm -rf "$lockdir"
-    mkdir "$lockdir" 2>/dev/null || true
-    break
-  fi
-  sleep 1
-  lock_waited=$((lock_waited + 1))
-done
-
 # A starting watcher never takes over from one already running for this project. Several sessions
 # may listen to one repository at once, and it is the batch claim in the IDE — the published-read
 # acknowledgement, answered ok to exactly one caller — that stops two of them acting on the same
@@ -164,16 +137,18 @@ done
 # live process's command line contains the path on line 2 — pids are recycled, and a recycled one
 # can belong to another repository's watcher, which is still a watch-remarks.sh.
 #
+# Written to a temp name beside the pid file and then renamed onto it. A rename within one directory
+# is atomic on every POSIX filesystem, so two watchers starting for the same project in the same
+# moment cannot interleave the two lines — a reader sees one whole file or the other, never one
+# watcher's pid above the other's watched path. This replaces a mkdir lock that guarded exactly this
+# write and could wait ten seconds before breaking a stale one; the rename needs no waiting, no
+# stale-lock rule and nothing released afterwards.
+#
 # This write overwrites whatever an earlier watcher for the same project left here, and does
 # nothing whatever to that watcher: it keeps running, and the file now names this one.
-{ echo $$; echo "$watch_identity"; } > "$pidfile"
-
-# Released here, before the traps below are installed rather than after: a signal arriving in the
-# gap kills this shell with the lock still held, and the stale-lock break above is what clears that.
-# Installing the traps first would mean the cleanup trap had to know about the lock as well, and
-# releasing a lock from a trap that also runs on the takeover path is how a live watcher's lock ends
-# up removed by a dying one.
-rm -rf "$lockdir"
+pidtmp="$pidfile.$$"
+{ echo $$; echo "$watch_identity"; } > "$pidtmp"
+mv "$pidtmp" "$pidfile"
 
 cleanup() {
   # Remove the pid file only if it is still ours: a later watcher for the same project overwrites

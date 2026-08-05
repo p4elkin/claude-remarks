@@ -59,27 +59,46 @@ class RemarkStoreStateTest {
     }
 
     /**
-     * An XML element with `severity="MUST"` and `tag="BUG"` attributes, written by an older build,
-     * must deserialize into a valid remark without crashing. The attributes are no longer declared
-     * on RemarkState, so the deserializer ignores them as unknown attributes. The round-trip of
-     * the deserialized remark back to XML proves all fields survived the ignore.
+     * A remark an older build wrote, carrying `severity` and `tag`, must still load. Those two
+     * properties are no longer declared on RemarkState, so the deserializer skips them as unknown,
+     * and everything else has to come back untouched.
+     *
+     * This is the only guard that an existing user's workspace.xml still loads after phase 11 deleted
+     * the two fields, so it asserts what had to survive — the id, the path, the text and the status —
+     * and not only that one element came back. An unknown property is skipped unconditionally, so a
+     * count on its own passes against a RemarkState that dropped every one of those four.
+     *
+     * ⚠️ **Written the way BaseState actually stores a property: an `<option name= value=/>` child,
+     * not an XML attribute.** This test, and the three "stored before X existed" tests below, all
+     * used attribute form until phase 11's review. Attribute form parses into a RemarkState with
+     * every property still at its default, so each of those tests passed against any RemarkState at
+     * all — they were checking a shape no workspace.xml has ever held. Anything added here has to
+     * keep the option form or it stops testing migration.
      */
     @Test
     fun `a remark with old severity and tag attributes deserializes correctly`() {
-        val original = remark(id = "r-1", text = "old remark", status = RemarkStatus.PUBLISHED)
-        val state = RemarkStore.RemarksState()
-        state.addRemark(original)
-
-        // Now deserialize old XML that has those attributes
         val restored = XmlSerializer.deserialize(
             JDOMUtil.load(
-                """<RemarksState><remarks><RemarkState id="r-1" path="src/Foo.kt" severity="MUST" tag="BUG" text="old remark" status="PUBLISHED" /></remarks></RemarksState>"""
+                """
+                <RemarksState><remarks><RemarkState>
+                  <option name="id" value="r-1" />
+                  <option name="path" value="src/Foo.kt" />
+                  <option name="severity" value="MUST" />
+                  <option name="tag" value="BUG" />
+                  <option name="text" value="old remark" />
+                  <option name="status" value="PUBLISHED" />
+                </RemarkState></remarks></RemarksState>
+                """.trimIndent()
             ),
             RemarkStore.RemarksState::class.java,
         )
 
-        // Should have deserialized the remark despite the unknown attributes
         assertEquals(1, restored.remarks.size)
+        val remark = restored.remarks.single()
+        assertEquals("r-1", remark.id)
+        assertEquals("src/Foo.kt", remark.path)
+        assertEquals("old remark", remark.text)
+        assertEquals(RemarkStatus.PUBLISHED, remark.status)
     }
 
     /**
@@ -330,13 +349,13 @@ class RemarkStoreStateTest {
      */
     @Test
     fun `a remark stored before columns existed loads with both at 0`() {
-        val restored = XmlSerializer.deserialize(
-            JDOMUtil.load("""<RemarksState><remarks><RemarkState id="r-1" path="src/Foo.kt" /></remarks></RemarksState>"""),
-            RemarkStore.RemarksState::class.java,
+        val restored = deserializeOne(
+            """<option name="id" value="r-1" /><option name="path" value="src/Foo.kt" />"""
         )
 
-        assertEquals(0, restored.remarks.single().startColumn)
-        assertEquals(0, restored.remarks.single().endColumn)
+        assertEquals("r-1", restored.id)
+        assertEquals(0, restored.startColumn)
+        assertEquals(0, restored.endColumn)
     }
 
     /** The storage half of "a sub-line remark stores the words it points at". */
@@ -369,14 +388,13 @@ class RemarkStoreStateTest {
      */
     @Test
     fun `a remark stored as SENT by an older build loads as pending`() {
-        val restored = XmlSerializer.deserialize(
-            JDOMUtil.load(
-                """<RemarksState><remarks><RemarkState id="r-1" path="src/Foo.kt" status="SENT" /></remarks></RemarksState>"""
-            ),
-            RemarkStore.RemarksState::class.java,
+        val restored = deserializeOne(
+            """<option name="id" value="r-1" /><option name="path" value="src/Foo.kt" />""" +
+                """<option name="status" value="SENT" />"""
         )
 
-        assertEquals(RemarkStatus.PENDING, restored.remarks.single().status)
+        assertEquals("r-1", restored.id)
+        assertEquals(RemarkStatus.PENDING, restored.status)
     }
 
 
@@ -435,12 +453,12 @@ class RemarkStoreStateTest {
     /** A remark written by a build that had no such field at all: no attribute, and false. */
     @Test
     fun `a remark stored before asksForAnswer existed loads as false`() {
-        val restored = XmlSerializer.deserialize(
-            JDOMUtil.load("""<RemarksState><remarks><RemarkState id="r-1" path="src/Foo.kt" /></remarks></RemarksState>"""),
-            RemarkStore.RemarksState::class.java,
+        val restored = deserializeOne(
+            """<option name="id" value="r-1" /><option name="path" value="src/Foo.kt" />"""
         )
 
-        assertFalse(restored.remarks.single().asksForAnswer)
+        assertEquals("r-1", restored.id)
+        assertFalse(restored.asksForAnswer)
     }
 
     /** The other half: once it is true it has to reach workspace.xml and come back. */
@@ -796,6 +814,20 @@ class RemarkStoreStateTest {
 
         failure.get()?.let { throw AssertionError("stateModificationCount read raced unsafely", it) }
     }
+
+    /**
+     * One stored remark, written the way BaseState really writes one — `<option name= value=/>`
+     * children — and read back. [options] is the property list, already in that form.
+     *
+     * A helper rather than the XML spelled out per test, because getting the shape wrong is silent:
+     * anything the deserializer does not recognise leaves every property at its default, so a test
+     * built on the wrong shape asserts nothing at all. That is exactly what the attribute-form XML
+     * these tests used to carry did.
+     */
+    private fun deserializeOne(options: String): RemarkState = XmlSerializer.deserialize(
+        JDOMUtil.load("<RemarksState><remarks><RemarkState>$options</RemarkState></remarks></RemarksState>"),
+        RemarkStore.RemarksState::class.java,
+    ).remarks.single()
 
     private fun asXml(remark: RemarkState) = JDOMUtil.write(XmlSerializer.serialize(remark))
 

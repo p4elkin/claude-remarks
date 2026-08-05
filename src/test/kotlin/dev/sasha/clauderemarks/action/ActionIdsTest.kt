@@ -2,9 +2,11 @@ package dev.sasha.clauderemarks.action
 
 import com.intellij.ide.actions.ActivateToolWindowAction
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.KeyboardShortcut
 import com.intellij.openapi.wm.ToolWindowEP
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.ui.RemarksToolWindowFactory
+import javax.swing.KeyStroke
 
 /**
  * These four ids are a public interface. They are what a .ideavimrc maps with ":action <id>", and
@@ -30,9 +32,20 @@ class ActionIdsTest : BasePlatformTestCase() {
         val shortcuts = ActionManager.getInstance()
             .getAction("ClaudeRemarks.AskClaude")
             .shortcutSet.shortcuts
+        // The exact stroke, not merely that there is one. A stroke quietly changed to something the
+        // platform already binds would still come back as "a shortcut exists", and the gesture would
+        // be reachable by a key that does something else first.
+        //
+        // Two accepted forms, because the platform rewrites the one plugin.xml declares. `$default`
+        // says "control alt shift A", and the macOS keymap turns `control` into `meta` — so what a
+        // Mac really binds is Cmd+Alt+Shift+A, and the README's "Ctrl+Alt+Shift+A" is the
+        // declaration rather than the key. Checked by running this: the registration comes back as
+        // "shift meta alt pressed A" on macOS.
+        val declared = KeyboardShortcut(KeyStroke.getKeyStroke("shift ctrl alt pressed A"), null)
+        val onMac = KeyboardShortcut(KeyStroke.getKeyStroke("shift meta alt pressed A"), null)
         assertTrue(
-            "expected a default keyboard shortcut on ClaudeRemarks.AskClaude, found ${shortcuts.size}",
-            shortcuts.isNotEmpty(),
+            "expected exactly the documented stroke on ClaudeRemarks.AskClaude, found ${shortcuts.toList()}",
+            shortcuts.toList() == listOf(declared) || shortcuts.toList() == listOf(onMac),
         )
     }
 

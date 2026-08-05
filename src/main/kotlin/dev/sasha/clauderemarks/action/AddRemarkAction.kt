@@ -26,32 +26,40 @@ class AddRemarkAction : AnAction() {
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
-    /**
-     * Visible and enabled whenever there is a project and an editor to act on. Whether a remark
-     * can actually be stored here (relativePathOf, projectRoot...) is NOT part of enablement any
-     * more: a diff viewer popup shows a greyed-out item's description nowhere the user can see, so
-     * a refusal there used to be indistinguishable from a bug. actionPerformed shows the same
-     * reason at the caret instead, where it is guaranteed visible. The description is still set,
-     * because the main menu and Search Everywhere DO show it.
-     */
-    override fun update(e: AnActionEvent) {
-        val editor = e.getData(CommonDataKeys.EDITOR)
-        val project = e.project
-        val problem = when {
-            project == null -> "No project is open."
-            editor == null -> "No editor is focused."
-            else -> remarkTargetProblem(project, editor, e.dataContext)
-        }
-        e.presentation.isVisible = true
-        e.presentation.isEnabled = project != null && editor != null
-        e.presentation.description = problem ?: ADD_HINT
-    }
+    /** The rules live in [updateRemarkEntryPoint], shared with the Ask Claude gesture. */
+    override fun update(e: AnActionEvent) = updateRemarkEntryPoint(e, ADD_HINT)
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         openNewRemarkInput(project, editor, e.dataContext)
     }
+}
+
+/**
+ * The enablement rules both editor entry points follow — [AddRemarkAction] and
+ * `action/AskClaudeAction.kt`'s `AskClaudeAction` — written once. The two differ only in the hint
+ * they show when there is nothing to complain about, so [hint] is the whole difference; twelve lines
+ * of rules living in two files could drift with nothing failing.
+ *
+ * Visible and enabled whenever there is a project and an editor to act on. Whether a remark can
+ * actually be stored here (relativePathOf, projectRoot...) is NOT part of enablement: a diff viewer
+ * popup shows a greyed-out item's description nowhere the user can see, so a refusal there used to be
+ * indistinguishable from a bug. `actionPerformed` shows the same reason at the caret instead, where
+ * it is guaranteed visible. The description is still set, because the main menu and Search Everywhere
+ * DO show it.
+ */
+internal fun updateRemarkEntryPoint(e: AnActionEvent, hint: String) {
+    val editor = e.getData(CommonDataKeys.EDITOR)
+    val project = e.project
+    val problem = when {
+        project == null -> "No project is open."
+        editor == null -> "No editor is focused."
+        else -> remarkTargetProblem(project, editor, e.dataContext)
+    }
+    e.presentation.isVisible = true
+    e.presentation.isEnabled = project != null && editor != null
+    e.presentation.description = problem ?: hint
 }
 
 /**

@@ -54,8 +54,9 @@ Open questions, worth settling before writing code:
 (`Ctrl+Alt+Shift+Space` off macOS) opens a chooser (`ui/ClassNameInsert.kt`) listing every class name
 in the project and inserts the one picked at the caret. It was `Ctrl+Space` at first; that is the one
 combination the IDE's own Basic Completion is offered even inside a modal popup, and macOS takes it for
-switching input source, so it was given up. See `docs/claude/design.md`, section "Tag chips, and
-picking one from the keyboard".
+switching input source, so it was given up. See `docs/claude/design.md`, section "Inserting a class
+name from the keyboard". (It pointed at "Tag chips, and picking one from the keyboard" until phase 11
+deleted the chips and that section with them.)
 
 **The `EditorTextField` swap described below was cut, not built.** The phase 5 plan's own
 recommendation was to drop it: the prompt already quotes the code each remark points at, so a
@@ -601,7 +602,8 @@ file format itself carries no opinion either way.
 file-level as an explicit special case, sorted by file then line. It is compact and greppable, and
 Claude Remarks already produces something structurally close (its own `## path` / `### N. lines A-B`
 layout). **Adapt:** Claude Remarks carries richer per-remark data than revdiff's format has room for
-— tag, severity, orphaned flag, captured context — keep all of that; just make sure a file-based
+— the orphaned flag, the captured context, the commit stamp, the "asks for an answer" marker — keep
+all of that; just make sure a file-based
 payload still opens each record with one `## file[:line[-line]]` line so a skill can index by file
 without parsing the whole body first. **Leave behind:** nothing to add — revdiff's choice to keep the
 instruction prompt out of the payload is itself worth keeping, not overriding.
@@ -1264,8 +1266,10 @@ right here, on purpose, because line numbers were all the model could hold.
   `contextAfter` already stored six lines of real source in `workspace.xml`, so a stored phrase is
   not a new kind of data there.
 - **The prompt. Already done, by phase 8's hotfix.** `render/PromptRenderer.kt` already wraps the
-  exact selection in `⟦` and `⟧` through `markersValid`/`withSelectionMarkers`, and
-  `SEVERITY_SCALE_NOTE` already explains the two markers to the model.
+  exact selection in `⟦` and `⟧` through `markersValid`/`withSelectionMarkers`, and the note appended
+  under the editable header already explains the two markers to the model. (That note was called
+  `SEVERITY_SCALE_NOTE` when this was written and is called `PROMPT_NOTES` since phase 11, which
+  deleted the severity scale it also used to teach.)
 - **The tree's position label.** `ui/RemarksTree.kt` now prints `9:12-38` on one line and
   `9:12-11:5` across lines, both 1-based, instead of the old `9-9`. The gutter tooltip shows the
   phrase itself alongside it.

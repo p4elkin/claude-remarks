@@ -1,26 +1,35 @@
 package dev.sasha.clauderemarks.review
 
+import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.action.notifyRemarks
+import dev.sasha.clauderemarks.action.plural
 import dev.sasha.clauderemarks.anchor.AnchorResult
 import dev.sasha.clauderemarks.anchor.captureAnchor
 import dev.sasha.clauderemarks.anchor.phraseAt
+import dev.sasha.clauderemarks.anchor.resolveWithPhrase
 import dev.sasha.clauderemarks.model.AnswerState
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.StoredAnchor
+import dev.sasha.clauderemarks.store.anchorOf
 import dev.sasha.clauderemarks.store.fileForStoredPath
 import dev.sasha.clauderemarks.store.isAboutNoFile
 import dev.sasha.clauderemarks.store.joinContext
 import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.recordAnswer
-import dev.sasha.clauderemarks.store.resolveStored
 import dev.sasha.clauderemarks.store.storedAnchorOf
 import java.util.UUID
+import java.util.concurrent.CancellationException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * What the `answer` action found before it accepted anything. OK is the ordinary case: the nonce
@@ -78,10 +87,70 @@ internal fun reportAnswer(
             // captured, so the replacement points at where the code is now.
             recordAnswer(project, answer)
             // One sentence, not the answer itself: an answer is paragraphs and a balloon is a line.
-            notifyRemarks(project, "Claude Code answered a remark.")
+            announceAnswer(project)
         }
         .submit(AppExecutorUtil.getAppExecutorService())
+        // The outcome went back to the caller synchronously, and the skill reads `ok` as "stored,
+        // nothing to report". Without this the answer would be discarded with the reason only in the
+        // platform log, after the endpoint already said it was fine. `action/PublishRemarks.kt` adds
+        // the same handler to the same pipeline shape for the same reason, and losing an answer is
+        // worse than losing a publish: a publish can simply be pressed again.
+        .onError { error ->
+            // A read action expired with the project is not a failure and stays quiet. Both types
+            // are checked because which of them the platform throws depends on why it stopped.
+            if (error !is ProcessCanceledException && error !is CancellationException) {
+                notifyRemarks(
+                    project,
+                    "An answer from Claude Code could not be stored: ${error.message ?: error}",
+                    NotificationType.ERROR,
+                )
+            }
+        }
     return AnswerOutcome.OK
+}
+
+/**
+ * How long a burst of answers is collected before the balloon for it is shown.
+ *
+ * A batch carrying several marked remarks is answered request by request, seconds apart at most, and
+ * one balloon per answer stacks a column of identical sentences over the editor. `published-read`
+ * already aggregates its own acknowledgement into one counted sentence
+ * ([reportPublishedRead]); this is the same idea across requests rather than inside one.
+ */
+private const val ANSWER_BALLOON_WINDOW_MS = 1_000L
+
+private val PENDING_ANSWER_BALLOONS =
+    Key.create<AtomicInteger>("dev.sasha.clauderemarks.pendingAnswerBalloons")
+
+/**
+ * Counts one answer and, if no balloon is already pending for this project, schedules the one
+ * balloon that will report the whole burst.
+ *
+ * **EDT only.** Every caller is inside `finishOnUiThread`, which is what makes the counter's
+ * creation safe without a lock; the count itself is an [AtomicInteger] because the scheduled task
+ * reads and resets it from a pooled thread.
+ */
+private fun announceAnswer(project: Project) {
+    val pending = project.getUserData(PENDING_ANSWER_BALLOONS)
+        ?: AtomicInteger().also { project.putUserData(PENDING_ANSWER_BALLOONS, it) }
+    // Not the first one in this window: the balloon already scheduled will count this too.
+    if (pending.getAndIncrement() > 0) return
+    AppExecutorUtil.getAppScheduledExecutorService().schedule(
+        {
+            val count = pending.getAndSet(0)
+            if (count <= 0) return@schedule
+            ApplicationManager.getApplication().invokeLater(
+                {
+                    if (!project.isDisposed) {
+                        notifyRemarks(project, "Claude Code answered $count remark${plural(count)}.")
+                    }
+                },
+                ModalityState.defaultModalityState(),
+            )
+        },
+        ANSWER_BALLOON_WINDOW_MS,
+        TimeUnit.MILLISECONDS,
+    )
 }
 
 /**
@@ -136,15 +205,26 @@ internal fun buildAnswer(project: Project, remarkId: String, markdown: String): 
  * [dev.sasha.clauderemarks.store.ResolvedRemark] carries them. The phrase is then read back out of
  * the file at those columns, so the answer's own phrase describes the text it is actually anchored
  * to rather than the text the remark was written against.
+ *
+ * `resolveWithPhrase` directly rather than `resolveStored`: the file, the `Document` and its split
+ * lines are all already in hand here, and `resolveStored` would look the file and the `Document` up
+ * again and split the text a second time. What it decides on top of that — the no-file case and the
+ * two lookup refusals — is what the three lines above already decided.
  */
 private fun freshAnchorFor(project: Project, remark: RemarkState): StoredAnchor? {
     if (isAboutNoFile(remark)) return null
     val root = projectRoot(project) ?: return null
     val file = fileForStoredPath(root, remark.path!!) ?: return null
     val document = FileDocumentManager.getInstance().getDocument(file) ?: return null
-    val resolved = resolveStored(root, storedAnchorOf(remark), "remark ${remark.id}")
-    if (resolved.result is AnchorResult.Orphaned) return null
     val lines = document.text.split("\n")
+    val resolved = resolveWithPhrase(
+        anchorOf(remark),
+        lines,
+        remark.phrase,
+        remark.startColumn,
+        remark.endColumn,
+    )
+    if (resolved.result is AnchorResult.Orphaned) return null
     val anchor = captureAnchor(lines, resolved.result.startLine, resolved.result.endLine)
     return StoredAnchor(
         path = remark.path,

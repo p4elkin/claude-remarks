@@ -129,10 +129,10 @@ class AddRemarkActionTest : BasePlatformTestCase() {
     }
 
     /**
-     * The whole path from a submitted input to a tool window row, without opening a popup:
-     * the popup's only job is to produce the text and the tag.
+     * The whole path from a submitted input to a tool window row, without opening a popup: the
+     * popup's only job is to produce the text, and the lines it lands on are what this pins.
      */
-    fun testASubmittedRemarkLandsOnTheRightLinesWithItsTag() {
+    fun testASubmittedRemarkLandsOnTheRightLines() {
         val editor = editorFor(fileUnderProjectRoot())
 
         val lines = selectedLines(

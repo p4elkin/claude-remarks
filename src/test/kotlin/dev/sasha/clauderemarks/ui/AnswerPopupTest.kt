@@ -37,6 +37,19 @@ class AnswerPopupTest : BasePlatformTestCase() {
         assertTrue("expected a pre tag in: $html", html.contains("<pre"))
     }
 
+    /**
+     * What the popup is made of, without opening one: showing a popup needs a window, and the three
+     * things that can silently regress are all in the component, not in the window. Reverting the
+     * pane to a JBTextArea showing raw markdown, or dropping `isEditable = false` so a caret blinks
+     * in an answer, both left the suite green while the two conversion tests above kept passing.
+     */
+    fun testTheAnswerPaneIsAReadOnlyHtmlPaneCarryingTheConvertedHtml() {
+        val pane = answerPane(convert("# What the anchor does\n\nIt follows the code.\n"))
+
+        assertFalse("the answer pane must not be editable", pane.isEditable)
+        assertTrue("expected the converted HTML in the pane, was: ${pane.text}", pane.text.contains("<h"))
+    }
+
     private fun convert(markdown: String): String =
         ReadAction.compute<String, RuntimeException> {
             DocMarkdownToHtmlConverter.convert(project, markdown)

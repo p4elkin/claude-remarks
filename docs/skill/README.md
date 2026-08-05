@@ -14,9 +14,13 @@ cp -r docs/skill/claude-remarks-review ~/.claude/skills/claude-remarks-review
 ```
 
 It is kept in this repository, not only under `~/.claude/skills`, because the skill and the IDE
-endpoint it talks to are one protocol, and three separate pairs of halves have to agree:
+endpoint it talks to are one protocol, and four separate pairs of halves have to agree:
 
-- the request shape in `review/ReviewRestService.kt` and the `curl` calls in `SKILL.md`;
+- the request shape in `review/ReviewRestService.kt` and the `curl` calls in `SKILL.md`. Since phase
+  11, `fetch`'s `session` field is **optional**: an absent one means "any batch in the file", which is
+  what lets a listener claim a plain publish over the tunnel. A caller that still sends one behaves
+  exactly as it did. The other four actions all still require it, `answer` included, even though
+  nothing on the IDE side reads `answer`'s;
 - the eight fixed lines `PublishedHeader.render()` writes, in `review/PublishedRemarks.kt`, and the
   line-numbered reads that depend on that exact order. **There are three readers, not two, and a
   header reorder has to be checked against all of them** — this is the one bullet where a silent
@@ -42,7 +46,13 @@ endpoint it talks to are one protocol, and three separate pairs of halves have t
   `fetch` answers — `ready`, `waiting`, `no-review`, `too-large`, `failed`, `unknown-project`,
   `bad-request` — are the status pair `watch-remarks.sh` holds the other half of, in its
   `--fetch` loop. It is still one of the three readers of the header above; the two facts are
-  separate.
+  separate; and
+- the six values the `answer` action answers, added in phase 11 — `ok`, `unknown-batch`,
+  `unknown-remark`, `too-large`, `unknown-project`, `bad-request` — plus the 16 KiB
+  `MAX_ANSWER_BYTES` cap on the body, against the answer POST block in `SKILL.md`. This is the
+  fourth pair and the only one where the IDE writes something a person then reads, so a drift here
+  loses work rather than a poll: an answer refused as `too-large` is a body the session has to be
+  told to shorten, and a session that treats every non-`ok` as retryable will send it again for ever.
 
 Keeping both halves of each in one place is what stops them drifting apart. The IDE and the
 Claude Code session run on the same machine in the normal case, and over a tunnel in the remote

@@ -303,6 +303,44 @@ class RemarksPanelTest : BasePlatformTestCase() {
     }
 
     /**
+     * The two publish descriptions word for word, not merely "different from the button name".
+     *
+     * The rule these follow is "say what the button TAKES, not what it is called", and a description
+     * that paraphrases the button — "Send unread remarks to Claude Code" — passes the shape check
+     * above while teaching nothing. The bucket sentence on Publish Selected is the whole reason the
+     * descriptions were asked for: taking a whole bucket by selecting its node is not discoverable
+     * any other way.
+     */
+    fun testTheTwoPublishDescriptionsSayWhatTheButtonTakes() {
+        val panel = panel()
+
+        assertEquals("Every remark not yet read", descriptionOf(panel, "Publish Unread"))
+        assertEquals(
+            "Only the rows you picked. Select a bucket node to take that whole bucket",
+            descriptionOf(panel, "Publish Selected"),
+        )
+    }
+
+    /** Both Clear descriptions say the archive happens first, which is the thing worth knowing. */
+    fun testBothClearDescriptionsSayTheArchiveHappensFirst() {
+        val panel = panel()
+
+        assertTrue(
+            descriptionOf(panel, "Clear Handed Over"),
+            descriptionOf(panel, "Clear Handed Over").contains("Archived to the history file first"),
+        )
+        assertTrue(
+            descriptionOf(panel, "Clear All"),
+            descriptionOf(panel, "Clear All").contains("Archived to the history file first"),
+        )
+    }
+
+    private fun descriptionOf(panel: RemarksPanel, text: String): String =
+        panel.toolbarActions().getChildren(null)
+            .single { it.templatePresentation.text == text }
+            .templatePresentation.description.orEmpty()
+
+    /**
      * Publish Unread's enablement is "not yet READ", not "still PENDING". A remark published but
      * never acknowledged is exactly the case this button exists for, and gating it on PENDING would
      * grey the button out just when a person wants to hand the remarks over again.
@@ -325,12 +363,42 @@ class RemarksPanelTest : BasePlatformTestCase() {
         assertFalse(publishUnreadIsEnabled(panel))
     }
 
-    private fun publishUnreadIsEnabled(panel: RemarksPanel): Boolean {
+    private fun publishUnreadIsEnabled(panel: RemarksPanel): Boolean = isEnabled(panel, "Publish Unread")
+
+    private fun isEnabled(panel: RemarksPanel, text: String): Boolean {
         val action = panel.toolbarActions().getChildren(null)
-            .single { it.templatePresentation.text == "Publish Unread" }
+            .single { it.templatePresentation.text == text }
         val event = TestActionEvent.createTestEvent(action)
         action.update(event)
         return event.presentation.isEnabled
+    }
+
+    /**
+     * Clear All is the only route by which an answer can ever be pruned — Clear Handed Over leaves
+     * answers alone on purpose. Gating the button on remarks alone would strand every answer in a
+     * project whose remarks have already been cleared, permanently, with nothing failing anywhere.
+     */
+    fun testClearAllIsEnabledWithAnswersAndNoRemarks() {
+        recordAnswer(project, answer(id = "a-1", remarkId = "r-1", path = "A.kt"))
+        val panel = panel()
+
+        assertEquals(0, panel.remarks().size)
+        assertTrue(isEnabled(panel, "Clear All"))
+    }
+
+    /**
+     * The answers half of the toolbar's cached snapshot. It is dropped in the same place the remarks
+     * half is, and if it were not, Clear All would keep the enabled state it had when the panel was
+     * built for a project whose only content is answers.
+     */
+    fun testTheToolbarsCachedAnswersAreDroppedWhenAnAnswerArrives() {
+        val panel = panel()
+        assertEquals(0, panel.answers().size)
+
+        recordAnswer(project, answer(id = "a-1", remarkId = "r-1", path = "A.kt"))
+        settleInvocationQueue()
+
+        assertEquals(1, panel.answers().size)
     }
 
     /**

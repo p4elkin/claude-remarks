@@ -24,8 +24,9 @@ dragging a remark onto a bucket, phase 7's scheduled deadline and its diff openi
 phases 10 and 11 themselves built. The one build ever installed on either machine when those checks
 ran was `0.6.0`, which predates both, so none of phase 10's own hand checks — listed in section 8 of
 `docs/plans/completed/20260805-claude-remarks-phase10.md` — and none of phase 11's twenty-four —
-listed under "Hand checks" in `docs/plans/completed/20260805-claude-remarks-phase11.md` — have been
-run either. Phase 11's list is the one that matters most right now, because the whole Ask Claude
+listed under "Hand checks" in `docs/plans/20260805-claude-remarks-phase11.md` — have been
+run either. ⚠️ That plan is still in `docs/plans/`, not in `docs/plans/completed/`: its own last task
+leaves the move to the harness. When it does move, this path moves with it. Phase 11's list is the one that matters most right now, because the whole Ask Claude
 round trip, the markdown popup and listen mode's re-arming are all in it and none of the three is
 reachable by `./gradlew test`.
 

@@ -393,11 +393,16 @@ class RemarksPanel(
      * Not selectedAnswerNodes().firstOrNull(): that also answers for a selected Answers group, and
      * a double click on a group row is an expand, not a request to open one of its children.
      *
+     * The one selected node, not the first answer among several. A double click leaves exactly one
+     * row selected, so a selection holding more than one node was built some other way — and picking
+     * an answer out of it opened the popup instead of navigating to the row that was actually
+     * double-clicked.
+     *
      * Internal, not private, so RemarksPanelTest can drive the double-click decision without a real
      * popup appearing: showing one needs a window, and the decision is the part that can be wrong.
      */
     internal fun selectedAnswerRow(): AnswerNode? =
-        selectedTreeNodes().firstNotNullOfOrNull { it.userObject as? AnswerNode }
+        selectedTreeNodes().singleOrNull()?.userObject as? AnswerNode
 
     /**
      * Double click. On an answer row it reads the answer instead of navigating: an answer row points
@@ -531,7 +536,12 @@ class RemarksPanel(
      * whole point of a remark about no file.
      */
     internal fun toolbarActions(): ActionGroup = DefaultActionGroup(
-        ToolbarAction("Add General Remark", "Add a remark about the whole change", AllIcons.General.Add, { true }) {
+        ToolbarAction(
+            "Add General Remark",
+            "A remark about the whole change, with no file and no lines",
+            AllIcons.General.Add,
+            { true },
+        ) {
             openGeneralRemarkInput(project, tree)
         },
         // Upload, not Copy: the button stopped being a copy in phase 9, when publishing gained the
@@ -541,24 +551,30 @@ class RemarksPanel(
         // the meaning rather than the control that went away.
         ToolbarAction(
             "Publish Unread",
-            "Send unread remarks to Claude Code",
+            "Every remark not yet read",
             AllIcons.Actions.Upload,
             { remarks().any { it.status != RemarkStatus.READ } },
         ) { publishRemarks(project, null) },
         ToolbarAction(
             "Publish Selected",
-            "Send the selected remarks to Claude Code",
+            "Only the rows you picked. Select a bucket node to take that whole bucket",
             AllIcons.Actions.InSelection,
             { selectedIds().isNotEmpty() },
         ) { publishRemarks(project, selectedIds()) },
-        ToolbarAction("Clear Handed Over", "Remove handed-over remarks, keeping answers", AllIcons.Actions.GC, { handedOverCount() > 0 }) {
+        ToolbarAction(
+            "Clear Handed Over",
+            "Every remark already published or read. Answers are kept. " +
+                "Archived to the history file first",
+            AllIcons.Actions.GC,
+            { handedOverCount() > 0 },
+        ) {
             confirmClearHandedOver()
         },
         // Enabled on either list, not on remarks alone: Clear All is the only thing that prunes
         // answers, so a project whose remarks have all been cleared must still be able to take them.
         ToolbarAction(
             "Clear All",
-            "Remove all remarks and answers",
+            "Every remark and every answer, published or not. Archived to the history file first",
             AllIcons.Actions.Cancel,
             { remarks().isNotEmpty() || answers().isNotEmpty() },
         ) { confirmClearAll() },
@@ -567,7 +583,12 @@ class RemarksPanel(
         // switch, a VCS revert, an external edit) already publishes this on its own now — both
         // the gutter and this tree re-resolve without any button — so Refresh is left as the
         // manual catch-all for anything else that could leave either view stale.
-        ToolbarAction("Refresh", "Re-resolve remarks against the current text", AllIcons.Actions.Refresh, { true }) {
+        ToolbarAction(
+            "Refresh",
+            "Re-resolves every remark against the files as they are now",
+            AllIcons.Actions.Refresh,
+            { true },
+        ) {
             notifyRemarksChanged(project)
         },
     )
@@ -618,7 +639,8 @@ class RemarksPanel(
         // also throws away every answer is exactly the quiet loss the history file exists to prevent.
         val chose = Messages.showYesNoDialog(
             project,
-            "Delete all $remarkCount remarks and $answerCount answers, including the remarks " +
+            "Delete all $remarkCount remark${plural(remarkCount)} and " +
+                "$answerCount answer${plural(answerCount)}, including the remarks " +
                 "not yet published? This cannot be undone.",
             "Clear All Claude Remarks",
             Messages.getWarningIcon(),

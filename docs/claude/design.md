@@ -215,23 +215,25 @@ an object with the live state.** It did not always. It used to be `remarks.toLis
 the list and shares its elements, and there are two different readers to answer for. Both matter,
 and for a long time only the first was written down here.
 
-*The serializer, saving `workspace.xml` off the EDT.* `editRemark` writes `text` and then `tag`;
-`markSent` writes `status`. With the shallow copy a save could land between the two writes in
-`editRemark` and record the new text next to the old tag. That could never become permanent, and
-the reason is the ORDER in `editRemark`: `incrementModificationCount()` runs after both writes, so
-a save landing between them recorded the lower count it read on the way in, and the next save saw a
-higher count and wrote both fields again. One save stale, the one after it right, no path to
-permanent loss.
+*The serializer, saving `workspace.xml` off the EDT.* `editRemark` writes `text`; `markPublished`
+writes `status`. With the shallow copy a save could land between one of those writes and the
+modification count going up, and record the value from before it. That could never become permanent,
+and the reason is the ORDER inside each mutator: `incrementModificationCount()` runs after the write,
+so a save landing in between recorded the lower count it read on the way in, and the next save saw a
+higher count and wrote the field again. One save stale, the one after it right, no path to permanent
+loss. (Until phase 11 `editRemark` wrote two fields, `text` and then `tag`, and the argument was
+about a save landing between the two of them. The tag is gone; the ordering argument is the same.)
 
 *The prompt and the tool window, reading on a pooled thread.* `resolveAll` and `collectForPrompt`
 run inside a non-blocking read action, off the EDT, and walk the same objects `editRemark` and
-`markSent` change on the EDT. They read the fields long after leaving the store's lock — for as
+`markPublished` change on the EDT. They read the fields long after leaving the store's lock — for as
 long as resolving every remark and slicing every file takes. The ordering argument above says
 nothing about this reader: it is about what ends up on disk, and a prompt that already reached the
-clipboard has no later pass to fix it. So the shallow copy let a copy in flight render a remark with
-its new text under its old tag, or send a remark whose edit had landed a moment earlier and then
-mark it sent, so the edit looked delivered when it was not. Narrow — the window is one copy — but
-real, and invisible when it happens.
+clipboard has no later pass to fix it. So the shallow copy handed the reader the live object: the
+same field read twice came back with two answers, and a prompt could be rendered from a remark that
+was never in one piece — or a remark whose edit had landed a moment earlier was published and then
+marked published, so the edit looked delivered when it was not. Narrow — the window is one publish —
+but real, and invisible when it happens.
 
 Making `snapshot()` deep closes the second reader without weakening the first. `BaseState.copyFrom`
 walks the property list every `BaseState` registers for itself, so a field added to `RemarkState`
@@ -240,12 +242,14 @@ copy: cloning field by field, and a forgotten field then dropping out of `worksp
 nothing logged. `copyFrom` has no such failure mode, and `RemarkStoreStateTest` pins it by comparing
 the serialized XML of a fully-populated remark against its copy, so the guard covers fields that do
 not exist yet. It also holds a deterministic test (a snapshot taken before an edit does not see it)
-and a bounded race probe (a reader looping on `snapshot()` while a writer flips `text` and `tag`
-never sees a mixed pair); the probe fails within milliseconds if `snapshot()` goes back to
-`remarks.toList()`.
+and a bounded race probe (a reader looping on `snapshot()` while a writer flips `text` never sees the
+text change under the object it is already holding); the probe fails within milliseconds if
+`snapshot()` goes back to `remarks.toList()`. The probe used to pair `text` against `tag` and look
+for a mixed pair. Phase 11 took the tag off a remark, so there is no second field left to catch half
+written, and the probe was rewritten to check the thing the deep copy actually buys.
 
 The cost: one small object per remark per call, and `snapshot()` runs on every resolve, which is
-every remark change and every editor open. A `RemarkState` is eleven stored properties, so a hundred
+every remark change and every editor open. A `RemarkState` is sixteen stored properties, so a hundred
 remarks is tens of microseconds against a resolve that SHA-256s candidate positions and splits whole
 documents into lines. If a project ever holds enough remarks for that to be felt, the next step is
 not a shallower copy but an immutable value type for the read path, so the copy happens once at the
@@ -594,7 +598,7 @@ no way to re-point a remark from the UI, so they become dead records.
 The fix is a `BulkFileListener` on `VFS_CHANGES` reading `VFileMoveEvent` and the rename form of
 `VFilePropertyChangeEvent`, rewriting `RemarkState.path` for every remark under the old path —
 including the remarks in every file under a renamed *directory*. It needs one more mutation
-function in `store/RemarkEdits.kt`, past the eleven public functions already there today, because
+function in `store/RemarkEdits.kt`, past the thirteen public functions already there today, because
 that file holds the only route that changes a remark, and it needs its own tests. That is a task in
 its own right rather than a review fix, which is why it is written down here instead of being
 half-built.
@@ -775,7 +779,9 @@ itself a repository but sits inside one — a scratch directory under a `$HOME` 
 real case — gets that repository's HEAD. This matches what `git` itself would answer from the same
 directory, and the walk up is required for the case it exists for: a project opened at a module below
 the repository root. It is written down in the known limits because it can mislead, not because it is
-wrong: the prompt's scale note tells the model to diff an orphan against the recorded revision.
+wrong: `PROMPT_NOTES`, the text the prompt appends under the editable header, tells the model to diff
+an orphan against the recorded revision. (It was called `SEVERITY_SCALE_NOTE` until phase 11 deleted
+the scale it also used to teach.)
 
 Two things it does guard. The ref path out of `HEAD` is required to stay under the git directory
 (`refInside`), so a hand-written `ref: ../../../../etc/shadow` is refused rather than opened — only 40
@@ -799,7 +805,7 @@ already is. The gutter tooltip always has it, cut to eight characters
 published prompt's heading always has it (`— commit <sha, first 8 chars>` in
 `render/PromptRenderer.kt`). The tree row shows it only when the remark is orphaned (`", written at
 <sha>"`, in `ui/RemarksTree.kt`'s `remarkNode`), because everywhere else it would be one more thing
-on a row that already carries a position, a text, a tag and a level — and it matters most exactly
+on a row that already carries a position, a text and a status — and it matters most exactly
 when a remark has gone missing and someone needs to know which revision to diff the file against.
 
 ### The history file, and archiving before delete
@@ -987,7 +993,7 @@ the manual escape for the gutter as well as for the tree.
 ## The Change Notification
 
 `REMARKS_CHANGED` (a `Topic<RemarksListener>`, project-level, `BroadcastDirection.NONE`) lives in
-`store/RemarkEdits.kt`, beside the ten functions that publish it, not inside `RemarkStore`. Two
+`store/RemarkEdits.kt`, beside the twelve functions that publish it, not inside `RemarkStore`. Two
 things need to hear about a change: the gutter service and the tool window tree. Keeping the topic
 out of the store is about cost, not purity: adding a `Project` constructor parameter to
 `RemarkStore` would touch fourteen call sites that build it directly, and keeping the store free
@@ -1356,10 +1362,12 @@ action, no Tools menu entry, and no keystroke for it, on purpose. The tool windo
 person is looking at remarks rather than at code, which is where a thought about the whole change
 gets written. A second entry point can be added later if the first one turns out to be missed.
 
-**`RemarkEdits.kt`'s `addGeneralRemark(project, text, tag)`.** It stores a remark with a null path,
-both lines and both columns at zero, no `textHash`, no context, and the commit stamp, then publishes
-`REMARKS_CHANGED` like every other mutator in the file. It is the tenth mutation function, and the
-count in the file's own KDoc and in `CLAUDE.md` rule 3 moved with it. `action/AddRemarkAction.kt`'s
+**`RemarkEdits.kt`'s `addGeneralRemark(project, text, asksForAnswer = false)`.** It stores a remark
+with a null path, both lines and both columns at zero, no `textHash`, no context, and the commit
+stamp, then publishes `REMARKS_CHANGED` like every other mutator in the file. It is the second of the
+twelve mutation functions, and the count in the file's own KDoc and in `CLAUDE.md` rule 3 moves with
+every one added or deleted. (It took a tag when phase 9 wrote it, and was the tenth function then;
+phase 11 deleted the tag and the severity setter and added three answer functions.) `action/AddRemarkAction.kt`'s
 `openGeneralRemarkInput` opens the popup for it, reusing `RemarkInputPanel` the same way the ordinary
 entry points do, through a small shared `buildInputPopup` helper the two now call. It cannot use
 `showInBestPositionFor(editor)`, since there is no editor to be near, so it shows the popup centred
@@ -1369,8 +1377,8 @@ over the tool window's tree instead.
 `String`; `""` is what "about no file" means, the same expressiveness a nullable `path` would give
 without touching every construction site and every existing test that builds one. `renderPrompt`
 splits the general remarks out by `path.isEmpty()` and renders them first, under one `## General`
-heading, before any file section. Each keeps its number, its tag, its level, its commit and its
-text, and none of them gets a code block. That last point matters more than it looks: a general
+heading, before any file section. Each keeps its number, its commit and its text — and its "asks for
+an answer" marker when it carries one — and none of them gets a code block. That last point matters more than it looks: a general
 remark has no `startLine`, no `textHash` and no context, which is exactly the shape the renderer
 already used for an orphan, the remark whose code could not be found. Routed through the ordinary
 path a general remark would read as broken instead of deliberate, so it is split out before that
@@ -2315,6 +2323,13 @@ the model to work it out for itself from the wording. That guess is the thing th
 remark. `Ctrl+Alt+Shift+A` writes a question. Both open the same input box, and the difference is one
 stored bit and what happens after the box closes.
 
+⚠️ **Those two strokes are what `plugin.xml` declares, not what a Mac actually binds.** Both are
+registered against the `$default` keymap, and the macOS keymap rewrites `control` to `meta`, so on a
+Mac they are really `Cmd+Alt+Shift+R` and `Cmd+Alt+Shift+A`. This was found by pinning the exact
+stroke in `ActionIdsTest`, which came back as "shift meta alt pressed A". The README and `CLAUDE.md`
+both name the declared form. Nothing is broken by it — the keys work, they are just spelled
+differently on the two platforms — but a hand check looking for Ctrl on a Mac will find nothing.
+
 `action/AskClaudeAction.kt` holds three things: the action, the `AskClaudeIntention` beside it, and
 `openAskClaudeInput`. That last one is a sibling of `openNewRemarkInput` rather than a flag on it —
 the two differ in the popup's title and in what happens once the remark is stored, and threading a
@@ -2515,8 +2530,18 @@ outcome synchronously — that is what the response body carries — and queues 
 remark against its file, and `FileDocumentManager.getDocument` on a file with no editor open loads it
 from disk, which on the EDT is a stall a person can feel. The ordering race `reportPublishedRead`
 queues on the EDT to avoid does not apply here — an answer touches no `status` field and no review
-phase, and writes only to a list nothing else writes. The balloon is one sentence, "Claude Code
-answered a remark", because the answer itself is paragraphs and a balloon is a line.
+phase, and writes only to a list nothing else writes. The `submit` carries an `onError`, for the same
+reason `action/PublishRemarks.kt`'s identical pipeline does: the outcome already went back as `ok`,
+and without it a throw inside the read action would discard the answer with the reason only in the
+platform log, after the caller was told it was stored.
+
+The balloon is one sentence, because the answer itself is paragraphs and a balloon is a line. It is
+also **one balloon per burst, not per answer**. A batch carrying several marked remarks is answered
+request by request, seconds apart at most, and one balloon each stacks a column of identical
+sentences over the editor. `announceAnswer` counts the answers in a one-second window and shows a
+single counted sentence for them — the same shape `reportPublishedRead` already aggregates its own
+acknowledgement into, across requests rather than inside one. The counter lives in the project's user
+data and is only ever incremented from the EDT, which is what makes creating it safe without a lock.
 
 **This never touches `WaitingReviewService`.** The action is keyed to a batch's nonce exactly the way
 `published-read` is, so it works with no review ever started — which is the ordinary case for a
@@ -2894,3 +2919,40 @@ specific watcher, not a register of all of them.
 Twenty answers at the 16 KiB endpoint cap is over 300 KB in a file the platform saves on every remark
 change and the tool window resolves against. The cap and the one-answer-per-remark rule together are
 what keep this rare. Written down rather than solved.
+
+Four more found by the phase 11 review and left as they are, for the reasons each gives.
+
+**RARE, MAJOR: an answer's markdown is rendered to HTML without being sanitised.** `ui/AnswerPopup.kt`
+hands the answer body to `DocMarkdownToHtmlConverter` and puts the result in a `JBHtmlPane`, and that
+converter passes raw HTML through rather than escaping it. So an answer carrying an `img` tag becomes
+a request the IDE makes the moment the popup opens, and the body arrived over HTTP from a caller. The
+realistic route is not somebody attacking the endpoint — the token gates that — but prompt injection:
+repository content steering the answering session into writing such a tag. Every other place this
+plugin shows caller-supplied text escapes it (`RemarkGutterIcon.asHtml`, `RemarksPanel.updateBanner`),
+and this one deliberately does not, because rendering headings, fences and tables is the whole point
+of the popup. Recorded rather than fixed: the fix is either a tag allow-list of our own or giving up
+the platform's converter, and both are larger than this phase.
+
+**OCCASIONAL, MINOR: the Ask for an Answer toggle deep-copies the whole store on every menu update.**
+`ui/RemarkActions.kt`'s `AskForAnAnswerToggle.isSelected` calls `RemarkStore.getInstance(project).all()`,
+which is a deep copy of every stored remark, and `isSelected` runs on every update tick while the
+menu is open rather than once when it is pressed. `RemarksPanel.remarksCache` exists to avoid exactly
+this cost for the toolbar. Not fixed here because the contained fix does not exist: a cheaper
+"read one remark by id" accessor would have to be added to the store, and guard 3 in `CLAUDE.md`
+exempts `all()` and `allAnswers()` by name, so a third reader means editing the guard as well. The
+cost is bounded by how long a context menu stays open, which is why it is recorded rather than paid
+for with a guard change.
+
+**RARE, MINOR: `buildAnswer` copies the nine anchor fields by hand.** `review/AnswerReceipt.kt` lifts
+`StoredAnchor` into `AnswerState` field by field, so a tenth field added to `StoredAnchor` compiles
+fine there and is silently dropped from every stored answer. It cannot be fixed by sharing a type:
+`AnswerState` is a `BaseState` with its own persisted properties and deliberately does not share a
+superclass with `RemarkState` — its own KDoc argues why — so the two lists have to be written out
+somewhere. Recorded so that whoever adds the tenth field knows there is a second place to edit.
+
+**OCCASIONAL, MINOR: the tree still shows an answer with no file the same way for two different
+reasons.** The history archive now tells them apart — a general remark's answer says "(general)", and
+an answer whose remark was deleted between the publish and the answer says so — but `answerNode` in
+`ui/RemarksTree.kt` asks only `isAboutNoFile`, so both draw with no position and no file name. The
+archive is where the distinction actually matters, because that is the record read months later;
+the tree row is next to the answer body itself.
