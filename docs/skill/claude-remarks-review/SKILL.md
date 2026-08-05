@@ -194,9 +194,13 @@ printed and then not reported.
   walked away from a review it was waiting on. Nothing is waiting here — a publish is not a review
   — so there is nothing to abandon and nothing to tell.
 
-Then act on the remarks the same way step 7 describes: it is one markdown prompt, remarks grouped
-by file, each with its severity, its tag and the code it points at. Act on it, then say plainly
-what was done.
+**Answer whatever asks to be answered first.** If any heading in the file carries
+`asks for an answer`, work through `## Answer the remarks that ask for an answer` below before
+acting on anything else. It needs the nonce this block already read into `$pub_nonce`, and the
+remark ids off the `id:` lines under those headings.
+
+Then act on the rest the same way step 7 describes: it is one markdown prompt, remarks grouped by
+file, each with the code it points at. Act on it, then say plainly what was done.
 
 **If the file is missing**, say so and stop: "Nobody has published remarks for this repository. In
 the IDE, press Publish Unread (or Publish Selected) in the Claude Remarks tool window, then
@@ -329,6 +333,11 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
     a foreign `review:` above: say so at the top, name that session, and do not act. `already-read`
     naming `$listen_session` itself is a retry after a lost response, not an anomaly — proceed as
     normal.
+  - **Then answer whatever asks to be answered**, before summarising anything:
+    `## Answer the remarks that ask for an answer` below, with line 2's nonce and the remark ids off
+    the `id:` lines. Answering needs no go-ahead — it writes nothing to the working tree — and the
+    wait for go below is about the work, not about the questions. A session told `already-read` by
+    the call above skips this too: it lost the claim on the whole batch, marked remarks included.
   - Then summarise the batch and what is planned, and **wait for the person to say go.** Do not
     act unattended, unlike the one-shot and review modes above — a listener runs unattended for
     hours, and nobody chose this exact moment for the work to start.
@@ -348,6 +357,158 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
 
 Nothing in listen mode ever sends `ack abandoned`: that request belongs to the review flow in
 `## Steps` alone, keyed to a review session listen mode never has.
+
+## Answer the remarks that ask for an answer
+
+Written once here and used by all three modes: the one-shot read above, listen mode above, and step
+7 of the review flow below. Each of them holds the two things this needs — the batch's nonce, off
+line 2 of the header, and the batch's own markdown — so a marked remark is answered wherever it
+arrives.
+
+**What a marked remark looks like.** The published prompt puts the marker in the heading and the
+remark's id on its own line under it:
+
+```
+### 3. lines 41-47 — asks for an answer — commit a1b2c3d4
+
+id: 7f1c2a9e-...
+```
+
+The marker is set by the person, by the Ask Claude gesture or by the Ask for an Answer toggle in
+the tool window. **Never infer it.** A remark that reads like a question and does not carry the
+marker is ordinary work or a topic to raise, and is treated as one. The `id:` line is how the POST
+below names the remark, and there is no other way to name it.
+
+**The step, in order.**
+
+1. Take the nonce off line 2 of the batch header, and find every heading carrying
+   `asks for an answer`.
+2. **Answer each of them in this turn**, from the conversation and from the batch payload. The
+   payload already carries the question, the file, the line range and the code around it, and in
+   listen mode the session has usually been reading that code all along. Write markdown, and open
+   with the substance rather than with a preamble: the tool window shows the answer's first line
+   inline on a tree row, so "the class is a service because two modules bind it" is a row worth
+   reading and "Good question — let me explain" is not.
+3. POST each answer with the block below, one call per answer.
+4. Report every `status` that is not `ok`, and say what it means. `ok` needs no line of its own.
+
+**Answering needs no go-ahead, in any mode.** The rule about waiting for the person is about
+changing code, not about reading it. An answer writes nothing to the working tree, nothing to VCS,
+and nothing anywhere except the IDE side channel the person opened by pressing Ask Claude. The work
+a question implies still needs the go-ahead each mode already asks for.
+
+**A subagent is the escalation, not the default.** Answer directly whenever the conversation and the
+batch payload are enough — that is cheap reuse of context this session already holds, and it is the
+whole reason this route exists. A subagent starts with an empty context, so making it the default
+pays again to re-derive what the session already knows. Spawn one only for a question this session
+cannot answer from what it holds: one needing a file nobody here has read, or has not read recently
+enough to trust. Give it the question, the file path, the line range, the code slice and the
+repository root, ask for markdown back and nothing else under the same opening rule, and run several
+in parallel when several questions need one.
+
+**Two things answering is not.**
+
+- **Answering a question is not licence to do the work the question implies.** "Why is this a
+  service and not a helper" is answered, not refactored. The edit happens when the person asks for
+  it, under whichever mode's own rule about acting.
+- **A failed POST is reported, not retried more than once.** A retry is harmless in itself — the IDE
+  replaces an answer for the same remark rather than adding a second — so the reason to stop is the
+  other one: a POST that keeps failing means something a retry will not fix.
+
+A question that arrives twice is answered twice, and that is fine. Nothing here tracks what has
+already been answered, and nothing should start: the IDE keeps one answer per remark and the second
+replaces the first.
+
+⚠️ **A session told `already-read` answers nothing in that batch.** Several sessions may be
+listening to one repository, and the `published-read` acknowledgement is what decides which of them
+acts: the session answered `ok` won the batch, and a session answered `already-read` naming a
+different session lost it. Losing it covers the marked remarks too. The loser names the winner,
+sends no `answer` POST at all, and goes back to what it was doing. Two answers for one question
+would corrupt nothing, since the IDE replaces — the cost is two sessions each spending a turn on the
+same question while neither knows the other did.
+
+**The POST.** One call per answer, run in the foreground.
+
+```sh
+# Self-contained, the same way the one-shot read block above is: every name starts with ans_, so it
+# collides with nothing in the pub_, listen_ or review flows.
+ans_nonce=THE_NONCE_FROM_LINE_2_OF_THE_BATCH
+ans_remark_id=THE_ID_LINE_UNDER_THAT_REMARK_S_HEADING
+
+ans_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$ans_root" ]; then
+  echo "this directory is not in a git repository, so the handshake file's name cannot be computed"
+  echo "here. Ask the person for the project path the IDE shows, and hash that instead."
+  exit 1
+fi
+ans_name=$(printf %s "$ans_root" | shasum -a 256 | cut -c1-16)
+ans_handshake="$HOME/.claude-remarks/$ans_name.json"
+if [ ! -f "$ans_handshake" ]; then
+  echo "no IDE has $ans_root open (no handshake file at $ans_handshake), so the answer cannot be"
+  echo "sent. Say the answer here instead, and say that the IDE never got it."
+  exit 1
+fi
+ans_port=$(jq -r .port "$ans_handshake")
+ans_token=$(jq -r .token "$ans_handshake")
+ans_session=$(uuidgen)
+
+# The answer through a quoted heredoc, so the shell expands nothing inside it: markdown carries $,
+# ` and " routinely, and one of them unquoted would rewrite the answer or break the call.
+ans_md=$(mktemp)
+cat > "$ans_md" <<'ANSWER'
+PUT THE ANSWER HERE, AS MARKDOWN, OPENING WITH THE SUBSTANCE
+ANSWER
+
+ans_json=$(mktemp)
+jq -n --arg session "$ans_session" --arg project "$ans_root" --arg nonce "$ans_nonce" \
+  --arg remarkId "$ans_remark_id" --rawfile answer "$ans_md" \
+  '{session:$session, project:$project, nonce:$nonce, remarkId:$remarkId, answer:$answer}' \
+  > "$ans_json"
+
+ans_resp=$(mktemp)
+# The token goes in on stdin, through a curl config file, never as an argument: an argument sits in
+# curl's argv, which every process on this machine can read out of `ps`, and the token is the only
+# gate on this endpoint. This is the third copy of that `printf | curl --config -` shape, and it
+# stays a copy for the reason the second copy states in full under listen mode above — the three
+# agree on the wire call and differ in what they do with the answer, so a shared script would need a
+# flag per difference, would leave all three paragraphs of prose behind, and would add a third thing
+# that has to be found by absolute path. Change one of the three and change the other two.
+ans_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$ans_token" \
+  | curl -s --config - -o "$ans_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+      -X POST "http://127.0.0.1:$ans_port/api/claude-remarks/answer" \
+      -H "Content-Type: application/json" -d @"$ans_json")
+ans_status=$(jq -r '.status // empty' "$ans_resp" 2>/dev/null)
+echo "answer for $ans_remark_id: http $ans_code, status ${ans_status:-unknown}"
+cat "$ans_resp" ; echo
+rm -f "$ans_resp" "$ans_json" "$ans_md"
+```
+
+**The body is a file here, `-d @"$ans_json"`, where the two `published-read` blocks pass a string.**
+That is the one line of the shape that differs on purpose. An answer runs to sixteen kilobytes of
+the person's own code and prose, and an argument is readable through `ps` by every process on the
+machine. The token line above is byte for byte what the other two copies do.
+
+**What the answers mean.**
+
+- `ok` — stored. The row appears in the tool window's Answers group and a balloon says so. Nothing
+  to report.
+- `unknown-batch` — the nonce is not one of the last sixteen batches this IDE published. The batch
+  is old, or the nonce was copied from the wrong line. Say so and stop; the answer was not stored.
+- `unknown-remark` — that batch did not carry that remark id. Check the id came from the `id:` line
+  under the right heading.
+- `too-large` — over sixteen kilobytes. The response carries `bytes` and `limit`. Shorten the answer
+  and send it once more.
+- `unknown-project` — the `project` field is not a path this IDE has open.
+- `bad-request` — the request shape is wrong, which is a bug on one of the two sides rather than a
+  transient failure. Report the `detail` and stop.
+- **http 403** — the token is stale, because the IDE restarted since the handshake file was written.
+  Tell the person to re-open the project, which rewrites it. Say the answer here so it is not lost.
+
+**In the remote case the port and the token come from somewhere else.** There is no handshake file
+on this machine at all. POST to `$base_url/answer` instead of building a URL from `$ans_port`, use
+the token step 2 read out of the stored `remote-<hash>.env`, and put `$ide_project` — the **IDE
+machine's** path — in the `project` field. Everything else in the block is unchanged, the token line
+included.
 
 ## Over SSH: the IDE on another machine
 
@@ -1022,10 +1183,16 @@ lapsing under a nonsense name.
    Publish Unread will carry them again. Do not retry the acknowledgement more than once — the IDE's
    own deadline already covers a lost one — and do not start a second review.
 
-7. **Read the file and act on it.** It is one markdown prompt built the same way Publish Unread
-   builds one — remarks grouped by file, each with its severity, its tag and the code it
-   points at. Act on it, then say plainly what was done, the same way you would after reading any
-   other review feedback.
+7. **Answer what asks to be answered, then read the file and act on it.** It is one markdown prompt
+   built the same way Publish Unread builds one — remarks grouped by file, each with the code it
+   points at. Any heading carrying `asks for an answer` is answered first, the way
+   `## Answer the remarks that ask for an answer` above describes; the nonce it needs is on line 2
+   of what the watcher printed. Then act on the rest, and say plainly what was done, the same way
+   you would after reading any other review feedback.
+
+   **Answering is easier here than in listen mode, not harder.** The `ack read` above has already
+   gone, so the review is closed in the IDE and its deadline is no longer running. Nothing is
+   waiting on how long an answer takes.
 
 ## What to say if something goes wrong
 

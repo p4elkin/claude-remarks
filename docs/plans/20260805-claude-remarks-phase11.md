@@ -177,7 +177,7 @@ marked.
 | 21 | The markdown popup | complete |
 | 22 | Clearing, the history file and the confirmation dialogs | complete |
 | 23 | watch-remarks.sh fetch mode without a session | complete |
-| 24 | The skill answers what is marked | not started |
+| 24 | The skill answers what is marked | complete |
 | 25 | The skill: listen mode claims, re-arms and reaches over the tunnel | not started |
 | 26 | Verify acceptance criteria | not started |
 | 27 | [Final] Update documentation | not started |
@@ -752,23 +752,23 @@ popup must `Disposer.register(popup, pane)`.
   one in `## Read remarks the person already published` and one in step 7 of `## Steps`; the one-shot
   mode's closing "Then act on the remarks the same way step 7 describes" line)
 
-- [ ] write the answering step once: find every remark whose heading carries the asks marker, answer
+- [x] write the answering step once: find every remark whose heading carries the asks marker, answer
       each one in this turn from the conversation and from the batch payload, and POST each answer to
       `/api/claude-remarks/answer` with the batch's nonce and the remark's id
-- [ ] say plainly that a subagent is the escalation and not the default, and why — it starts with an
+- [x] say plainly that a subagent is the escalation and not the default, and why — it starts with an
       empty context, so making it the default pays to re-derive what the session already knows
-- [ ] add the two must-not rules: answering a question is not licence to do the work the question
+- [x] add the two must-not rules: answering a question is not licence to do the work the question
       implies, and a failed POST is reported rather than retried more than once
-- [ ] ⚠️ add the rule that comes from several sessions listening at once: a session answered
+- [x] ⚠️ add the rule that comes from several sessions listening at once: a session answered
       `already-read` for a batch does not answer the marked remarks in that batch either. The session
       answered `ok` is the one that answers them. The losing session names the winner, answers
       nothing, and goes back to listening
-- [ ] ⚠️ write the POST as a third copy of the `printf 'header = ...' | curl --config -` shape, so the
+- [x] ⚠️ write the POST as a third copy of the `printf 'header = ...' | curl --config -` shape, so the
       token never reaches `curl`'s argv and is never echoed. The file already argues why these stay
       copies rather than becoming a shared script, so quote that argument rather than re-deriving it
-- [ ] reference the answering step from listen mode, from the read-what-is-published mode and from
+- [x] reference the answering step from listen mode, from the read-what-is-published mode and from
       review mode's step 7, and fix the two severity-and-tag sentences
-- [ ] check by hand in the scratchpad, with `HOME` overridden, that the new shell block runs and that
+- [x] check by hand in the scratchpad, with `HOME` overridden, that the new shell block runs and that
       `ps` shows no token in any `curl` argument line while it is in flight - must pass before task 25
 
 ### Task 25: The skill: listen mode claims, re-arms, shares the repository and reaches over the tunnel
