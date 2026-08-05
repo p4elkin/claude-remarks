@@ -2,6 +2,11 @@
 
 An IntelliJ Platform plugin for reviewing code you are about to hand to a Claude Code session.
 
+![The remark box open over the README text, the Claude Remarks tool window listing two remarks on the right, and the status bar reporting that a Claude Code session read them](docs/images/remarks.png)
+
+*Marking up this very README from inside the IDE. The two greyed rows on the right are remarks a
+Claude Code session has already read; the box in the middle is the next one being written.*
+
 You read the code in the IDE, where you can actually navigate it, and mark the places you have
 something to say about. The plugin holds those remarks next to the code without writing a single
 byte into it, and when you are done it renders all of them into one markdown prompt: your note, the
