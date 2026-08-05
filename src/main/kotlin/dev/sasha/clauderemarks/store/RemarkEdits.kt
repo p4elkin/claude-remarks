@@ -7,6 +7,7 @@ import com.intellij.util.messages.Topic
 import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.anchor.captureAnchor
 import dev.sasha.clauderemarks.anchor.phraseAt
+import dev.sasha.clauderemarks.model.AnswerState
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import java.nio.file.Path
@@ -29,10 +30,14 @@ val REMARKS_CHANGED: Topic<RemarksListener> =
     Topic.create("Claude remarks changed", RemarksListener::class.java, Topic.BroadcastDirection.NONE)
 
 /**
- * These eleven functions are the whole way production code reaches a remark. Ten of them change
- * one — nothing calls RemarkStore.add / RemarkStore.remove directly any more, and CLAUDE.md's rule
- * 3 greps to keep that true — and the eleventh, notifyRemarksChanged, changes nothing itself: it is
- * what every one of the ten calls to announce the change.
+ * These thirteen functions are the whole way production code reaches a remark or an answer. Twelve
+ * of them change one — nothing calls the store's own mutators directly any more, and CLAUDE.md's
+ * rule 3 greps to keep that true — and the thirteenth, notifyRemarksChanged, changes nothing
+ * itself: it is what every one of the twelve calls to announce the change.
+ *
+ * Ten of the twelve change a remark. The two added in phase 11, recordAnswer and deleteAnswer,
+ * change an answer instead, and they live here for exactly the same reason: the tool window draws
+ * both lists and the gutter paints both, so both have to redraw after either changes.
  *
  * The reason is not tidiness. The tool window and the gutter both have to redraw after any change,
  * and pairing the mutation with the notification in one function is what stops a caller doing one
@@ -153,6 +158,39 @@ fun setRemarkAsksForAnswer(project: Project, ids: Collection<String>, asksForAns
     if (RemarkStore.getInstance(project).setAsksForAnswer(ids.toSet(), asksForAnswer) > 0) {
         notifyRemarksChanged(project)
     }
+}
+
+/**
+ * Stores one answer a Claude Code session sent back, replacing any answer already held for the same
+ * remark, and tells the tool window and the gutter to redraw.
+ *
+ * It is called recordAnswer and not addAnswer, and the name is load-bearing. It goes through the
+ * store's upsert, keyed on the answer's remark, so a question answered twice ends with one answer
+ * carrying the second body and its own fresh anchor. A function called addAnswer that silently
+ * replaced would be a lie in the one file the answer guard points at.
+ *
+ * Only `review/AnswerReceipt.kt` may call this, and the argument is guard 6's argument about
+ * [markRemarksRead] with one route instead of two: an answer is a record that an agent answered a
+ * question, and the only thing that can say so is a `POST /api/claude-remarks/answer` carrying the
+ * nonce of a batch the IDE itself minted. Letting anything else in would let the IDE manufacture an
+ * answer nobody wrote.
+ *
+ * A replaced answer is not archived, the same way [editRemark] overwrites a remark's text without
+ * archiving it. The archive covers a deletion the person asked for, not a rewrite.
+ */
+fun recordAnswer(project: Project, answer: AnswerState) {
+    RemarkStore.getInstance(project).putAnswer(answer)
+    notifyRemarksChanged(project)
+}
+
+/**
+ * Removes one answer by its own id — the answer's own, not the remark's — because the person doing
+ * this is looking at a row in the Answers group and naming that row. Nothing is archived, the same
+ * rule [deleteRemark] follows: a single Delete is an explicit "this one was a mistake", and
+ * archiving those makes the history file useless.
+ */
+fun deleteAnswer(project: Project, id: String) {
+    if (RemarkStore.getInstance(project).removeAnswer(id)) notifyRemarksChanged(project)
 }
 
 /**

@@ -167,7 +167,7 @@ marked.
 | 11 | The prompt marks a remark that asks, and prints every remark's id | complete |
 | 12 | The regression test for the answers list annotation | complete |
 | 13 | AnswerState and the answers list in the store | complete |
-| 14 | recordAnswer and deleteAnswer, and the new guard | not started |
+| 14 | recordAnswer and deleteAnswer, and the new guard | complete |
 | 15 | StoredAnchor, and resolving an answer against its file | not started |
 | 16 | batchCarries on the published batch service | not started |
 | 17 | The answer endpoint action and AnswerReceipt | not started |
@@ -586,12 +586,12 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/store/RemarkEdits.kt` (add `recordAnswer` and `deleteAnswer` beside `setRemarkBucket`, and correct the count in the file's header comment)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/RemarkEditsTest.kt`
 
-- [ ] write the tests that `recordAnswer` and `deleteAnswer` each publish `REMARKS_CHANGED`
-- [ ] add `recordAnswer(project, answer)` going through `putAnswer`, so replacement happens here and nowhere else
-- [ ] add `deleteAnswer(project, id)` going through `removeAnswer`
-- [ ] name it `recordAnswer` and not `addAnswer` — it upserts, and a function called `addAnswer` that silently replaces would be a lie in the one file the new guard points at
-- [ ] correct the function count in the file's header comment to thirteen, twelve mutators plus `notifyRemarksChanged`
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.RemarkEditsTest'` - must pass before task 15
+- [x] write the tests that `recordAnswer` and `deleteAnswer` each publish `REMARKS_CHANGED`
+- [x] add `recordAnswer(project, answer)` going through `putAnswer`, so replacement happens here and nowhere else
+- [x] add `deleteAnswer(project, id)` going through `removeAnswer`
+- [x] name it `recordAnswer` and not `addAnswer` — it upserts, and a function called `addAnswer` that silently replaces would be a lie in the one file the new guard points at
+- [x] correct the function count in the file's header comment to thirteen, twelve mutators plus `notifyRemarksChanged`
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.RemarkEditsTest'` - must pass before task 15
 
 ### Task 15: StoredAnchor, and resolving an answer against its file
 

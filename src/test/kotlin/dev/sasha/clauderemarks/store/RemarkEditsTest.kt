@@ -6,9 +6,9 @@ import java.io.File
 import java.nio.file.Files
 
 /**
- * The eleven functions that are the only way production code changes a remark. Each one must both
- * mutate and publish, so a caller cannot mutate without the tool window and the gutter hearing
- * about it.
+ * The thirteen functions that are the only way production code changes a remark or an answer. Each
+ * one must both mutate and publish, so a caller cannot mutate without the tool window and the gutter
+ * hearing about it.
  */
 class RemarkEditsTest : BasePlatformTestCase() {
 
@@ -268,6 +268,61 @@ class RemarkEditsTest : BasePlatformTestCase() {
 
         assertTrue(stored.asksForAnswer)
         assertTrue(RemarkStore.getInstance(project).all().single().asksForAnswer)
+    }
+
+    fun testRecordingAnAnswerPublishes() {
+        recordAnswer(project, answer(markdown = "because two threads write it"))
+
+        assertEquals(1, heard)
+        assertEquals(
+            "because two threads write it",
+            RemarkStore.getInstance(project).allAnswers().single().markdown,
+        )
+    }
+
+    /**
+     * The replacement rule reached through the function production code actually calls. `putAnswer`
+     * is where the upsert lives, and this is the wiring that says `recordAnswer` really goes through
+     * it — a version calling a plain add would leave two rows here.
+     */
+    fun testRecordingASecondAnswerForTheSameRemarkReplacesTheFirstAndPublishesAgain() {
+        recordAnswer(project, answer(id = "a-1", markdown = "first"))
+
+        recordAnswer(project, answer(id = "a-2", markdown = "second"))
+
+        assertEquals(2, heard)
+        val stored = RemarkStore.getInstance(project).allAnswers().single()
+        assertEquals("a-2", stored.id)
+        assertEquals("second", stored.markdown)
+    }
+
+    fun testDeletingAnAnswerPublishes() {
+        recordAnswer(project, answer())
+
+        deleteAnswer(project, "a-1")
+
+        assertEquals(2, heard)
+        assertEquals(0, RemarkStore.getInstance(project).allAnswers().size)
+    }
+
+    /** The same no-op rule every other mutator has: nothing changed, so nothing redraws. */
+    fun testDeletingAnUnknownAnswerDoesNotPublish() {
+        recordAnswer(project, answer())
+        val before = heard
+
+        deleteAnswer(project, "no-such-answer")
+
+        assertEquals(before, heard)
+        assertEquals(1, RemarkStore.getInstance(project).allAnswers().size)
+    }
+
+    /** Deletion is by the answer's own id, not by the remark's, so naming the remark takes nothing. */
+    fun testDeletingByTheRemarkIdTakesNothing() {
+        recordAnswer(project, answer(id = "a-1", remarkId = "r-1"))
+
+        deleteAnswer(project, "r-1")
+
+        assertEquals(1, RemarkStore.getInstance(project).allAnswers().size)
     }
 
     fun testClearHandedOverPublishesOnlyWhenSomethingWentAway() {
