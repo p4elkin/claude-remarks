@@ -30,6 +30,10 @@
             <className>dev.sasha.clauderemarks.action.AddRemarkIntention</className>
             <category>Claude Remarks</category>
         </intentionAction>
+        <intentionAction>
+            <className>dev.sasha.clauderemarks.action.AskClaudeIntention</className>
+            <category>Claude Remarks</category>
+        </intentionAction>
         <postStartupActivity implementation="dev.sasha.clauderemarks.editor.RemarkGutterStartup"/>
         <httpRequestHandler implementation="dev.sasha.clauderemarks.review.ReviewRestService"/>
         <applicationConfigurable instance="dev.sasha.clauderemarks.settings.RemarkSettingsConfigurable"
@@ -50,6 +54,23 @@
                  from the right-click menu in a diff, and the only way in is the shortcut. -->
             <add-to-group group-id="Diff.EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="control alt shift R"/>
+        </action>
+        <!-- The second entry point: a remark that asks for an answer, published on the spot.
+             The stroke sits next to Add Claude Remark's so the pair reads as a pair. Checked
+             against the IntelliJ Community checkout: no keymap that ships with the platform binds
+             control alt shift A, in $default or in any of the Mac, GNOME, KDE and XWin keymaps.
+
+             The id is a public interface the same way ClaudeRemarks.AddRemark and
+             ClaudeRemarks.CopyAll are: README.md promises it will not be renamed, and
+             ActionIdsTest pins it. -->
+        <action id="ClaudeRemarks.AskClaude"
+                class="dev.sasha.clauderemarks.action.AskClaudeAction"
+                text="Ask Claude About These Lines"
+                description="Ask Claude about the selected lines and get the answer back on the line">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <!-- A diff pane has its own group, the same reason Add Claude Remark needs both. -->
+            <add-to-group group-id="Diff.EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt shift A"/>
         </action>
         <!-- The same publish as the tool window's toolbar button, so publishing does not need the
              tool window to be open. No default keystroke: this is a keymap entry the user assigns.

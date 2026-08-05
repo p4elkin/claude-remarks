@@ -163,7 +163,7 @@ marked.
 | 7 | Real descriptions on the six toolbar buttons | complete |
 | 8 | The asksForAnswer flag, and the function that sets it | complete |
 | 9 | The shared menu gets Publish and Ask for an Answer | complete |
-| 10 | The Ask Claude action, its intention and its menu item | not started |
+| 10 | The Ask Claude action, its intention and its menu item | complete |
 | 11 | The prompt marks a remark that asks, and prints every remark's id | not started |
 | 12 | The regression test for the answers list annotation | not started |
 | 13 | AnswerState and the answers list in the store | not started |
@@ -533,11 +533,11 @@ popup must `Disposer.register(popup, pane)`.
 - Create: `src/main/resources/intentionDescriptions/AskClaudeIntention/description.html`
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/ActionIdsTest.kt`
 
-- [ ] add the new action id to `ActionIdsTest` beside the two it already pins — that test exists because `README.md` promises those ids will not be renamed, and the third joins the promise
-- [ ] check the default keymap for `Ctrl+Alt+Shift+A` and pick a free stroke if it is taken, then register the action, its shortcut and its intention in `plugin.xml`
-- [ ] write `AskClaudeAction.kt`: open the same input popup, call `addRemark` with `asksForAnswer = true`, then call `publishRemarks(project, listOf(remark.id))` on the stored remark
-- [ ] add the intention beside `AddRemarkIntention`, and the editor popup-menu entry beside the existing one, so the gesture has the same three entry points the ordinary remark has
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.ActionIdsTest'` and `./gradlew verifyPluginProjectConfiguration` - must pass before task 11
+- [x] add the new action id to `ActionIdsTest` beside the two it already pins — that test exists because `README.md` promises those ids will not be renamed, and the third joins the promise
+- [x] check the default keymap for `Ctrl+Alt+Shift+A` and pick a free stroke if it is taken, then register the action, its shortcut and its intention in `plugin.xml`
+- [x] write `AskClaudeAction.kt`: open the same input popup, call `addRemark` with `asksForAnswer = true`, then call `publishRemarks(project, listOf(remark.id))` on the stored remark
+- [x] add the intention beside `AddRemarkIntention`, and the editor popup-menu entry beside the existing one, so the gesture has the same three entry points the ordinary remark has
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.action.ActionIdsTest'` and `./gradlew verifyPluginProjectConfiguration` - must pass before task 11
 
 ### Task 11: The prompt marks a remark that asks, and prints every remark's id
 

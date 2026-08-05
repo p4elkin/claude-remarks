@@ -156,7 +156,13 @@ internal fun buildInputPopup(
     return popup
 }
 
-private fun showRemarkInput(
+/**
+ * The popup at the caret, the only placement an editor allows.
+ *
+ * Internal rather than private because the Ask Claude gesture opens the very same popup, with its
+ * own title and its own submit body — see action/AskClaudeAction.kt.
+ */
+internal fun showRemarkInput(
     project: Project,
     editor: Editor,
     title: String,

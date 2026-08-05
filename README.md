@@ -326,12 +326,13 @@ If you try it, expect to find things. It has had very little real use outside it
 ## IdeaVim
 
 IdeaVim can run any registered action by id with `:action <id>`, so the plugin works from a
-`.ideavimrc` mapping with no extra code. These three ids are a public interface and will not be
+`.ideavimrc` mapping with no extra code. These four ids are a public interface and will not be
 renamed:
 
 | Id | What it does |
 | --- | --- |
 | `ClaudeRemarks.AddRemark` | Open the remark box on the selection, or on the caret line |
+| `ClaudeRemarks.AskClaude` | Ask a question about the selection and publish it on the spot |
 | `ClaudeRemarks.CopyAll` | Publish every unread remark into one prompt on the clipboard |
 | `ActivateClaudeRemarksToolWindow` | Open and focus the Claude Remarks tool window |
 

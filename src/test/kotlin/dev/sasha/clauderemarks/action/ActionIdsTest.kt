@@ -7,7 +7,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.ui.RemarksToolWindowFactory
 
 /**
- * These three ids are a public interface. They are what a .ideavimrc maps with ":action <id>", and
+ * These four ids are a public interface. They are what a .ideavimrc maps with ":action <id>", and
  * they are documented in the README as ids that will not be renamed. A rename would break every
  * user's mapping silently: ":action" on an unknown id fails inside IdeaVim, not here, so nothing in
  * this project would ever notice.
@@ -18,6 +18,22 @@ class ActionIdsTest : BasePlatformTestCase() {
         val manager = ActionManager.getInstance()
         assertNotNull("ClaudeRemarks.AddRemark is documented in the README", manager.getAction("ClaudeRemarks.AddRemark"))
         assertNotNull("ClaudeRemarks.CopyAll is documented in the README", manager.getAction("ClaudeRemarks.CopyAll"))
+        assertNotNull("ClaudeRemarks.AskClaude is documented in the README", manager.getAction("ClaudeRemarks.AskClaude"))
+    }
+
+    /**
+     * The Ask Claude gesture is only a gesture if it is reachable by key. Registering the action
+     * without its stroke would leave it working from the right-click menu and Alt+Enter, with
+     * nothing failing anywhere, which is exactly the kind of half-landing nobody notices.
+     */
+    fun testAskClaudeCarriesItsDefaultShortcut() {
+        val shortcuts = ActionManager.getInstance()
+            .getAction("ClaudeRemarks.AskClaude")
+            .shortcutSet.shortcuts
+        assertTrue(
+            "expected a default keyboard shortcut on ClaudeRemarks.AskClaude, found ${shortcuts.size}",
+            shortcuts.isNotEmpty(),
+        )
     }
 
     /**
