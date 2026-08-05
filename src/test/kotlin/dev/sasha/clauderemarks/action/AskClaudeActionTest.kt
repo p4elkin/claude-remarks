@@ -3,6 +3,9 @@ package dev.sasha.clauderemarks.action
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
+import dev.sasha.clauderemarks.store.answer
+import dev.sasha.clauderemarks.store.markRemarksRead
+import dev.sasha.clauderemarks.store.recordAnswer
 
 /**
  * The phase's headline gesture, on the far side of the input popup.
@@ -44,9 +47,9 @@ class AskClaudeActionTest : BasePlatformTestCase() {
     }
 
     /**
-     * The publish takes the one remark just written and nothing else. A question asked while other
-     * remarks are still waiting must not drag them along: the gesture is "ask this", not "publish
-     * everything and also ask this".
+     * The publish takes questions and nothing else. An ordinary remark waiting to be published must
+     * not be dragged along: the gesture is "ask what is unanswered", not "publish everything and also
+     * ask this". Questions still open do come along — see the overwrite test below for why.
      */
     fun testAskingPublishesOnlyTheQuestionAndNotTheRemarksAlreadyWaiting() {
         val waiting = addRemark(project, "Other.kt", LINES, 0..0, "a plain note")
@@ -69,6 +72,68 @@ class AskClaudeActionTest : BasePlatformTestCase() {
         assertEquals(2, stored.startColumn)
         assertEquals(5, stored.endColumn)
     }
+
+    /**
+     * The batch heals itself. `writePublished` rewrites the whole published file and a watcher only
+     * looks every couple of seconds, so a second ask landing first would otherwise overwrite the
+     * first question's file and strand it: already `PUBLISHED`, so no later ask would carry it, and
+     * its row would say "asks" forever. Carrying every open question makes the second ask republish
+     * the first one, which is the whole point of the wider batch.
+     */
+    fun testASecondAskCarriesTheFirstQuestionAgainSoAnOverwriteCannotStrandIt() {
+        val published = mutableListOf<List<String>>()
+
+        askClaude(project, "Ask.kt", LINES, 0..0, 0 to 0, "first question?") { _, ids ->
+            published.add(ids.toList())
+        }
+        askClaude(project, "Ask.kt", LINES, 1..1, 0 to 0, "second question?") { _, ids ->
+            published.add(ids.toList())
+        }
+
+        val first = questionAsking("first question?")
+        val second = questionAsking("second question?")
+        assertEquals(listOf(first), published.first())
+        assertEquals(
+            "the second ask must carry the first question again, not only the new one",
+            setOf(first, second),
+            published.last().toSet(),
+        )
+    }
+
+    /**
+     * A question that already has an answer is finished, so it is not asked again. Without this it
+     * would ride along with every later ask forever and be answered again each time, replacing an
+     * answer the person may already have read. Answering does not move a remark to `READ` — only an
+     * acknowledgement does — so the status alone cannot tell these apart.
+     */
+    fun testAQuestionThatAlreadyHasAnAnswerIsNotAskedAgain() {
+        val published = mutableListOf<List<String>>()
+        askClaude(project, "Ask.kt", LINES, 0..0, 0 to 0, "first question?") { _, _ -> }
+        val first = questionAsking("first question?")
+        recordAnswer(project, answer(id = "a-1", remarkId = first, markdown = "because of X"))
+
+        askClaude(project, "Ask.kt", LINES, 1..1, 0 to 0, "second question?") { _, ids ->
+            published.add(ids.toList())
+        }
+
+        assertEquals(listOf(listOf(questionAsking("second question?"))), published)
+    }
+
+    /** A question an agent has acknowledged reading is done with too, answer or no answer. */
+    fun testAQuestionAlreadyReadIsNotAskedAgain() {
+        val published = mutableListOf<List<String>>()
+        askClaude(project, "Ask.kt", LINES, 0..0, 0 to 0, "first question?") { _, _ -> }
+        markRemarksRead(project, listOf(questionAsking("first question?")))
+
+        askClaude(project, "Ask.kt", LINES, 1..1, 0 to 0, "second question?") { _, ids ->
+            published.add(ids.toList())
+        }
+
+        assertEquals(listOf(listOf(questionAsking("second question?"))), published)
+    }
+
+    private fun questionAsking(text: String): String =
+        RemarkStore.getInstance(project).all().single { it.text == text }.id!!
 
     private companion object {
         val LINES = listOf("alpha", "beta")

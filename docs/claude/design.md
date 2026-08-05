@@ -2367,9 +2367,34 @@ and would fail nowhere.
 
 ### It publishes on the spot, and that is the point
 
-Asking is one motion. So `AskClaudeAction` stores the remark and immediately calls
-`publishRemarks(project, listOf(remark.id))` on that one id. Asking a question used to mean writing
-the remark, opening the tool window, finding the row, selecting it, and pressing Publish Selected.
+Asking is one motion. So `AskClaudeAction` stores the remark and immediately publishes. Asking a
+question used to mean writing the remark, opening the tool window, finding the row, selecting it, and
+pressing Publish Selected.
+
+**What it publishes is every question still open, not only the one just typed.** `openQuestionIds` in
+`action/AskClaudeAction.kt` takes every remark that asks for an answer, is not yet `READ`, and has no
+answer stored against it. That is wider than the gesture sounds, and the width is the point:
+
+- `writePublished` rewrites the whole published file, and a watcher only looks every two seconds in
+  file mode, five in fetch mode. A second question asked inside that window used to overwrite the
+  first question's file. The first question was already `PUBLISHED`, so no later ask carried it, and
+  its row said "asks" forever while no session had ever seen it. Asking twice in a row is the
+  ordinary way this gesture is used, so the batch heals itself instead: the second ask republishes
+  the first question. It costs nothing when there is only one open question, which is the usual case.
+- An answered question is left out because having an answer is the closest thing the store holds to
+  "this one is finished". Answering does not move a remark to `READ` — only an acknowledgement does —
+  so without that filter every question ever asked would ride along with every later ask and be
+  answered again each time, replacing an answer the person may already have read. Deliberately
+  re-asking is still Publish Selected on that row.
+- The ordering of two publishes is a different problem and this does not fix it. Two gestures still
+  run two independent read actions, and whichever finishes last writes the file, which can be the
+  earlier one. It stops losing a question outright, because the id sets now nest: the worst case is
+  the larger batch being replaced by the smaller one inside it, and the next ask carries the leftover
+  again. It also needs both publishes in flight at the same instant rather than merely inside one
+  watcher poll.
+
+Plain Publish Selected is untouched by all of this. It still publishes exactly the rows that were
+picked. `AskClaudeActionTest` pins the wider batch, the answered filter and the `READ` filter.
 
 Two side effects come with that, because this is the ordinary publish and not a second kind of one.
 It writes the clipboard, as every publish does, so asking one question replaces whatever was on it —
@@ -2918,6 +2943,16 @@ lost; the relief valves are Clear Handed Over and a narrower Publish Selected ba
 still in the store, and the next Publish Unread carries them again. The one case that does not
 recover by itself is two Publish Selected batches with different rows: the first batch's rows come
 back only through a later Publish Unread or by selecting them again.
+
+⚠️ **Phase 11 review revisited this entry, because the Ask Claude gesture turned that excluded case
+into the ordinary way the feature is used.** The gesture is a one-keystroke Publish Selected, so
+asking a second question before the watcher looked overwrote the first question's file, and the first
+question — already `PUBLISHED` — was never carried again by anything. It was answered by widening
+what the gesture publishes rather than by changing how the file is written: `openQuestionIds` carries
+every question that is still open, so the second ask republishes the first. See "It publishes on the
+spot, and that is the point" above. The entry above still stands as written for Publish Selected
+itself, which deliberately publishes exactly the rows that were picked, and for the ordering of two
+publishes, which the wider batch narrows but does not remove.
 
 **RARE, MODERATE: two publishes inside one watcher poll interval can mark the wrong batch read.** A
 waiting review records the ids of the batch that answered it and refuses to re-stamp — see "A review

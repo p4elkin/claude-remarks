@@ -290,8 +290,10 @@ says what the button takes rather than repeating its own name.
 
 *The Ask Claude gesture.* `Ctrl+Alt+Shift+A`, the `AskClaudeIntention` under `Alt+Enter`, and an
 editor popup-menu entry all open the same input box `Ctrl+Alt+Shift+R` opens, then store the remark
-with `asksForAnswer = true` and call `publishRemarks` on that one id. `action/AskClaudeAction.kt`
-holds the action and the intention. The published prompt marks such a remark `— asks for an answer`
+with `asksForAnswer = true` and call `publishRemarks` on every question still open — the new one plus
+any earlier question that is not `READ` and has no answer yet. The wider batch is what stops a second
+ask overwriting the first question's file and stranding it; see design.md, "It publishes on the spot,
+and that is the point". `action/AskClaudeAction.kt` holds the action and the intention. The published prompt marks such a remark `— asks for an answer`
 in its heading and prints every remark's `id:` on its own line, which is what a session needs to
 answer one.
 

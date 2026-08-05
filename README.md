@@ -202,6 +202,13 @@ steps through the tool window. Two things follow from it being an ordinary publi
 clipboard, as every publish does, and if a review is waiting in the banner it answers that review and
 uses up that review's one answer.
 
+The batch it publishes is every question still waiting for an answer, not only the one you just
+typed. Usually that is the same thing, because there is only one. It matters when you ask twice in a
+row: each publish rewrites the published file, and a session looks at that file every couple of
+seconds, so a second question sent too quickly would otherwise replace the first one before anybody
+read it. Carrying the earlier question again makes that harmless. A question that already has an
+answer is left out, so nothing is asked twice.
+
 You can also mark a remark you already wrote: right-click it, or click its gutter icon, and turn
 **Ask for an Answer** on. That only sets the flag — it publishes nothing. A marked row says `asks` in
 grey until an answer arrives, and `answered` afterwards.
