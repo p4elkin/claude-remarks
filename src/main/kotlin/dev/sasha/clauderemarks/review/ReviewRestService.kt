@@ -16,21 +16,27 @@ import java.nio.file.Path
 import org.jetbrains.ide.RestService
 
 /**
- * `POST /api/claude-remarks/start`, `POST /api/claude-remarks/ack`, `POST /api/claude-remarks/fetch`
- * and `POST /api/claude-remarks/published-read`. The skill asks this IDE to hold a review open for a
+ * `POST /api/claude-remarks/start`, `POST /api/claude-remarks/ack`, `POST /api/claude-remarks/fetch`,
+ * `POST /api/claude-remarks/published-read` and `POST /api/claude-remarks/answer`. The skill asks
+ * this IDE to hold a review open for a
  * repository, then later tells the IDE whether it read the remarks or gave up waiting. Where those
  * remarks land is not part of the answer since phase 10: both sides compute the one published file's
  * path from the repository path itself. `fetch` is a third moment: it hands that file's content back
  * in the response body itself, for an agent with no filesystem access to it. `published-read` is a
  * fourth, and independent of the other three: it acknowledges a batch a
  * publish wrote to the merged file, keyed to the nonce that batch's header carries rather than to a
- * review session, since a publish can happen with no review waiting at all.
+ * review session, since a publish can happen with no review waiting at all. `answer` is a fifth,
+ * added in phase 11, and it is the first action that carries content *into* the IDE rather than a
+ * control signal: the markdown a session wrote in reply to one remark it was shown, keyed to the
+ * same batch nonce for the same reason.
  *
  * The answer is always HTTP 200 with a `status` field. `start` answers one of `waiting`,
  * `conflict`, `unknown-project`, `bad-request`; `ack` answers one of `ok`, `no-review`,
  * `not-sent`, `unknown-project`, `bad-request`; `fetch` answers one of `ready`, `waiting`,
  * `no-review`, `too-large`, `unknown-project`, `bad-request`, `failed`; `published-read` answers one
- * of `ok`, `already-read`, `unknown-batch`, `unknown-project`, `bad-request`. Real status codes stay
+ * of `ok`, `already-read`, `unknown-batch`, `unknown-project`, `bad-request`; `answer` answers one of
+ * `ok`, `unknown-batch`, `unknown-remark`, `too-large`, `unknown-project`, `bad-request`. Real status
+ * codes stay
  * reserved for what `RestService.process` produces above this class — 403, 429, and 400 or 500
  * from its catch — so a plumbing failure never looks like an application answer to the shell
  * script reading it.
@@ -133,6 +139,24 @@ private class PublishedReadRequest(
 )
 
 /**
+ * Gson fills these by reflection too. [nonce] is the published batch that carried the question, and
+ * it is what proves the caller actually read that batch: a process that could guess a remark id but
+ * has never read a batch cannot write into the IDE's own state. [remarkId] has to be one the batch
+ * carried. [answer] is markdown.
+ *
+ * [session] is reported by nobody and checked against nothing, exactly as in [PublishedReadRequest]:
+ * it is a name the calling session invents for itself, and it is required only so a malformed caller
+ * is told so rather than silently accepted.
+ */
+private class AnswerRequest(
+    val session: String? = null,
+    val project: String? = null,
+    val nonce: String? = null,
+    val remarkId: String? = null,
+    val answer: String? = null,
+)
+
+/**
  * The default the skill's own `deadline_seconds` carries in
  * `docs/skill/claude-remarks-review/SKILL.md` step 3, and the bounds it is corrected to. Named
  * rather than inlined so that the number is greppable from the skill's side: the two documents have
@@ -149,6 +173,17 @@ private const val MAX_DEADLINE_SECONDS = 86_400L
  * quotes the number back to the person.
  */
 private const val MAX_PUBLISHED_BYTES = 1_048_576L
+
+/**
+ * The largest answer the `answer` action will accept, in UTF-8 bytes. Sixteen kilobytes is roughly
+ * two and a half thousand words, far more than a reading-pass question needs, and an answer goes
+ * straight into `workspace.xml` — which the platform rewrites on every change and the tool window
+ * resolves against, so an unbounded one is a cost paid on every save.
+ *
+ * Refused rather than truncated, the same argument [MAX_PUBLISHED_BYTES] makes in the other
+ * direction: a markdown document cut in the middle looks complete to whoever reads it next.
+ */
+private const val MAX_ANSWER_BYTES = 16_384
 
 /**
  * The skill declares how long it will wait. The number arrives over HTTP, so it is bounded here,
@@ -212,6 +247,7 @@ class ReviewRestService : RestService() {
             "ack" -> handleAck(request, writer)
             "fetch" -> handleFetch(request, writer)
             "published-read" -> handlePublishedRead(request, writer)
+            "answer" -> handleAnswer(request, writer)
             // A behaviour change worth naming: before this, any sub-path started a review because
             // execute never looked at it at all.
             else -> badRequest(writer, cause = null, fallbackDetail = "unknown action: $action")
@@ -439,6 +475,69 @@ class ReviewRestService : RestService() {
             }
             PublishedAckOutcome.UNKNOWN_BATCH -> writer.name("status").value("unknown-batch")
         }
+    }
+
+    /**
+     * `POST /api/claude-remarks/answer`. Stores the markdown a Claude Code session wrote in reply to
+     * one remark it was shown. Answers `ok`, `unknown-batch`, `unknown-remark`, `too-large`,
+     * `unknown-project` or `bad-request`.
+     *
+     * `nonce` is what proves the caller read the batch that carried the question, and `remarkId` has
+     * to be one that batch carried. Together they are what stops a process that could guess an id
+     * from writing into the IDE's own state. The token check above is the outer gate; this pair is
+     * what keeps one batch's caller from writing about a different batch.
+     *
+     * **This deliberately does not look at `asksForAnswer`.** An answer to an unmarked remark is
+     * `ok` and is stored. The flag decides what the *skill* does, and a second copy of that decision
+     * here would be a second place that can disagree — with the store's copy winning silently over
+     * the prompt the session actually read. An answer nobody asked for is a row a person can delete;
+     * a refused answer that was correctly asked for is work thrown away.
+     *
+     * A second answer for a remark already answered is `ok` too. There is no separate status for a
+     * replacement: the caller did nothing wrong, and replacing is the intended behaviour.
+     *
+     * Like the acknowledgement handlers above, this parses, calls [matchProject] and one function in
+     * another file, and writes fields. Every consequence — resolving the remark, capturing its
+     * position, building the answer, storing it, the balloon — lives in review/AnswerReceipt.kt, for
+     * the same reason the ack action's consequences live in review/ReviewLifecycle.kt.
+     */
+    private fun handleAnswer(request: FullHttpRequest, writer: JsonWriter) {
+        val body = runCatching {
+            gson.fromJson<AnswerRequest?>(createJsonReader(request), AnswerRequest::class.java)
+        }
+        val parsed = body.getOrNull()
+        val session = parsed?.session
+        val wanted = parsed?.project
+        val nonce = parsed?.nonce
+        val remarkId = parsed?.remarkId
+        val markdown = parsed?.answer
+        if (session.isNullOrBlank() || wanted.isNullOrBlank() || nonce.isNullOrBlank() ||
+            remarkId.isNullOrBlank() || markdown.isNullOrBlank()
+        ) {
+            badRequest(
+                writer,
+                body.exceptionOrNull(),
+                "expected a JSON object with session, project, nonce, remarkId and answer",
+            )
+            return
+        }
+        // Measured in bytes, not characters: the cap is about what lands in workspace.xml, and a
+        // markdown answer full of code fences and non-ASCII is not one byte per character.
+        val bytes = markdown.toByteArray(StandardCharsets.UTF_8).size
+        if (bytes > MAX_ANSWER_BYTES) {
+            writer.name("status").value("too-large")
+            writer.name("bytes").value(bytes)
+            writer.name("limit").value(MAX_ANSWER_BYTES)
+            return
+        }
+        val project = matchProject(wanted, writer) ?: return
+        writer.name("status").value(
+            when (reportAnswer(project, nonce, remarkId, markdown)) {
+                AnswerOutcome.OK -> "ok"
+                AnswerOutcome.UNKNOWN_BATCH -> "unknown-batch"
+                AnswerOutcome.UNKNOWN_REMARK -> "unknown-remark"
+            }
+        )
     }
 
     /**

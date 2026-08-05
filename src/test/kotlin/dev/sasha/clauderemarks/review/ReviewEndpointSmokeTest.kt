@@ -5,6 +5,7 @@ import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
+import dev.sasha.clauderemarks.store.settleInvocationQueue
 import io.netty.buffer.ByteBufHolder
 import io.netty.buffer.Unpooled
 import io.netty.channel.ChannelInboundHandlerAdapter
@@ -408,6 +409,130 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
         assertTrue(sent, sent.contains("\"unknown-project\""))
     }
+
+    /**
+     * The `answer` action's ordinary case, at the HTTP layer: a marked remark the named batch really
+     * carried, answered with markdown, and the answer is in the store afterwards.
+     *
+     * settleInvocationQueue rather than one dispatchAllInvocationEvents: `reportAnswer` queues a
+     * read action on a pooled thread and only its finishing half lands on the EDT.
+     */
+    fun testAnAnswerForARemarkItsBatchCarriedAnswersOkAndStoresIt() {
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+
+        val sent = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "because of X"))
+        settleInvocationQueue()
+
+        assertTrue(sent, sent.contains("\"ok\""))
+        assertEquals("because of X", RemarkStore.getInstance(project).allAnswers().single().markdown)
+    }
+
+    /**
+     * A replacement has no status of its own: the caller did nothing wrong, and at most one answer
+     * per remark is enforced in the store rather than refused at the edge. A re-publish mints a fresh
+     * nonce and a watcher compares nonces rather than content, so the same question reaching a
+     * session twice is ordinary.
+     */
+    fun testASecondAnswerForTheSameRemarkIsAlsoOk() {
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+        post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "the first body"))
+        settleInvocationQueue()
+
+        val sent = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "the second body"))
+        settleInvocationQueue()
+
+        assertTrue(sent, sent.contains("\"ok\""))
+        assertEquals("the second body", RemarkStore.getInstance(project).allAnswers().single().markdown)
+    }
+
+    /**
+     * The endpoint deliberately does not look at `asksForAnswer`. The flag decides what the skill
+     * does, and a second copy of that decision here would be a second place that can disagree — with
+     * the store's copy winning silently over the prompt the session actually read. Without this test
+     * that decision would be quietly reversed by the first person who reads the handler and assumes
+     * a check is missing.
+     */
+    fun testAnAnswerForAnUnmarkedRemarkIsAlsoOk() {
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "just a note")
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+
+        val sent = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "an answer anyway"))
+        settleInvocationQueue()
+
+        assertFalse(remark.asksForAnswer)
+        assertTrue(sent, sent.contains("\"ok\""))
+        assertEquals(1, RemarkStore.getInstance(project).allAnswers().size)
+    }
+
+    fun testAnAnswerForANonceNothingRecordedAnswersUnknownBatch() {
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
+
+        val sent = post("/api/claude-remarks/answer", answerBody("does-not-exist", remark.id!!, "because"))
+        settleInvocationQueue()
+
+        assertTrue(sent, sent.contains("\"unknown-batch\""))
+        assertTrue(RemarkStore.getInstance(project).allAnswers().isEmpty())
+    }
+
+    /**
+     * A real batch that never carried this id — a session answering a question it invented, or one
+     * from an older batch. A different refusal from an unknown nonce, and the endpoint says so with
+     * a different status, because the two need different handling by the caller.
+     */
+    fun testAnAnswerForARemarkItsBatchNeverCarriedAnswersUnknownRemark() {
+        val shown = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
+        val hidden = addRemark(project, "B.kt", listOf("beta"), 0..0, "and this?")
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(shown.id!!))
+
+        val sent = post("/api/claude-remarks/answer", answerBody(nonce, hidden.id!!, "because"))
+        settleInvocationQueue()
+
+        assertTrue(sent, sent.contains("\"unknown-remark\""))
+        assertTrue(RemarkStore.getInstance(project).allAnswers().isEmpty())
+    }
+
+    /**
+     * Over MAX_ANSWER_BYTES the answer is refused whole rather than truncated, the same argument the
+     * fetch's own size cap makes: a markdown document cut in the middle looks complete to whoever
+     * reads it next. The answer goes straight into workspace.xml, which the platform rewrites on
+     * every change.
+     */
+    fun testAnAnswerOverTheSizeCapAnswersTooLargeAndStoresNothing() {
+        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+
+        val sent = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "x".repeat(20_000)))
+        settleInvocationQueue()
+
+        assertTrue(sent, sent.contains("\"too-large\""))
+        assertTrue(sent, sent.contains("\"limit\""))
+        assertTrue(RemarkStore.getInstance(project).allAnswers().isEmpty())
+    }
+
+    fun testAnAnswerWithNoRemarkIdAnswersBadRequest() {
+        val sent = post(
+            "/api/claude-remarks/answer",
+            """{"session":"s1","project":"${projectPath()}","nonce":"n1","answer":"because"}""",
+        )
+
+        assertTrue(sent, sent.contains("\"bad-request\""))
+    }
+
+    fun testAnAnswerForAProjectNothingHasOpenAnswersUnknownProject() {
+        val sent = post(
+            "/api/claude-remarks/answer",
+            """{"session":"s1","project":"/nope","nonce":"n1","remarkId":"r1","answer":"because"}""",
+        )
+
+        assertTrue(sent, sent.contains("\"unknown-project\""))
+    }
+
+    /** The five fields the `answer` action takes, so each test above spells out only what it varies. */
+    private fun answerBody(nonce: String, remarkId: String, answer: String): String =
+        """{"session":"s1","project":"${projectPath()}","nonce":"$nonce",""" +
+            """"remarkId":"$remarkId","answer":"$answer"}"""
 
     /**
      * projectForPath compares the path as given, and the endpoint resolves every open project's

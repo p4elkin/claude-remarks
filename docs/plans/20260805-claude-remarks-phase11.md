@@ -170,7 +170,7 @@ marked.
 | 14 | recordAnswer and deleteAnswer, and the new guard | complete |
 | 15 | StoredAnchor, and resolving an answer against its file | complete |
 | 16 | batchCarries on the published batch service | complete |
-| 17 | The answer endpoint action and AnswerReceipt | not started |
+| 17 | The answer endpoint action and AnswerReceipt | complete |
 | 18 | The fetch action loses its session requirement | not started |
 | 19 | The Answers group in the tree | not started |
 | 20 | The answer's gutter icon | not started |
@@ -625,12 +625,12 @@ popup must `Disposer.register(popup, pane)`.
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/review/AnswerReceiptTest.kt`
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/review/ReviewEndpointSmokeTest.kt`
 
-- [ ] write the endpoint tests through a real `EmbeddedChannel`: `ok`, `unknown-batch`, `unknown-remark`, `too-large`, `unknown-project`, `bad-request`, and that a second answer for the same remark is also `ok`
-- [ ] write the test that an answer for an **unmarked** remark is also `ok` — the endpoint deliberately does not check `asksForAnswer`, and without a test that decision will be quietly reversed
-- [ ] write `AnswerReceiptTest`: answering marks nothing read, answering does not consume the batch, an answer for a remark deleted in between is stored with no anchor rather than dropped, and an answer works with no review ever started
-- [ ] write `reportAnswer` and `buildAnswer` in `AnswerReceipt.kt`, resolving the remark and capturing a fresh anchor inside a `ReadAction.nonBlocking`, then calling `recordAnswer` and the balloon in `finishOnUiThread`
-- [ ] ⚠️ add `handleAnswer` to `ReviewRestService.kt` doing only four things — parse, `matchProject`, call `reportAnswer`, write the status fields — and keep its comment free of the five symbol names guard 5 greps for, because that grep cannot tell a comment from code
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.AnswerReceiptTest' --tests 'dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest'` - must pass before task 18
+- [x] write the endpoint tests through a real `EmbeddedChannel`: `ok`, `unknown-batch`, `unknown-remark`, `too-large`, `unknown-project`, `bad-request`, and that a second answer for the same remark is also `ok`
+- [x] write the test that an answer for an **unmarked** remark is also `ok` — the endpoint deliberately does not check `asksForAnswer`, and without a test that decision will be quietly reversed
+- [x] write `AnswerReceiptTest`: answering marks nothing read, answering does not consume the batch, an answer for a remark deleted in between is stored with no anchor rather than dropped, and an answer works with no review ever started
+- [x] write `reportAnswer` and `buildAnswer` in `AnswerReceipt.kt`, resolving the remark and capturing a fresh anchor inside a `ReadAction.nonBlocking`, then calling `recordAnswer` and the balloon in `finishOnUiThread`
+- [x] ⚠️ add `handleAnswer` to `ReviewRestService.kt` doing only four things — parse, `matchProject`, call `reportAnswer`, write the status fields — and keep its comment free of the five symbol names guard 5 greps for, because that grep cannot tell a comment from code
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.AnswerReceiptTest' --tests 'dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest'` - must pass before task 18
 
 ### Task 18: The fetch action loses its session requirement
 
