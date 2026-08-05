@@ -1,117 +1,308 @@
 # Claude Remarks
 
-An IntelliJ Platform plugin that lets you attach short remarks to line ranges while reading code, without touching the source files. Remarks do not modify your working tree.
+An IntelliJ Platform plugin for reviewing code you are about to hand to a Claude Code session.
 
-Select lines, press `Ctrl+Alt+Shift+R` (or use the "Add Claude Remark" intention through Alt+Enter), type a note, optionally pick a tag from the chip row (`Alt+1` through `Alt+4`, or `Alt+0` for no tag), and press Enter. Every remark also carries a severity level (`vibe` / `suggestion` / `should` / `must`, defaulting to `should`) that tells the model reading the published prompt how strongly to act on it; change it afterwards from the gutter icon menu or the tool window's right-click menu, not in the input box, which stays a plain text area and a chip row so writing a remark never slows down. `Cmd+Ctrl+Shift+Space` in the remark box (`Ctrl+Alt+Shift+Space` on Windows and Linux) opens a chooser that inserts a class name from the project at the caret. This is not `Ctrl+Space`: the IDE's own Basic Completion is offered even inside a popup, and macOS takes `Ctrl+Space` for switching input source. A gutter icon appears on the marked lines and follows the code as you keep editing. A sub-line remark, one written over part of a line rather than the whole thing, also stores the exact words it points at, so it can find them again after the line moves or the paragraph reflows around it; the tree row and the gutter tooltip show the column range next to the line number, and the tooltip shows the phrase itself. The tool window lists every remark as a tree grouped by file, with a General group at the top for a remark about the whole change rather than one file, and a bucket level above the files once you put any remark into one. When you are ready, press Publish Unread in the tool window: every remark that is not yet read becomes one markdown prompt on the clipboard. Each heading carries its tag, its severity, and the short sha of the commit it was written against, if there is one, and any general remarks come first, under their own heading and with no code block. A balloon says how many, and you paste it into a Claude Code session. Published remarks turn gray in the tool window rather than disappearing, so Publish Selected can send them again if the paste went to the wrong place.
+You read the code in the IDE, where you can actually navigate it, and mark the places you have
+something to say about. The plugin holds those remarks next to the code without writing a single
+byte into it, and when you are done it renders all of them into one markdown prompt: your note, the
+lines it points at, the code itself, how strongly you mean it. You paste that into a Claude Code
+session, or let the bundled skill pick it up on its own.
 
-A remark can also be written from the rendered markdown preview instead of from the source file: select the words there, right-click, and pick **Add Claude Remark**, and the remark points at the same characters in the `.md` file behind the selection. This needs the Markdown plugin, which every JetBrains IDE bundles by default; with it turned off, this one entry point is simply not there, and everything else works exactly as before.
+The alternative is typing "in `Foo.kt`, the thing around line 140, could you..." three times in a
+row and hoping the model finds it. This is that, but the model gets the exact lines.
 
-Click a gutter icon to edit or delete that remark, or to change its severity or move it to a bucket from the same menu. In the tool window, right-click a row for that same severity-and-bucket menu; select a row and press Delete to remove it, or select several rows and their files and choose Move to Bucket to sort a whole reading pass in one step. Selecting a bucket node and pressing Publish Selected publishes every remark in it, which is why there is no separate Publish Bucket button. Selecting a whole file or bucket node and pressing Delete stands for every remark under it, and that case asks first. The toolbar has six buttons: **Add General Remark** (opens the same input popup, centred over the tree since there is no editor behind it, for a note about the whole change rather than one file. It always lands in the General group, whatever bucket it is later given), **Publish Unread** (every remark that is not yet read), **Publish Selected** (only the selected rows, already-published or already-read ones included. Publishing a read remark again hands it over as published, not read, since nothing has confirmed that second handover), **Clear Handed Over** and **Clear All** (both ask first, name how many, and archive the cleared remarks to a history file before removing anything. A single Delete on one row is the exception and does not archive), and **Refresh**. **Tools → Publish Unread Claude Remarks** does the same publish without the tool window open, and can be given a keyboard shortcut in the keymap. If a Claude Code skill has a review waiting on this project, either publish button also answers it — see "Reviewing with a Waiting Claude Code Session" below.
+**This is early software.** The test suite is green, but almost none of it has been seen running in
+a real IDE. See [Status](#status) before you decide to rely on it.
 
-Remarks stay on your machine, stored in `.idea/workspace.xml`. The `.idea/.gitignore` that the IDE generates excludes that file, so remarks stay out of version control. A repository that deliberately tracks `.idea/workspace.xml` is the exception: there they would be committed like any other change to that file. Clearing writes the remarks that are about to go to a markdown file in the IDE configuration directory (under `claude-remarks/`) before removing them from the active list — that file is outside every project, so it can never be committed by accident either. The instruction header shown at the top of every published prompt is editable in **Settings → Tools → Claude Remarks**; the severity scale's explanation is appended below it on every publish and is not part of that editable text, so rewriting the header cannot silently drop what the levels mean.
+---
 
-## Phases
+## Contents
 
-- **Phase 1-2**: Storage, persistence, and the two-pass anchoring search that keeps a remark pointed at the right lines as the file changes around it.
-- **Phase 3-4**: The input popup, the gutter icon, the tree tool window, the settings page, and the Publish Remarks action described above.
-- **Phase 5**: Severity and named buckets, tag chips picked from the keyboard, a commit stamp read straight out of `.git`, a history file that cleared remarks are archived to instead of deleted, and the `Cmd+Ctrl+Shift+Space` class-name insert — all described above, and in more depth in `docs/claude/design.md`.
-- **Phase 6**: A review session shared between a Claude Code skill and the IDE — described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session".
-- **Phase 7**: The review session tells the truth about what happened to it. Rejecting it in the banner now writes that decision to the handoff file instead of only closing the banner, and the link is called Reject. A remark is marked read only once the skill acknowledges it read the handoff file, not the moment the file is written; a review that never gets a reply goes stale on its own deadline, declared by the skill and enforced by the IDE. The review also opens a real diff over just the files the skill named, instead of a plain editor per file. This is described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session".
-- **Phase 8**: A Claude Code session on another machine can read remarks too, over an SSH tunnel the person sets up by hand. The IDE's endpoint gains a fetch action that returns the handoff file's content in the response body instead of a path, since a path on the IDE machine means nothing to an agent on a different one. Fetching never marks anything read. The `read` acknowledgement still does that, so it is safe to repeat as often as the skill's poll needs. Described in "Reviewing with a Waiting Claude Code Session" below, and in more depth in `docs/claude/design.md`, section "The Shared Review Session", subsection "Reaching an agent on another machine".
-- **Phase 9**: group one gives a remark three states, `PENDING`, `PUBLISHED` and `READ`, in place of `PENDING` and `SENT`. Only a review's read acknowledgement produces `READ`, and publishing, however many times, only ever produces `PUBLISHED`. Copy All Pending and Copy Selected are renamed to Publish All Pending and Publish Selected. The `ClaudeRemarks.CopyAll` action id stays as it is, since it is a public interface. Publishing now writes the same prompt, with a small dated header, to a file under `~/.claude-remarks/`, overwritten on every publish, so a Claude Code skill can read published remarks on its own schedule with no review ever started; `docs/skill/claude-remarks-review/SKILL.md` gained a second mode that reads it. Group two lets a sub-line remark find the exact words it points at again after the line moves or the paragraph reflows: the selected text is stored beside the line range, the anchor searches for it once the plain line resolve orphans, and the tree row and the gutter tooltip show the sub-line range and the phrase. Group three adds a remark about the whole change rather than one file, written with the Add General Remark toolbar button: it is rendered first in the published prompt, under its own General heading with no code block, and grouped at the very top of the tree, above the buckets, whatever bucket it also carries. Group four shows a file row's name first, with its directory shortened in grey after it, and lets a remark, several selected remarks, or a whole file or bucket group be dragged onto a bucket row to move them, or onto `(no bucket)` to clear it. Group five lets a remark be written from the rendered markdown preview instead of from the source: select words there, right-click, and the remark points at the same characters in the `.md` file behind the selection. The markdown plugin is only an optional dependency for this last part, so the plugin still loads without it. Task 24 bumps the version to `0.6.0` and does the phase's final documentation sweep. Described in more depth in `docs/claude/design.md`, sections "The Publish Pipeline", "The three states, and why published is not read", "The published file", "The phrase a remark points at" (under "The Anchoring Design"), "A Remark About No File", and "A Remark on the Rendered Preview".
-- **Phase 10**: the published file and the review's own handoff file merge into one file with one eight-line header, so an agent's read of it goes through one of two acknowledgement routes — a review's own session id, or a published batch's nonce — instead of two separate files with two separate contracts. Publish All Pending is renamed Publish Unread and carries every remark that is not yet `READ`, not only the `PENDING` ones. Publishing is now how a waiting review gets answered too: the banner's "Send remarks" link, the toolbar's "Send to Claude Code" button, and the Tools menu's `ClaudeRemarks.SendToWaiting` action are all gone, and pressing either Publish button both puts the prompt on the clipboard as before and writes the same file the review reads. A rejection is now just another batch written to that one file, `rejected: yes`, rather than a file in a directory the review owned on its own — the review's per-review temp directory is gone. The skill (`docs/skill/claude-remarks-review/SKILL.md`) gained a background watcher script it launches once and waits on, so both review mode and the two published-file modes — a one-shot read, and an opt-in listen mode that waits for the next batch — can wait far longer than the ten minutes a foreground shell call is capped at, and a `remote-config.sh` script that lets the skill remember a remote IDE's four connection values across runs instead of retyping them. Described in more depth in `docs/claude/design.md`, sections "The three states, and why published is not read", "The published file" and "The Shared Review Session".
+- [What it does](#what-it-does)
+- [Installing](#installing)
+- [Using it](#using-it)
+- [The Claude Code skill](#the-claude-code-skill)
+- [When the IDE is on another machine](#when-the-ide-is-on-another-machine)
+- [Status](#status)
+- [IdeaVim](#ideavim)
+- [Building and testing](#building-and-testing)
+- [Architecture](#architecture)
+- [Licence](#licence)
 
-An earlier brief also planned a pluggable dispatch step beyond the clipboard: a `Dispatcher` interface, a tmux pane, a file inside `.idea/`. That was dropped before it was built: Publish Remarks already gets a prompt into a Claude Code session with none of that machinery. See `docs/claude/design.md`, section "The Publish Pipeline" (called "The Copy Pipeline" until phase 9 renamed it), for the reasoning. Phase 6 below adds a different, later automated path; that earlier idea stays dropped regardless.
+## What it does
 
-The plugin has now been seen running in a real IDE, on version `0.6.0`: a review started over the endpoint, the waiting banner appeared, remarks were written and sent, and the read acknowledgement came back; separately, the remote path was proven too, over a tunnel from a second machine. That closes the one gating question every phase up to and including phase 9 owed — whether any of this works outside the tests at all — and no others. Everything phase 10 itself built is still unproven in a real IDE, since `0.6.0` predates it, and several things from earlier phases are too. See "Running in a Sandbox IDE" below for exactly which.
+**Writing a remark.** Select some lines, press `Ctrl+Alt+Shift+R`, type a note, press Enter. The
+same box opens from `Alt+Enter` ("Add Claude Remark") and from the editor's right-click menu,
+including inside a diff. Optionally pick a tag from the chip row — `Alt+1` through `Alt+4` for
+`bug`, `question`, `refactor` and `note`, `Alt+0` for none. `Cmd+Ctrl+Shift+Space`
+(`Ctrl+Alt+Shift+Space` off macOS) inserts a class name from the project at the caret; it is
+deliberately not `Ctrl+Space`, because the IDE offers Basic Completion even inside a popup and macOS
+takes that combination for switching input source.
 
-## Reviewing with a Waiting Claude Code Session
+**A severity, decided later.** Every remark carries one of `vibe` / `suggestion` / `should` /
+`must`, defaulting to `should`. It tells the model how strongly to act: a `must` gets done whatever
+it costs, a `vibe` is an idle thought. The input box does not ask for it, on purpose — that box has
+to stay fast, and a second chooser in it would turn a keystroke into a form. Change it afterwards
+from the gutter icon's menu or the tree's right-click menu. The prompt always explains the scale to
+the model in its own words, appended below your header rather than inside it, so rewriting the
+header cannot silently drop the explanation.
 
-**The plugin works exactly as described above with no skill installed and nothing listening.** The
-clipboard path is unchanged: Publish Unread and Publish Selected still put a markdown prompt on the
-clipboard, and nothing about them requires anything on the other end. What follows is an addition
-next to that path, never a replacement for it.
+**Remarks follow the code.** A gutter icon appears on the marked lines. As you keep editing, the
+plugin re-finds the marked block by hashing it and by matching the lines around it — so text that
+moved is followed, and text that cannot be found is shown as orphaned with its stale line numbers
+rather than being quietly relocated onto the wrong code. Nothing is ever moved silently. Click the
+icon to edit or delete that remark, or to change its severity or bucket.
 
-A Claude Code skill (`docs/skill/claude-remarks-review/SKILL.md`) can ask a running IDE to hold a
-review open for a repository. It reads a small handshake file the plugin writes under
-`~/.claude-remarks/` when the project opens, then sends one HTTP request to the IDE's own built-in
-server. If the IDE accepts, a banner appears at the top of the Claude Remarks tool window: "Claude
-Code is waiting: <label>" on one line, "Publish to answer, or Reject." on the next — and, if the
-request named files that have a local change, the person lands directly in a diff of just those
-files, with the rest opened as plain editors; the "Reviewing" walkthrough above is the plain-editor
-case, and this is what happens instead once the skill names files. Read and write remarks as usual,
-then press **Publish Unread** or **Publish Selected**, whichever already fits what you would press
-with no review waiting — there is no separate control for answering a review any more. The remarks
-are rendered the same way any publish renders them, put on the clipboard as always, and written into
-the one file under `~/.claude-remarks/` the skill has been waiting on; the banner then says the
-remarks are waiting to be read, and publishing again while the same review still waits is accepted,
-not refused — the new batch simply replaces the one written before it, the same way a second Publish
-Unread always has. Nothing is marked read yet. That happens only once the skill acknowledges it
-actually read the file, at which point the remarks turn gray exactly as they do after any publish and
-the banner disappears. Pressing **Reject** in the banner instead writes that decision into the same
-file — so a Claude Code session waiting on it hears about it within a second or two, instead of
-waiting out its own timeout — and clears the review; every remark stays exactly as it was. Reject
-*after* a publish writes nothing — the file already holds the remarks — and only closes the review,
-saying so. If the skill never answers at all, the review goes stale on its own after the deadline the
-skill declared when it started, and the banner disappears with a balloon saying the agent left;
-nothing handed over this way is ever lost, since the remarks it wrote were never marked read in the
-first place.
+**A remark can point at part of a line.** Select a phrase rather than whole lines and the remark
+stores the exact words as well as the columns, so it can find them again after the paragraph
+reflows. The published prompt draws `⟦`/`⟧` markers around those words inside the quoted code, and
+the tree row and gutter tooltip show the column range next to the line number.
 
-Writing a remark from a diff pane's revision side (the "before" of a change) is refused rather than
-stored: its line numbers describe the revision, not the file on disk, and the working copy is one
-click away. Working-copy remarks are unaffected.
+**A remark can also be written on rendered markdown.** Select words in IntelliJ's markdown preview,
+right-click, and pick Add Claude Remark; the remark points at the same characters in the `.md`
+source behind the selection. This needs the Markdown plugin, which every JetBrains IDE bundles. With
+it disabled, that one entry point is simply absent and everything else is unchanged.
 
-**The skill waits with a small background script, not a blocked foreground call.** A foreground
-`Bash` call is capped at ten minutes; a launched background command is not, and it is what lets the
-skill wait out the deadline it declared — half an hour by default — without retyping a poll loop on
-every run. The same script is what backs the skill's other two modes too: a one-shot read of whatever
-is already published, and an opt-in listen mode that waits for the next publish, started only when
-asked for in words.
+**A remark about nothing in particular.** Press Add General Remark in the tool window for a note
+about the whole change rather than one file. It is rendered first in the prompt, under its own
+`## General` heading with no code block, and sits at the very top of the tree.
 
-**The same machine is the normal case.** Both the handshake file and the published file are local
-paths, on the machine the IDE runs on. A Claude Code session on that same machine reads them
-directly. Nothing extra is needed beyond installing the skill.
+**The tool window is a tree.** Grouped by file, with a General group above everything, and a bucket
+level above the files once you put any remark in a bucket. Buckets are names you pick, like "auth
+refactor", assigned to a whole selection at once — sorting a reading pass is the point, so there is
+nothing to assign one at a time. Drag rows onto a bucket to move them, or onto `(no bucket)` to
+clear it. Right-click a row for the same severity-and-bucket menu the gutter icon offers. Delete
+removes the rows you picked out without asking; on a file or bucket node it stands for everything
+underneath and asks first.
 
-**Reaching a session on another machine needs a tunnel, and four values.** The person sets the
-tunnel up by hand, with `ssh -R`. Then they give the skill four things: the tunnel's local port on
-the agent machine, the token from the IDE machine's handshake file, the repository path as the IDE
-machine sees it, and the host, only if it is not `127.0.0.1`. The skill now stores those four values
-after the first time they are given and reads them back on every later run, so they only need
-retyping once per repository. `SKILL.md`'s "Over SSH" section has the two lines that read the port
-and the token on the IDE machine, and the `ssh -R` command that starts the tunnel from there.
+**Six toolbar buttons.**
 
-Nothing about a missing tunnel is silent. The built-in server only binds `127.0.0.1`, so a request
-with no tunnel gets connection refused. The skill says so and stops, rather than retrying or
-guessing.
+| Button | What it takes |
+| --- | --- |
+| Add General Remark | Nothing. Opens the input box for a remark about no file |
+| Publish Unread | Every remark that is not yet **read** — pending and published alike |
+| Publish Selected | Exactly the selected rows, already-published and already-read ones included |
+| Clear Handed Over | Every remark that has been published or read. Asks first, archives first |
+| Clear All | Everything, including work you never published. Asks first, archives first |
+| Refresh | Nothing. Re-resolves every remark against the files as they are now |
 
-## Building
+Selecting a bucket node and pressing Publish Selected publishes that whole bucket, which is why
+there is no separate Publish Bucket button. **Tools → Publish Unread Claude Remarks** does the same
+thing as Publish Unread without the tool window open, and can be given a shortcut in the keymap.
 
-You need a JDK (17 through 25) and network access on the first build. Gradle itself comes with the project as a wrapper, so nothing has to be installed for it. The first run downloads its own JDK 21 through the foojay resolver and the IDEA 2025.2 distribution, which took about 3m30s on a cold cache.
+**Three states, and only an agent can grant the third.**
+
+| State | Meaning | How the row looks |
+| --- | --- | --- |
+| `PENDING` | Written, handed nowhere | Full-strength text, note icon |
+| `PUBLISHED` | Handed to a channel that cannot confirm a read | Full-strength text, upload icon |
+| `READ` | An agent said it actually read this one | Grey text, check icon |
+
+Colour and icon answer two different questions, and that is deliberate. **The colour says whether
+this is still the work**, which has two answers: Publish Unread carries a published remark again, so
+a published remark is not finished and must not look finished. **The icon says which of the three
+states it is in**, which has three answers, so pending and published are still told apart at a
+glance. `ui/RemarkStatusLook.kt` is the single place that decides both, read by the gutter icon and
+the tree alike.
+
+Publishing can never produce `READ`, however many times it runs. Only an agent's own
+acknowledgement can, over one of two routes the IDE itself minted. Publishing a read remark again
+hands it over as `PUBLISHED`, because nothing has confirmed that second handover.
+
+**Where all this lives.** Remarks are stored in `.idea/workspace.xml`, which the IDE's own generated
+`.idea/.gitignore` excludes — so they stay out of version control with no extra work. A repository
+that deliberately tracks `workspace.xml` is the exception, and there they would be committed like
+any other change to that file. Clearing archives the remarks to a markdown file in the IDE's
+configuration directory, under `claude-remarks/`, before removing anything, and removes nothing if
+that write fails. That file is outside every project, so it cannot be committed by accident either.
+A single Delete on one row is the exception and does not archive: picking out one row and deleting
+it means "this one was a mistake", and archiving every typo would make the history useless to read.
+
+**The prompt header is yours.** Edit it in **Settings → Tools → Claude Remarks**.
+
+## Installing
+
+Build the plugin zip, then install it from disk:
 
 ```bash
-./gradlew build      # compiles, runs the tests, assembles
-./gradlew buildPlugin
+./gradlew buildPlugin      # writes build/distributions/claude-remarks-<version>.zip
 ```
 
-`buildPlugin` writes the installable plugin as `build/distributions/claude-remarks-<version>.zip`, where the version is the one in `build.gradle.kts`. Plain jars land in `build/libs/`; the zip is what an IDE installs.
+In the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick that zip, and
+restart when asked.
 
-## Running in a Sandbox IDE
+It needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound), and an IDE that ships the VCS
+module — every JetBrains IDE does, but if the plugin ever fails to load and the tool window simply
+is not there, that hard `<depends>com.intellij.modules.vcs</depends>` is the first thing to check.
+Building for the first time needs a JDK (17 through 25) and network access; see
+[Building and testing](#building-and-testing).
 
-To test the plugin in an isolated IntelliJ instance:
+## Using it
 
-```bash
-./gradlew runIde
+The loop is: read, mark, publish.
+
+1. Read the code. When something is worth saying, select the lines and press `Ctrl+Alt+Shift+R`.
+   Type the note. Tag it if the tag helps you; set the severity later, from the tree, when you are
+   triaging rather than reading.
+2. Keep going. The tool window fills up on its own — no refresh needed. Sort the pass into buckets
+   if it is large enough to be worth sorting.
+3. Press **Publish Unread**. Every remark that has not been read becomes one markdown prompt on the
+   clipboard: general remarks first under their own heading, then a section per remark carrying its
+   tag, its severity, the short sha of the commit it was written against, and the code it points at.
+   A balloon says how many remarks across how many files.
+4. Paste it into a Claude Code session.
+
+The rows do not disappear when you publish. They stay listed and stay full-strength, because the
+next Publish Unread carries them again — that is what makes Publish Selected useful when a paste
+went to the wrong window. They go grey only once an agent confirms it read them, and they leave the
+list only when you clear them.
+
+Everything above works with nothing installed on the other end and nothing listening. The rest of
+this file is about the other end.
+
+## The Claude Code skill
+
+`docs/skill/claude-remarks-review/` is a normal Claude Code skill that reads remarks out of the IDE.
+Install it by symlinking or copying the directory into `~/.claude/skills/`:
+
+```sh
+ln -s "$(pwd)/docs/skill/claude-remarks-review" ~/.claude/skills/claude-remarks-review
+# or
+cp -r docs/skill/claude-remarks-review ~/.claude/skills/claude-remarks-review
 ```
 
-The sandbox IDE launches with the plugin loaded. Open or create any project inside it, open a file, select some lines, and press `Ctrl+Alt+Shift+R` (or place the caret on a line and use Alt+Enter, then pick "Add Claude Remark"). Type a note, optionally pick a tag, and press Enter. A gutter icon should appear on the marked lines, and the "Claude Remarks" tool window on the right edge should show the remark under its file without pressing anything. Typing lines above the marked block should move the icon with the code. With a remark pending, press Publish Unread in the tool window's toolbar and paste somewhere to see the rendered prompt. The remark's row should turn gray afterward. Close and reopen the sandbox IDE to confirm the remark, its tag, and its status persist.
+It is kept in this repository rather than only under `~/.claude/skills` because the skill and the
+IDE endpoint it talks to are one protocol, with three pairs of halves that have to agree — the
+request shapes, the eight fixed header lines and their three readers, and the values each endpoint
+action answers. Keeping both halves of each in one place is what stops them drifting.
+`docs/skill/README.md` spells all three out.
 
-That walkthrough covers the phase 3-4 flow only. Phase 5 added severity, buckets, the `Alt+0`-`Alt+4` tag keys, the class-name insert, the commit stamp and the history file, and none of those is checked by an automated test end to end. The key combinations in particular can be taken by the IDE keymap or by the OS before the plugin sees them. Section 10 of `docs/plans/20260803-claude-remarks-phase5.md` lists ten specific hand checks for exactly these. Work through that list in the sandbox before trusting any of phase 5.
+The skill has three modes.
 
-**The gating check every phase from 6 to 9 owed has now been run, on version `0.6.0`.** A review was started over the endpoint, the waiting banner appeared, the file the request named opened, remarks were written including sub-line ones with their markers, Send to Claude Code (since renamed away in phase 10) handed them over, and the read acknowledgement turned the rows gray. Separately, the remote path was proven end to end between two machines: a tunnel carried the requests, the token was accepted, `start` was accepted, the banner appeared in the IDE on the far side, a fetch carried the content back across the tunnel, and the acknowledgement was accepted. The published file it carried had correct sub-line markers. That closes the question of whether any of this works outside the tests at all, and no other question. Phase 7's own list, section 12 of `docs/plans/20260805-claude-remarks-phase7.md`, still has two items open: the scheduled deadline actually firing on its own, and one real diff window opening over just the changed files. Phase 8 added its own list too, in section 13 of `docs/plans/completed/20260803-claude-remarks-phase8.md`, and it needs something no earlier phase did: a second machine, an `sshd`, and an agent session on the far side of a tunnel; the gating run above closed the fetch action's own remote-path answers, but not phase 8's fuller list. Phase 9 added many more hand checks of its own, across all five groups: the gating run above answers whether the plugin loads at all and whether a sub-line remark's markers land exactly around the selected words, but whether the grey row and faded gutter icon are visible, whether a sub-line remark survives a paragraph reflow, and whether a general remark and the drag onto a bucket behave as designed are all still open. Group five's checks also need the Mermaid plugin installed: whether the Claude Remarks item appears in a running preview's right-click menu, whether a real browser selection reaches Kotlin as the right character range, and whether the plugin still loads cleanly with the markdown plugin disabled. Section 12 of `docs/plans/completed/20260803-claude-remarks-phase9.md` lists the whole set. **Everything phase 10 itself built is unproven in a real IDE**, since `0.6.0` predates it: the merged published file, the two acknowledgement routes, publishing answering a waiting review directly, the watcher script, and the skill's three modes. Section 8 of `docs/plans/completed/20260805-claude-remarks-phase10.md` lists the whole set, split by which of it needs a second machine.
+### Listen mode — the convenient one
 
-## Installing into your own IDE
+You ask Claude Code, in words, to watch for your remarks. It starts a background watcher on the
+published file and then leaves you alone. You read code, mark it up, and press Publish when you have
+something worth handing over; the watcher picks the batch up and Claude Code reports what arrived.
+Nothing is started in the IDE, no banner appears, and nothing interrupts you while you read.
 
-Build the zip, then in the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick the zip `buildPlugin` wrote under `build/distributions/`, and restart when asked. The plugin needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound set). It also needs an IDE that ships the VCS module — every JetBrains IDE does, but if the plugin ever fails to load and the tool window simply does not appear, that hard `<depends>com.intellij.modules.vcs</depends>` is the first thing to check.
+**It never starts on its own.** Noticing a published file, or noticing that a review is waiting, is
+not the same as being asked. This is a design decision, not an oversight: a skill that begins
+watching because it saw something interesting would be watching a person who did not ask to be
+watched. You have to say it.
+
+Two more things it will not do unasked. The watcher stops at the first batch it sees, and starting
+another one to wait for the next batch is a choice said out loud rather than something that happens
+automatically — one watcher per project on the machine, so a silent re-arm would risk two sessions
+each believing they own the listener. And when a batch does arrive, it summarises what came in and
+waits for you to say go, rather than acting on it: a listener runs unattended for hours, and nobody
+chose that exact moment for the work to start.
+
+It waits up to twelve hours, acts on nothing published before it started, and says at the start how
+to stop it early.
+
+### Read what is already published
+
+You published, and you want it acted on now. The skill computes the published file's path from the
+repository root, reads it, acknowledges the batch by its nonce — which is what turns the rows grey —
+and gets to work. No review is started and nothing is waited for.
+
+This is the mode to reach for when you published first and asked afterwards.
+
+### Hand a review over and wait
+
+The skill asks the IDE to hold a review open for a repository. It finds the IDE through a small
+handshake file the plugin writes under `~/.claude-remarks/` when a project opens, then posts one
+request to the IDE's own built-in server. A banner appears above the tree:
+
+> Claude Code is waiting: *label*
+> Publish to answer, or **Reject**
+
+If the request named files that have a local change, you also land straight in a diff of just those
+files, with the rest opened as plain editors.
+
+You answer it by pressing **Publish Unread** or **Publish Selected** — whichever you would have
+pressed anyway. **There is no separate send control**; a publish is how a waiting review is
+answered. The remarks go to the clipboard as always and into the file the skill is waiting on, and
+the banner changes to say the review is waiting to read them. Nothing is marked read yet. That
+happens only when the skill acknowledges it actually read the file, at which point the rows go grey
+and the banner disappears.
+
+**A review can only be answered once.** Publishing again while the same review still waits is still
+a real publish — the clipboard and the file are both written — but it does not reach that review.
+The review keeps the ids of the batch that actually went to the agent, the balloon says the new
+batch did not go to the waiting session, and the banner says a further publish will not go to it
+either. The reason is on the agent's side: its watcher exits on the first batch that answers the
+review, and nothing re-arms it. Saying "publish again to add more" would be inviting the one thing
+that does not work.
+
+Pressing **Reject** instead writes that decision into the same file, so the waiting session hears
+about it in a second or two rather than sitting out its own timeout, and clears the review. Every
+remark stays exactly as it was. Reject *after* you have published writes nothing — the file already
+holds the remarks, and taking them back is not what Reject means — and only closes the review,
+saying so.
+
+If the skill never answers, the review goes stale on its own after the deadline the skill declared,
+and the banner disappears with a balloon saying the agent left. Nothing handed over this way is ever
+lost, because remarks handed over are never marked read until something confirms the read.
+
+One refusal worth knowing: writing a remark on the *revision* side of a diff — the "before" of a
+change — is refused rather than stored. Its line numbers describe the revision, not the file on
+disk, and the working copy is one click away.
+
+### Why the skill waits with a script
+
+A foreground `Bash` call is capped at ten minutes. A launched background command is not, and
+`watch-remarks.sh` is what lets the skill wait out a real deadline — half an hour for a review,
+twelve hours for listen mode — instead of pretending to. The two modes that wait go through it. The
+one-shot read waits for nothing, so it reads the file inline and never launches anything.
+
+## When the IDE is on another machine
+
+Both the handshake file and the published file are local paths on the machine the IDE runs on, so a
+Claude Code session on that same machine just reads them. That is the normal case and needs nothing
+beyond installing the skill.
+
+Reaching a session on another machine needs an SSH tunnel you set up by hand with `ssh -R`, and four
+values handed to the skill: the tunnel's local port on the agent machine, the token from the IDE
+machine's handshake file, the repository path as the IDE machine sees it, and the host if it is not
+`127.0.0.1`. The skill stores those four after the first time, keyed to the repository, so they are
+not retyped every run. The endpoint's `fetch` action is what makes this work at all: it returns the
+file's content in the response body rather than a path, since a path on the IDE machine means
+nothing to an agent on a different one.
+
+Nothing about a missing tunnel is silent. The built-in server binds `127.0.0.1` only, so a request
+with no tunnel gets connection refused, and the skill says so and stops rather than retrying or
+guessing. That same binding, plus a per-run token and the refusal of any request carrying `Origin`
+or `Referer`, is the whole security model.
+
+The two commands that read the port and the token, and the `ssh -R` line that starts the tunnel, are
+in the "Over SSH: the IDE on another machine" section of
+`docs/skill/claude-remarks-review/SKILL.md`. They are not repeated here, so there is one copy to
+keep right.
+
+## Status
+
+Early, and honestly so.
+
+The automated suite is green, and it is a real suite — anchoring, storage, the renderer, the
+resolver, the tree, the endpoint, the review lifecycle. But there are no UI-rendering and no
+end-to-end tests, `./gradlew test` runs no shell so it never touches the two scripts the skill
+ships, and **almost nothing has been seen running in a real IDE.**
+
+Exactly one gating run has happened, on version `0.6.0`: a review started over the endpoint, the
+banner appeared, remarks were written including sub-line ones with their markers, the handover
+reached the agent, and the read acknowledgement turned the rows grey. Separately, the remote path
+was run end to end between two machines — a tunnel carried the requests, the review started, the
+banner appeared in the IDE on the far side, a fetch carried the remarks back across the tunnel, and
+the acknowledgement was accepted. That is all of it.
+
+Everything phase 10 built is therefore unproven, because `0.6.0` predates it: the merged published
+file, the two acknowledgement routes, publishing answering a waiting review, the watcher script, the
+skill's three modes, and the appearance rules described above. Several earlier things are unproven
+too. `CHANGELOG.md` says which, and points at the per-phase hand-check lists in `docs/plans/`.
+
+If you try it, expect to find things. It has had very little real use outside its own test suite.
 
 ## IdeaVim
 
@@ -125,16 +316,13 @@ renamed:
 | `ClaudeRemarks.CopyAll` | Publish every unread remark into one prompt on the clipboard |
 | `ActivateClaudeRemarksToolWindow` | Open and focus the Claude Remarks tool window |
 
-There is a fourth id, `ClaudeRemarks.AddPreviewRemark`, which opens the remark box on the words
-selected in a rendered markdown preview. It is not in the table above because it is not part of that
-promise: it is registered only where the markdown preview is available, so it does not exist at all
-when the Markdown plugin is turned off, and a `:action` mapping to it would then do nothing.
+`ClaudeRemarks.CopyAll` keeps the word CopyAll on purpose. The button it drives has been called
+Publish Unread since phase 10, but the id is the part promised above, and renaming it would break
+every mapping to it with no error anywhere — IdeaVim fails an unknown id inside IdeaVim, not here.
 
-`ClaudeRemarks.CopyAll` keeps the word CopyAll on purpose: the button and menu entry it drives are
-now labelled Publish, but the id is the part of the interface promised above, so it stays exactly
-as it is. Renaming it would break every `.ideavimrc` mapping to it without any error.
-
-Example mappings:
+There is a fourth id, `ClaudeRemarks.AddPreviewRemark`, for the markdown preview entry point. It is
+deliberately not in that table: it is registered only where the markdown preview exists, so it is
+absent when the Markdown plugin is off, and a mapping to it would then do nothing.
 
 ```vim
 nnoremap <leader>r :action ClaudeRemarks.AddRemark<CR>
@@ -143,40 +331,91 @@ nnoremap <leader>c :action ClaudeRemarks.CopyAll<CR>
 nnoremap <leader>R :action ActivateClaudeRemarksToolWindow<CR>
 ```
 
-Two things to check the first time you use it, rather than assume:
+Two things to check the first time rather than assume:
 
-- **Visual mode.** Select lines with `V`, then `<leader>r`. `:action` invoked from visual mode has
+- **Visual mode.** Select with `V`, then `<leader>r`. `:action` invoked from visual mode has
   historically been awkward about whether the selection still exists when the action runs. The
-  action reads `editor.selectionModel`, so if the selection is gone it falls back to the caret line
-  and you get a one-line remark instead of the block you chose. If that happens, the fix is on the
-  mapping side, not in the plugin.
-- **Typing in the box.** The remark box is a plain Swing text area, which IdeaVim does not touch, so
-  typing, Enter and Escape all behave normally.
+  action reads `editor.selectionModel`, so if the selection is gone you get a one-line remark
+  instead of the block you chose. That fix is on the mapping side, not in the plugin.
+- **Typing in the box.** It is a plain Swing text area, which IdeaVim does not touch, so typing,
+  Enter and Escape all behave normally.
 
-## Testing
+## Building and testing
 
-Run all tests:
+You need a JDK (17 through 25) and network access on the first build. Gradle comes with the project
+as a wrapper. The first run downloads its own JDK 21 through the foojay resolver and the IDEA 2025.2
+distribution, which took about 3m30s on a cold cache.
 
 ```bash
-./gradlew test
+./gradlew build            # compile, test, assemble
+./gradlew test             # the suite on its own
+./gradlew buildPlugin      # build/distributions/claude-remarks-<version>.zip
+./gradlew runIde           # a sandbox IDE with the plugin loaded
 ```
 
-Roughly two thirds of the suite is plain JUnit with no fixture and runs in milliseconds: anchoring, including the sub-line phrase functions (`AnchoringTest`), the stored state's XML round trip and its mutators (`RemarkStoreStateTest`), the resolver helpers, including `isAboutNoFile`, the tree's node-building, including the General group (`RemarksTreeTest`), the markdown renderer, including the General section rendered first with no code block (`PromptRendererTest`), the settings round trip, the commit reader against real `.git` directories built on disk (`GitHeadTest`), the archive's rendering, including a sub-line heading and a general remark's heading (`RemarkHistoryTest`), and the published file's name, header and write (`PublishedRemarksTest`). The rest start a light IDE fixture (`BasePlatformTestCase`) and are slower, because each goes through a real project service, a real `Document`, or a real markup model: the ten mutation functions and their change notification (`RemarkEditsTest`), the input popup's key bindings (`RemarkInputPanelTest`), the Add Remark action (`AddRemarkActionTest`, `DiffRemarkTargetTest`), the action ids a `.ideavimrc` maps (`ActionIdsTest`), the severity-and-bucket menu (`RemarkActionsTest`), the class-name insert (`ClassNameInsertTest`), the gutter icon renderer's equality and the sub-line tooltip (`RemarkGutterIconTest`), the gutter service, including that a general remark gets no placement (`RemarkGutterTest`), the tool window's tree and its navigation, including that the Add General Remark button is offered (`RemarksPanelTest`, `NavigationLineBaseTest`), the resolver against real files, including the phrase's refreshed columns (`ResolveAllTest`), the payload collector (`PromptPayloadTest`), and the publish action (`PublishRemarksTest`). The shared review session has its own set, split the same way: `AtomicWriteTest`, `ReviewHandshakeTest`, `ReviewRequestTest` and `WaitingReviewTest` need no fixture, while `WaitingReviewServiceTest`, `ReviewEndpointSmokeTest`, `ReviewLifecycleTest`, `PublishedAckTest` (added in phase 10, for the second acknowledgement route) and `OpenReviewFilesTest` do. No count is given on purpose: it goes stale on the next commit, and `./gradlew test` prints the real one.
+Roughly two thirds of the suite is plain JUnit with no fixture and runs in milliseconds: anchoring
+and the sub-line phrase functions, the stored state's XML round trip, the resolver helpers, the
+tree's node-building, the markdown renderer, the settings round trip, the commit reader against real
+`.git` directories built on disk, the history file's rendering, the published file's header, and the
+pure halves of the review endpoint. The rest start a light IDE fixture and are slower, because each
+goes through a real project service, a real `Document` or a real markup model. No test count is
+given here on purpose: it goes stale on the next commit, and `./gradlew test` prints the real one.
 
-**Two files that ship with the plugin have no automated check at all.** `./gradlew test` runs Kotlin and no shell, so it never touches `docs/skill/claude-remarks-review/watch-remarks.sh` or `docs/skill/claude-remarks-review/remote-config.sh` — everything the skill's waiting and its stored remote configuration are built on. No line count is given here for the same reason no test count is given above: it goes stale on the next commit, and `wc -l` on the two files prints the real one. Both are checked by hand instead, each check its own run. `CLAUDE.md`'s Testing section lists what those hand checks cover. A green `./gradlew test` says nothing about either of them.
+`./gradlew runIde` starts an interactive sandbox IDE that never exits on its own — fine for a person,
+not for an agent session.
 
-There are no UI-rendering or end-to-end tests. The popup appearing at the caret, the gutter icon painting, the tree colours, the balloon, and the settings page layout are checked by hand in a sandbox IDE — see "Running in a Sandbox IDE" above.
+**Two files that ship with the plugin have no automated check at all.** The suite is Kotlin and runs
+no shell, so it never touches `docs/skill/claude-remarks-review/watch-remarks.sh` or
+`remote-config.sh` — everything the skill's waiting and its stored remote configuration are built
+on. Both are checked by hand instead, each check its own run; `CLAUDE.md`'s Testing section lists
+what those cover. A green suite says nothing about either.
+
+There are also no UI-rendering or end-to-end tests. The popup appearing at the caret, the gutter
+icon painting, the tree colours, the balloon and the settings page layout are all hand checks.
 
 ## Architecture
 
-- `src/main/kotlin/dev/sasha/clauderemarks/anchor/`: Pure Kotlin, no platform imports. Logic for hashing lines and finding anchored text after files change.
-- `src/main/kotlin/dev/sasha/clauderemarks/model/`: The `RemarkState` record and its enums (`RemarkTag`, `RemarkStatus`).
-- `src/main/kotlin/dev/sasha/clauderemarks/store/`: `RemarkStore.kt`, the project service that persists remarks; `RemarkEdits.kt`, the ten functions that are the only way production code changes a remark (including `addGeneralRemark`, for a remark about no file), plus the `REMARKS_CHANGED` notification; `RemarkResolver.kt`, which turns stored remarks into resolved rows, and whose `isAboutNoFile` is what tells a general remark apart from one whose file went missing; `RemarkTarget.kt`, which decides where a remark on the current editor would go, and refuses one on the revision side of a diff; `ContextFormat.kt`, which says how context lines are written into a remark and read back; `GitHead.kt`, which reads the repository HEAD straight out of `.git`. It still needs no VCS plugin API of its own, even though the plugin as a whole now depends on `com.intellij.modules.vcs` for the diff window described below; and `RemarkHistory.kt`, the markdown archive that cleared remarks are written to, with a `**(general)**` heading of its own for a remark about no file.
-- `src/main/kotlin/dev/sasha/clauderemarks/ui/`: `RemarkInputPanel.kt`, the popup that captures a remark, its key bindings and its tag chips; `RemarkActions.kt`, the severity-and-bucket menu shared by the gutter icon and the tree; `ClassNameInsert.kt`, the class-name chooser the remark box opens; `RemarksTree.kt`, the tool window's tree, with a General group at the very top for a remark about no file, above the buckets; and `RemarksToolWindowFactory.kt`, the toolbar, including the Add General Remark button.
-- `src/main/kotlin/dev/sasha/clauderemarks/action/`: `AddRemarkAction.kt` (the shortcut and popup-menu entry point, and `openGeneralRemarkInput`, the tool window's entry point for a remark about no file) and `AddRemarkIntention.kt` (the Alt+Enter entry point), all opening the same input popup; `PublishRemarks.kt`, the publish pipeline.
-- `src/main/kotlin/dev/sasha/clauderemarks/editor/`: `RemarkGutterIcon.kt` (the icon renderer) and `RemarkGutter.kt` (the project service that keeps gutter icons in step with the code), started by `RemarkGutterStartup.kt`.
-- `src/main/kotlin/dev/sasha/clauderemarks/render/`: `PromptRenderer.kt`, pure Kotlin, turns resolved remarks into the markdown prompt, with a general remark's `## General` section rendered first and with no code block; `PromptPayload.kt`, reads the code around each remark and decides whether the payload goes on the clipboard directly or through a temp file.
-- `src/main/kotlin/dev/sasha/clauderemarks/review/`: the shared review session, and the one file that carries both a plain publish and a review's answer. `ReviewHandshake.kt` writes the file a skill reads to find this IDE; `ReviewRestService.kt` is the endpoint at `POST /api/claude-remarks/{start,ack,fetch,published-read}`; `WaitingReview.kt` holds the one waiting review per project, its phase and its deadline; `ReviewLifecycle.kt` answers a waiting review from inside the publish pipeline, writes a rejection into the same published file, and carries out what a review's own acknowledgement means; `OpenReviewFiles.kt` opens the diff or the plain editors; `AtomicWrite.kt` is the temp-file-then-rename write every file in this package uses. `PublishedRemarks.kt` is what every publish, every review answer and every rejection write through: the one file under `~/.claude-remarks/`, named and reached the same way the handshake file is. `PublishedAck.kt` is the second acknowledgement route next to the review's own, keyed to a published batch's nonce instead of a review session, for the case where a remark was published with no review ever started.
-- `src/main/kotlin/dev/sasha/clauderemarks/settings/`: The app-level service holding the editable prompt header, and its settings page.
+- **`anchor/`** — pure Kotlin, no platform imports, which is what keeps its tests running in
+  milliseconds. Hashing lines, capturing an anchor, the two-pass resolve, and the sub-line phrase
+  functions. `SubLineRange.kt` is the one place that decides whether a column pair is a real
+  sub-line range and how a position is written down.
+- **`model/`** — the persisted `RemarkState` record and its enums.
+- **`store/`** — `RemarkStore.kt`, the project service that persists remarks; `RemarkEdits.kt`, the
+  only functions production code may use to change one, plus the `REMARKS_CHANGED` notification;
+  `RemarkResolver.kt`, which turns stored remarks into resolved rows; `RemarkTarget.kt`, which
+  decides where a remark on the current editor would go and refuses the revision side of a diff;
+  `ContextFormat.kt`; `GitHead.kt`, which reads the repository HEAD straight out of `.git` with no
+  Git4Idea dependency; `RemarkHistory.kt`, the archive cleared remarks are written to.
+- **`ui/`** — the input popup and its key bindings; `RemarkActions.kt`, the severity-and-bucket menu
+  shared by the gutter and the tree; `RemarkStatusLook.kt`, the one place a status's icon and colour
+  are decided; `ClassNameInsert.kt`; `RemarksTree.kt` and `RemarksTreeDnd.kt`, the tree and its
+  drag-to-bucket wiring; `RemarksToolWindowFactory.kt`, the panel, the toolbar and the review banner.
+- **`action/`** — every entry point that opens the same input popup: the shortcut and popup-menu
+  action, the `Alt+Enter` intention, the preview action, and the tool window's general remark. Plus
+  `PublishRemarks.kt`, the whole publish pipeline and the Tools-menu action.
+- **`editor/`** — the gutter icon renderer and the project service that keeps gutter icons in step
+  with the code.
+- **`render/`** — `PromptRenderer.kt`, pure Kotlin, remarks to markdown; `PromptPayload.kt`, which
+  reads the code around each remark and decides whether the payload goes to the clipboard directly
+  or through a temp file.
+- **`preview/`** — the markdown preview half: the injected script, the browser extension that
+  receives a selection, and the pure arithmetic that turns it into a character range.
+- **`review/`** — the shared review session and the one file that carries both a plain publish and a
+  review's answer. `ReviewHandshake.kt` writes the file a skill reads to find this IDE;
+  `ReviewRestService.kt` is the endpoint at
+  `POST /api/claude-remarks/{start,ack,fetch,published-read}`; `WaitingReview.kt` holds the one
+  waiting review per project; `ReviewLifecycle.kt` answers or rejects it and carries out what an
+  acknowledgement means; `PublishedRemarks.kt` is the merged file every publish, answer and
+  rejection writes; `PublishedAck.kt` is the second acknowledgement route, keyed to a batch's nonce;
+  `OpenReviewFiles.kt` is the only file in the package that touches the VFS or the editor;
+  `AtomicWrite.kt` is the temp-file-then-rename write they all use.
+- **`settings/`** — the app-level service holding the editable prompt header, and its page.
 
-See `docs/claude/design.md` for a deeper look at how anchoring, the gutter, the change notification, the publish pipeline, and a remark about no file work.
+`docs/claude/design.md` is the deeper version of all of this, and is kept current with the code:
+anchoring, the gutter, the change notification, the publish pipeline, the three states, the
+published file, a remark about no file, and the shared review session. `CLAUDE.md` holds the six
+grep-checkable rules that must not break. `CHANGELOG.md` is how the project got here.
+
+## Licence
+
+MIT. See [`LICENSE`](LICENSE).
