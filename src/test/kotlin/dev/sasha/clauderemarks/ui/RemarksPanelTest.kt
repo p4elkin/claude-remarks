@@ -12,7 +12,6 @@ import com.intellij.ui.HyperlinkLabel
 import com.intellij.ui.PopupHandler
 import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.editor.RemarkGutter
-import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.review.WaitingReviewService
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
@@ -241,20 +240,10 @@ class RemarksPanelTest : BasePlatformTestCase() {
      * Nothing proved either side installed the shared menu. Removing the one line that installs it
      * left the tree with no right-click menu at all and the whole suite green.
      */
-    fun testTheTreeHasARightClickMenuOfferingSeverityAndBuckets() {
+    fun testTheTreeHasARightClickMenu() {
         val panel = panel()
 
         assertTrue(panel.tree.mouseListeners.any { it is PopupHandler })
-
-        // remarkChangeActions returns a plain group, which the platform inlines where it is placed,
-        // so the Severity submenu sits one level below the menu's own children.
-        val groups = panel.treeMenu().getChildren(null).filterIsInstance<ActionGroup>()
-        val severities = (groups + groups.flatMap { it.getChildren(null).filterIsInstance<ActionGroup>() })
-            .map { group -> group.getChildren(null).map { it.templatePresentation.text } }
-        assertTrue(
-            severities.toString(),
-            severities.contains(RemarkSeverity.entries.map { it.name.lowercase() }),
-        )
     }
 
     /**

@@ -42,7 +42,7 @@ class RemarkSettingsConfigurable : BoundConfigurable("Claude Remarks") {
         }
         row {
             comment(
-                "Each remark below this text is listed with its file, line range, tag and the " +
+                "Each remark below this text is listed with its file, line range and the " +
                     "surrounding code. Leaving this blank restores the default."
             )
         }

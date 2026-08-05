@@ -7,7 +7,6 @@ import com.intellij.util.messages.Topic
 import dev.sasha.clauderemarks.action.notifyRemarks
 import dev.sasha.clauderemarks.anchor.captureAnchor
 import dev.sasha.clauderemarks.anchor.phraseAt
-import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import java.nio.file.Path
@@ -30,10 +29,10 @@ val REMARKS_CHANGED: Topic<RemarksListener> =
     Topic.create("Claude remarks changed", RemarksListener::class.java, Topic.BroadcastDirection.NONE)
 
 /**
- * These eleven functions are the whole way production code reaches a remark. Ten of them change
+ * These ten functions are the whole way production code reaches a remark. Nine of them change
  * one — nothing calls RemarkStore.add / RemarkStore.remove directly any more, and CLAUDE.md's rule
- * 3 greps to keep that true — and the eleventh, notifyRemarksChanged, changes nothing itself: it is
- * what every one of the ten calls to announce the change.
+ * 3 greps to keep that true — and the tenth, notifyRemarksChanged, changes nothing itself: it is
+ * what every one of the nine calls to announce the change.
  *
  * The reason is not tidiness. The tool window and the gutter both have to redraw after any change,
  * and pairing the mutation with the notification in one function is what stops a caller doing one
@@ -120,12 +119,6 @@ fun markRemarksPublished(project: Project, ids: Collection<String>) {
  */
 fun markRemarksRead(project: Project, ids: Collection<String>) {
     if (RemarkStore.getInstance(project).markRead(ids.toSet()) > 0) notifyRemarksChanged(project)
-}
-
-fun setRemarkSeverity(project: Project, ids: Collection<String>, severity: RemarkSeverity) {
-    if (RemarkStore.getInstance(project).setSeverity(ids.toSet(), severity) > 0) {
-        notifyRemarksChanged(project)
-    }
 }
 
 /**

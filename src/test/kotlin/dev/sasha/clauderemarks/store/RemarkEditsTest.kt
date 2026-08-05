@@ -1,7 +1,6 @@
 package dev.sasha.clauderemarks.store
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkStatus
 import java.io.File
 import java.nio.file.Files
@@ -183,23 +182,6 @@ class RemarkEditsTest : BasePlatformTestCase() {
         markRemarksRead(project, listOf(stored.id!!))
 
         assertEquals(before, heard)
-    }
-
-    fun testSettingTheSeverityPublishes() {
-        val stored = addOne()
-
-        setRemarkSeverity(project, listOf(stored.id!!), RemarkSeverity.MUST)
-
-        assertEquals(2, heard)
-        assertEquals(RemarkSeverity.MUST, RemarkStore.getInstance(project).all().single().severity)
-    }
-
-    fun testSettingTheSeverityToWhatItAlreadyIsDoesNotPublish() {
-        val stored = addOne()
-
-        setRemarkSeverity(project, listOf(stored.id!!), RemarkSeverity.SHOULD)
-
-        assertEquals(1, heard)
     }
 
     fun testSettingTheBucketPublishes() {

@@ -4,10 +4,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.ui.UIUtil
-import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.model.RemarkTag
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -30,13 +28,11 @@ internal fun remark(
     startColumn: Int = 0,
     endColumn: Int = 0,
     text: String = "note",
-    tag: RemarkTag? = null,
     status: RemarkStatus = RemarkStatus.PENDING,
     createdAt: Long = 0L,
     textHash: String = "0000000000000000",
     contextBefore: String? = "",
     contextAfter: String? = "",
-    severity: RemarkSeverity = RemarkSeverity.SHOULD,
     bucket: String? = null,
     commit: String? = null,
     phrase: String? = null,
@@ -48,13 +44,11 @@ internal fun remark(
     it.startColumn = startColumn
     it.endColumn = endColumn
     it.text = text
-    it.tag = tag
     it.status = status
     it.createdAt = createdAt
     it.textHash = textHash
     it.contextBefore = contextBefore
     it.contextAfter = contextAfter
-    it.severity = severity
     it.bucket = bucket
     it.commit = commit
     it.phrase = phrase

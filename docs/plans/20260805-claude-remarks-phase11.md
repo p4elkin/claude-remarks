@@ -158,7 +158,7 @@ marked.
 | 2 | Stop showing the tag and the level in the tree, the gutter and the history file | complete |
 | 3 | Take the tag chip row out of the input popup | complete |
 | 4 | Take the Severity submenu out of the shared menu | complete |
-| 5 | Delete the tag and severity fields | not started |
+| 5 | Delete the tag and severity fields | complete |
 | 6 | Check whether the internal-API subtraction can leave the build file | not started |
 | 7 | Real descriptions on the six toolbar buttons | not started |
 | 8 | The asksForAnswer flag, and the function that sets it | not started |
@@ -464,12 +464,12 @@ popup must `Disposer.register(popup, pane)`.
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/TestRemarks.kt` (the `tag` and `severity` parameters on `remark(...)`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/RemarkStoreStateTest.kt`
 
-- [ ] add the migration test to `RemarkStoreStateTest`: an XML element carrying `severity="MUST"` and `tag="BUG"` still deserializes into a valid remark with every other field intact
-- [ ] delete the test that asserts a missing `severity` attribute loads as the default, and drop the two fields from the fully populated remark the serialization test builds
-- [ ] delete both enums, both `label` extensions and both properties from `RemarkState.kt`
-- [ ] delete `setSeverity` from both places in `RemarkStore.kt` and `setRemarkSeverity` from `RemarkEdits.kt`, and correct the function count in that file's header comment
-- [ ] drop the two parameters from `remark(...)` in `TestRemarks.kt`, reword the settings page sentence, and reword the two comments in `RemarksToolWindowFactory.kt`
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.*'` - must pass before task 6
+- [x] add the migration test to `RemarkStoreStateTest`: an XML element carrying `severity="MUST"` and `tag="BUG"` still deserializes into a valid remark with every other field intact
+- [x] delete the test that asserts a missing `severity` attribute loads as the default, and drop the two fields from the fully populated remark the serialization test builds
+- [x] delete both enums, both `label` extensions and both properties from `RemarkState.kt`
+- [x] delete `setSeverity` from both places in `RemarkStore.kt` and `setRemarkSeverity` from `RemarkEdits.kt`, and correct the function count in that file's header comment
+- [x] drop the two parameters from `remark(...)` in `TestRemarks.kt`, reword the settings page sentence, and reword the two comments in `RemarksToolWindowFactory.kt`
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.*'` - must pass before task 6
 
 ### Task 6: Check whether the internal-API subtraction can leave the build file
 

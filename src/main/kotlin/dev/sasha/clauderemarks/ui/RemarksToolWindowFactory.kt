@@ -134,8 +134,8 @@ class RemarksPanel(
             .registerCustomShortcutSet(CommonShortcuts.getDelete(), tree, parent)
 
         // The same actions the gutter icon menu offers, acting on the tree selection instead of on
-        // one icon. This is the only reason the tree needs a right-click menu at all: severity and
-        // buckets are set after the fact, and the tree is where a whole reading pass is triaged.
+        // one icon. This is the only reason the tree needs a right-click menu at all: buckets are
+        // set after the fact, and the tree is where a whole reading pass is triaged.
         tree.addMouseListener(TreePopupHandler())
 
         // The wiring lives in RemarksTreeDnd.kt, beside the pure bucketDropTarget it drives. The
@@ -245,9 +245,8 @@ class RemarksPanel(
      *
      * PopupHandler.installPopupMenu only shows the menu, and BasicTreeUI moves the tree selection on
      * button 1 only. So right-clicking a row that was not selected opened the menu against the
-     * PREVIOUS selection, and with nothing selected all three items were silent no-ops:
-     * setRemarkSeverity on an empty list changes nothing and publishes nothing, and chooseBucket and
-     * deleteSelected both return on their own empty checks.
+     * PREVIOUS selection, and with nothing selected the menu items would be silent no-ops:
+     * setRemarkBucket and deleteSelected both return on their own empty checks.
      *
      * The menu is built here rather than through installPopupMenu because that helper offers no way
      * in before the menu is shown. It is the same three calls the helper makes.

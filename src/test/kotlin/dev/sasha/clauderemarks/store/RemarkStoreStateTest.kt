@@ -3,10 +3,8 @@ package dev.sasha.clauderemarks.store
 import com.intellij.configurationStore.ComponentSerializationUtil
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
-import dev.sasha.clauderemarks.model.RemarkSeverity
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.model.RemarkTag
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -40,13 +38,11 @@ class RemarkStoreStateTest {
             startColumn = 5,
             endColumn = 9,
             text = "why is this synchronized?",
-            tag = RemarkTag.QUESTION,
             status = RemarkStatus.PUBLISHED,
             createdAt = 1_700_000_000_000L,
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",
             contextAfter = "line c\nline d",
-            severity = RemarkSeverity.MUST,
             bucket = "auth refactor",
             commit = "0123456789abcdef0123456789abcdef01234567",
             phrase = "is this synchronized",
@@ -60,15 +56,28 @@ class RemarkStoreStateTest {
         assertEquals(asXml(original), asXml(restored.remarks.single()))
     }
 
+    /**
+     * An XML element with `severity="MUST"` and `tag="BUG"` attributes, written by an older build,
+     * must deserialize into a valid remark without crashing. The attributes are no longer declared
+     * on RemarkState, so the deserializer ignores them as unknown attributes. The round-trip of
+     * the deserialized remark back to XML proves all fields survived the ignore.
+     */
     @Test
-    fun `a remark with no tag round-trips as null`() {
-        val original = RemarkStore.RemarksState()
-        original.addRemark(remark(id = "r-2", tag = null))
+    fun `a remark with old severity and tag attributes deserializes correctly`() {
+        val original = remark(id = "r-1", text = "old remark", status = RemarkStatus.PUBLISHED)
+        val state = RemarkStore.RemarksState()
+        state.addRemark(original)
 
-        val restored = roundTrip(original)
+        // Now deserialize old XML that has those attributes
+        val restored = XmlSerializer.deserialize(
+            JDOMUtil.load(
+                """<RemarksState><remarks><RemarkState id="r-1" path="src/Foo.kt" severity="MUST" tag="BUG" text="old remark" status="PUBLISHED" /></remarks></RemarksState>"""
+            ),
+            RemarkStore.RemarksState::class.java,
+        )
 
-        assertNull(restored.remarks.single().tag)
-        assertEquals(RemarkStatus.PENDING, restored.remarks.single().status)
+        // Should have deserialized the remark despite the unknown attributes
+        assertEquals(1, restored.remarks.size)
     }
 
     /**
@@ -154,7 +163,7 @@ class RemarkStoreStateTest {
     @Test
     fun `editing a remark changes its text and marks the state as changed`() {
         val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1", text = "old", tag = null))
+        state.addRemark(remark(id = "r-1", text = "old"))
         val before = state.modificationCount
 
         assertTrue(state.editRemark("r-1", "new"))
@@ -284,7 +293,7 @@ class RemarkStoreStateTest {
     @Test
     fun `an edited remark survives the round trip through xml`() {
         val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1", text = "old", tag = null))
+        state.addRemark(remark(id = "r-1", text = "old"))
         state.editRemark("r-1", "new")
         state.markPublished(setOf("r-1"))
 
@@ -368,16 +377,6 @@ class RemarkStoreStateTest {
         assertEquals(RemarkStatus.PENDING, restored.remarks.single().status)
     }
 
-    @Test
-    fun `severity and bucket survive the round trip`() {
-        val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1", severity = RemarkSeverity.MUST, bucket = "auth refactor"))
-
-        val restored = roundTrip(state).remarks.single()
-
-        assertEquals(RemarkSeverity.MUST, restored.severity)
-        assertEquals("auth refactor", restored.bucket)
-    }
 
     @Test
     fun `a remark with no bucket round-trips as null`() {
@@ -387,53 +386,7 @@ class RemarkStoreStateTest {
         assertNull(roundTrip(state).remarks.single().bucket)
     }
 
-    /**
-     * Every remark already in someone's workspace.xml was written before the severity field
-     * existed, so its element has no severity attribute at all. The default has to come back, not
-     * null: a null severity would reach the renderer and the tree, both of which read it without a
-     * null check, and the failure would be a crash on the first copy after upgrading.
-     */
-    @Test
-    fun `a remark stored before severity existed loads with the default`() {
-        val restored = XmlSerializer.deserialize(
-            JDOMUtil.load("""<RemarksState><remarks><RemarkState id="r-1" path="src/Foo.kt" /></remarks></RemarksState>"""),
-            RemarkStore.RemarksState::class.java,
-        )
 
-        assertEquals(RemarkSeverity.SHOULD, restored.remarks.single().severity)
-    }
-
-    /**
-     * The name no longer claims to guard `setSeverity`'s own `incrementModificationCount()` call,
-     * because it cannot: writing `severity` on a child RemarkState already bumps that child's count,
-     * and ListStoredProperty surfaces it through the outer state — so the count rises with the
-     * explicit call deleted. The call is left in place, matching markPublished and removeHandedOver; only the
-     * name is corrected. The same is true of setBucket.
-     */
-    @Test
-    fun `setting the severity only touches the ids given`() {
-        val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1"))
-        state.addRemark(remark(id = "r-2"))
-        val before = state.modificationCount
-
-        assertEquals(1, state.setSeverity(setOf("r-1"), RemarkSeverity.MUST))
-
-        assertEquals(RemarkSeverity.MUST, state.snapshot().first { it.id == "r-1" }.severity)
-        assertEquals(RemarkSeverity.SHOULD, state.snapshot().first { it.id == "r-2" }.severity)
-        assertTrue(state.modificationCount > before)
-    }
-
-    @Test
-    fun `setting the severity to what it already is changes nothing`() {
-        val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1", severity = RemarkSeverity.MUST))
-        val before = state.modificationCount
-
-        assertEquals(0, state.setSeverity(setOf("r-1"), RemarkSeverity.MUST))
-
-        assertEquals(before, state.modificationCount)
-    }
 
     @Test
     fun `setting the bucket writes it and clearing it writes null`() {
@@ -492,7 +445,7 @@ class RemarkStoreStateTest {
     @Test
     fun `a snapshot does not see an edit that lands after it was taken`() {
         val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1", text = "old", tag = null))
+        state.addRemark(remark(id = "r-1", text = "old"))
         val snapshot = state.snapshot()
 
         state.editRemark("r-1", "new")
@@ -510,8 +463,8 @@ class RemarkStoreStateTest {
      * disappear from workspace.xml with nothing logged.
      *
      * Every field is set to something OTHER than its default, and that is load-bearing. BaseState
-     * omits a property still at its default when it serializes, so leaving severity, bucket and
-     * commit alone made the comparison pass even if the copy dropped all three — which is what this
+     * omits a property still at its default when it serializes, so leaving bucket and
+     * commit alone made the comparison pass even if the copy dropped both — which is what this
      * test is cited as proof against, in RemarkStore.snapshot()'s own doc.
      */
     @Test
@@ -525,13 +478,11 @@ class RemarkStoreStateTest {
             startColumn = 5,
             endColumn = 9,
             text = "why is this synchronized?",
-            tag = RemarkTag.QUESTION,
             status = RemarkStatus.PUBLISHED,
             createdAt = 1_700_000_000_000L,
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",
             contextAfter = "line c\nline d",
-            severity = RemarkSeverity.MUST,
             bucket = "auth refactor",
             commit = "0123456789abcdef0123456789abcdef01234567",
             phrase = "is this synchronized",
@@ -560,7 +511,7 @@ class RemarkStoreStateTest {
     @Test(timeout = 5_000)
     fun `a remark inside a snapshot does not change under its reader`() {
         val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1", text = "old", tag = null))
+        state.addRemark(remark(id = "r-1", text = "old"))
 
         val stopAt = System.nanoTime() + 300_000_000L // 300ms of racing, same as the probe below
         val mixed = AtomicReference<String>()
