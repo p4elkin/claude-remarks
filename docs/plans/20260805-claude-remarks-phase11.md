@@ -179,7 +179,7 @@ marked.
 | 23 | watch-remarks.sh fetch mode without a session | complete |
 | 24 | The skill answers what is marked | complete |
 | 25 | The skill: listen mode claims, re-arms and reaches over the tunnel | complete |
-| 26 | Verify acceptance criteria | not started |
+| 26 | Verify acceptance criteria | complete |
 | 27 | [Final] Update documentation | not started |
 
 ---
@@ -832,12 +832,26 @@ popup must `Disposer.register(popup, pane)`.
 **Files:**
 - Modify: none
 
-- [ ] run `./gradlew test` — the whole suite, once
-- [ ] run `./gradlew build` and `./gradlew verifyPluginProjectConfiguration`
-- [ ] run `./gradlew verifyPlugin` and confirm the report is what task 6 and task 21 left it
-- [ ] run all six `CLAUDE.md` guard greps plus the new answer guard, and confirm every one comes back empty
-- [ ] confirm `store/RemarkEdits.kt` really holds thirteen public functions, by opening it and counting, because that is what the guard's own prose promises a reader
-- [ ] ⚠️ do **not** run `./gradlew runIde` — it starts an interactive sandbox IDE that never exits
+- [x] run `./gradlew test` — the whole suite, once (608 tests, all passing after the fix below)
+- [x] run `./gradlew build` and `./gradlew verifyPluginProjectConfiguration` — both green
+- [x] run `./gradlew verifyPlugin` and confirm the report is what task 6 and task 21 left it —
+      "Compatible. 8 usages of experimental API", no internal API usage at all, which is exactly what
+      task 6 left; two of the eight are `JBHtmlPane`'s constructor and `setText`, from
+      `ui/AnswerPopup.kt`, which is what task 21 added
+- [x] run all six `CLAUDE.md` guard greps plus the new answer guard, and confirm every one comes back
+      empty — all seven printed nothing. The answer guard is
+      `grep -rn "recordAnswer(" src/main --include='*.kt' | grep -v store/RemarkEdits.kt | grep -v review/AnswerReceipt.kt`
+- [x] confirm `store/RemarkEdits.kt` really holds thirteen public functions, by opening it and counting, because that is what the guard's own prose promises a reader — twelve mutators (`addRemark`, `addGeneralRemark`, `editRemark`, `deleteRemark`, `markRemarksPublished`, `markRemarksRead`, `setRemarkBucket`, `setRemarkAsksForAnswer`, `recordAnswer`, `deleteAnswer`, `clearHandedOverRemarks`, `clearAllRemarks`) plus `notifyRemarksChanged`. `RemarksListener` is a type and `archive` is private, so neither counts
+- [x] ⚠️ do **not** run `./gradlew runIde` — it starts an interactive sandbox IDE that never exits (observed; it was never run)
+
+**One repair was needed to get the suite green, and it is not phase 11's doing.**
+`ClassNameInsertTest`'s two extension-point tests compared the whole name list to
+`listOf("Apple", "Middle", "Zebra")`. That comparison assumed the light fixture contributes no class
+names of its own, which the test's own comment stated. The fixture now answers the Kotlin builtin
+names as well, so both tests failed. Checked against the phase 11 base commit `64ea18d` in a throwaway
+worktree: they fail there too, so the cause is the fixture and not anything this phase changed. The
+two assertions now look for the contributed names, the dropped duplicate and the sort order instead of
+for the whole list.
 
 ### Task 27: [Final] Update documentation
 

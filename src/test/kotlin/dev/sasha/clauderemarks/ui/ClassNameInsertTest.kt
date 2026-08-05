@@ -37,13 +37,24 @@ class ClassNameInsertTest : BasePlatformTestCase() {
      * `assertNotNull(projectClassNames(project))` used to stand here, on a function returning a
      * non-nullable List — an assertion that passes against `fun projectClassNames(...) =
      * emptyList<String>()`, so nothing covered the extension point, the per-extension runCatching,
-     * the distinct or the sort. This adds a class and asks for it back.
+     * the distinct or the sort. This adds classes and asks for them back.
+     *
+     * The three properties are asserted one at a time rather than by comparing the whole list to
+     * `listOf("Apple", "Middle", "Zebra")`. That comparison assumed the fixture contributes nothing
+     * of its own, and it no longer does: this fixture now answers the Kotlin builtin names (`Any`,
+     * `Int`, `String` and about a hundred more) alongside ours. Those names are not this test's
+     * business, and a test that breaks when the platform indexes one more class is testing the
+     * platform rather than `projectClassNames`.
      */
     fun testAClassInTheProjectComesBackFromTheNameList() {
         contribute("Zebra", "Apple", "Zebra")
         contribute("Middle")
 
-        assertEquals(listOf("Apple", "Middle", "Zebra"), projectClassNames(project))
+        val names = projectClassNames(project)
+
+        assertTrue("every contributor is read: $names", names.containsAll(listOf("Apple", "Middle", "Zebra")))
+        assertEquals("distinct() drops the repeated name", 1, names.count { it == "Zebra" })
+        assertEquals("the list comes back sorted", names.sorted(), names)
     }
 
     /**
@@ -67,7 +78,10 @@ class ClassNameInsertTest : BasePlatformTestCase() {
             testRootDisposable,
         )
 
-        assertEquals(listOf("Apple"), projectClassNames(project))
+        assertTrue(
+            "the broken contributor took the working one down with it",
+            projectClassNames(project).contains("Apple"),
+        )
     }
 
     /**
@@ -101,8 +115,10 @@ class ClassNameInsertTest : BasePlatformTestCase() {
 
     /**
      * The real extension point, with a contributor of our own on it. A file added through myFixture
-     * would not do: this fixture is the platform test framework only, so no language plugin registers
-     * a gotoClassContributor and the list comes back empty whatever is in the project.
+     * would not do: no language plugin in this fixture indexes a file we write, so a class added that
+     * way never reaches the name list. Registering a contributor is what puts a known name on the
+     * point. What comes back is our names plus whatever the fixture itself contributes, so every
+     * assertion above looks for our names rather than for the whole list.
      */
     private fun contribute(vararg names: String) {
         ChooseByNameContributor.CLASS_EP_NAME.point.registerExtension(
