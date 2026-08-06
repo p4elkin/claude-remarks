@@ -616,6 +616,30 @@ a session is most likely to get wrong.*
     call really goes out first, since a session may find writing the summary the more interesting of
     the two.
 
+## Known small issues left behind on purpose
+
+*Found by the critical-only review pass, which placed all three below its own reporting bar. Recorded
+rather than fixed, so nobody rediscovers them and nobody "fixes" the first one by accident.*
+
+- **`recollapse` collapses recursively, and that predates this phase.** `RemarksToolWindowFactory`'s
+  `recollapse` uses the singular `Tree.collapsePath`, which walks the visible rows below the path and
+  shuts every expanded descendant when `ide.tree.collapse.recursively` is on — the default. So a file
+  group the person collapsed by hand also shuts every question inside it. ⚠️ Do not "fix" this by
+  copying `expandAll`'s `collapsePaths` here without thinking: `expandAll` needs the plural form
+  because it is shutting Done again after deliberately expanding everything underneath, while
+  `recollapse` is reproducing a gesture the person made themselves, and the recursive shape is
+  arguably what they meant. The effect is transient either way — the next refresh's `expandAll`
+  re-expands the contents once the group is reopened.
+- **The accessible context is rebuilt on every call.** `RemarkTreeRenderer.getAccessibleContext()`
+  mutates the shared context and fires `ACCESSIBLE_NAME_PROPERTY` each time it is asked. With no
+  assistive technology attached this costs nothing. With a screen reader running it is a property
+  change per call, which is noisy. The fix is to set the name only when it actually changed.
+- **The metadata line's elision was measured with the wrong font, and this one is fixed.** It was
+  measured with the body's plain font while being drawn in `GRAYED_SMALL_ATTRIBUTES`, so it was cut
+  about a tenth shorter than it needed to be. `metadataMetrics()` now derives the small font the way
+  `SimpleColoredComponent.java:500` does. Listed here because hand check 18 was written before the
+  fix and would otherwise read as though the cut is still too aggressive.
+
 ## Post-Completion
 
 *No checkboxes: these need something outside this repository.*

@@ -910,7 +910,8 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
 
         if (metadata.isNotEmpty()) {
             metadataLine.isVisible = true
-            val shown = elideToWidth(metadata, width) { metrics.stringWidth(it) }
+            val metadataMetrics = metadataMetrics()
+            val shown = elideToWidth(metadata, width) { metadataMetrics.stringWidth(it) }
             append(metadataLine, shown, SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
         }
     }
@@ -940,6 +941,26 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
     private fun textMetrics(): FontMetrics {
         val line = lines[0]
         return line.getFontMetrics(line.font ?: UIUtil.getLabelFont())
+    }
+
+    /**
+     * The metrics the metadata line is measured with, which are **not** [textMetrics].
+     *
+     * The metadata is drawn in `GRAYED_SMALL_ATTRIBUTES`, and `SimpleColoredComponent` derives a
+     * smaller font whenever an attribute carries `STYLE_SMALLER`:
+     * `deriveFont(font, style, UIUtil.getFontSize(FontSize.SMALL))`, in
+     * `platform/platform-api/src/com/intellij/ui/SimpleColoredComponent.java:500`. Measuring the
+     * elision with the plain font would cut the line about a tenth shorter than it needs to be. The
+     * direction is safe — a line measured too wide can overflow, one measured too narrow only
+     * under-fills — but it throws away characters that would have fitted, and the metadata line is
+     * the one place where the last few characters carry the meaning: `(orphaned, written at …)`.
+     *
+     * Same fallback as [textMetrics], and for the same reason: a `SimpleColoredComponent` with no
+     * font and no parent answers `getFont()` with null.
+     */
+    private fun metadataMetrics(): FontMetrics {
+        val base = metadataLine.font ?: UIUtil.getLabelFont()
+        return metadataLine.getFontMetrics(UIUtil.getFont(UIUtil.FontSize.SMALL, base))
     }
 
     /**
