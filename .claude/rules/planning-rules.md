@@ -31,9 +31,20 @@ Do not trust training data for an IntelliJ Platform extension point name, a `plu
 
 - **What does this actually do?** Read the checkout at `~/dev/oss/intellij-community`, shallow, tag
   `idea/2025.2.6.3`. Grepping it is cheap and it answers behaviour questions the jars cannot.
-- **Does this method exist with this signature?** `javap` against
-  `~/.gradle/caches/9.1.0/transforms/*/transformed/ideaIC-2025.2-aarch64/lib/`. Those jars are what
-  the code is actually compiled against.
+- **Does this method exist with this signature?** `javap` against the platform jars in
+  `~/.gradle/caches/9.1.0/transforms/`. Those jars are what the code is actually compiled against.
+  ⚠️ **More than one transform directory exists and they do not hold the same thing.** Phase 15's
+  task 3 found `PluginManager` and `PluginDescriptor` in
+  `transforms/5c8df175f892195526c462191ed81ed4/transformed/ideaIC-2025.2.6.3-aarch64/lib/`, while the
+  directory an earlier rule named, `…/ideaIC-2025.2-aarch64/lib/`, held none of those classes at all.
+  So do not hard-code one path: glob every transform, build a classpath of all the jars, and search
+  that. A `javap` that finds nothing is not evidence the method is absent — it may be evidence you
+  looked in the wrong directory.
+
+  ```sh
+  cp=$(ls ~/.gradle/caches/9.1.0/transforms/*/transformed/ideaIC-*/lib/*.jar | tr '\n' ':')
+  javap -cp "$cp" com.intellij.ide.plugins.PluginManager | grep getPluginByClass
+  ```
 
 ## Threading
 

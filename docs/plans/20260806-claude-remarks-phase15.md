@@ -448,22 +448,49 @@ Test-first. Plain `java.nio` and plain strings, no `com.intellij` import if it c
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] run the full suite with **no** `--tests` filter: `./gradlew test`. Record the total and the
-      change from phase 14's 656
-- [ ] run `./gradlew build`, `verifyPluginProjectConfiguration` and `verifyPlugin`
-- [ ] run all seven guards from `CLAUDE.md` individually and confirm every one is empty. ⚠️ Guard 4 is
+- [x] run the full suite with **no** `--tests` filter: `./gradlew test`. Record the total and the
+      change from phase 14's 656. Result: `BUILD SUCCESSFUL`. Summed straight from the XML reports
+      under `build/test-results/test/` (60 files, since a console line and a file-named `--tests`
+      filter can both lie): **708 tests, 0 failures, 0 errors, 0 skipped**. Phase 14 ended at 666 (the
+      number this repository's own testing rules cite, not the 656 this checkbox names) — 708 is 666
+      plus 42, in the "roughly forty" band the orchestrator's briefing predicted for the five new test
+      classes this phase added
+- [x] run `./gradlew build`, `verifyPluginProjectConfiguration` and `verifyPlugin`. All three
+      `BUILD SUCCESSFUL`. `verifyPlugin`: `Plugin dev.sasha.clauderemarks:0.11.0 against
+      IC-252.28539.97: Compatible. 7 usages of experimental API` — the same 7 pre-existing
+      `MarkdownHtmlPanel`/`JBHtmlPane` usages `build.gradle.kts` already subtracts via
+      `EXPERIMENTAL_API_USAGES`, nothing new from this phase's own code
+- [x] run all seven guards from `CLAUDE.md` individually and confirm every one is empty. ⚠️ Guard 4 is
       the one whose scope changed: it greps all of `src/` with no `--include`, and a 35 KB shell
       script now lives there. It was checked against the three files before this plan was written and
-      found nothing — confirm it again after the move
-- [ ] ⚠️ **confirm the three skill files are actually in the artifact.** Build the zip and list it:
+      found nothing — confirm it again after the move. Result: **all seven ran individually and every
+      one came back empty**, guard 4 included, confirming the pre-move check still holds after the
+      files actually moved into `src/`
+- [x] ⚠️ **confirm the three skill files are actually in the artifact.** Build the zip and list it:
       `./gradlew buildPlugin` then `unzip -l build/distributions/*.zip | grep -i skill`. The whole
       phase exists because `claude-remarks-0.3.0.zip` contained no skill file at all, so this check is
-      the acceptance criterion, not a formality
-- [ ] install into a temporary fake home from a test or a scratchpad script, then run
+      the acceptance criterion, not a formality. Result: the top-level zip only lists
+      `claude-remarks/lib/claude-remarks-0.11.0.jar` (resources are compiled into the plugin's own
+      jar, not left loose in the zip), so the real check is one level deeper — `unzip -l` on that jar
+      after extracting it:
+      ```
+      96306  dev/sasha/clauderemarks/skill/SKILL.md
+       8653  dev/sasha/clauderemarks/skill/remote-config.sh
+      34821  dev/sasha/clauderemarks/skill/watch-remarks.sh
+      ```
+      All three sizes match the files on disk exactly. The phase's one job is done
+- [x] install into a temporary fake home from a test or a scratchpad script, then run
       `sh -n` on both copied scripts and confirm both are executable there. This is the closest an
-      automated check can get to the real install
-- [ ] confirm `skill/SkillInstall.kt` has no `com.intellij` import, or record in the progress log why
-      it needed one
+      automated check can get to the real install. Result: a scratchpad script copied the three real
+      resource files (not fake content) into `$FAKE_HOME/.claude/skills/claude-remarks`, well away
+      from the real `~/.claude`, `chmod +x` on the two scripts the way `installSkill` does with
+      `File.setExecutable(true, true)`. `sh -n` parsed both cleanly and `[ -x ... ]` confirmed both
+      executable. `SkillInstallTest`'s own fixture-free tests already pin the same install mechanics
+      with fake content; this is the same shape run once against the real bytes
+- [x] confirm `skill/SkillInstall.kt` has no `com.intellij` import, or record in the progress log why
+      it needed one. Confirmed: its only imports are `dev.sasha.clauderemarks.review.atomicWriteString`,
+      `java.io.IOException`, `java.io.InputStream`, `java.nio.file.Files` and `java.nio.file.Path` —
+      no `com.intellij` import at all
 
 ### Task 6: Update the documentation and the version
 
