@@ -1,6 +1,6 @@
 # Changelog
 
-This project was built in fourteen phases over five days, each one planned in a file under
+This project was built in fifteen phases over six days, each one planned in a file under
 `docs/plans/` before any code was written. The entries below are the record of those phases,
 newest first.
 
@@ -11,6 +11,66 @@ when that phase finished". Every version and date below is read out of the git h
 
 The design that came out of all this lives in `docs/claude/design.md`, which is kept current with
 the code. These entries are how the work happened; that document is what the system now is.
+
+---
+
+## 0.12.0 — 2026-08-07 — phase 15: the skill ships inside the plugin, and the plugin installs it
+
+Until now the skill was installed by hand, and somebody who installed the plugin zip got no skill at
+all: its three files lived under `docs/`, which never reaches the artifact. Two pieces close that,
+and the first one is what the second one needed.
+
+- **The three skill files are plugin resources now.** `SKILL.md`, `watch-remarks.sh` and
+  `remote-config.sh` move from `docs/skill/claude-remarks/` to
+  `src/main/resources/dev/sasha/clauderemarks/skill/`, with `git mv`, so there is one copy and never
+  two. Two copies of a 96 KB prose file drift apart, and the drift would be invisible inside it. The
+  built jar carries all three now, checked by listing the jar rather than by trusting the build.
+  `SKILL.md`'s own directory-resolution block keeps its first two candidates, which are where an
+  installed skill lives, and its third candidate points at the new path, so the skill still runs
+  straight out of a checkout. ⚠️ A development symlink made before this points at a directory that no
+  longer exists, so it has to be removed and made again.
+- **A row on the settings page installs it.** Settings → Tools → Claude Remarks lists every harness
+  found on the machine, says what is installed against what the plugin carries — "up to date",
+  "0.11.0 installed, 0.12.0 bundled", "installed, version unknown", "not installed" — and gives
+  Claude Code a button. The button says Install when nothing is there and Reinstall otherwise, and
+  Reinstall stays enabled when the copy is up to date, because somebody who edited the installed copy
+  needs a way back. Detection and the copy both run on the pooled executor and fill the labels back
+  in on the EDT.
+- **A notification on project open says the same thing.** It fires only when Claude Code is found,
+  the installed copy is missing or unstamped or a different version, the person has not pressed
+  Don't ask again, and nothing was shown yet in this IDE run — an in-memory flag, so opening three
+  projects shows one balloon rather than three. Its three actions are Install, Settings and Don't ask
+  again. ⚠️ The dismissal is persisted in `RemarkSettings`, which roams through Settings Sync, so
+  pressing it on one machine also silences the other machine, where the skill may not be installed at
+  all. That is accepted: the settings row still shows the state there and still installs.
+- **The install copies the files out, and never symlinks them.** An installed plugin lives under a
+  versioned path, so a symlink into it dies on the next plugin update and leaves a skill entry
+  pointing at nothing. Development does the opposite on purpose, and the two being opposite is why
+  the reason is written into the install function's own KDoc.
+- **The install refuses when the target is a symlink.** On a developer's machine
+  `~/.claude/skills/claude-remarks` points back into the checkout, so writing through it would
+  overwrite the plugin's own source files with stamped copies and leave a dirty working tree nobody
+  edited. The check runs before anything is written, and the notification does not fire in this case
+  at all — a checkout is not a broken install.
+- **The version stamp is one line, and it goes on line 2.** The installed `SKILL.md` gets
+  `# claude-remarks-plugin-version: 0.12.0` right after the opening `---`. A YAML comment rather than
+  a frontmatter key, because the keys are Claude Code's contract and a comment cannot collide with
+  anything. ⚠️ Line 2 and nowhere lower: `description:` is a `>` block scalar, and a `#` line inside
+  one is content rather than a comment, so a stamp placed further down would end up as text inside
+  the description the harness matches the skill on. Reading it back gives three answers, never two —
+  a version, "installed but unstamped", or "not installed" — and it never throws and never guesses.
+- **The executable bit is set explicitly after the copy.** A resource read out of a jar carries no
+  permission bits, and `SKILL.md`'s own directory-resolution block tests `[ -x watch-remarks.sh ]`.
+  So a copy without it makes the installed skill report that `watch-remarks.sh` was not found while
+  the file is sitting right there. `File.setExecutable(true, true)` does it, not
+  `Files.setPosixFilePermissions`, which throws on a filesystem with no POSIX view, and a false
+  return becomes a failure sentence instead of a silent success.
+- **Codex and Gemini are found and listed, with no button.** Both directories exist on this machine.
+  Their own layouts have deliberately not been guessed: each has to be read from that tool's own
+  documentation first, and that is its own later piece of work. Listing them with a sentence saying
+  why is what keeps the gap visible instead of silent.
+
+Plan: `docs/plans/20260806-claude-remarks-phase15.md`.
 
 ---
 

@@ -72,6 +72,12 @@ Build the plugin zip, then install it from disk:
 In the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick that zip, and
 restart when asked.
 
+The plugin carries the Claude Code skill inside it. Once the plugin is installed, open
+**Settings → Tools → Claude Remarks**: the Claude Remarks skill row lists the coding agents found on
+the machine and installs the skill into Claude Code with one button. The IDE also offers it once in a
+balloon when a project opens and the skill is missing or out of date. See
+[The Claude Code skill](#the-claude-code-skill).
+
 It needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound), and an IDE that ships the VCS
 module — every JetBrains IDE does, but if the plugin ever fails to load and the tool window simply
 is not there, that hard `<depends>com.intellij.modules.vcs</depends>` is the first thing to check.
@@ -418,10 +424,11 @@ What that run still proves is the part that survived: the plugin loads, the hand
 publish renders correctly with its sub-line markers, an acknowledgement really does turn rows grey,
 and the endpoint works across a tunnel.
 
-Everything phases 10 to 14 built is unproven, because `0.6.0` predates all five: the merged
+Everything phases 10 to 15 built is unproven, because `0.6.0` predates all six: the merged
 published file, the acknowledgement by nonce, the watcher script, the skill's modes, the Open/Done
 split, the wrapped rows, the appearance rules described above, the preview's two actions and its
-highlighting, and the watcher's streaming shape. ⚠️ **That includes the whole Ask Claude round trip** — the gesture,
+highlighting, the watcher's streaming shape, and the skill install — its settings row, its button and
+its balloon. ⚠️ **That includes the whole Ask Claude round trip** — the gesture,
 the answer coming back, the nesting, the answer's gutter icon and the markdown popup — **and every one
 of the three question-mark icons.** The automated suite covers the storage, the resolving and the
 endpoint; it cannot cover anything that is drawn, and there is no end-to-end test at all. Several

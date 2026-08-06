@@ -3,16 +3,20 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-14 are implemented and covered by unit tests. Phase 14 (the rendered markdown preview gets
-Ask Claude beside Add Claude Remark and highlights the elements remarks point at, and the watcher
-script learns to stream, to keep its own seen nonce and to claim a batch itself) is complete,
-including the version bump to `0.11.0` and this final documentation sweep.
+Phases 1-15 are implemented and covered by unit tests. Phase 15 (the skill's three files move inside
+the plugin as resources, and the plugin installs them into Claude Code from a settings row and from a
+balloon when a project opens) is complete, including the version bump to `0.12.0` and this final
+documentation sweep.
 
 ⚠️ **Read the phase paragraphs below as history, not as a feature list.** Phases 6, 7, 8 and 10 each
 built part of a waiting review, and phase 12 deleted it. Phase 5 built buckets and phase 9 built the
 drag onto them, and phase 13 deleted both. Each of those paragraphs now says what its phase built and
 what became of it. What the plugin does *today* is in "What the plugin does" below and in the phase 13
 paragraph.
+
+⚠️ **The skill's three files moved in phase 15**, from `docs/skill/claude-remarks/` to
+`src/main/resources/dev/sasha/clauderemarks/skill/`. A sentence below that still names the old
+directory is saying what happened at the time. It is not saying where the file is now.
 
 **The plugin has been seen running in a real IDE exactly once, on version `0.6.0`.** That run
 exercised review mode, which phase 12 has since deleted: a review was started over the endpoint, the
@@ -165,8 +169,9 @@ could only ever read a review's own answer; phase 11 made that field optional an
 so a fetch now carries the project alone and answers with whatever batch the file holds. And the review
 machinery it leaned on is gone — the one-review-at-a-time service, the remembered ended-review path,
 and the rejection a fetch could still reach after the review had ended. The skill
-(`docs/skill/claude-remarks/SKILL.md`) still takes four connection values: host, port, token and the
-repository path as the IDE machine sees it. Nothing about the security model changed in any of this:
+(`src/main/resources/dev/sasha/clauderemarks/skill/SKILL.md` since phase 15) still takes four
+connection values: host, port, token and the repository path as the IDE machine sees it. Nothing
+about the security model changed in any of this:
 the built-in server only binds `127.0.0.1`, so a tunnel is the only way in; `isHostTrusted` skips the
 platform's own Host check entirely, so that check was never what protected this endpoint; and the only
 gate is the plugin's own token check, plus the refusal of any request carrying `Origin` or `Referer`.
@@ -185,8 +190,8 @@ promises that id will not be renamed, but the button, the menu entry and the cla
 now. Publishing also writes the same rendered prompt, with a small dated header on top, to a file
 under `~/.claude-remarks/<hash of the project's identity — the git top level, or the project base
 path outside a git repository>.md`, overwritten on every publish, so a Claude
-Code skill can read published remarks on its own schedule with no review ever started;
-`docs/skill/claude-remarks/SKILL.md` gained a second mode that reads it. Two behaviours in the
+Code skill can read published remarks on its own schedule with no review ever started; `SKILL.md`
+gained a second mode that reads it. Two behaviours in the
 publish pipeline have no automated test at all: a failed published-file write after the clipboard
 already succeeded, and a project root that fails to resolve. Both still mark the remarks published,
 correctly, and both are only checkable by hand. See `docs/claude/design.md`'s Known Issues entry "a
@@ -285,12 +290,13 @@ and the Tools menu's `ClaudeRemarks.SendToWaiting` action. Phase 12 then deleted
 directory phase 10 removed stays removed — a fetch or a `published-read` resolves the one predictable
 path under `handshakeDir()` rather than a path handed back in a response first.
 
-The skill gained a background watcher script, `docs/skill/claude-remarks/watch-remarks.sh`, launched
+The skill gained a background watcher script, `watch-remarks.sh` — under
+`src/main/resources/dev/sasha/clauderemarks/skill/` since phase 15 — launched
 once and read for its exit code and its stdout, which is what lets listen mode wait past the ten-minute
 cap a foreground Bash call carries. ⚠️ That is one of the script's two shapes since phase 14, not the
 whole of it — see the phase 14 paragraph below for the streaming shape, which prints instead of
 exiting. It can also remember a remote IDE's four connection values (host,
-port, project path, token) across runs, through `docs/skill/claude-remarks/remote-config.sh`, instead of
+port, project path, token) across runs, through `remote-config.sh` beside it, instead of
 the person retyping all four every time. See `docs/claude/design.md`, sections "The three states, and
 why published is not read" and "The published file".
 
@@ -557,6 +563,55 @@ monitor's own child there. The summarise, answer and wait-for-go steps are writt
 both branches end in, so there is one copy rather than two that can drift. See `docs/claude/design.md`,
 sections "The Endpoint the Skill Talks To" — subsection "The streaming shape: the watcher keeps its own
 seen nonce and claims for itself" — and "A Remark on the Rendered Preview" for the whole design.
+
+**Phase 15 is built.** Two pieces, and the first one is what the second one needed.
+
+*The three skill files are plugin resources.* `SKILL.md`, `watch-remarks.sh` and `remote-config.sh`
+moved with `git mv` from `docs/skill/claude-remarks/` to
+`src/main/resources/dev/sasha/clauderemarks/skill/`. One copy and never two: two copies of a 96 KB
+prose file drift apart, and the drift would be invisible inside it. `docs/` never reaches the plugin
+zip, which is why `claude-remarks-0.3.0.zip` carried no skill file at all. The built jar carries all
+three now, checked by listing the jar rather than by trusting the build. `SKILL.md`'s own
+directory-resolution block keeps its first two candidates — that is where an installed skill lives —
+and its third candidate points at the new path, so the skill still runs straight out of a checkout.
+⚠️ The development symlink under `~/.claude/skills/` pointed at the old directory, so it dangles until
+somebody makes it again by hand.
+
+*The plugin installs the skill.* `skill/SkillInstall.kt` is the pure half and has **no `com.intellij`
+import at all**: `SKILL_FILES` (the three names in one constant, because nothing enumerates the
+directory), `stampVersion`, `stampedVersionOf`, `detectHarnesses`, `skillPresence` and `installSkill`,
+which returns null or a sentence the same way `store/RemarkTarget.kt`'s two problem functions already
+do. Its resource reader is a **parameter**, which is what keeps the classloader out of the file and
+lets a test feed fake contents. `skill/BundledSkillVersion.kt` exists only because
+`PluginManager.getPluginByClass` is a `com.intellij` import and both callers need that one lookup.
+`skill/SkillRowText.kt` builds the settings row's sentence and its button label, and
+`skill/SkillInstallNotification.kt` holds the pure `shouldNotifySkillInstall` and the balloon around
+it.
+
+*What a person sees.* Settings → Tools → Claude Remarks lists every harness found and, for Claude
+Code, gives a button: Install when nothing is there, Reinstall otherwise. Reinstall stays enabled when
+the copy is up to date, because somebody who edited the installed copy needs a way back. A balloon on
+project open says the same thing when the installed copy is missing, unstamped or a different version.
+⚠️ Codex and Gemini are **found and listed with no button**, and a sentence says why: each tool's own
+layout has to be read from its own documentation first, and a guessed path writes a file nobody reads.
+The gap is on screen rather than silent, which was the point of listing them.
+
+⚠️ **Four things here nobody should have to work out a second time.** The install **copies and never
+symlinks**, because an installed plugin lives under a versioned path and a symlink into it dies on the
+next plugin update — development does the opposite, on purpose. The install **refuses when the target
+is a symlink**, because on a developer's machine that symlink points back into the checkout, so
+writing through it would overwrite the plugin's own source files. The version stamp goes on **line
+2**, because `description:` in the frontmatter is a `>` block scalar and a `#` line inside a block
+scalar is content rather than a comment. And the **executable bit is set explicitly after the copy**,
+because a resource read out of a jar carries no permission bits and `SKILL.md` tests `[ -x … ]` — a
+copy without it makes the skill say `watch-remarks.sh` was not found while the file sits right there.
+All four are argued in `docs/claude/design.md`, section "Shipping the Skill Inside the Plugin".
+
+⚠️ `RemarkSettings.skillInstallPromptDismissed` roams through Settings Sync, the way every setting in
+that class does. So pressing Don't ask again on one machine also silences the balloon on the other
+machine, where the skill may not be installed at all. That is accepted rather than overlooked: the
+settings row still shows the real state there and still installs. Beside it sits an in-memory
+application-level flag, so one IDE run shows at most one balloon however many projects open in it.
 
 ## Rules that must not break
 
@@ -885,10 +940,38 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    AnswerGutterIconRenderer, whose equals/hashCode include the
                                    markdown because that is what its click opens
   editor/RemarkGutter.kt           the project service that keeps gutter icons in step
-  editor/RemarkGutterStartup.kt    the ProjectActivity that starts RemarkGutter, and
-                                   ReviewHandshakeService
-  settings/RemarkSettings.kt       the app-level service and the default prompt header
+  editor/RemarkGutterStartup.kt    the ProjectActivity that starts RemarkGutter and
+                                   ReviewHandshakeService, and since phase 15 calls
+                                   notifySkillInstallIfNeeded inline after both — execute is a
+                                   suspend function already off the EDT, so its filesystem reads
+                                   need no hop of their own
+  settings/RemarkSettings.kt       the app-level service, the default prompt header, and since
+                                   phase 15 skillInstallPromptDismissed, the persisted "don't ask
+                                   again" for the skill-install balloon. It roams through Settings
+                                   Sync with everything else in this class, so a dismissal on one
+                                   machine silences the other one too
   settings/RemarkSettingsConfigurable.kt
+                                   the settings page. Since phase 15 it also holds the Claude
+                                   Remarks skill group: one row per detected harness, detection and
+                                   the copy both on AppExecutorUtil.getAppExecutorService() with
+                                   the labels filled back in through invokeLater, and no ReadAction
+                                   anywhere, because nothing here touches PSI, a Document or the VFS
+  skill/SkillInstall.kt            the pure half of the install (phase 15): SKILL_FILES,
+                                   stampVersion, stampedVersionOf, detectHarnesses, skillPresence
+                                   and installSkill, which returns null or a sentence the way
+                                   store/RemarkTarget.kt's problem functions do. NO com.intellij
+                                   import — the resource reader is a parameter, which is what keeps
+                                   the classloader out and lets a test feed fake contents
+  skill/BundledSkillVersion.kt     bundledPluginVersion(): the plugin's own version, through
+                                   PluginManager.getPluginByClass. Its own file precisely because
+                                   that is a com.intellij import and SkillInstall.kt may carry none
+  skill/SkillRowText.kt            skillRowText: the settings row's status sentence and its button
+                                   label, pure so every combination is testable with no UI fixture
+  skill/SkillInstallNotification.kt
+                                   shouldNotifySkillInstall (pure, and it never fires for a symlink)
+                                   and notifySkillInstallIfNeeded, the balloon with Install,
+                                   Settings and Don't ask again. A top-level AtomicBoolean is what
+                                   makes it at most one balloon per IDE run
   render/PromptRenderer.kt         pure Kotlin, zero platform imports. Remarks to markdown, general
                                    remarks first under their own heading and with no code block.
                                    PROMPT_NOTES (called SEVERITY_SCALE_NOTE until phase 11) is the
@@ -1009,6 +1092,16 @@ src/main/resources/dev/sasha/clauderemarks/preview/claude-remarks-preview.css
                                                   list. Both colours are alpha-blended over whatever
                                                   background is there, since this page defines no
                                                   theme colour variables a stylesheet could read
+src/main/resources/dev/sasha/clauderemarks/skill/{SKILL.md,watch-remarks.sh,remote-config.sh}
+                                                  the Claude Code skill itself, moved here from
+                                                  docs/skill/claude-remarks/ in phase 15 so it
+                                                  reaches the plugin zip. ONE copy, never two. They
+                                                  are ordinary resources: nothing in
+                                                  build.gradle.kts or plugin.xml had to change for
+                                                  them. ⚠️ Nothing enumerates this directory — the
+                                                  three names live in SkillInstall.SKILL_FILES, and
+                                                  a fourth file added here without being added
+                                                  there is silently not installed
 src/main/resources/intentionDescriptions/AddRemarkIntention/description.html
 src/main/resources/intentionDescriptions/AskClaudeIntention/description.html
 src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
@@ -1295,8 +1388,9 @@ assertions need one, and a second class added to that file would never run under
 `RemarksTreeTest` while the build stayed green.
 
 Two more files are checked by hand, not by `./gradlew test`, because this repository's suite is
-Kotlin and runs no shell: `docs/skill/claude-remarks/watch-remarks.sh` (added in phase 10; each
-check is its own run, in the scratchpad directory, covering a deadline timeout, a nonce that has
+Kotlin and runs no shell: `src/main/resources/dev/sasha/clauderemarks/skill/watch-remarks.sh` (added
+in phase 10; each check is its own run, in the scratchpad directory, covering a deadline timeout, a
+nonce that has
 already changed, a file that appears after the watcher starts, a malformed
 header, and — since phase 11 reversed this one — that a second watcher on the same project does
 **not** kill the first, that both are still alive afterwards, that the pid file then holds the second
@@ -1326,8 +1420,8 @@ rather than cleaning them up, and that a run without `--stream` writes no snapsh
 faked `HOME` **and** the port: a fake handshake left at the ordinary `63342` reaches the IDE the person
 is actually working in, which happened once during phase 14 and was stopped only by the token check.
 Point a fake handshake at a port nothing is listening on, or at a fake endpoint of your own) and
-`docs/skill/claude-remarks/remote-config.sh` (added in phase 10; each check is its own run too,
-with `HOME` pointed at a temporary directory, covering `save`/`show`/`forget`, that the token never
+`src/main/resources/dev/sasha/clauderemarks/skill/remote-config.sh` (added in phase 10; each check is
+its own run too, with `HOME` pointed at a temporary directory, covering `save`/`show`/`forget`, that the token never
 appears in any output, permission and validation refusals, and that two repository roots produce two
 different stored files).
 

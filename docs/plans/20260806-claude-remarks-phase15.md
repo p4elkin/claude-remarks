@@ -499,31 +499,41 @@ Test-first. Plain `java.nio` and plain strings, no `com.intellij` import if it c
   structure block), `docs/claude/design.md` (a new section), `README.md`, `CHANGELOG.md`,
   `docs/ideas.md` (the entry at line 829)
 
-- [ ] bump to `0.12.0` in `build.gradle.kts`, then run `./gradlew verifyPluginProjectConfiguration` —
-      this repository's documented check after a build-file change
-- [ ] add a phase 15 paragraph to `CLAUDE.md` after phase 14's, and update the project structure block:
+- [x] bump to `0.12.0` in `build.gradle.kts`, then run `./gradlew verifyPluginProjectConfiguration` —
+      this repository's documented check after a build-file change. Result: `BUILD SUCCESSFUL`
+- [x] add a phase 15 paragraph to `CLAUDE.md` after phase 14's, and update the project structure block:
       the three files' new home, `skill/SkillInstall.kt`, `skill/SkillInstallNotification.kt`, the
-      changed `RemarkGutterStartup.kt` and `RemarkSettings.kt` entries
-- [ ] ⚠️ `CLAUDE.md` names the old skill path in several places (lines 168, 189, 288, 293, 1298, 1329
+      changed `RemarkGutterStartup.kt` and `RemarkSettings.kt` entries. Also added
+      `skill/SkillRowText.kt`, `skill/BundledSkillVersion.kt` and the settings configurable's own row
+      group, which the phase built too
+- [x] ⚠️ `CLAUDE.md` names the old skill path in several places (lines 168, 189, 288, 293, 1298, 1329
       among them) and `docs/claude/design.md` in four (1441, 2179, 2231, 2732). Update the ones that
       state where the files *are*. Leave the ones that are historical narrative about a past phase and
       say plainly in the phase 15 paragraph that the directory moved, so an old sentence is readable
-      as history rather than as a wrong path
-- [ ] write a section in `docs/claude/design.md` covering the four things a future session must not
+      as history rather than as a wrong path. Done: all six `CLAUDE.md` hits and all four `design.md`
+      hits updated; phase 12's rename sentence (`CLAUDE.md:420`) left as history, and a ⚠️ line near
+      the top of `CLAUDE.md` now says the directory moved and that an old path below is history
+- [x] write a section in `docs/claude/design.md` covering the four things a future session must not
       re-derive: why the skill is a resource in exactly one copy, why the install copies rather than
       symlinks while development does the opposite, where the version stamp goes and why line 2, and
-      why an install into a symlink is refused
-- [ ] mark the `docs/ideas.md` entry "A button that installs the skill into every detected harness" as
+      why an install into a symlink is refused. Written as "Shipping the Skill Inside the Plugin",
+      section 18, between the endpoint section and the Ask Claude gesture, with the executable bit,
+      detection, the two surfaces and the threading rule beside the four
+- [x] mark the `docs/ideas.md` entry "A button that installs the skill into every detected harness" as
       built, the same way every other built entry in that file opens, and record what came out
       differently: Claude Code only, Codex and Gemini listed but not installable, and the symlink
-      refusal that the entry did not foresee
-- [ ] ⚠️ leave the "Still open" bullets of that entry alone except to note that reading the Codex and
-      Gemini conventions from their own documentation is now the named next piece of work
-- [ ] update `README.md`'s install section and its Status paragraph
-- [ ] add a `0.12.0` entry to `CHANGELOG.md` in the same shape as `0.11.0`'s, and correct the opening
-      line's phase count
-- [ ] leave this plan in `docs/plans/`. The harness moves it to `completed/` after the phase finishes,
-      and moving it here breaks the review, finalize and stats phases that read this path
+      refusal that the entry did not foresee. Opened as
+      "⚠️ **Built in phase 15, for Claude Code only. This idea is not closed.**"
+- [x] ⚠️ leave the "Still open" bullets of that entry alone except to note that reading the Codex and
+      Gemini conventions from their own documentation is now the named next piece of work. Added as a
+      first bullet; the two existing bullets are untouched
+- [x] update `README.md`'s install section and its Status paragraph
+- [x] add a `0.12.0` entry to `CHANGELOG.md` in the same shape as `0.11.0`'s, and correct the opening
+      line's phase count. `CHANGELOG.md` was not in this task's Files block; the count went from
+      "fourteen phases over five days" to "fifteen phases over six days"
+- [x] leave this plan in `docs/plans/`. The harness moves it to `completed/` after the phase finishes,
+      and moving it here breaks the review, finalize and stats phases that read this path. Nothing was
+      moved
 
 ## Hand checks
 

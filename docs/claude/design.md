@@ -19,12 +19,13 @@
 15. [Open, Done, and Rows That Wrap](#open-done-and-rows-that-wrap)
 16. [A Remark on the Rendered Preview](#a-remark-on-the-rendered-preview)
 17. [The Endpoint the Skill Talks To](#the-endpoint-the-skill-talks-to)
-18. [The Ask Claude Gesture](#the-ask-claude-gesture)
-19. [What an Answer Is](#what-an-answer-is)
-20. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
-21. [Build Choices Worth Remembering](#build-choices-worth-remembering)
-22. [Performance Tuning Knobs](#performance-tuning-knobs)
-23. [Known Issues](#known-issues)
+18. [Shipping the Skill Inside the Plugin](#shipping-the-skill-inside-the-plugin)
+19. [The Ask Claude Gesture](#the-ask-claude-gesture)
+20. [What an Answer Is](#what-an-answer-is)
+21. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
+22. [Build Choices Worth Remembering](#build-choices-worth-remembering)
+23. [Performance Tuning Knobs](#performance-tuning-knobs)
+24. [Known Issues](#known-issues)
 
 ## Overview
 
@@ -1438,8 +1439,10 @@ anything, and `publishMessage` lost the parameter that carried those sentences;
 `PublishedBatchService.record` takes only the ids. One writer, one acknowledgement route, and a header
 that no longer has to say which of three things produced a batch.
 
-**How the skill reads it.** `docs/skill/claude-remarks/SKILL.md` has three modes, and two of them read
-this file. They share the repository root, the project hash and the "act on the markdown" step so
+**How the skill reads it.** `SKILL.md` — at
+`src/main/resources/dev/sasha/clauderemarks/skill/SKILL.md` since phase 15 — has three modes, and two
+of them read this file. They share the repository root, the project hash and the "act on the
+markdown" step so
 neither duplicates that shell: a one-shot read of whatever is published right now, and an opt-in listen
 mode that waits for the next batch, started only when asked for in words. Both find the repository
 root, compute the hash, build the path, and stop with a plain sentence if the file is missing or its
@@ -2176,8 +2179,9 @@ nonce, `answer` posts an answer to a question, and `open` puts a set of files in
 One handshake file per open project tells a skill which port and which token to use. One published
 file per project carries the remarks. The pieces live in `review/`: `ReviewHandshake.kt`,
 `AtomicWrite.kt`, `ReviewRestService.kt`, `PublishedRemarks.kt`, `PublishedAck.kt`, `AnswerReceipt.kt`
-and `OpenReviewFiles.kt`. The skill side is `docs/skill/claude-remarks/SKILL.md`, outside the plugin
-proper.
+and `OpenReviewFiles.kt`. The skill side is `SKILL.md`, which since phase 15 ships inside the plugin
+as a resource under `src/main/resources/dev/sasha/clauderemarks/skill/` — see "Shipping the Skill
+Inside the Plugin" below.
 
 **What review mode was, and why phase 12 removed it.** A skill posted `start` with a session id, a
 label, a deadline and a list of files. The IDE opened those files, put a banner reading
@@ -2228,8 +2232,9 @@ skill reads to find the IDE in the first place.
 
 ### The watcher script, and why it has to exit
 
-`docs/skill/claude-remarks/watch-remarks.sh` is the skill side's whole wait. It is not part of the
-plugin, but the plugin's design depends on it, so it is written down here.
+`watch-remarks.sh`, at `src/main/resources/dev/sasha/clauderemarks/skill/` since phase 15, is the
+skill side's whole wait. It is the skill's code rather than the plugin's, and the plugin only carries
+it as a resource to install, but the plugin's design depends on it, so it is written down here.
 
 **The cap that forced it.** A foreground `Bash` call in a Claude Code session is capped at ten
 minutes. Listen mode waits up to twelve hours, so a poll loop written inline in a foreground call gets
@@ -2729,7 +2734,7 @@ repository checked out at two different paths. The fourth value defaults to the 
 `git rev-parse --show-toplevel`, so the common case, where both machines agree, needs nothing extra.
 
 **The four values are stored on the agent machine, by
-`docs/skill/claude-remarks/remote-config.sh`.** Phase 10 added it. Before it, all four had to be
+`src/main/resources/dev/sasha/clauderemarks/skill/remote-config.sh`.** Phase 10 added it. Before it, all four had to be
 pasted into the session again on every run, and the token is a UUID nobody retypes correctly. `save`
 writes `~/.claude-remarks/remote-<16 hex>.env`, four `key=value` lines: `ide_host`, `ide_port`,
 `ide_project` and `ide_token`. `show` prints back the first three; `forget` deletes the file. The
@@ -2791,6 +2796,181 @@ skill argument instead, with a default the person can override. Nothing that cou
 handshake would help the agent on a different machine. The agent cannot read this file at all, no
 matter what is in it, and a field describing a tunnel would be state the plugin does not manage,
 does not detect and does not report on.
+
+## Shipping the Skill Inside the Plugin
+
+Phase 15 moved the skill's three files into the plugin's own resources, and gave the plugin a way to
+install them into Claude Code. Before it, the skill was installed by hand, and somebody who installed
+the plugin zip got no skill at all.
+
+**One copy, and it is a resource.** `SKILL.md`, `watch-remarks.sh` and `remote-config.sh` live at
+`src/main/resources/dev/sasha/clauderemarks/skill/`, beside the two package-shaped resource
+directories the plugin already had, `icons/` and `preview/`. They used to live under
+`docs/skill/claude-remarks/`, and `docs/` never reaches the artifact: `claude-remarks-0.3.0.zip`
+contained no skill file at all.
+
+The choice was one copy or two. One copy means the checkout and the artifact can never disagree, and
+one path inside `SKILL.md` had to be rewritten. Two copies would have kept the documentation copy
+where readers already looked, and every edit would have to be made twice, inside a 96 KB prose file
+where a missed edit is invisible. One copy won, and the file that reads it in a checkout was pointed
+at the new path instead.
+
+**Nothing enumerates the directory.** Listing jar entries through a classloader is not something to
+rely on, so the three names sit in one constant, `SkillInstall.SKILL_FILES`. ⚠️ Adding a fourth file
+to the skill later means adding its name there too. Forgetting is silent: the file simply is not
+installed, and nothing reports it.
+
+**The pure half carries no platform import.** `skill/SkillInstall.kt` is plain `java.nio` and plain
+strings, the same argument `anchor/` and `render/PromptRenderer.kt` make for themselves: no fixture,
+tests in milliseconds. Its resource reader is a parameter rather than a call inside the file, which
+is what keeps the classloader out and lets a test feed fake contents. The one real call site passes
+`SkillInstall::class.java.getResourceAsStream(resourcePath(name))`. `skill/BundledSkillVersion.kt` is
+a separate file for exactly this reason: `PluginManager.getPluginByClass` is a `com.intellij` import,
+and the settings row and the notification both need that one lookup.
+
+### The install copies, and development symlinks, and they are opposite on purpose
+
+The choice was to copy the three files out or to symlink them. Copying wins for an installation, and
+a symlink wins for a checkout.
+
+**Why an installation copies.** An installed plugin lives under a versioned path. A symlink into it
+points at that version's directory, so the next plugin update leaves a skill entry pointing at
+nothing. Nothing announces that. A session simply stops finding the skill, and the person has no
+reason to connect it to an update they did not watch happen. A copy is stale after an update instead
+of broken, and stale is visible: the settings row says which version is installed against the version
+the plugin carries.
+
+**Why a checkout symlinks.** During development every edit to `SKILL.md` has to reach a live session
+at once. A copy would have to be made again after each edit, and forgetting means testing yesterday's
+skill.
+
+That is why the reason is written into `installSkill`'s own KDoc rather than left in a plan file. The
+two halves of this project do the opposite thing with the same files, and anybody reading only one of
+them will think the other is a mistake.
+
+### Why the install refuses when the target is a symlink
+
+⚠️ **This is the trap the development symlink creates.** On this machine
+`~/.claude/skills/claude-remarks` is a symlink into the checkout. Writing into that directory writes
+through the link, into `src/main/resources/dev/sasha/clauderemarks/skill/`. The plugin would overwrite
+its own source files with stamped copies, and the person would find a dirty working tree they never
+edited.
+
+So `installSkill` checks `Files.isSymbolicLink` on the target directory **and** on each of the three
+files inside it, before it writes anything at all, and returns a sentence saying it looks like a
+development install and has to be removed first.
+
+The notification does not fire in this case either. A checkout is not a broken install, and offering
+an action that would only be refused is worse than staying quiet. `shouldNotifySkillInstall` gives
+that rule its own line rather than folding it into the version comparison, because it is the one most
+likely to be dropped when somebody rewrites the function.
+
+### Why the version stamp sits on line 2
+
+The installed `SKILL.md` gets one line inserted, right after the opening `---`:
+
+```
+# claude-remarks-plugin-version: 0.12.0
+```
+
+**Why a YAML comment and not a frontmatter key.** The frontmatter keys are a contract owned by Claude
+Code. An unknown key there changes somebody else's contract and could collide with a key that tool
+adds later. A comment cannot collide with anything.
+
+⚠️ **Why line 2 and nowhere lower.** `description:` in that frontmatter is a `>` block scalar. A line
+starting with `#` **inside** a block scalar is content, not a comment. A stamp placed after
+`description:` would end up as text inside the skill's own description, which is the text the harness
+matches the skill on. Line 2 is before any scalar starts, so it is safe no matter what the rest of the
+frontmatter grows into. A test pins this by stamping the real `SKILL.md` and reading the description
+back, so a later "tidy up" that moves the insertion point fails instead of quietly corrupting the
+description.
+
+**Reading it back gives three answers, not two.** `stampedVersionOf` reads at most the first five
+lines:
+
+- a line matching `^#\s*claude-remarks-plugin-version:\s*(\S+)` gives that version;
+- a readable file with no such line means **installed, version unknown** — the ordinary case for a
+  copy somebody installed by hand before this phase, and for the checkout a development symlink
+  points at, which carries no stamp because the stamp is written at install time;
+- a file that is missing or cannot be read means **not installed**.
+
+It never throws and it never guesses. A stamp line that does not parse reads exactly the same as no
+stamp at all.
+
+### Why the executable bit is set again after the copy
+
+⚠️ **A resource read out of a jar carries no permission bits.** `SKILL.md`'s own
+directory-resolution block tests `[ -x "$candidate/watch-remarks.sh" ]`. So a copied script that is
+not executable makes the installed skill answer that `watch-remarks.sh` was not found — the most
+confusing symptom available, because the file is sitting right there and the message says it is
+missing.
+
+After the write, `installSkill` calls `File.setExecutable(true, true)` on every `.sh` file in
+`SKILL_FILES` and turns a false return into a failure sentence. Not
+`Files.setPosixFilePermissions`, which throws `UnsupportedOperationException` on a filesystem with no
+POSIX view.
+
+### Detection never creates anything
+
+Three directories are looked for under the home directory, and only existing ones count:
+`~/.claude/skills` is Claude Code and is installable, `~/.codex` is Codex and `~/.gemini` is Gemini.
+
+**A harness directory is never created.** Creating one would be the plugin guessing that a tool is
+wanted on this machine. The one directory the plugin does create is the skill's own target directory,
+`~/.claude/skills/claude-remarks`, inside a directory that already exists. That is the install itself,
+not a guess.
+
+⚠️ **Codex and Gemini are listed with no button, and no path is guessed for them.** `HarnessInfo`
+carries a null `targetDir` for both, which is how "found, but not installable" is represented. Each
+tool's own layout has to be read from that tool's own documentation before anything is written for
+it, and that is its own later piece of work. A guessed path writes a file nobody reads, and nothing
+about that failure is visible. Listing the two harnesses with a sentence saying why keeps the gap on
+screen instead.
+
+### The two surfaces, and the one cost of the dismissal
+
+A row on the settings page and a balloon on project open, not one or the other. The row is where
+somebody goes to look; the balloon is what reaches somebody who does not know there is anything to
+look for.
+
+The row's text and its button label come from the pure `skillRowText`, so every combination is
+testable with no UI fixture: "not installed", "up to date", "installed, version unknown", or
+"0.11.0 installed, 0.12.0 bundled". The button has two labels and not three — **Install** when
+nothing is there and **Reinstall** otherwise — because the row's own text already says whether the
+copy is out of date. Reinstall stays enabled when the copy is up to date, because somebody who edited
+the installed copy needs a way back.
+
+The balloon fires only when Claude Code is detected, **and** the installed copy is missing or
+unstamped or a different version, **and** the person has not dismissed it, **and** nothing was shown
+yet in this IDE run. That last one is a plain application-level `AtomicBoolean`: without it, opening
+three projects would show three balloons. Its three actions are Install, Settings and Don't ask again.
+
+⚠️ **The dismissal roams.** `RemarkSettings` goes through JetBrains Settings Sync deliberately, so
+`skillInstallPromptDismissed` does too. Pressing Don't ask again on one machine also silences the
+balloon on the other machine, where the skill may well not be installed. That is accepted rather than
+overlooked: the settings row still shows the real state on each machine, and still installs there.
+It is written down here so nobody reads it later as a bug.
+
+### Threading, and what this deliberately does not do
+
+⚠️ **No `ReadAction` anywhere in this feature.** Nothing here touches PSI, a `Document` or the VFS.
+It is plain `java.nio`, the same as `store/RemarkHistory.kt`. The publish pipeline's
+`ReadAction.nonBlocking { … }.finishOnUiThread(…)` shape must not be copied here by reflex: a read
+action would buy nothing and would say something untrue about what the code touches.
+
+`createPanel` runs on the EDT, so detection runs on `AppExecutorUtil.getAppExecutorService()` and
+fills the row's labels back in through `invokeLater`. The button click arrives on the EDT and does the
+same. `RemarkGutterStartup.execute` is a suspend function already running off the EDT, so the
+notification's own check runs inline there with no hop at all.
+
+**It only reaches this machine.** For a Claude Code session on the far side of an SSH tunnel, the
+skill has to exist over there, and no button in this IDE can put it there. The settings page says so
+in one line rather than pretending otherwise.
+
+**A project-level install is deliberately not offered.** Writing into `.claude/skills/` inside the
+repository would put the skill into version control. That is right for a skill a team shares and
+wrong by default for this plugin, whose whole argument is that the working tree stays clean.
+`docs/ideas.md` records it as still open.
 
 ## The Ask Claude Gesture
 

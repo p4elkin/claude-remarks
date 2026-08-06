@@ -828,6 +828,30 @@ Still open:
 
 ## A button that installs the skill into every detected harness
 
+⚠️ **Built in phase 15, for Claude Code only. This idea is not closed.** The blocker named below was
+the first half of the phase: the skill's three files moved out of `docs/skill/claude-remarks/` and
+into `src/main/resources/dev/sasha/clauderemarks/skill/`, so they reach the plugin zip at last. The
+second half is the button itself, on the settings page, with a balloon on project open saying the same
+thing. See `docs/claude/design.md`, section "Shipping the Skill Inside the Plugin", for the whole
+design.
+
+**Codex and Gemini are detected and listed, and the plugin can install into neither.** That is the one
+place the result is smaller than this entry asked for, and it is deliberate. Their own layouts have
+not been read from their own documentation, so no path is guessed for either: `HarnessInfo.targetDir`
+is null for both, the row says found, and a sentence says why there is no button. Reading those two
+conventions is the named next piece of work, and it is the first "Still open" bullet below.
+
+**Two things came out differently from what this entry expected.** It asked for the installed version
+against the bundled one, and that is what the row shows — but the version had to be written into the
+installed `SKILL.md` first, as a `# claude-remarks-plugin-version:` comment on line 2, because there
+was nothing in the file to read a version out of. And the entry did not foresee the symlink refusal:
+on a developer's machine `~/.claude/skills/claude-remarks` points back into the checkout, so an
+install that wrote through it would overwrite the plugin's own source files. The install refuses
+outright when the target is a symlink, and the balloon never fires in that case at all.
+
+What follows is the reasoning as it was written before the phase, kept as the record of why it was
+built.
+
 A button in the plugin's settings page that finds every agent harness on the machine and installs the
 skill into each one, instead of the person copying a directory by hand. Raised by Sasha on
 2026-08-03, right after doing it by hand.
@@ -876,6 +900,10 @@ than pretending the button covered it.
 
 Still open:
 
+- **Reading the Codex and Gemini conventions from each tool's own documentation**, so the plugin can
+  install into them too. Both directories exist on this machine and both already have a row on the
+  settings page, so the gap is on screen rather than hidden — which was the point of listing them.
+  This is the named next piece of work on this idea.
 - Whether uninstalling the plugin should remove the skills it installed. Probably not: silently deleting
   files from a person's home on uninstall is worse than leaving a stale directory.
 - Whether a project-level install (`.claude/skills/` in the repo) should be offered too. It would put
