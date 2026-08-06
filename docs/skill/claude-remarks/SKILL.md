@@ -215,22 +215,31 @@ if [ ! -f "$pub_file" ]; then
   exit 1
 fi
 
+# A copy of the batch, taken before anything else in this block runs. Everything below reads the
+# copy, never $pub_file again. The acknowledgement further down marks every remark in this batch
+# READ, and Publish Unread only ever picks up remarks that are not READ — so a publish landing while
+# that request is in flight overwrites $pub_file, and the batch just marked read is gone with nobody
+# having seen a word of it. A copy cannot change under the session reading it.
+pub_copy=$(mktemp)
+cp "$pub_file" "$pub_copy"
+
 # First line only, never an anchored grep over the whole file: a remark's own text starts lines
 # too, so a grep would match a remark that quotes the marker.
-pub_first=$(sed -n '1p' "$pub_file")
+pub_first=$(sed -n '1p' "$pub_copy")
 if [ "$pub_first" != '<!-- claude-remarks: published -->' ]; then
   echo "$pub_file is not a published-remarks file — its first line is not the published marker"
   echo "its first line is: $pub_first"
+  rm -f "$pub_copy"
   exit 1
 fi
 
 # The header is fixed at five lines: the marker, then nonce:, published:, commit:, remarks:, then a
 # blank line and the body. Addressed by line number rather than searched for, so a remark quoting
 # "commit:" in its own text cannot be read as the header.
-pub_nonce=$(sed -n '2s/^nonce: //p' "$pub_file")
-pub_published=$(sed -n '3s/^published: //p' "$pub_file")
-pub_commit=$(sed -n '4s/^commit: //p' "$pub_file")
-pub_count=$(sed -n '5s/^remarks: //p' "$pub_file")
+pub_nonce=$(sed -n '2s/^nonce: //p' "$pub_copy")
+pub_published=$(sed -n '3s/^published: //p' "$pub_copy")
+pub_commit=$(sed -n '4s/^commit: //p' "$pub_copy")
+pub_count=$(sed -n '5s/^remarks: //p' "$pub_copy")
 # The first 8 characters of the full sha, never `--short=8`: for git, 8 is a floor, and it prints
 # more characters as soon as 8 are not unique in this repository. The plugin always writes exactly
 # 8, so `--short=8` would print a longer string, the comparison below would differ, and the STALE
@@ -290,8 +299,16 @@ else
 fi
 
 echo
-cat "$pub_file"
+cat "$pub_copy"
+rm -f "$pub_copy"
 ```
+
+⚠️ **The batch is read from the copy, never from `$pub_file` again, and the copy is taken before the
+acknowledgement goes out.** The acknowledgement marks every remark in the batch `READ`, and Publish
+Unread only ever picks up remarks that are not `READ`. So a publish landing while that request is in
+flight — and the `curl` allows it twenty seconds — overwrites `$pub_file`, and the batch just marked
+read can never come back. Its remarks would sit in the IDE's Done group looking handled while nobody
+had read them. Do not "simplify" the copy away.
 
 **Say the stale line out loud when it appears.** A published file is overwritten by the next
 publish and by nothing else, so it can be hours old and can describe code that has since changed.
@@ -304,10 +321,10 @@ printed and then not reported.
   above.** `published-read` names a batch's own nonce and nothing else. The token comes from the
   local handshake file, and only when that file exists — see the code above for what happens when it
   does not.
-- **Do not delete the file after reading it.** The acknowledgement above may never reach the IDE at
-  all — no handshake file, or a stale token — and even when it does, the file itself stays the only
-  copy outside the IDE. A second agent, or the same one after a restart, reads the same file until
-  the next publish overwrites it.
+- **Do not delete `$pub_file` after reading it.** The block deletes `$pub_copy` and nothing else. The
+  acknowledgement above may never reach the IDE at all — no handshake file, or a stale token — and
+  even when it does, `$pub_file` stays the only copy outside the IDE. A second agent, or the same one
+  after a restart, reads it until the next publish overwrites it.
 - **Nothing here has to be told that this session walked away.** No wait is open in the IDE, so
   there is nothing to abandon and nothing to acknowledge beyond the batch itself. Set no trap.
 
@@ -499,6 +516,12 @@ listen_base_url="http://$listen_host:$listen_port/api/claude-remarks"
 # monitor branch the watcher claims every batch itself, the one already waiting included, so there is
 # no nonce to read here and no --seen to work out.
 listen_seen=
+# A copy of the pending batch, written before the claim below and read by the session instead of the
+# published file. The claim marks every remark in that batch READ, and Publish Unread only ever picks
+# up remarks that are not READ — so a publish landing after the claim overwrites $listen_file, and the
+# claimed batch is gone with nobody having read a word of it. A copy cannot change underneath the
+# session reading it, which is the same reason the monitor branch reads the watcher's snapshot.
+listen_copy=
 if [ -z "$listen_monitor" ]; then
   # The pending batch's nonce, taken OUT OF THE FILE (or off the wire) on every run, never from a
   # value remembered from an earlier one. Arming with a stale nonce makes the watcher exit 0 within a
@@ -516,6 +539,11 @@ if [ -z "$listen_monitor" ]; then
     case "$listen_fetch_status" in
       ready)
         listen_seen=$(jq -r '.nonce // empty' "$listen_fetch_resp")
+        # The answer already carries the batch, so the copy costs no second request. Fetching again
+        # after the claim would hand back whatever batch the IDE holds by then, which is the same
+        # hole in a different shape.
+        listen_copy=$(mktemp)
+        jq -r '.content' "$listen_fetch_resp" > "$listen_copy"
         ;;
       # `no-review` means nothing has been published for this project. It kept that name from when a
       # review was the only thing that published; there are no reviews any more, and renaming the
@@ -534,7 +562,9 @@ if [ -z "$listen_monitor" ]; then
     esac
     rm -f "$listen_fetch_resp"
   elif [ -f "$listen_file" ]; then
-    listen_line=$(sed -n '2p' "$listen_file")
+    listen_copy=$(mktemp)
+    cp "$listen_file" "$listen_copy"
+    listen_line=$(sed -n '2p' "$listen_copy")
     case "$listen_line" in "nonce: "*) listen_seen=${listen_line#"nonce: "} ;; esac
   fi
 
@@ -578,6 +608,8 @@ fi
 echo "listen_session=$listen_session"
 echo "listen_project=$listen_project"
 [ -n "$listen_remote" ] || echo "listen_file=$listen_file"
+# Printed only when there is a pending batch to read. This is the path the table below says to open.
+[ -z "$listen_copy" ] || echo "listen_copy=$listen_copy"
 
 if [ -n "$listen_monitor" ]; then
   # The token is not in the printed line and is not printed anywhere else either. The command reads
@@ -745,15 +777,23 @@ and the reason the obvious alternatives do not work.
 
 | answer | what it means | what to do |
 |---|---|---|
-| `ok` | nobody had claimed that batch | genuine unhandled work. Surface it exactly as if the watcher had just caught it: read the file, summarise it, answer what asks to be answered, wait for go |
+| `ok` | nobody had claimed that batch | genuine unhandled work. Surface it exactly as if the watcher had just caught it: read the copy at `listen_copy`, summarise it, answer what asks to be answered, wait for go |
 | `already-read` | another session got there first, and the answer names it | skip the batch and name the session that holds it. Do not read it, do not answer its marked remarks. Then go on listening |
-| `unknown-batch` | it fell off the IDE's remembered sixteen, or the IDE restarted since it was published | nobody can confirm whether it was handled. Surface it, and **say plainly that it may already have been done** rather than presenting it as fresh |
-| no nonce at all | nothing has ever been published for this project | nothing to claim. Arm the watcher with an empty `--seen` and wait |
+| `unknown-batch` | it fell off the IDE's remembered sixteen, or the IDE restarted since it was published | nobody can confirm whether it was handled. Surface it from the same `listen_copy`, and **say plainly that it may already have been done** rather than presenting it as fresh |
+| no nonce at all | nothing has ever been published for this project | nothing to claim, and no copy was printed. Arm the watcher with an empty `--seen` and wait |
 | any non-2xx http code | the claim never reached the IDE — a stale token, a dead tunnel, `http 000` with no status | nobody can say whether the batch was handled. The block already cleared `--seen`, so the watcher will report the batch on its first poll; say that, and say the token or the tunnel is the likely reason |
 
-**A batch landing between the read and the arming is not lost.** The watcher is armed with `--seen`
-set to the nonce just read, so a newer batch carries a different nonce and the watcher reports it on
-its very first poll.
+⚠️ **Read the copy the setup block printed as `listen_copy`, never `$listen_file` and never a fresh
+`fetch`.** The claim above marked every remark in that batch `READ`, and Publish Unread only ever
+picks up remarks that are not `READ`. So a publish landing after the claim overwrites `$listen_file`,
+and the claimed batch can never come back — its remarks would sit in the IDE's Done group looking
+handled while nobody had read them. The copy was taken before the claim and nothing rewrites it. This
+is the same rule the monitor branch states for its snapshot, for the same reason.
+
+**A publish landing between the claim and the arming loses neither batch.** The new one carries a
+different nonce, and the watcher is armed with `--seen` set to the nonce just claimed, so it is
+reported on the watcher's very first poll. The claimed one is safe because the session reads the copy
+rather than the file that publish has just overwritten.
 
 **When the watcher exits, act on what it printed — built with `$listen_session`, `$listen_root`
 and `$listen_name` typed again, since nothing carries a shell across two Bash calls:**

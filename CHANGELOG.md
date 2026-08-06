@@ -29,9 +29,12 @@ already had, and the watcher script stops needing a session to keep it alive.
   half, with no `com.intellij` import: it drops an orphan, a remark about no file and a remark about
   another file, turns what is left into a character offset in the `.md` source, and writes a small JSON
   array. `preview/PreviewRemarkExtension.kt` pushes that array down the same `BrowserPipe` the page
-  already posts selections up, once when the extension is created and again on every `REMARKS_CHANGED`,
-  disconnecting that subscription in `dispose`. The page marks the innermost element whose position
-  range covers the offset, in one of two classes styled by `claude-remarks-preview.css`, which the
+  already posts selections up, from three places — the page's own `documentReady` message, every
+  `REMARKS_CHANGED`, and a debounced edit to the previewed source — tearing all three down in
+  `dispose`. ⚠️ It never pushes from `init`: the extension is built before the browser starts loading
+  the page, and `BrowserPipe.send` queues nothing, so an `init` push is lost every time. The page
+  marks the innermost element whose position range covers the offset, walked up to the nearest block,
+  in one of two classes styled by `claude-remarks-preview.css`, which the
   platform serves as an ordinary stylesheet because `MarkdownBrowserPreviewExtension` declares a
   `styles` list beside `scripts`.
 - **The highlight is a whole element, deliberately.** `md-src-pos` holds offsets in the source, and
@@ -47,9 +50,13 @@ already had, and the watcher script stops needing a session to keep it alive.
   `attributes`, because its own `classList.add` calls are attribute mutations and it would otherwise
   react to its own writes.
 - **The watcher can stream.** `--stream` keeps `watch-remarks.sh` polling instead of exiting on a batch,
-  and prints one short line per batch — the nonce, and the watched path in `--file` mode — never the
-  batch body, because the harness's `Monitor` tool turns each printed line into a notification and a
-  monitor that emits too many events is stopped automatically. Without `--stream` the script behaves
+  and prints one short line per batch — the nonce, the path of a snapshot of that batch, and the claim's
+  answer, the same three fields in `--file` and in `--fetch` mode — never the batch body, because the
+  harness's `Monitor` tool turns each printed line into a notification and a monitor that emits too many
+  events is stopped automatically. ⚠️ Field 2 names a snapshot the watcher wrote, never the live
+  published file: the batch is already claimed when the line is printed, and the next publish overwrites
+  the published file, so a session reading that file could lose the batch it was handed. The script keeps
+  the four newest snapshots and deletes none of them on exit. Without `--stream` the script behaves
   exactly as it always has, which is the path every agent other than Claude Code takes.
 - **The watcher owns its seen nonce.** After reporting a batch it sets its own seen nonce to that
   batch's, so nothing is passed back in on a next launch. That removes the whole class of repeat that
