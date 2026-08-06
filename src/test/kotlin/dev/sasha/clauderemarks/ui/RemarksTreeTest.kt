@@ -24,17 +24,39 @@ class RemarksTreeTest {
             )
         )
 
-        assertEquals(listOf("Alpha.kt", "Zed.kt"), fileNames(root))
-        assertEquals(listOf("r-2"), idsUnder(root, 0))
-        assertEquals(listOf("r-1", "r-3"), idsUnder(root, 1))
+        val side = openSide(root)
+        assertEquals(listOf("Alpha.kt", "Zed.kt"), fileNames(side))
+        assertEquals(listOf("r-2"), idsUnder(side, 0))
+        assertEquals(listOf("r-1", "r-3"), idsUnder(side, 1))
     }
 
     /**
+     * Oldest first, so a remark written now lands at the bottom of its file group and nothing above
+     * it moves. The ids are named so that alphabetical order and line order both DISAGREE with the
+     * expected order: sorting by either would pass this test without ever reading `createdAt`.
+     */
+    @Test
+    fun `rows inside a file in Open are ordered oldest first`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "b-second", createdAt = 200L, result = AnchorResult.Exact(3, 3)),
+                row(id = "a-first", createdAt = 100L, result = AnchorResult.Exact(20, 20)),
+            )
+        )
+
+        assertEquals(listOf("a-first", "b-second"), idsUnder(openSide(root), 0))
+    }
+
+    /**
+     * The tie-break, and what keeps a whole existing store in a sensible order: two remarks written
+     * in the same millisecond — and every remark stored before `createdAt` was ever stamped, which
+     * all carry 0 — fall back to the line they resolved to.
+     *
      * The ids are named so that alphabetical order DISAGREES with line order. With ids "later" and
      * "earlier" the two orders happen to agree, and sorting by id would pass this test.
      */
     @Test
-    fun `rows inside a file are ordered by the line they resolved to`() {
+    fun `rows created at the same moment fall back to the line they resolved to`() {
         val root = buildTreeRoot(
             listOf(
                 row(id = "a-later", result = AnchorResult.Exact(20, 20)),
@@ -42,7 +64,7 @@ class RemarksTreeTest {
             )
         )
 
-        assertEquals(listOf("b-earlier", "a-later"), idsUnder(root, 0))
+        assertEquals(listOf("b-earlier", "a-later"), idsUnder(openSide(root), 0))
     }
 
     @Test
@@ -158,7 +180,8 @@ class RemarksTreeTest {
             )
         )
 
-        val ids = remarkNodesUnder(listOf(root.getChildAt(0) as DefaultMutableTreeNode)).map { it.id }
+        val file = child(openSide(root), 0)
+        val ids = remarkNodesUnder(listOf(file)).map { it.id }
 
         assertEquals(listOf("b-earlier", "a-later"), ids)
     }
@@ -166,27 +189,27 @@ class RemarksTreeTest {
     @Test
     fun `a file and one of its own rows selected together do not count that row twice`() {
         val root = buildTreeRoot(listOf(row(id = "r-1"), row(id = "r-2")))
-        val file = root.getChildAt(0) as DefaultMutableTreeNode
-        val firstRow = file.getChildAt(0) as DefaultMutableTreeNode
+        val file = child(openSide(root), 0)
+        val firstRow = child(file, 0)
 
         assertEquals(2, remarkNodesUnder(listOf(file, firstRow)).size)
     }
 
     @Test
-    fun `a remark about a file sits directly under a file group, under the root`() {
+    fun `a remark about a file sits directly under a file group, inside its side`() {
         val root = buildTreeRoot(listOf(row(path = "src/Foo.kt", id = "r-1")))
 
         assertEquals(1, root.childCount)
-        val file = root.getChildAt(0) as DefaultMutableTreeNode
+        val file = child(openSide(root), 0)
         assertEquals("Foo.kt", (file.userObject as GroupNode).label)
-        assertTrue((file.getChildAt(0) as DefaultMutableTreeNode).userObject is RemarkNode)
+        assertTrue(child(file, 0).userObject is RemarkNode)
     }
 
     @Test
     fun `a file group's label is the file name and its detail is the directory`() {
         val root = buildTreeRoot(listOf(row(path = "src/main/Foo.kt", id = "r-1")))
 
-        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        val group = child(openSide(root), 0).userObject as GroupNode
         assertEquals("Foo.kt", group.label)
         assertEquals("src/main", group.detail)
     }
@@ -195,7 +218,7 @@ class RemarksTreeTest {
     fun `a file in the project root has no detail`() {
         val root = buildTreeRoot(listOf(row(path = "Foo.kt", id = "r-1")))
 
-        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        val group = child(openSide(root), 0).userObject as GroupNode
         assertEquals("Foo.kt", group.label)
         assertEquals(null, group.detail)
     }
@@ -206,26 +229,25 @@ class RemarksTreeTest {
             listOf(row(path = "src/main/kotlin/dev/sasha/clauderemarks/ui/Foo.kt", id = "r-1"))
         )
 
-        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
+        val group = child(openSide(root), 0).userObject as GroupNode
         assertEquals("Foo.kt", group.label)
         assertEquals("…/clauderemarks/ui", group.detail)
     }
 
     /**
-     * The label now shows the file name only, but the key is still the whole path — that is what
-     * lets `RemarksPanel`'s selection restore, which matches groups by key, keep working across
-     * this change.
+     * The label shows the file name only, and the key is its side plus the whole path — that is
+     * what lets `RemarksPanel`'s selection restore, which matches groups by key, keep working.
      */
     @Test
-    fun `a file group's key is unchanged from what the existing tests assert`() {
+    fun `a file group's key carries its side and the whole path`() {
         val root = buildTreeRoot(listOf(row(path = "src/main/Foo.kt", id = "r-1")))
 
-        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
-        assertEquals("file:src/main/Foo.kt", group.key)
+        val group = child(openSide(root), 0).userObject as GroupNode
+        assertEquals("open/file:src/main/Foo.kt", group.key)
     }
 
     @Test
-    fun `a general remark is in a group keyed general, placed first`() {
+    fun `a general remark is in a group keyed general, placed first inside its side`() {
         val root = buildTreeRoot(
             listOf(
                 row(path = "src/Foo.kt", id = "r-1"),
@@ -233,10 +255,137 @@ class RemarksTreeTest {
             )
         )
 
-        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
-        assertEquals(GENERAL_KEY, group.key)
+        val side = openSide(root)
+        val group = child(side, 0).userObject as GroupNode
+        assertEquals("open/$GENERAL_KEY", group.key)
         assertEquals("General", group.label)
-        assertEquals(listOf("r-2"), idsUnder(root, 0))
+        assertEquals(listOf("r-2"), idsUnder(side, 0))
+    }
+
+    // ---- Open and Done ----
+
+    @Test
+    fun `a read remark is under Done and a pending or published one is under Open`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "r-pending", status = RemarkStatus.PENDING),
+                row(id = "r-published", status = RemarkStatus.PUBLISHED),
+                row(id = "r-read", status = RemarkStatus.READ),
+            )
+        )
+
+        assertEquals(listOf("r-pending", "r-published"), idsUnder(openSide(root), 0))
+        assertEquals(listOf("r-read"), idsUnder(doneSide(root), 0))
+    }
+
+    /**
+     * ⚠️ An answer is enough on its own: a question that nothing has acknowledged is still processed
+     * once the answer lands, and it leaves Open at that moment. Decided knowing the cost, and the
+     * nesting below is half of what pays for it — the answer is still there to read, under the
+     * question, one expand away.
+     */
+    @Test
+    fun `an answered question is under Done with its answer still nested`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt", status = RemarkStatus.PENDING)),
+            listOf(answerRow(id = "a-1", remarkId = "r-1")),
+        )
+
+        val question = child(child(doneSide(root), 0), 0)
+        assertEquals("r-1", (question.userObject as RemarkNode).id)
+        assertEquals(1, question.childCount)
+        assertEquals("a-1", (child(question, 0).userObject as AnswerNode).id)
+    }
+
+    /** Newest processed first, so what an agent just picked up sits at the top of Done. */
+    @Test
+    fun `rows inside a file in Done are ordered newest processed first`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "a-read-first", status = RemarkStatus.READ, createdAt = 900L, readAt = 100L),
+                row(id = "b-read-later", status = RemarkStatus.READ, createdAt = 100L, readAt = 300L),
+            )
+        )
+
+        assertEquals(listOf("b-read-later", "a-read-first"), idsUnder(doneSide(root), 0))
+    }
+
+    /**
+     * ⚠️ Every remark read before `readAt` existed carries 0. Without the fallback to `createdAt`
+     * the whole backlog would sort as one lump at the epoch, in whatever order the store handed it
+     * over.
+     */
+    @Test
+    fun `a Done row with no readAt falls back to when it was written`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "a-written-first", status = RemarkStatus.READ, createdAt = 100L, readAt = 0L),
+                row(id = "b-written-later", status = RemarkStatus.READ, createdAt = 200L, readAt = 0L),
+            )
+        )
+
+        assertEquals(listOf("b-written-later", "a-written-first"), idsUnder(doneSide(root), 0))
+    }
+
+    @Test
+    fun `processedAt is the read time when there is one and the written time when there is not`() {
+        assertEquals(300L, remarkNode(row(createdAt = 100L, readAt = 300L)).processedAt)
+        assertEquals(100L, remarkNode(row(createdAt = 100L, readAt = 0L)).processedAt)
+    }
+
+    /** An empty heading above another empty heading would be two rows saying nothing. */
+    @Test
+    fun `a side with nothing on it is not drawn at all`() {
+        assertEquals(listOf(OPEN_KEY), keysUnder(buildTreeRoot(listOf(row(id = "r-1")))))
+        assertEquals(
+            listOf(DONE_KEY),
+            keysUnder(buildTreeRoot(listOf(row(id = "r-1", status = RemarkStatus.READ)))),
+        )
+    }
+
+    @Test
+    fun `Open is above Done`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "r-read", status = RemarkStatus.READ),
+                row(id = "r-open", status = RemarkStatus.PENDING),
+            )
+        )
+
+        assertEquals(listOf(OPEN_KEY, DONE_KEY), keysUnder(root))
+    }
+
+    /**
+     * ⚠️ One file can hold an open remark and a processed one at the same time, and then it gets a
+     * group on each side. `RemarksPanel` matches groups by key alone, so two groups sharing a key
+     * would collapse together and — worse — select together, and a selected group is what Delete
+     * acts on.
+     */
+    @Test
+    fun `the same file on both sides gets its own key per side`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "r-open", path = "src/Foo.kt"),
+                row(id = "r-done", path = "src/Foo.kt", status = RemarkStatus.READ),
+            )
+        )
+
+        assertEquals(listOf("open/file:src/Foo.kt"), keysUnder(openSide(root)))
+        assertEquals(listOf("done/file:src/Foo.kt"), keysUnder(doneSide(root)))
+    }
+
+    /** The General group splits the same way, and its key carries its side for the same reason. */
+    @Test
+    fun `a general remark on each side gets a General group on each side`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "r-open", path = ""),
+                row(id = "r-done", path = "", status = RemarkStatus.READ),
+            )
+        )
+
+        assertEquals(listOf("open/general"), keysUnder(openSide(root)))
+        assertEquals(listOf("done/general"), keysUnder(doneSide(root)))
     }
 
     // ---- an answer nested under its question ----
@@ -253,8 +402,8 @@ class RemarksTreeTest {
         )
 
         assertEquals(1, root.childCount)
-        val file = child(root, 0)
-        assertEquals("file:src/Foo.kt", (file.userObject as GroupNode).key)
+        val file = child(doneSide(root), 0)
+        assertEquals("done/file:src/Foo.kt", (file.userObject as GroupNode).key)
         val question = child(file, 0)
         assertEquals("r-1", (question.userObject as RemarkNode).id)
         assertEquals(1, question.childCount)
@@ -272,11 +421,31 @@ class RemarksTreeTest {
             listOf(answerRow(id = "a-1", remarkId = "r-1", path = "")),
         )
 
-        val general = child(root, 0)
-        assertEquals(GENERAL_KEY, (general.userObject as GroupNode).key)
+        val general = child(doneSide(root), 0)
+        assertEquals("done/$GENERAL_KEY", (general.userObject as GroupNode).key)
         val question = child(general, 0)
         assertEquals(1, question.childCount)
         assertEquals("a-1", (child(question, 0).userObject as AnswerNode).id)
+    }
+
+    /**
+     * `recordAnswer` upserts on the remark id, so the store cannot hold two answers to one question
+     * and this is defensive. Newest first, the order the top-level group already uses: if two ever
+     * do appear, the one that just came back is the one to read.
+     */
+    @Test
+    fun `two answers to one question sort newest first under it`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt")),
+            listOf(
+                answerRow(id = "a-old", remarkId = "r-1", answeredAt = 100L),
+                answerRow(id = "a-new", remarkId = "r-1", answeredAt = 300L),
+            ),
+        )
+
+        val question = child(child(doneSide(root), 0), 0)
+
+        assertEquals(listOf("a-new", "a-old"), answerIdsIn(question))
     }
 
     /**
@@ -290,10 +459,7 @@ class RemarksTreeTest {
             listOf(answerRow(id = "a-1", remarkId = "r-1")),
         )
 
-        val keys = (0 until root.childCount)
-            .map { ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).key }
-
-        assertEquals(listOf("file:src/Foo.kt"), keys)
+        assertEquals(listOf(DONE_KEY), keysUnder(root))
     }
 
     // ---- the group for an answer whose question is gone ----
@@ -310,29 +476,43 @@ class RemarksTreeTest {
             listOf(answerRow(id = "a-1", remarkId = "r-gone"), answerRow(id = "a-2", remarkId = null)),
         )
 
-        val group = (child(root, 0).userObject as GroupNode)
+        val group = child(root, 0).userObject as GroupNode
         assertEquals(ANSWERS_KEY, group.key)
         assertEquals("Answers with no question", group.label)
-        assertEquals(setOf("a-1", "a-2"), answerIdsUnder(root, 0).toSet())
+        assertEquals(setOf("a-1", "a-2"), answerIdsIn(child(root, 0)).toSet())
         // And the live question keeps no child of its own.
-        assertEquals(0, child(child(root, 1), 0).childCount)
+        assertEquals(0, child(child(openSide(root), 0), 0).childCount)
     }
 
     /**
-     * Above General, above the files — where the old Answers group sat, and with the same key, so a
+     * Above Open, above the files — where the old Answers group sat, and with the same key, so a
      * person who had it collapsed keeps it collapsed across the upgrade.
      */
     @Test
-    fun `the group for answers with no question is first, above General`() {
+    fun `the group for answers with no question is first, above Open`() {
         val root = buildTreeRoot(
             listOf(row(path = "", id = "r-1"), row(path = "src/Foo.kt", id = "r-2")),
             listOf(answerRow(id = "a-1", remarkId = "r-gone")),
         )
 
-        val keys = (0 until root.childCount)
-            .map { ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).key }
+        assertEquals(listOf(ANSWERS_KEY, OPEN_KEY), keysUnder(root))
+        assertEquals(listOf("open/$GENERAL_KEY", "open/file:src/Foo.kt"), keysUnder(openSide(root)))
+    }
 
-        assertEquals(listOf(ANSWERS_KEY, GENERAL_KEY, "file:src/Foo.kt"), keys)
+    /**
+     * ⚠️ It is not folded into Done either, however processed the answers in it look. An answer with
+     * no question left is a loose end, and burying it under a group that starts shut is how a loose
+     * end goes unnoticed.
+     */
+    @Test
+    fun `the group for answers with no question stays above Done, not inside it`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt", status = RemarkStatus.READ)),
+            listOf(answerRow(id = "a-1", remarkId = "r-gone")),
+        )
+
+        assertEquals(listOf(ANSWERS_KEY, DONE_KEY), keysUnder(root))
+        assertEquals(listOf("a-1"), answerIdsIn(child(root, 0)))
     }
 
     /** Nobody who has never received an answer gets an empty group wrapped around their tree. */
@@ -340,14 +520,14 @@ class RemarksTreeTest {
     fun `the Answers group appears only when an answer exists`() {
         val root = buildTreeRoot(listOf(row(id = "r-1")), emptyList())
 
-        assertEquals(1, root.childCount)
-        assertEquals("file:src/Foo.kt", (child(root, 0).userObject as GroupNode).key)
+        assertEquals(listOf(OPEN_KEY), keysUnder(root))
+        assertEquals(listOf("open/file:src/Foo.kt"), keysUnder(openSide(root)))
     }
 
     /**
-     * Newest first, which is a different order from every other group in the tree. Deliberate: of
-     * the answers with nothing left to sit under, the one that just arrived is the one to read. A
-     * nested answer gets no order of its own — it sits where its question sits.
+     * Newest first, which is a different order from Open. Deliberate: of the answers with nothing
+     * left to sit under, the one that just arrived is the one to read. A nested answer gets no order
+     * of its own beyond its question's — it sits where its question sits.
      */
     @Test
     fun `the rows in that group are sorted newest first`() {
@@ -360,7 +540,7 @@ class RemarksTreeTest {
             ),
         )
 
-        assertEquals(listOf("a-new", "a-middle", "a-old"), answerIdsUnder(root, 0))
+        assertEquals(listOf("a-new", "a-middle", "a-old"), answerIdsIn(child(root, 0)))
     }
 
     /**
@@ -376,9 +556,8 @@ class RemarksTreeTest {
             listOf(answerRow(id = "a-1", remarkId = "")),
         )
 
-        assertEquals(1, root.childCount)
-        assertEquals(ANSWERS_KEY, (child(root, 0).userObject as GroupNode).key)
-        assertEquals(listOf("a-1"), answerIdsUnder(root, 0))
+        assertEquals(listOf(ANSWERS_KEY), keysUnder(root))
+        assertEquals(listOf("a-1"), answerIdsIn(child(root, 0)))
     }
 
     /**
@@ -395,7 +574,8 @@ class RemarksTreeTest {
         )
 
         val topLevel = child(child(root, 0), 0).userObject as AnswerNode
-        val nested = child(child(child(root, 1), 0), 0).userObject as AnswerNode
+        val question = child(child(doneSide(root), 0), 0)
+        val nested = child(question, 0).userObject as AnswerNode
 
         assertEquals("Foo.kt", topLevel.fileName)
         assertEquals("", nested.fileName)
@@ -436,7 +616,7 @@ class RemarksTreeTest {
         assertEquals("5-7 (orphaned)", answerNode(answerRow(result = AnchorResult.Orphaned(4, 6))).position)
     }
 
-    /** The Answers group sits above the ordinary file-then-remark structure, not nested inside it. */
+    /** The Answers group sits above the side-then-file-then-remark structure, not nested inside it. */
     @Test
     fun `a tree with an unmatched answer still has the Answers group above the file group`() {
         val root = buildTreeRoot(
@@ -445,9 +625,9 @@ class RemarksTreeTest {
         )
 
         assertEquals(2, root.childCount)
-        val file = child(root, 1)
+        val file = child(openSide(root), 0)
         assertEquals("Foo.kt", (file.userObject as GroupNode).label)
-        assertTrue((file.getChildAt(0) as DefaultMutableTreeNode).userObject is RemarkNode)
+        assertTrue(child(file, 0).userObject is RemarkNode)
     }
 
     /** An answer row is an AnswerNode, so Publish Selected and the toggle take nothing from it. */
@@ -475,7 +655,7 @@ class RemarksTreeTest {
             listOf(row(id = "r-1", path = "src/Foo.kt")),
             listOf(answerRow(id = "a-1", remarkId = "r-1")),
         )
-        val question = child(child(root, 0), 0)
+        val question = child(child(doneSide(root), 0), 0)
 
         assertEquals(listOf("a-1"), answerNodesUnder(listOf(question)).map { it.id })
     }
@@ -495,7 +675,7 @@ class RemarksTreeTest {
             listOf(answerRow(id = "a-1", remarkId = "r-1")),
         )
 
-        val question = child(child(root, 0), 0).userObject as RemarkNode
+        val question = child(child(doneSide(root), 0), 0).userObject as RemarkNode
 
         assertTrue(question.hasAnswer)
     }
@@ -503,7 +683,7 @@ class RemarksTreeTest {
     /**
      * The other direction, so a set that is always full fails as loudly as one that is always empty.
      * The stored answer here names a remark that is not in the tree, so it draws its own top-level
-     * row and must leave this question's icon alone.
+     * row and must leave this question's icon alone — and must leave the question in Open.
      */
     @Test
     fun `a question whose answer belongs to another remark carries hasAnswer false`() {
@@ -512,8 +692,7 @@ class RemarksTreeTest {
             listOf(answerRow(id = "a-1", remarkId = "r-other")),
         )
 
-        // Row 0 is the group for answers with no question; the file group is below it.
-        val question = child(child(root, 1), 0).userObject as RemarkNode
+        val question = child(child(openSide(root), 0), 0).userObject as RemarkNode
 
         assertFalse(question.hasAnswer)
     }
@@ -525,7 +704,7 @@ class RemarksTreeTest {
             listOf(row(id = "r-1", path = "src/Foo.kt")),
             listOf(answerRow(id = "a-1", remarkId = "r-1")),
         )
-        val question = child(child(root, 0), 0)
+        val question = child(child(doneSide(root), 0), 0)
 
         assertEquals(listOf("r-1"), remarkNodesUnder(listOf(question)).map { it.id })
     }
@@ -533,24 +712,29 @@ class RemarksTreeTest {
     private fun child(node: DefaultMutableTreeNode, index: Int) =
         node.getChildAt(index) as DefaultMutableTreeNode
 
-    private fun fileNames(root: DefaultMutableTreeNode) =
-        (0 until root.childCount).map {
-            ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).label
-        }
+    /** The Open or Done group by key, so a test never has to know which index its side landed at. */
+    private fun side(root: DefaultMutableTreeNode, key: String): DefaultMutableTreeNode =
+        (0 until root.childCount)
+            .map { child(root, it) }
+            .single { (it.userObject as GroupNode).key == key }
 
-    private fun idsUnder(root: DefaultMutableTreeNode, index: Int): List<String> {
-        val file = root.getChildAt(index) as DefaultMutableTreeNode
-        return (0 until file.childCount).map {
-            ((file.getChildAt(it) as DefaultMutableTreeNode).userObject as RemarkNode).id
-        }
+    private fun openSide(root: DefaultMutableTreeNode) = side(root, OPEN_KEY)
+
+    private fun doneSide(root: DefaultMutableTreeNode) = side(root, DONE_KEY)
+
+    private fun keysUnder(node: DefaultMutableTreeNode): List<String> =
+        (0 until node.childCount).map { (child(node, it).userObject as GroupNode).key }
+
+    private fun fileNames(side: DefaultMutableTreeNode) =
+        (0 until side.childCount).map { (child(side, it).userObject as GroupNode).label }
+
+    private fun idsUnder(side: DefaultMutableTreeNode, index: Int): List<String> {
+        val file = child(side, index)
+        return (0 until file.childCount).map { (child(file, it).userObject as RemarkNode).id }
     }
 
-    private fun answerIdsUnder(root: DefaultMutableTreeNode, index: Int): List<String> {
-        val group = root.getChildAt(index) as DefaultMutableTreeNode
-        return (0 until group.childCount).map {
-            ((group.getChildAt(it) as DefaultMutableTreeNode).userObject as AnswerNode).id
-        }
-    }
+    private fun answerIdsIn(parent: DefaultMutableTreeNode): List<String> =
+        (0 until parent.childCount).map { (child(parent, it).userObject as AnswerNode).id }
 
     private fun row(
         path: String = "src/Foo.kt",
@@ -562,6 +746,8 @@ class RemarksTreeTest {
         startColumn: Int = 0,
         endColumn: Int = 0,
         asksForAnswer: Boolean = false,
+        createdAt: Long = 0L,
+        readAt: Long = 0L,
     ) = ResolvedRemark(
         RemarkState().also {
             it.id = id
@@ -572,6 +758,8 @@ class RemarksTreeTest {
             it.status = status
             it.commit = commit
             it.asksForAnswer = asksForAnswer
+            it.createdAt = createdAt
+            it.readAt = readAt
         },
         result,
         startColumn,

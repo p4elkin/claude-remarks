@@ -299,21 +299,27 @@ Readers first, so task 2's deletion compiles. This is the larger half of the buc
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksTreeTest.kt`,
   `ui/RemarksPanelTest.kt`
 
-- [ ] add `OPEN_KEY`/`OPEN_LABEL` and `DONE_KEY`/`DONE_LABEL` beside the existing group constants,
+- [x] add `OPEN_KEY`/`OPEN_LABEL` and `DONE_KEY`/`DONE_LABEL` beside the existing group constants,
       following `ANSWERS_KEY`'s own argument about why a bare word cannot collide with a file key
-- [ ] partition rows on processed — `status == READ` **or** the remark has an answer — and build the
+      — ➕ and every group *inside* a side now carries its side's key as a prefix
+      (`open/general`, `done/file:src/Foo.kt`), because one file can hold rows on both sides and
+      `RemarksPanel` matches groups by key alone
+- [x] partition rows on processed — `status == READ` **or** the remark has an answer — and build the
       General and file groups underneath each side
-- [ ] order rows inside a file by the time they last changed hands: `createdAt` in Open, `readAt`
+- [x] order rows inside a file by the time they last changed hands: `createdAt` in Open, `readAt`
       falling back to `createdAt` in Done. An answer sorts by `answeredAt` under its question
-- [ ] leave `"Answers with no question"` as its own top-level group above Open, not folded into Done
-- [ ] make `expandAll` expand everything **except** Done, and check the interaction with
+- [x] leave `"Answers with no question"` as its own top-level group above Open, not folded into Done
+- [x] make `expandAll` expand everything **except** Done, and check the interaction with
       `collapsedGroups`/`recollapse` — a person who opens Done should have it stay open across a
       refresh, which the existing key-based restore already gives if Done is a `GroupNode`
-- [ ] write tests: a `READ` remark is under Done; an answered question is under Done with its answer
+      — ⚠️ the key-based restore alone does **not** give it: `collapsedGroups` records what is shut,
+      and "not shut" also covers "no such group yet", so `expandAll` takes a `keepDoneOpen` flag read
+      before the rebuild
+- [x] write tests: a `READ` remark is under Done; an answered question is under Done with its answer
       still nested; a `PENDING` and a `PUBLISHED` remark are under Open; Done orders by `readAt`; a
       remark with `readAt == 0` falls back to `createdAt`; an empty side produces no group
-- [ ] write a test that the panel leaves Done collapsed and Open expanded after a refresh
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest' --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest'`
+- [x] write a test that the panel leaves Done collapsed and Open expanded after a refresh
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest' --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest'`
       — must pass before task 6
 
 ### Task 6: The pure wrapping function

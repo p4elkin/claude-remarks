@@ -45,7 +45,40 @@ const val ANSWERS_KEY = "answers"
 const val ANSWERS_LABEL = "Answers with no question"
 
 /**
- * A group row: a file, or one of the special top-level groups (General, Answers with no question).
+ * The key of the top-level group holding every remark still waiting: not `READ`, and with no answer
+ * under it. A bare word, the same shape as [GENERAL_KEY] and [ANSWERS_KEY] and safe for the same
+ * reason.
+ *
+ * ⚠️ Every group *inside* Open or Done carries its own side's key as a prefix — "open/general",
+ * "done/file:src/Foo.kt". One file can hold an open remark and a processed one at the same time, and
+ * then that file gets a group on each side. `RemarksPanel` matches groups by key alone, both to put
+ * a selection back after a rebuild and to shut again what was shut, so two groups sharing one key
+ * would collapse together and select together — and a selected group is what Delete acts on.
+ */
+const val OPEN_KEY = "open"
+
+/** The label drawn on that group, its own constant beside [GENERAL_LABEL] for the same reason. */
+const val OPEN_LABEL = "Open"
+
+/**
+ * The key of the top-level group holding every remark already processed: `READ`, **or** carrying an
+ * answer.
+ *
+ * ⚠️ An answer alone is enough, so an answered question leaves Open the moment the answer lands,
+ * even if nothing ever acknowledged it. That was decided knowing the cost — the question moves out
+ * of the list a person is working through while its answer is still worth reading. Two things make
+ * it acceptable: the answer stays nested under its question wherever that question sits, and Done is
+ * ordered newest-processed first, so what just arrived sits at the top of Done rather than buried in
+ * it. Do not soften this to "READ only" because it reads as friendlier; it was decided against.
+ */
+const val DONE_KEY = "done"
+
+/** The label drawn on that group, beside [OPEN_LABEL]. */
+const val DONE_LABEL = "Done"
+
+/**
+ * A group row: a file, one of the two sides (Open, Done), or one of the special groups (General,
+ * Answers with no question).
  *
  * The key and the label are separate on purpose. Two files can share a name in different
  * directories, and the panel puts a selection back after every rebuild by matching keys. The key is
@@ -76,7 +109,28 @@ data class RemarkNode(
     val startLine: Int,
     val asksForAnswer: Boolean = false,
     val hasAnswer: Boolean = false,
-)
+    /** When the remark was written. What Open is ordered by, oldest first. */
+    val createdAt: Long = 0L,
+    /**
+     * When an agent's acknowledgement marked this remark read, or 0 when nothing ever did — which
+     * includes every remark stored before the field existed. See `readAt` in `model/RemarkState.kt`.
+     */
+    val readAt: Long = 0L,
+) {
+    /**
+     * The moment this row last changed hands, which is what Done is ordered by, newest first.
+     *
+     * The fallback to [createdAt] is what keeps old data readable. Every remark read before [readAt]
+     * existed carries 0, so without it the whole backlog would sort as one lump at the epoch, in
+     * whatever order the store happened to hand it over.
+     *
+     * A question answered but never acknowledged falls back the same way. That is rare — a session
+     * acknowledges the batch before it answers anything in it, so the acknowledgement's stamp is
+     * already there by the time an answer arrives — and the plain two-field rule is worth more than
+     * a third case almost nothing would exercise.
+     */
+    val processedAt: Long get() = if (readAt != 0L) readAt else createdAt
+}
 
 /**
  * One answer row. Everything the row needs to draw itself, to navigate, and to open its popup.
@@ -174,6 +228,8 @@ fun remarkNode(row: ResolvedRemark, hasAnswer: Boolean = false): RemarkNode {
         startLine = result.startLine,
         asksForAnswer = row.remark.asksForAnswer,
         hasAnswer = hasAnswer,
+        createdAt = row.remark.createdAt,
+        readAt = row.remark.readAt,
     )
 }
 
@@ -289,29 +345,40 @@ private fun childLeavesOf(node: DefaultMutableTreeNode): List<Any> =
     }
 
 /**
- * The whole tree, rebuilt from scratch. Files in path order, rows inside a file in resolved line
- * order.
+ * The whole tree, rebuilt from scratch.
  *
- * A remark about no file goes into its own group first, keyed [GENERAL_KEY] and labelled "General",
- * above the file groups. Which remarks those are is asked of `isAboutNoFile` in
- * `store/RemarkResolver.kt`, the one place that decides it, rather than re-read off [RemarkNode]'s
- * flattened path here.
+ * **Two top-level groups carry the remarks**: [OPEN_KEY] for the ones still waiting, [DONE_KEY] for
+ * the ones already processed — `READ`, or carrying an answer. A side with no rows is not drawn at
+ * all, so a project where nothing has been handed over yet has one Open group and no Done group.
+ *
+ * Inside a side the structure is the one that was there before. A remark about no file goes into its
+ * own group first, labelled "General", above the file groups; files follow in path order. Which
+ * remarks are general is asked of `isAboutNoFile` in `store/RemarkResolver.kt`, the one place that
+ * decides it, rather than re-read off [RemarkNode]'s flattened path here.
+ *
+ * **Rows inside a file are ordered by the time they last changed hands**, not by the line they point
+ * at: [RemarkNode.createdAt] in Open, oldest first, so a new remark lands at the bottom of its file
+ * group and nothing above it moves; [RemarkNode.processedAt] in Done, newest first, so whatever was
+ * just picked up sits at the top. Two rows carrying the same time fall back to the resolved line,
+ * which is what keeps the order steady for remarks written in the same millisecond — and for every
+ * remark stored before either stamp meant anything.
  *
  * A remark with no id is left out. Its node would draw normally and then do nothing: Delete and
  * Copy Selected both match on the id, and an empty id matches no stored remark. RemarkGutter drops
  * the same rows for the same reason.
  *
  * An answer is a **child of the question it answers**, wherever that question sits — in the General
- * group or in a file group. So it is next to the thing it is about, and it takes that question's
- * place in file and line order rather than any order of its own. Being a child here is a view and
- * nothing else: the store has two independent records, and Delete calls `deleteAnswer` for the
- * answer row in its own right.
+ * group or in a file group, on either side. So it is next to the thing it is about, and it takes
+ * that question's place in file and row order rather than any order of its own. Being a child here
+ * is a view and nothing else: the store has two independent records, and Delete calls `deleteAnswer`
+ * for the answer row in its own right.
  *
  * An answer whose question is **not** in the tree — one carrying no `remarkId`, and one naming a
  * remark that is gone or that got no node — has no parent to sit under, and goes into a flat
- * top-level group keyed [ANSWERS_KEY] above the General group, sorted **newest first**, a different
- * order from every other group in the tree. That group appears only when at least one such answer
- * exists, which is not the ordinary case: normally every answer nests and the group is absent.
+ * top-level group keyed [ANSWERS_KEY] **above Open**, sorted **newest first**. It is deliberately
+ * not folded into Done: an answer with no question left is a loose end, not finished work. That
+ * group appears only when at least one such answer exists, which is not the ordinary case: normally
+ * every answer nests and the group is absent.
  */
 fun buildTreeRoot(
     rows: List<ResolvedRemark>,
@@ -334,10 +401,12 @@ fun buildTreeRoot(
     val questionIds = remarkRows.mapNotNull { it.remark.id }.toSet()
 
     val (nestedAnswers, looseAnswers) = withIds.partition { it.answer.remarkId in questionIds }
-    val nestedByQuestion = nestedAnswers.groupBy(
-        { it.answer.remarkId.orEmpty() },
-        { answerNode(it, nested = true) },
-    )
+    val nestedByQuestion = nestedAnswers
+        .groupBy({ it.answer.remarkId.orEmpty() }, { answerNode(it, nested = true) })
+        // Newest first, the order the top-level group already uses. `recordAnswer` upserts on the
+        // remark id, so the store cannot hold two answers to one question and this is defensive —
+        // but if two ever do appear, the one that just came back is the one to read.
+        .mapValues { (_, underOneQuestion) -> underOneQuestion.sortedByDescending { it.answeredAt } }
 
     val looseRows = looseAnswers.map(::answerNode).sortedByDescending { it.answeredAt }
     if (looseRows.isNotEmpty()) {
@@ -346,28 +415,66 @@ fun buildTreeRoot(
         root.add(answersNode)
     }
 
-    // Split on the stored remark, then map and sort each side, rather than mapping first and asking
+    // hasAnswer, and the Open/Done split with it, are read straight off nestedByQuestion, which is
+    // the same map that attaches the child rows: a question shows the green question mark, and moves
+    // to Done, exactly when an answer nested under it. A separate set of answered ids would state
+    // that fact twice, and then a change to the nesting rule not copied across would leave a row
+    // with a green question mark and nothing nested under it.
+    val answered = nestedByQuestion.keys
+    val (doneRows, openRows) = remarkRows.partition {
+        it.remark.status == RemarkStatus.READ || it.remark.id in answered
+    }
+
+    addSide(root, OPEN_KEY, OPEN_LABEL, openRows, answered, nestedByQuestion, OPEN_ORDER)
+    addSide(root, DONE_KEY, DONE_LABEL, doneRows, answered, nestedByQuestion, DONE_ORDER)
+    return root
+}
+
+/**
+ * Open: the file first, so file groups stay in path order, then oldest first, then the resolved line
+ * as the tie-break.
+ */
+private val OPEN_ORDER = compareBy<RemarkNode>({ it.path }, { it.createdAt }, { it.startLine })
+
+/** Done: the same, but newest-processed first. See [RemarkNode.processedAt] for what that reads. */
+private val DONE_ORDER = compareBy<RemarkNode> { it.path }
+    .thenByDescending { it.processedAt }
+    .thenBy { it.startLine }
+
+/**
+ * One of the two sides, with its General group and its file groups inside it — or nothing at all
+ * when the side has no rows, since an empty "Done" heading above an empty "Open" heading would be
+ * two rows saying there is nothing to say.
+ *
+ * Every key built here is prefixed with [sideKey]; see [OPEN_KEY] for why a file group's key can no
+ * longer be the path on its own.
+ */
+private fun addSide(
+    root: DefaultMutableTreeNode,
+    sideKey: String,
+    sideLabel: String,
+    rows: List<ResolvedRemark>,
+    answered: Set<String>,
+    answersByQuestion: Map<String, List<AnswerNode>>,
+    order: Comparator<RemarkNode>,
+) {
+    if (rows.isEmpty()) return
+
+    // Split on the stored remark, then map and sort each half, rather than mapping first and asking
     // the node. Same rows in the same order either way — partition keeps order and the sort is
     // stable — but this way the question "is this about no file" is asked of isAboutNoFile once.
-    //
-    // hasAnswer is read straight off nestedByQuestion, which is the same map that attaches the child
-    // rows: a question shows the green question mark exactly when an answer nested under it. A
-    // separate set of answered ids would state that fact twice, and then a change to the nesting rule
-    // not copied across would leave a row with a green question mark and nothing nested under it.
-    val (generalRows, fileRows) = remarkRows.partition { isAboutNoFile(it.remark) }
-    val order = compareBy<RemarkNode>({ it.path }, { it.startLine })
-    val answered = nestedByQuestion.keys
+    val (generalRows, fileRows) = rows.partition { isAboutNoFile(it.remark) }
     val general = generalRows.map { remarkNode(it, it.remark.id in answered) }.sortedWith(order)
     val aboutAFile = fileRows.map { remarkNode(it, it.remark.id in answered) }.sortedWith(order)
 
+    val side = DefaultMutableTreeNode(GroupNode(sideKey, sideLabel))
     if (general.isNotEmpty()) {
-        val generalNode = DefaultMutableTreeNode(GroupNode(GENERAL_KEY, GENERAL_LABEL))
-        general.forEach { generalNode.add(questionTreeNode(it, nestedByQuestion)) }
-        root.add(generalNode)
+        val generalNode = DefaultMutableTreeNode(GroupNode("$sideKey/$GENERAL_KEY", GENERAL_LABEL))
+        general.forEach { generalNode.add(questionTreeNode(it, answersByQuestion)) }
+        side.add(generalNode)
     }
-
-    addFileGroups(root, aboutAFile, nestedByQuestion)
-    return root
+    addFileGroups(side, sideKey, aboutAFile, answersByQuestion)
+    root.add(side)
 }
 
 /**
@@ -391,12 +498,13 @@ fun shortDirectory(path: String): String? {
 
 private fun addFileGroups(
     parent: DefaultMutableTreeNode,
+    sideKey: String,
     nodes: List<RemarkNode>,
     answersByQuestion: Map<String, List<AnswerNode>>,
 ) {
     nodes.groupBy { it.path }.forEach { (path, inFile) ->
         val fileNode = DefaultMutableTreeNode(
-            GroupNode("file:$path", path.substringAfterLast('/'), shortDirectory(path))
+            GroupNode("$sideKey/file:$path", path.substringAfterLast('/'), shortDirectory(path))
         )
         inFile.forEach { fileNode.add(questionTreeNode(it, answersByQuestion)) }
         parent.add(fileNode)

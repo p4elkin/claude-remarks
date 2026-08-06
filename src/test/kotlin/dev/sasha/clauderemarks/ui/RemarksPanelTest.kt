@@ -50,15 +50,16 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
         val panel = panel()
 
-        // Three file nodes plus their six rows. The earlier loop read rowCount once, before any
-        // expansion, so only the first file opened and this came back as 5.
-        assertEquals(9, panel.tree.rowCount)
+        // The Open group, three file nodes, their six rows. The earlier loop read rowCount once,
+        // before any expansion, so only the first file opened and this came back as 5.
+        assertEquals(10, panel.tree.rowCount)
     }
 
     fun testTheSelectionSurvivesARefresh() {
         val remark = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val panel = panel()
-        panel.tree.setSelectionRow(1)
+        // Row 0 is the Open group, row 1 the file group, row 2 the remark.
+        panel.tree.setSelectionRow(2)
         assertEquals(listOf(remark.id), panel.selectedIds())
 
         // What happens on every remark change and on every editor opening.
@@ -79,15 +80,91 @@ class RemarksPanelTest : BasePlatformTestCase() {
             addRemark(project, path, LINES, 1..1, "second note in $path")
         }
         val panel = panel()
-        assertEquals(6, panel.tree.rowCount)
+        // The Open group, two file groups, four rows.
+        assertEquals(7, panel.tree.rowCount)
+
+        panel.tree.collapseRow(1)
+        assertEquals(5, panel.tree.rowCount)
+
+        refreshAndSettle(panel)
+
+        assertEquals(5, panel.tree.rowCount)
+    }
+
+    /**
+     * Done starts shut, and Open does not. Done holds what has already been dealt with, so a tree
+     * that opens it every time buries what still needs reading under what does not.
+     */
+    fun testDoneStartsCollapsedWhileOpenIsExpanded() {
+        addRemark(project, "A.kt", LINES, 0..0, "still to read")
+        val read = addRemark(project, "B.kt", LINES, 1..1, "already read")
+        markRemarksPublished(project, listOf(read.id!!))
+        markRemarksRead(project, listOf(read.id!!))
+
+        val panel = panel()
+
+        // Open, its file group and its one row — then the Done row with nothing under it.
+        assertEquals(4, panel.tree.rowCount)
+        val done = panel.tree.getPathForRow(3)
+        assertEquals(DONE_KEY, keyOfRow(done.lastPathComponent))
+        assertFalse(panel.tree.isExpanded(done))
+    }
+
+    /**
+     * And the default holds on every rebuild, not only the first. A refresh runs whenever any editor
+     * of a remarked file opens or closes, so "Done starts collapsed" has to survive one — otherwise
+     * the group springs open the moment a person navigates anywhere.
+     */
+    fun testDoneIsStillCollapsedAndOpenStillExpandedAfterARefresh() {
+        addRemark(project, "A.kt", LINES, 0..0, "still to read")
+        val read = addRemark(project, "B.kt", LINES, 1..1, "already read")
+        markRemarksPublished(project, listOf(read.id!!))
+        markRemarksRead(project, listOf(read.id!!))
+        val panel = panel()
+        assertEquals(4, panel.tree.rowCount)
+
+        refreshAndSettle(panel)
+
+        assertEquals(4, panel.tree.rowCount)
+        assertTrue(panel.tree.isExpanded(panel.tree.getPathForRow(0)))
+        assertFalse(panel.tree.isExpanded(panel.tree.getPathForRow(3)))
+    }
+
+    /**
+     * The other half of leaving Done shut: a person who opens it must not have it slam closed on the
+     * next refresh, and a refresh happens whenever any editor of a remarked file opens or closes.
+     *
+     * `expandAll` skips the Done row while it is shut, so this is not free — it works because the
+     * walk is told whether Done was open before the rebuild.
+     */
+    fun testOpeningDoneSurvivesARefresh() {
+        val read = addRemark(project, "A.kt", LINES, 0..0, "already read")
+        markRemarksPublished(project, listOf(read.id!!))
+        markRemarksRead(project, listOf(read.id!!))
+        val panel = panel()
+        assertEquals(1, panel.tree.rowCount)
+
+        expandEverything(panel)
+        assertEquals(3, panel.tree.rowCount)
+
+        refreshAndSettle(panel)
+
+        assertEquals(3, panel.tree.rowCount)
+    }
+
+    /** And shutting it again sticks, through the same collapsed-groups restore every group uses. */
+    fun testShuttingDoneAgainStaysShutAcrossARefresh() {
+        val read = addRemark(project, "A.kt", LINES, 0..0, "already read")
+        markRemarksPublished(project, listOf(read.id!!))
+        markRemarksRead(project, listOf(read.id!!))
+        val panel = panel()
+        expandEverything(panel)
+        assertEquals(3, panel.tree.rowCount)
 
         panel.tree.collapseRow(0)
-        assertEquals(4, panel.tree.rowCount)
+        refreshAndSettle(panel)
 
-        panel.refresh()
-        settleInvocationQueue()
-
-        assertEquals(4, panel.tree.rowCount)
+        assertEquals(1, panel.tree.rowCount)
     }
 
     /**
@@ -100,7 +177,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
         addRemark(project, "A.kt", LINES, 0..0, "one")
         addRemark(project, "A.kt", LINES, 1..1, "two")
         val panel = panel()
-        panel.tree.setSelectionRow(0)
+        // Row 0 is the Open group, row 1 the file group.
+        panel.tree.setSelectionRow(1)
         assertEquals(2, panel.selectedIds().size)
 
         panel.refresh()
@@ -351,18 +429,24 @@ class RemarksPanelTest : BasePlatformTestCase() {
      * It also says the nested answer row is really *visible*, which the node-model tests cannot: a
      * child node that nothing expands is a row nobody sees. `expandAll` walks a live `rowCount`, so
      * it opens the question node with no help, and the row count here is what proves it.
+     *
+     * ⚠️ The answer is also what puts this question in Done, which starts shut — so the whole thing
+     * is one row until Done is opened. That is the cost of counting an answer as processed, and it
+     * is why the answer stays nested rather than moving anywhere.
      */
     fun testAnAnswerGetsARowNestedUnderItsQuestion() {
         val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
         recordAnswer(project, answer(id = "a-1", remarkId = remark.id!!, path = "A.kt"))
 
         val panel = panel()
+        assertEquals(1, panel.tree.rowCount)
+        expandEverything(panel)
 
-        // the file group, its one remark, and the answer under that remark — no group at the top
-        assertEquals(3, panel.tree.rowCount)
-        val question = panel.tree.getPathForRow(1).lastPathComponent as DefaultMutableTreeNode
+        // Done, the file group, its one remark, and the answer under that remark.
+        assertEquals(4, panel.tree.rowCount)
+        val question = panel.tree.getPathForRow(2).lastPathComponent as DefaultMutableTreeNode
         assertEquals(remark.id, (question.userObject as RemarkNode).id)
-        val nested = panel.tree.getPathForRow(2).lastPathComponent as DefaultMutableTreeNode
+        val nested = panel.tree.getPathForRow(3).lastPathComponent as DefaultMutableTreeNode
         assertEquals(question, nested.parent)
         assertEquals("a-1", (nested.userObject as AnswerNode).id)
     }
@@ -401,9 +485,10 @@ class RemarksPanelTest : BasePlatformTestCase() {
         val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
         recordAnswer(project, answer(id = "a-1", remarkId = remark.id!!, path = "A.kt"))
         val panel = panel()
+        expandEverything(panel)
 
-        // Row 0 is the file group, row 1 the question, row 2 the answer nested under it.
-        panel.tree.setSelectionRow(1)
+        // Row 0 is Done, row 1 the file group, row 2 the question, row 3 the answer under it.
+        panel.tree.setSelectionRow(2)
 
         panel.deleteSelected()
         settleInvocationQueue()
@@ -422,7 +507,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
     fun testSelectingAFileGroupStillAsksFirst() {
         addRemark(project, "A.kt", LINES, 0..0, "a note")
         val panel = panel()
-        panel.tree.setSelectionRow(0)
+        // Row 0 is the Open group, row 1 the file group.
+        panel.tree.setSelectionRow(1)
 
         TestDialogManager.setTestDialog(TestDialog.NO, testRootDisposable)
         panel.deleteSelected()
@@ -447,11 +533,12 @@ class RemarksPanelTest : BasePlatformTestCase() {
         val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
         recordAnswer(project, answer(id = "a-1", remarkId = remark.id!!, path = "A.kt"))
         val panel = panel()
+        expandEverything(panel)
 
-        // Row 0 is the file group, row 1 the question, row 2 the answer nested under it.
-        panel.tree.setSelectionRow(1)
-        panel.tree.collapsePath(panel.tree.getPathForRow(1))
-        assertFalse(panel.tree.isExpanded(panel.tree.getPathForRow(1)))
+        // Row 0 is Done, row 1 the file group, row 2 the question, row 3 the answer under it.
+        panel.tree.setSelectionRow(2)
+        panel.tree.collapsePath(panel.tree.getPathForRow(2))
+        assertFalse(panel.tree.isExpanded(panel.tree.getPathForRow(2)))
 
         TestDialogManager.setTestDialog(TestDialog.NO, testRootDisposable)
         panel.deleteSelected()
@@ -468,8 +555,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
         addRemark(project, "A.kt", LINES, 0..0, "a note")
         val panel = panel()
 
-        // Row 0 is the file group, row 1 the remark.
-        panel.tree.setSelectionRows(intArrayOf(0, 1))
+        // Row 0 is the Open group, row 1 the file group, row 2 the remark.
+        panel.tree.setSelectionRows(intArrayOf(1, 2))
 
         TestDialogManager.setTestDialog(TestDialog.NO, testRootDisposable)
         panel.deleteSelected()
@@ -500,12 +587,13 @@ class RemarksPanelTest : BasePlatformTestCase() {
             answer(id = "a-1", remarkId = remark.id!!, path = "A.kt", markdown = "because two threads write it"),
         )
         val panel = panel()
+        expandEverything(panel)
 
-        // Row 0 is the file group, row 1 the remark, row 2 the answer nested under it.
-        panel.tree.setSelectionRow(2)
+        // Row 0 is Done, row 1 the file group, row 2 the remark, row 3 the answer under it.
+        panel.tree.setSelectionRow(3)
         assertEquals("because two threads write it", panel.selectedAnswerRow()?.markdown)
 
-        panel.tree.setSelectionRow(1)
+        panel.tree.setSelectionRow(2)
         assertNull(panel.selectedAnswerRow())
     }
 
@@ -570,6 +658,41 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
         assertEquals(0, FileEditorManager.getInstance(project).openFiles.size)
     }
+
+    /**
+     * Opens every row, Done included, the way a person clicking on it would. The panel deliberately
+     * leaves Done shut, so a test about anything *inside* Done — an answered question and its nested
+     * answer, which are the ordinary shape now — has nothing on screen to select without this.
+     *
+     * The same while loop the panel's own expandAll uses, and for the same reason: expanding a row
+     * pushes every row below it down, so a range built once from the starting rowCount stops short.
+     */
+    private fun expandEverything(panel: RemarksPanel) {
+        var row = 0
+        while (row < panel.tree.rowCount) {
+            panel.tree.expandRow(row)
+            row++
+        }
+    }
+
+    /**
+     * Refreshes, and proves the rebuild really happened.
+     *
+     * `buildTreeRoot` makes a fresh node graph every time, so a new root object is what says the
+     * async read action finished — the same technique
+     * [testAFileReloadRefreshesTheTreeTooNotJustTheGutter] uses. Without it, a test asserting the
+     * tree looks the same after a refresh passes just as happily when the refresh never ran at all,
+     * which is the one thing these tests are about.
+     */
+    private fun refreshAndSettle(panel: RemarksPanel) {
+        val before = panel.tree.model.root
+        panel.refresh()
+        settleInvocationQueue()
+        assertNotSame("the refresh should have rebuilt the tree", before, panel.tree.model.root)
+    }
+
+    private fun keyOfRow(component: Any?): String? =
+        ((component as? DefaultMutableTreeNode)?.userObject as? GroupNode)?.key
 
     private fun panel(): RemarksPanel {
         val disposable = Disposer.newDisposable()

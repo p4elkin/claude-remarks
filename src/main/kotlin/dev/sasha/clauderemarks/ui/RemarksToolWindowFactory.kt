@@ -161,8 +161,9 @@ class RemarksPanel(
                 // open any file that holds a remark.
                 val wasSelected = selectionKeys()
                 val wasCollapsed = collapsedGroups()
+                val doneWasOpen = groupIsExpanded(DONE_KEY)
                 (tree.model as DefaultTreeModel).setRoot(buildTreeRoot(rows.remarks, rows.answers))
-                expandAll()
+                expandAll(keepDoneOpen = doneWasOpen)
                 recollapse(wasCollapsed)
                 restoreSelection(wasSelected)
             }
@@ -202,17 +203,47 @@ class RemarksPanel(
     }
 
     /**
+     * Expands every group row **except Done**, which starts shut: Done holds what has already been
+     * dealt with, and the tree is read for what still needs reading.
+     *
+     * [keepDoneOpen] is what stops that fighting the collapse restore. Shut, the Done row is skipped
+     * and its whole subtree with it — nothing inside it becomes a row, so nothing inside it is
+     * expanded, and opening Done by hand shows its file groups closed. Open, Done is treated like
+     * any other group, so a file group the person opened inside it is expanded again on the next
+     * rebuild and [recollapse] shuts the ones they had shut.
+     *
+     * ⚠️ The other shape — expand everything, then collapse Done again at the end — looks equivalent
+     * and is not. `Tree.collapsePath` collapses the whole visible subtree when
+     * `ide.tree.collapse.recursively` is on, which is the default, so every rebuild would throw away
+     * whatever was open inside Done.
+     *
+     * On the very first build there is no Done row yet, [groupIsExpanded] answers false, and Done
+     * comes up shut — which is the default this phase wanted.
+     *
      * A while loop, NOT `for (row in 0 until tree.rowCount)`: that builds the range once, from the
      * row count before anything expanded, so expanding the first file pushed the other file nodes
      * past the end of the range and every file but the first stayed shut.
      */
-    private fun expandAll() {
+    private fun expandAll(keepDoneOpen: Boolean) {
         var row = 0
         while (row < tree.rowCount) {
-            tree.expandRow(row)
+            val isDone = keyOf(tree.getPathForRow(row)?.lastPathComponent) == DONE_KEY
+            if (keepDoneOpen || !isDone) tree.expandRow(row)
             row++
         }
     }
+
+    /**
+     * Whether the group keyed [key] is on screen and open right now. Read before setRoot throws the
+     * rows away, the same way [collapsedGroups] is, and for the same reason: after the rebuild there
+     * is nothing left to ask.
+     *
+     * Not the inverse of [collapsedGroups]. That one answers "shut", and "not shut" also covers "no
+     * such group in the tree at all" — which is exactly the first build, where Done must come up
+     * closed rather than open.
+     */
+    private fun groupIsExpanded(key: String): Boolean =
+        groupNodes().any { (found, path) -> found == key && tree.isExpanded(path) }
 
     /**
      * What is selected, keyed so that the same selection can be made again after the rebuild.
