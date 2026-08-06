@@ -17,33 +17,65 @@ import javax.swing.Icon
  * not the old PENDING/everything-else line, which greyed a published remark as though it were
  * finished when the next publish would carry it again.
  *
- * **The icon answers "which state is it", which has three answers.** One icon each, telling the
- * three steps in order: written, sent, confirmed. Making the icon follow the colour's two-way split
- * instead would leave `PENDING` and `PUBLISHED` indistinguishable at the start of a row, which is
- * the whole reason a row carries an icon.
+ * **The icon answers two questions now, with five answers between them: is this row a question, and
+ * how far did it get.** [asksForAnswer] picks the track, and [hasAnswer] or [status] then picks the
+ * colour inside it.
  *
- * `PUBLISHED` deliberately borrows the toolbar button's own icon, so the mark on the row is the
- * picture of the action that put it there.
+ * The plain track has three steps in order — written, sent, confirmed — one icon each: a note, a
+ * neutral tick, a green tick. The two ticks are `AllIcons.Actions.Checked` and
+ * `AllIcons.General.InspectionsOK`; the old `PUBLISHED` icon, `AllIcons.Actions.Upload`, is gone. It
+ * used to be a picture of the button that put the remark there, but a neutral tick and a green tick
+ * differing only in colour say "sent" and "confirmed" as one progression, which is what a two-step
+ * track after PENDING needs, and a progression reads better than a button's own icon repeated on
+ * every row.
+ *
+ * The question track has three colours of its own question mark, from [RemarkIcons]: neutral, yellow,
+ * green. **The neutral colour sits at a different step in each track — `PUBLISHED` on the plain
+ * track, `PENDING` on the question track.** That is intended, not an inconsistency to fix. The plain
+ * track's middle state is not something a person waits on, so it needs no colour of its own beyond
+ * "not yet". A question's middle state — handed over, nothing back — is exactly what a person waits
+ * on, so it earns yellow, and neutral falls back to the step before it, the only one left. Each track
+ * is ordered within itself; the two tracks are not aligned step for step against each other.
+ *
+ * **A question that was `READ` with no answer stays yellow, not green.** Green is earned by an
+ * answer arriving, never by `READ` alone: `READ` on the question track means the same thing
+ * `PUBLISHED` does — handed over, nothing back yet — and letting `READ` alone turn it green would
+ * make an unanswered question look finished, which is the one thing this colour exists to say.
+ *
+ * `textAttributes` is unchanged by any of this: `PENDING` and `PUBLISHED` draw in regular text,
+ * `READ` in grey, on both tracks. An answered question is deliberately not greyed — from the
+ * person's side an answer arriving is work to do, not work finished.
  *
  * `ui/RemarkActions.kt`'s `remarkChangeActions` already sits in `ui/` while being shared by the
  * gutter and the tree, so this file follows the same placement rather than inventing a new one.
  */
 object RemarkStatusLook {
 
-    /** Written, and handed nowhere yet. */
+    /** Written, and handed nowhere yet. Shared by both tracks. */
     private val PENDING_ICON: Icon = AllIcons.General.Note
 
-    /** Handed to a channel that cannot confirm a read — the same icon the Publish buttons carry. */
-    private val PUBLISHED_ICON: Icon = AllIcons.Actions.Upload
+    /** Plain track, handed to a channel that cannot confirm a read. */
+    private val PUBLISHED_ICON: Icon = AllIcons.Actions.Checked
 
-    /** An agent said it actually read this one. The only state that is done. */
-    private val READ_ICON: Icon = AllIcons.Actions.Checked
+    /** Plain track, an agent said it actually read this one. The only state that is done. */
+    private val READ_ICON: Icon = AllIcons.General.InspectionsOK
 
-    /** The icon for [status], the same instance the gutter and the tree row both draw. */
-    fun icon(status: RemarkStatus): Icon = when (status) {
-        RemarkStatus.PENDING -> PENDING_ICON
-        RemarkStatus.PUBLISHED -> PUBLISHED_ICON
-        RemarkStatus.READ -> READ_ICON
+    /**
+     * The icon for a row, the same instance the gutter and the tree row both draw.
+     *
+     * Written as one flat `when` over five conditions, in the order the class KDoc argues for:
+     * [asksForAnswer] decides the track first, checked through its negation in the first three
+     * branches so the rest of the `when` is the question track with no further check needed: inside
+     * it, [hasAnswer] is checked before [status], because a read-but-unanswered question must not
+     * fall through to whatever branch answers a plain `READ`.
+     */
+    fun icon(status: RemarkStatus, asksForAnswer: Boolean, hasAnswer: Boolean): Icon = when {
+        !asksForAnswer && status == RemarkStatus.PENDING -> PENDING_ICON
+        !asksForAnswer && status == RemarkStatus.PUBLISHED -> PUBLISHED_ICON
+        !asksForAnswer && status == RemarkStatus.READ -> READ_ICON
+        hasAnswer -> RemarkIcons.QuestionAnswered
+        status == RemarkStatus.PENDING -> RemarkIcons.QuestionPending
+        else -> RemarkIcons.QuestionPublished
     }
 
     /** The text attributes a tree row's body draws with for [status]. */

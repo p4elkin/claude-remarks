@@ -143,7 +143,11 @@ class RemarkGutterIconRenderer(
     private val status: RemarkStatus,
 ) : GutterIconRenderer() {
 
-    override fun getIcon(): Icon = RemarkStatusLook.icon(status)
+    // Hardcoded rather than wired to the renderer's own facts: this class does not carry
+    // asksForAnswer or hasAnswer yet, so this passes RemarkStatusLook the plain track only, the same
+    // icon the gutter has always drawn. The next task gives this renderer both facts, in its
+    // constructor and in equals/hashCode, and updates this call along with them.
+    override fun getIcon(): Icon = RemarkStatusLook.icon(status, asksForAnswer = false, hasAnswer = false)
 
     override fun getTooltipText(): String = text
 

@@ -551,7 +551,11 @@ class RemarkTreeRenderer : ColoredTreeCellRenderer() {
     ) {
         when (val user = (value as? DefaultMutableTreeNode)?.userObject) {
             is RemarkNode -> {
-                icon = RemarkStatusLook.icon(user.status)
+                icon = RemarkStatusLook.icon(
+                    status = user.status,
+                    asksForAnswer = user.asksForAnswer,
+                    hasAnswer = user.hasAnswer,
+                )
                 val body = RemarkStatusLook.textAttributes(user.status)
                 append("${user.position}  ", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 append(user.text, body)

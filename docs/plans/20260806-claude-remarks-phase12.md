@@ -457,20 +457,20 @@ Spec sections 12 and 14. Tests first again — the six cases are a pure decision
   `RemarkStatusLook.icon(user.status)` call inside `RemarkTreeRenderer`)
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarkStatusLookTest.kt`
 
-- [ ] write the failing test first, fixture-backed: the six rows of the Technical Details table, each
+- [x] write the failing test first, fixture-backed: the six rows of the Technical Details table, each
       asserting the icon it should get
-- [ ] add a separate test, on its own, that a question which is `READ` with no answer gets the
+- [x] add a separate test, on its own, that a question which is `READ` with no answer gets the
       **yellow** icon — the decision most likely to be quietly reversed later
-- [ ] change `icon` to `icon(status: RemarkStatus, asksForAnswer: Boolean, hasAnswer: Boolean)`,
+- [x] change `icon` to `icon(status: RemarkStatus, asksForAnswer: Boolean, hasAnswer: Boolean)`,
       branching on `asksForAnswer` first and only then inside each track
-- [ ] replace `PUBLISHED_ICON` with `AllIcons.Actions.Checked` and `READ_ICON` with
+- [x] replace `PUBLISHED_ICON` with `AllIcons.Actions.Checked` and `READ_ICON` with
       `AllIcons.General.InspectionsOK`, keeping `PENDING_ICON` as `AllIcons.General.Note`
-- [ ] rewrite the file KDoc: keep the colour half unchanged, replace the icon half with the two tracks
+- [x] rewrite the file KDoc: keep the colour half unchanged, replace the icon half with the two tracks
       and the two decisions under them, including why the neutral colour sits at a different step in
       each track and that this must not be "fixed"
-- [ ] update the tree renderer's call to pass all three with named arguments
-- [ ] write a test that the same input returns the same icon instance
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkStatusLookTest' --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'`
+- [x] update the tree renderer's call to pass all three with named arguments
+- [x] write a test that the same input returns the same icon instance
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkStatusLookTest' --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'`
       — must pass before task 11
 
 ### Task 11: The gutter learns which questions have answers
@@ -618,6 +618,10 @@ Spec section 18. Checked by hand in the scratchpad, never against the real `~/.c
 - Modify: `docs/claude/design.md` (the whole "The Shared Review Session" section; the icon rule under
   the three states; "What an Answer Is" for the nesting; Known Issues)
 - Modify: `README.md` (review mode out of "What it does" and "Working with it"; the icon legend)
+- Modify: `docs/ideas.md` (the section "A button that installs the skill into every detected harness",
+  which names `docs/skill/claude-remarks-review` in two places and describes the dev symlink at
+  `~/.claude/skills/claude-remarks-review`; plus any other section that describes review mode as a
+  thing the plugin still does)
 - Modify: `docs/plans/20260806-claude-remarks-phase12.md` (this file — move it to
   `docs/plans/completed/`)
 
@@ -634,6 +638,13 @@ Spec section 18. Checked by hand in the scratchpad, never against the real `~/.c
       from the code
 - [ ] update `README.md`, including the icon legend, and check the screenshot caption does not
       describe a banner
+- [ ] update `docs/ideas.md`. Task 13 renames the skill directory, which makes the paths in
+      "A button that installs the skill into every detected harness" wrong — it names
+      `docs/skill/claude-remarks-review` and the dev symlink twice. That entry is a live idea Sasha
+      intends to build, and its whole first paragraph is the blocker "the skill is not in the plugin
+      zip", which is still true, so fix the paths and leave the argument intact. Also read the file for
+      any other section that describes review mode as something the plugin still does, and mark those
+      retired rather than deleting them — this file is the record of why things were or were not built
 - [ ] move this plan to `docs/plans/completed/` and update the path where `CLAUDE.md` refers to it
 
 ## Hand checks
