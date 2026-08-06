@@ -591,6 +591,12 @@ Spec section 18. Checked by hand in the scratchpad, never against the real `~/.c
 - [ ] run `./gradlew verifyPlugin` and confirm the report has no new internal-API usage
 - [ ] run all seven guard commands from `CLAUDE.md` and confirm every one comes back empty, with guard
       6 now naming two files rather than three
+- [ ] fix the stale KDoc references tasks 4 and 5 deliberately left behind, because prose is invisible
+      to the compiler and they knew a later pass would sweep it: `review/AnswerReceipt.kt` mentions
+      `WaitingReviewService` and `finishReview` (around lines 47 and 74), and `store/RemarkEdits.kt`
+      mentions `review/ReviewLifecycle.kt`'s `reportReviewEnd` (around line 127). Read the surrounding
+      paragraph in each case rather than deleting the sentence — each one is explaining *why* something
+      is the way it is, and the reason usually survives even though the named symbol does not
 - [ ] confirm no source file outside `docs/` and `.claude/` mentions a waiting review, a review
       session, a review phase or a rejection
 
