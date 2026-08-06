@@ -354,6 +354,13 @@ Spec section 4.
 - [x] drop `reviewSession`, `reviewLabel` and `rejected` from `PublishedHeader`, and make `render()`
       write five lines
 - [x] make `publishedHeaderOf` refuse a text with fewer than five lines, and parse lines 2 to 5 only
+- [x] ⚠️ **REVERSED BY REVIEW — the instruction below was wrong.** Task 6 did as told, and the
+      comprehensive review then showed it made things worse: a control character in `commit` already
+      pushes `remarks:` off line 5, so `publishedHeaderOf` returns null and `fetch` answers `failed`
+      with a detail. Sanitizing instead produced a header that parses cleanly and reports a garbage
+      commit — a loud failure turned into a silent wrong value. `sanitizeControls` and its call are
+      deleted as of `361cbde`, and `PublishedRemarksTest` now pins the loud failure instead. Do not
+      reinstate it. Original instruction, kept for the record:
 - [x] delete `sanitizeLabel`; keep `sanitizeControls` and apply it to `commit`, with a comment saying
       why it is still needed once nothing from HTTP reaches the header
 - [x] update the `PUBLISHED_MARKER` KDoc: there is one kind of batch now
@@ -469,6 +476,10 @@ Spec sections 12 and 14. Tests first again — the six cases are a pure decision
       and the two decisions under them, including why the neutral colour sits at a different step in
       each track and that this must not be "fixed"
 - [x] update the tree renderer's call to pass all three with named arguments
+- [x] ⚠️ **REVERSED BY REVIEW.** Written as asked, then deleted in `361cbde`: it asserted a Kotlin
+      language guarantee (the function returns an `object`'s `val`), and nothing depends on identity —
+      `RemarkGutterIconRenderer.equals` keys on id, text, status, `asksForAnswer` and `hasAnswer`,
+      never on the `Icon`. The six table tests carry the rule. Original instruction:
 - [x] write a test that the same input returns the same icon instance
 - [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkStatusLookTest' --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'`
       — must pass before task 11
