@@ -34,14 +34,12 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         super.setUp()
         // The light fixture project is shared across test classes.
         RemarkStore.getInstance(project).clear()
-        WaitingReviewService.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
         deletePublishedFile()
     }
 
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
-        WaitingReviewService.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
         deletePublishedFile()
         UIUtil.dispatchAllInvocationEvents()
@@ -63,16 +61,11 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         Files.deleteIfExists(file)
     }
 
-    /**
-     * This is the only guard on a much older behaviour change: before it, any sub-path started a
-     * review because `execute` never looked at the path at all. `WaitingReviewService` still exists
-     * to ask, even though nothing in this file can start a review through the endpoint any more.
-     */
-    fun testAnUnknownActionDoesNotStartAReview() {
+    /** Any sub-path `execute` does not dispatch on is refused with `bad-request`. */
+    fun testAnUnknownActionAnswersBadRequest() {
         val sent = post("/api/claude-remarks/frobnicate", """{"project":"/nope"}""")
 
         assertTrue(sent, sent.contains("bad-request"))
-        assertNull(WaitingReviewService.getInstance(project).current())
     }
 
     /**
@@ -97,43 +90,17 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
-     * Fetching is not reading: it must not mark anything read or touch the review's phase at all.
-     * It still has to answer `ready`, reading straight off the merged file regardless of whatever
-     * review state happens to exist alongside it — this is the one test that sets up a live review
-     * in the Sent phase with a published file beside it, so it is the only place that can pin that.
+     * Fetching is not reading: it must not mark anything read. It still has to answer `ready`,
+     * reading straight off the merged file regardless of anything else stored alongside it.
      */
-    fun testAFetchMarksNothingReadAndLeavesTheReviewAlone() {
+    fun testAFetchMarksNothingRead() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note")
         writePublished(identity(), publishedBody(reviewSession = "s1"))
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
 
         val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"ready\""))
-        assertFalse(sent, sent.contains("\"waiting\""))
         assertEquals(RemarkStatus.PENDING, RemarkStore.getInstance(project).all().single { it.id == remark.id }.status)
-        val current = WaitingReviewService.getInstance(project).current()
-        assertNotNull(current)
-        assertTrue(current!!.phase is ReviewPhase.Sent)
-    }
-
-    /**
-     * A rejection is a batch like any other, written into the same published file
-     * (`review/ReviewLifecycle.kt`'s `rejectWaitingReview`), and the review is then cleared. A fetch after
-     * that still has to hand the rejection back — the whole point of moving it onto the one file.
-     */
-    fun testAFetchStillCarriesARejection() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-
-        rejectWaitingReview(project)
-
-        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
-
-        assertTrue(sent, sent.contains("\"ready\""))
-        // A single line: the JSON encoding escapes REJECTION_BODY's real newlines to \n, so a
-        // substring check has to stay on one line to match the encoded response.
-        assertTrue(sent, sent.contains(REJECTION_BODY.lines().first()))
     }
 
     /**
@@ -178,21 +145,6 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"no-review\""))
-    }
-
-    /**
-     * The live-review short-circuit is skipped when there is no session. It exists to tell one
-     * session's own poll to come back, and a listener has no review of its own to be waiting for — so
-     * a session-less fetch reads the file even while somebody else's review sits in `Waiting`, and
-     * answers on what it finds there.
-     */
-    fun testASessionLessFetchDoesNotWaitOnSomebodyElsesReview() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-
-        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
-
-        assertTrue(sent, sent.contains("\"no-review\""))
-        assertFalse(sent, sent.contains("\"waiting\""))
     }
 
     /**

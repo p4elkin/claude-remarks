@@ -328,14 +328,14 @@ Spec section 8. Nothing should reference these by now; the compiler proves it.
   `src/test/kotlin/dev/sasha/clauderemarks/review/AnswerReceiptTest.kt` (its `WaitingReviewService`
   cleanup in `setUp` or `tearDown`)
 
-- [ ] delete the two main-source files and the three test classes with `git rm`
-- [ ] run `./gradlew compileKotlin compileTestKotlin` and fix **every** reference the compiler names,
+- [x] delete the two main-source files and the three test classes with `git rm`
+- [x] run `./gradlew compileKotlin compileTestKotlin` and fix **every** reference the compiler names,
       one at a time — do not try to find them with a grep first
-- [ ] check no import of `dev.sasha.clauderemarks.review.WaitingReview*`, `ReviewPhase`, `ReviewEnd`,
+- [x] check no import of `dev.sasha.clauderemarks.review.WaitingReview*`, `ReviewPhase`, `ReviewEnd`,
       `AckOutcome` or `StampOutcome` survives anywhere, by compiling clean rather than by searching
-- [ ] run `./gradlew test` once here — this is the one mid-plan full run, because a deletion this wide
+- [x] run `./gradlew test` once here — this is the one mid-plan full run, because a deletion this wide
       can break a class no narrow command would name
-- [ ] confirm `git status` shows exactly the five deletions plus the files the compiler made you touch
+- [x] confirm `git status` shows exactly the five deletions plus the files the compiler made you touch
 
 ### Task 6: Shrink the published file's header to five lines
 

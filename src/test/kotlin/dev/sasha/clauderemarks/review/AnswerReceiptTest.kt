@@ -29,13 +29,11 @@ class AnswerReceiptTest : BasePlatformTestCase() {
         // The light fixture project is shared across test methods and test classes.
         RemarkStore.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
-        WaitingReviewService.getInstance(project).clear()
     }
 
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
-        WaitingReviewService.getInstance(project).clear()
         UIUtil.dispatchAllInvocationEvents()
         super.tearDown()
     }
@@ -74,23 +72,6 @@ class AnswerReceiptTest : BasePlatformTestCase() {
 
         assertEquals(PublishedAckOutcome.OK, acknowledgement.outcome)
         assertEquals(RemarkStatus.READ, statusOf(remark.id!!))
-    }
-
-    /**
-     * The ordinary case for a question asked through Ask Claude: nothing ever started a review, and
-     * the answer still lands. The action is keyed to a batch nonce, exactly the way `published-read`
-     * is, and it never touches the review service at all.
-     */
-    fun testAnAnswerWorksWithNoReviewEverStarted() {
-        val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
-        val nonce = record(remark.id!!)
-
-        val outcome = reportAnswer(project, nonce, remark.id!!, "because two threads write it")
-        settleInvocationQueue()
-
-        assertEquals(AnswerOutcome.OK, outcome)
-        assertEquals(1, answers().size)
-        assertNull(WaitingReviewService.getInstance(project).current())
     }
 
     /**
