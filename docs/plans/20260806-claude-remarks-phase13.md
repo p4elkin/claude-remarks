@@ -282,11 +282,11 @@ Readers first, so task 2's deletion compiles. This is the larger half of the buc
   inside `RemarkTreeRenderer`'s `RemarkNode` branch that appends `  published` and `  read`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksTreeTest.kt`
 
-- [ ] delete both appends and the `when` around them
-- [ ] leave the gutter tooltip alone — it has no icon legend on hover, so there the words are the only
+- [x] delete both appends and the `when` around them
+- [x] leave the gutter tooltip alone — it has no icon legend on hover, so there the words are the only
       thing carrying the state, exactly as phase 12 decided for `(asks for an answer)`
-- [ ] delete or rewrite any test asserting on those two words
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'` — must pass before
+- [x] delete or rewrite any test asserting on those two words
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'` — must pass before
       task 5
 
 ### Task 5: Split the tree into Open and Done

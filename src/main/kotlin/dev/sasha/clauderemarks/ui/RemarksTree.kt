@@ -446,11 +446,6 @@ class RemarkTreeRenderer : ColoredTreeCellRenderer() {
                 val body = RemarkStatusLook.textAttributes(user.status)
                 append("${user.position}  ", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 append(user.text, body)
-                when (user.status) {
-                    RemarkStatus.PUBLISHED -> append("  published", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                    RemarkStatus.READ -> append("  read", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                    RemarkStatus.PENDING -> {}
-                }
             }
 
             is AnswerNode -> {
