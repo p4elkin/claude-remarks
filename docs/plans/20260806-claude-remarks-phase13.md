@@ -242,18 +242,18 @@ Readers first, so task 2's deletion compiles. This is the larger half of the buc
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/RemarkStoreStateTest.kt` (15),
   `store/RemarkEditsTest.kt` (11), `store/RemarkHistoryTest.kt` (12), `store/TestRemarks.kt` (2)
 
-- [ ] delete the field, `setRemarkBucket` and `setBucket`, then run
+- [x] delete the field, `setRemarkBucket` and `setBucket`, then run
       `./gradlew compileKotlin compileTestKotlin` and fix whatever the compiler names
-- [ ] drop the bucket from the history heading, and note in `RemarkHistory`'s KDoc that entries
+- [x] drop the bucket from the history heading, and note in `RemarkHistory`'s KDoc that entries
       archived before this phase still carry one — the file is append-only, so old text stays
-- [ ] ⚠️ update guard 3's prose in `CLAUDE.md`: eleven mutators plus `notifyRemarksChanged`, twelve
+- [x] ⚠️ update guard 3's prose in `CLAUDE.md`: eleven mutators plus `notifyRemarksChanged`, twelve
       functions, and add this phase to the history the guard already records. Do not just change the
       number
-- [ ] write a test that a stored element carrying `<option name="bucket" value="x"/>` still
+- [x] write a test that a stored element carrying `<option name="bucket" value="x"/>` still
       deserializes and drops the option on the next save — the same migration phase 11 pinned for
       `tag` and `severity`, in `<option>` form and **not** attribute form
-- [ ] update the four store test classes
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.RemarkStoreStateTest' --tests 'dev.sasha.clauderemarks.store.RemarkEditsTest' --tests 'dev.sasha.clauderemarks.store.RemarkHistoryTest'`
+- [x] update the four store test classes
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.RemarkStoreStateTest' --tests 'dev.sasha.clauderemarks.store.RemarkEditsTest' --tests 'dev.sasha.clauderemarks.store.RemarkHistoryTest'`
       and the guard 3 grep — must pass before task 3
 
 ### Task 3: Add `readAt`, stamped where a remark is marked read

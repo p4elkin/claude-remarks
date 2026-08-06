@@ -45,7 +45,6 @@ class RemarkStoreStateTest {
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",
             contextAfter = "line c\nline d",
-            bucket = "auth refactor",
             commit = "0123456789abcdef0123456789abcdef01234567",
             phrase = "is this synchronized",
         )
@@ -398,37 +397,30 @@ class RemarkStoreStateTest {
     }
 
 
+    /**
+     * A remark stored by an older build carrying `<option name="bucket" value="x"/>` must still
+     * load, the same migration guard phase 11 pinned for `tag` and `severity` above. `bucket` is no
+     * longer declared on RemarkState, so the deserializer skips it as unknown, and the option is
+     * gone from the XML the next time this remark is saved.
+     *
+     * ⚠️ Written in `<option>` form, the way BaseState actually stores a property — see the note on
+     * the severity and tag test above for why attribute form tests nothing at all.
+     */
     @Test
-    fun `a remark with no bucket round-trips as null`() {
-        val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1", bucket = null))
+    fun `a remark stored with the old bucket option still loads and drops it on the next save`() {
+        val restored = deserializeOne(
+            """
+            <option name="id" value="r-1" />
+            <option name="path" value="src/Foo.kt" />
+            <option name="bucket" value="auth refactor" />
+            <option name="text" value="old remark" />
+            """.trimIndent()
+        )
 
-        assertNull(roundTrip(state).remarks.single().bucket)
-    }
-
-
-
-    @Test
-    fun `setting the bucket writes it and clearing it writes null`() {
-        val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1"))
-
-        assertEquals(1, state.setBucket(setOf("r-1"), "auth refactor"))
-        assertEquals("auth refactor", state.snapshot().single().bucket)
-
-        assertEquals(1, state.setBucket(setOf("r-1"), null))
-        assertNull(state.snapshot().single().bucket)
-    }
-
-    @Test
-    fun `setting the bucket to what it already is changes nothing`() {
-        val state = RemarkStore.RemarksState()
-        state.addRemark(remark(id = "r-1", bucket = "b"))
-        val before = state.modificationCount
-
-        assertEquals(0, state.setBucket(setOf("r-1"), "b"))
-
-        assertEquals(before, state.modificationCount)
+        assertEquals("r-1", restored.id)
+        assertEquals("src/Foo.kt", restored.path)
+        assertEquals("old remark", restored.text)
+        assertFalse(asXml(restored), asXml(restored).contains("bucket"))
     }
 
     /**
@@ -560,9 +552,9 @@ class RemarkStoreStateTest {
      * disappear from workspace.xml with nothing logged.
      *
      * Every field is set to something OTHER than its default, and that is load-bearing. BaseState
-     * omits a property still at its default when it serializes, so leaving bucket and
-     * commit alone made the comparison pass even if the copy dropped both — which is what this
-     * test is cited as proof against, in RemarkStore.snapshot()'s own doc.
+     * omits a property still at its default when it serializes, so leaving commit alone made the
+     * comparison pass even if the copy dropped it — which is what this test is cited as proof
+     * against, in RemarkStore.snapshot()'s own doc.
      */
     @Test
     fun `a snapshot carries every field a remark is stored with`() {
@@ -581,7 +573,6 @@ class RemarkStoreStateTest {
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",
             contextAfter = "line c\nline d",
-            bucket = "auth refactor",
             commit = "0123456789abcdef0123456789abcdef01234567",
             phrase = "is this synchronized",
         )

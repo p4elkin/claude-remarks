@@ -81,6 +81,10 @@ fun appendToHistory(
  * What was STORED about each remark, not what it resolves to now. By the time somebody reads this
  * the code has moved, and the file may not exist at all.
  *
+ * A remark no longer carries a bucket, since phase 13 deleted the field along with the tool window
+ * level it grouped. This file is append-only, though, so an entry written before phase 13 still
+ * carries its own "— bucket <name>" text on disk; nothing here rewrites it.
+ *
  * Internal and pure, so it is tested without touching a disk.
  */
 internal fun renderHistory(
@@ -92,11 +96,6 @@ internal fun renderHistory(
     remarks.forEach { remark ->
         append("\n- ")
         appendPosition(storedAnchorOf(remark), GENERAL_HEADING)
-        // Flattened, because the heading is one line and the bucket is the only free-form field on
-        // it. setRemarkBucket trims the ends but does not touch an inner newline, and a newline here
-        // would put whatever follows it at document level, outside the indent that protects the text
-        // below. Not reachable from the current single-line chooser; this closes the asymmetry.
-        remark.bucket?.let { append(" — bucket ").append(it.lines().joinToString(" ")) }
         remark.commit?.let { append(" — commit ").append(it.take(8)) }
         append("\n\n")
         // The phrase, when there is one, is source text too and gets the same indent as the remark

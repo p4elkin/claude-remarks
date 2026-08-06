@@ -20,7 +20,6 @@ class RemarkHistoryTest {
                     startLine = 9,
                     endLine = 11,
                     text = "why is this locked?",
-                    bucket = "auth refactor",
                     commit = "0123456789abcdef0123456789abcdef01234567",
                 )
             ),
@@ -28,7 +27,6 @@ class RemarkHistoryTest {
         )
 
         assertTrue(out, out.contains("**src/Foo.kt** lines 10-12"))
-        assertTrue(out, out.contains("bucket auth refactor"))
         assertTrue(out, out.contains("commit 01234567"))
         assertTrue(out, out.contains("why is this locked?"))
     }
@@ -86,7 +84,6 @@ class RemarkHistoryTest {
                     startLine = 9,
                     endLine = 11,
                     text = "why is this locked?",
-                    bucket = "auth refactor",
                     commit = "0123456789abcdef0123456789abcdef01234567",
                 )
             ),
@@ -94,8 +91,7 @@ class RemarkHistoryTest {
         )
 
         assertEquals(
-            "**src/Foo.kt** lines 10-12 — bucket auth refactor — " +
-                "commit 01234567\n\n      why is this locked?\n",
+            "**src/Foo.kt** lines 10-12 — commit 01234567\n\n      why is this locked?\n",
             out.substringAfter("\n- "),
         )
     }
@@ -113,10 +109,9 @@ class RemarkHistoryTest {
     }
 
     @Test
-    fun `a remark with no bucket and no commit renders without empty separators`() {
-        val out = renderHistory(listOf(remark(id = "r-1", bucket = null, commit = null)), now = 0L)
+    fun `a remark with no commit renders without an empty separator`() {
+        val out = renderHistory(listOf(remark(id = "r-1", commit = null)), now = 0L)
 
-        assertFalse(out, out.contains("bucket "))
         assertFalse(out, out.contains("commit "))
         // The heading ends at the line range, with no dangling em dash where a field used to be.
         assertTrue(out, out.contains("**src/Foo.kt** lines 1-1\n"))
@@ -134,21 +129,6 @@ class RemarkHistoryTest {
         assertTrue(out, Regex("""## cleared \d{4}-\d{2}-\d{2} \d{2}:\d{2}""").containsMatchIn(out))
         // Two different moments must render differently, or the timestamp is not being read.
         assertNotEquals(out, renderHistory(listOf(remark(id = "r-1")), now = 400L * 86_400_000L))
-    }
-
-    /**
-     * The remark text is indented into a block, so a heading inside it cannot restructure the file.
-     * The heading LINE is not indented, and the bucket is the only free-form field on it —
-     * setRemarkBucket trims the ends but leaves an inner newline alone. Not reachable from today's
-     * single-line chooser; this closes the asymmetry rather than relying on the chooser staying that
-     * way.
-     */
-    @Test
-    fun `a newline inside a bucket name cannot break out of the heading line`() {
-        val out = renderHistory(listOf(remark(id = "r-1", bucket = "auth\n## forged")), now = 0L)
-
-        assertTrue(out, out.contains("bucket auth ## forged"))
-        assertFalse(out, out.lines().any { it.startsWith("## forged") })
     }
 
     /**

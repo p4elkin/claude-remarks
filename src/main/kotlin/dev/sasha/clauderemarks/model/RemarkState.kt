@@ -70,10 +70,6 @@ class RemarkState : BaseState() {
     var contextBefore by string()
     var contextAfter by string()
 
-    /** Null means no bucket. Set from the tree or the gutter menu, never in the input popup: the
-     *  popup has to stay fast, and a second chooser in it makes it a form. */
-    var bucket by string()
-
     /**
      * The repository HEAD when this remark was written, or null when there was no readable git
      * repository. Captured once and never refreshed: it records what the author was looking at.

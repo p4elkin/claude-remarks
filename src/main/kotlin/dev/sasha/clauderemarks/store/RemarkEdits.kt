@@ -30,12 +30,12 @@ val REMARKS_CHANGED: Topic<RemarksListener> =
     Topic.create("Claude remarks changed", RemarksListener::class.java, Topic.BroadcastDirection.NONE)
 
 /**
- * These thirteen functions are the whole way production code reaches a remark or an answer. Twelve
+ * These twelve functions are the whole way production code reaches a remark or an answer. Eleven
  * of them change one — nothing calls the store's own mutators directly any more, and CLAUDE.md's
- * rule 3 greps to keep that true — and the thirteenth, notifyRemarksChanged, changes nothing
- * itself: it is what every one of the twelve calls to announce the change.
+ * rule 3 greps to keep that true — and the twelfth, notifyRemarksChanged, changes nothing
+ * itself: it is what every one of the eleven calls to announce the change.
  *
- * Ten of the twelve change a remark. The two added in phase 11, recordAnswer and deleteAnswer,
+ * Nine of the eleven change a remark. The two added in phase 11, recordAnswer and deleteAnswer,
  * change an answer instead, and they live here for exactly the same reason: the tool window draws
  * both lists and the gutter paints both, so both have to redraw after either changes.
  *
@@ -130,18 +130,6 @@ fun markRemarksPublished(project: Project, ids: Collection<String>) {
  */
 fun markRemarksRead(project: Project, ids: Collection<String>) {
     if (RemarkStore.getInstance(project).markRead(ids.toSet()) > 0) notifyRemarksChanged(project)
-}
-
-/**
- * Blank means no bucket, and the name is trimmed. Both live here rather than at the call site,
- * because there are two call sites — the gutter icon menu and the tree — and a bucket name that
- * differs only by whitespace is a second group in the tree that looks identical to the first.
- */
-fun setRemarkBucket(project: Project, ids: Collection<String>, bucket: String?) {
-    val clean = bucket?.trim()?.takeIf { it.isNotEmpty() }
-    if (RemarkStore.getInstance(project).setBucket(ids.toSet(), clean) > 0) {
-        notifyRemarksChanged(project)
-    }
 }
 
 /**

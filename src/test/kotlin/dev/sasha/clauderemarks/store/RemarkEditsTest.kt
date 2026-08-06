@@ -184,34 +184,6 @@ class RemarkEditsTest : BasePlatformTestCase() {
         assertEquals(before, heard)
     }
 
-    fun testSettingTheBucketPublishes() {
-        val stored = addOne()
-
-        setRemarkBucket(project, listOf(stored.id!!), "auth refactor")
-
-        assertEquals(2, heard)
-        assertEquals("auth refactor", RemarkStore.getInstance(project).all().single().bucket)
-    }
-
-    /**
-     * A bucket typed as "  " is not a bucket. Without the trim it becomes a group in the tree whose
-     * label is invisible, and a second one every time somebody types a different amount of
-     * whitespace.
-     */
-    fun testABlankBucketMeansNoBucket() {
-        val stored = addOne()
-        setRemarkBucket(project, listOf(stored.id!!), "  ")
-
-        assertNull(RemarkStore.getInstance(project).all().single().bucket)
-    }
-
-    fun testABucketIsTrimmedBeforeItIsStored() {
-        val stored = addOne()
-        setRemarkBucket(project, listOf(stored.id!!), "  auth refactor  ")
-
-        assertEquals("auth refactor", RemarkStore.getInstance(project).all().single().bucket)
-    }
-
     fun testSettingAsksForAnswerPublishes() {
         val stored = addOne()
 
@@ -221,7 +193,8 @@ class RemarkEditsTest : BasePlatformTestCase() {
         assertTrue(RemarkStore.getInstance(project).all().single().asksForAnswer)
     }
 
-    /** The same no-op rule the bucket has: a toggle that changes nothing redraws nothing. */
+    /** The same no-op rule markPublished and markRead follow: a toggle that changes nothing
+     *  redraws nothing. */
     fun testSettingAsksForAnswerToWhatItAlreadyIsDoesNotPublish() {
         val stored = addOne()
         val before = heard

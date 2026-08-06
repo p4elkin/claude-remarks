@@ -35,7 +35,6 @@ internal fun remark(
     textHash: String = "0000000000000000",
     contextBefore: String? = "",
     contextAfter: String? = "",
-    bucket: String? = null,
     commit: String? = null,
     phrase: String? = null,
 ) = RemarkState().also {
@@ -52,7 +51,6 @@ internal fun remark(
     it.textHash = textHash
     it.contextBefore = contextBefore
     it.contextAfter = contextAfter
-    it.bucket = bucket
     it.commit = commit
     it.phrase = phrase
 }

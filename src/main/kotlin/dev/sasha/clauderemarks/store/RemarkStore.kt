@@ -130,19 +130,10 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
             return changed.size
         }
 
-        /** [bucket] null takes a remark out of every bucket. Returns how many actually changed. */
-        @Synchronized
-        fun setBucket(ids: Set<String>, bucket: String?): Int {
-            val changed = remarks.filter { it.id in ids && it.bucket != bucket }
-            changed.forEach { it.bucket = bucket }
-            if (changed.isNotEmpty()) incrementModificationCount()
-            return changed.size
-        }
-
         /**
          * Marks remarks as asking for an answer, or stops them asking. Returns how many actually
-         * changed, the same shape [setBucket] uses, so a toggle that changes nothing publishes
-         * nothing.
+         * changed, the same shape [markPublished] and [markRead] use, so a toggle that changes
+         * nothing publishes nothing.
          */
         @Synchronized
         fun setAsksForAnswer(ids: Set<String>, asksForAnswer: Boolean): Int {
@@ -299,8 +290,6 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
     fun markPublished(ids: Set<String>): Int = liveState.markPublished(ids)
 
     fun markRead(ids: Set<String>): Int = liveState.markRead(ids)
-
-    fun setBucket(ids: Set<String>, bucket: String?): Int = liveState.setBucket(ids, bucket)
 
     fun setAsksForAnswer(ids: Set<String>, asksForAnswer: Boolean): Int =
         liveState.setAsksForAnswer(ids, asksForAnswer)

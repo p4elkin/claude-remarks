@@ -401,9 +401,9 @@ facts"; the nesting is under "Reading an answer: three places". **The skill dire
    grep -rn "com.intellij" src/main/kotlin/dev/sasha/clauderemarks/render/PromptRenderer.kt   # must find nothing
    ```
 
-3. **`store/RemarkEdits.kt` holds the only thirteen functions that touch a remark or an answer.**
+3. **`store/RemarkEdits.kt` holds the only twelve functions that touch a remark or an answer.**
    `RemarkStore`'s own mutators stay public, and `RemarkEdits.kt` sits in the same package, so
-   nothing but this check keeps the claim true. A caller that reaches past the twelve that change
+   nothing but this check keeps the claim true. A caller that reaches past the eleven that change
    stored data mutates the store without telling the gutter or the tool window to redraw. The grep
    allows through the two read-only methods by name, `all()` and `allAnswers()`, rather than listing the mutator names
    by hand: a hand-picked list has to be edited every time a mutator is added, and forgetting is
@@ -419,13 +419,13 @@ facts"; the nesting is under "Reading an answer: three places". **The skill dire
    `clearHandedOverRemarks` — that is a rename, not a new function, so it did not change the count on
    its own. Group three's `addGeneralRemark` moved it from nine to ten mutators. Phase 11 deleted
    `setRemarkSeverity`, taking it back to nine, then added `setRemarkAsksForAnswer`, `recordAnswer`
-   and `deleteAnswer`, giving twelve. They are `addRemark`, `addGeneralRemark`, `editRemark`,
-   `deleteRemark`, `markRemarksPublished`, `markRemarksRead`, `setRemarkBucket`,
-   `setRemarkAsksForAnswer`, `recordAnswer`, `deleteAnswer`, `clearHandedOverRemarks` and
-   `clearAllRemarks`. The thirteenth function in the file, `notifyRemarksChanged`, changes nothing
-   itself. It is what every one of the twelve calls to announce the change. It is counted here too,
-   because it is public and it lives in this file. `RemarksListener` is a type and `archive` is
-   private, so neither counts.
+   and `deleteAnswer`, giving twelve. Phase 13 deleted `setRemarkBucket` along with the field it set,
+   taking it back down to eleven. They are `addRemark`, `addGeneralRemark`, `editRemark`,
+   `deleteRemark`, `markRemarksPublished`, `markRemarksRead`, `setRemarkAsksForAnswer`,
+   `recordAnswer`, `deleteAnswer`, `clearHandedOverRemarks` and `clearAllRemarks`. The twelfth
+   function in the file, `notifyRemarksChanged`, changes nothing itself. It is what every one of the
+   eleven calls to announce the change. It is counted here too, because it is public and it lives in
+   this file. `RemarksListener` is a type and `archive` is private, so neither counts.
 
    ```bash
    grep -rn "RemarkStore\.getInstance([^)]*)\." src/main/kotlin --include='*.kt' \
