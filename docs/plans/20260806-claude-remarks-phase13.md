@@ -452,13 +452,44 @@ No Kotlin. `./gradlew test` covers none of this.
 
 ### Task 10: Verify acceptance criteria
 
-- [ ] verify every Overview item against the code, one at a time
-- [ ] run the full suite with **no** `--tests` filter: `./gradlew test`
-- [ ] run `./gradlew build`, `verifyPluginProjectConfiguration`, and `verifyPlugin`
-- [ ] run all seven guards from `CLAUDE.md`, each individually, and confirm every one is empty —
-      guard 3's prose should now say twelve functions
-- [ ] confirm no source or test file still mentions a bucket, a `BucketDrop`, or `DnDAwareTree`
-- [ ] confirm `ui/WrapText.kt` has no `java.awt` or `com.intellij` import
+- [x] verify every Overview item against the code, one at a time — all eight confirmed present:
+      buckets gone (`RemarksTreeDnd.kt` deleted, `BucketDrop`/`DnDAwareTree` zero hits, tree reverted
+      to plain `Tree`, `Move to Bucket…` gone from `RemarkActions.kt`); Open/Done split
+      (`OPEN_KEY`/`OPEN_LABEL`/`DONE_KEY`/`DONE_LABEL` in `RemarksTree.kt`, `keepDoneOpen` wired
+      through `expandAll` in `RemarksToolWindowFactory.kt`); `readAt` added beside `createdAt` in
+      `RemarkState.kt`, stamped in `RemarkStore.markRead`; in-file ordering by `createdAt`/`readAt`/
+      `answeredAt` (`OPEN_ORDER`/`DONE_ORDER` comparators); rows wrap via `WrapText.kt`'s
+      `wrapToLines`, used by `RemarkTreeRenderer`; position/suffix/file name moved to a grey
+      `metadataLine` row (`GRAYED_ATTRIBUTES`) below the text; trailing `read`/`published` words gone
+      (zero hits for the old append pattern); `SKILL.md` summarises a batch in two groups (Change /
+      Answer) before acting, in both read and listen mode
+- [x] run the full suite with **no** `--tests` filter: `./gradlew test` — BUILD SUCCESSFUL in 31s.
+      Console reported 14 actionable tasks (2 executed, 12 up-to-date); per this run's standing
+      instruction the real count comes from the XML reports, not the console: summed
+      `build/test-results/test/*.xml` (53 files) — **624 tests, 0 failures, 0 errors, 0 skipped**
+- [x] run `./gradlew build`, `verifyPluginProjectConfiguration`, and `verifyPlugin` — all three BUILD
+      SUCCESSFUL. `verifyPlugin`: `Compatible. 9 usages of experimental API` against
+      `IC-252.28539.97`, all nine inside `PreviewRemarkExtension`/`AnswerPopup.kt` — the two
+      pre-existing, documented reasons for the `EXPERIMENTAL_API_USAGES` subtraction (markdown
+      preview + `JBHtmlPane`), nothing new
+- [x] run all seven guards from `CLAUDE.md`, each individually, and confirm every one is empty —
+      guard 3's prose says twelve functions (verified: eleven mutators —
+      `addRemark`/`addGeneralRemark`/`editRemark`/`deleteRemark`/`markRemarksPublished`/
+      `markRemarksRead`/`setRemarkAsksForAnswer`/`recordAnswer`/`deleteAnswer`/
+      `clearHandedOverRemarks`/`clearAllRemarks` — plus `notifyRemarksChanged` = twelve). All seven
+      guard commands ran individually and each returned empty output (grep exit 1 on every one)
+- [x] confirm no source or test file still mentions a bucket, a `BucketDrop`, or `DnDAwareTree` —
+      ➕ finding, not a failure: `BucketDrop` and `DnDAwareTree` are zero hits anywhere in `src/`, but
+      the word `bucket` itself still appears in two files, both deliberately and both mandated by
+      task 2's own checklist rather than leftovers: `RemarkStoreStateTest.kt` (the migration test
+      task 2 asked for, proving `<option name="bucket" value="x"/>` still deserializes and is dropped
+      on the next save) and `RemarkHistory.kt`'s KDoc (task 2's instruction to note that history
+      entries archived before this phase still carry `— bucket <name>` on disk, since that file is
+      append-only). Literal command and output:
+      `grep -rniI "bucket\|BucketDrop\|DnDAwareTree" src/` → 7 lines, all in those two files, all
+      historical/migration references to a feature that no longer exists in the UI or the model
+- [x] confirm `ui/WrapText.kt` has no `java.awt` or `com.intellij` import — confirmed: the file has no
+      `import` statement at all (`grep -n "^import"` returns nothing)
 
 ### Task 11: Update the documentation and the version
 
