@@ -663,6 +663,43 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         assertTrue(sent, sent.contains("\"unknown-project\""))
     }
 
+    /**
+     * The `open` action's ordinary case: a real project and a files list that survives
+     * filterReviewPaths answers `ok` with the accepted count. dispatchAllInvocationEvents settles the
+     * invokeLater openReviewFiles queues so it does not leak into the next test.
+     */
+    fun testAnOpenForARealProjectAnswersOkWithTheAcceptedCount() {
+        val sent = post("/api/claude-remarks/open", """{"project":"${projectPath()}","files":["A.kt","B.kt"]}""")
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertTrue(sent, sent.contains("\"ok\""))
+        assertTrue(sent, sent.filterNot { it.isWhitespace() }.contains("\"opened\":2"))
+    }
+
+    /** An absent files list is a legitimate no-op, not a refusal: opening nothing is still `ok`. */
+    fun testAnOpenWithNoFilesAnswersOkWithOpenedZero() {
+        val sent = post("/api/claude-remarks/open", """{"project":"${projectPath()}"}""")
+
+        assertTrue(sent, sent.contains("\"ok\""))
+        assertTrue(sent, sent.filterNot { it.isWhitespace() }.contains("\"opened\":0"))
+    }
+
+    /** The same unknown-project answer every other action gives, naming the identities that are open. */
+    fun testAnOpenForAProjectNothingHasOpenAnswersUnknownProject() {
+        val sent = post("/api/claude-remarks/open", """{"project":"/nope","files":["A.kt"]}""")
+
+        assertTrue(sent, sent.contains("\"unknown-project\""))
+        assertTrue(sent, sent.contains("\"open\""))
+    }
+
+    /** A missing project is bad-request with a detail, the parity every other action's own test pins. */
+    fun testAnOpenWithNoProjectAnswersBadRequestWithADetail() {
+        val sent = post("/api/claude-remarks/open", """{"files":["A.kt"]}""")
+
+        assertTrue(sent, sent.contains("\"bad-request\""))
+        assertTrue(sent, sent.contains("\"detail\""))
+    }
+
     /** The five fields the `answer` action takes, so each test above spells out only what it varies. */
     private fun answerBody(nonce: String, remarkId: String, answer: String): String =
         """{"session":"s1","project":"${projectPath()}","nonce":"$nonce",""" +

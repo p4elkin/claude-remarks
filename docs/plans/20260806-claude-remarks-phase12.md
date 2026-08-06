@@ -213,22 +213,22 @@ files at any point.
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/review/ReviewEndpointSmokeTest.kt` (add the open
   cases beside the existing fetch cases)
 
-- [ ] add `private class OpenRequest(val project: String? = null, val files: List<String>? = null)`
+- [x] add `private class OpenRequest(val project: String? = null, val files: List<String>? = null)`
       beside the other request classes, with a KDoc saying `files` are paths relative to the
       repository root and that an absent list opens nothing
-- [ ] add `handleOpen`: parse the body, refuse a missing or blank `project` through `badRequest`, call
+- [x] add `handleOpen`: parse the body, refuse a missing or blank `project` through `badRequest`, call
       `matchProject`, call `openReviewFiles(project, parsed.files)`, then write `status` `ok` and
       `opened` as `filterReviewPaths(parsed.files).size`
-- [ ] add `"open" -> handleOpen(request, writer)` to `execute`'s dispatch
-- [ ] extend the file's leading KDoc to name the new action and its three answers, **without naming
+- [x] add `"open" -> handleOpen(request, writer)` to `execute`'s dispatch
+- [x] extend the file's leading KDoc to name the new action and its three answers, **without naming
       any of the five symbols guard 5 greps for** — that grep is line-based and cannot tell a comment
       from code
-- [ ] write tests: `ok` with the accepted count for a real project, `ok` with `opened: 0` for an empty
+- [x] write tests: `ok` with the accepted count for a real project, `ok` with `opened: 0` for an empty
       list, `unknown-project` with the open list for a path nothing has open
-- [ ] write a test that a body with no `project` answers `bad-request` and carries a `detail`
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest'` — must
+- [x] write a test that a body with no `project` answers `bad-request` and carries a `detail`
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest'` — must
       pass before task 2
-- [ ] run guard 5's grep from `CLAUDE.md` against `ReviewRestService.kt` — must be empty
+- [x] run guard 5's grep from `CLAUDE.md` against `ReviewRestService.kt` — must be empty
 
 ### Task 2: Take the waiting-review banner out of the tool window
 

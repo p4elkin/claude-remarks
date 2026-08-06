@@ -30,14 +30,17 @@ import org.jetbrains.ide.RestService
  * review session, since a publish can happen with no review waiting at all. `answer` is a fifth,
  * added in phase 11, and it is the first action that carries content *into* the IDE rather than a
  * control signal: the markdown a session wrote in reply to one remark it was shown, keyed to the
- * same batch nonce for the same reason.
+ * same batch nonce for the same reason. `open` is a sixth, added in phase 12: it asks the IDE to open
+ * a real diff over a set of files a session names, the useful half of what `start` already did on
+ * its own first accept, now standing on its own with no review attached to it at all.
  *
  * The answer is always HTTP 200 with a `status` field. `start` answers one of `waiting`,
  * `conflict`, `unknown-project`, `bad-request`; `ack` answers one of `ok`, `no-review`,
  * `not-sent`, `unknown-project`, `bad-request`; `fetch` answers one of `ready`, `waiting`,
  * `no-review`, `too-large`, `unknown-project`, `bad-request`, `failed`; `published-read` answers one
  * of `ok`, `already-read`, `unknown-batch`, `unknown-project`, `bad-request`; `answer` answers one of
- * `ok`, `unknown-batch`, `unknown-remark`, `too-large`, `unknown-project`, `bad-request`. Real status
+ * `ok`, `unknown-batch`, `unknown-remark`, `too-large`, `unknown-project`, `bad-request`; `open`
+ * answers one of `ok`, `unknown-project`, `bad-request`. Real status
  * codes stay
  * reserved for what `RestService.process` produces above this class — 403, 429, and 400 or 500
  * from its catch — so a plumbing failure never looks like an application answer to the shell
@@ -165,6 +168,16 @@ private class AnswerRequest(
 )
 
 /**
+ * Gson fills these by reflection too. [files] are paths relative to the repository root, the same
+ * shape `git diff --name-only` prints — which is what the skill already computes. An absent or empty
+ * list opens nothing, and that is a legitimate no-op rather than a refusal.
+ */
+private class OpenRequest(
+    val project: String? = null,
+    val files: List<String>? = null,
+)
+
+/**
  * The default the skill's own `deadline_seconds` carries in
  * `docs/skill/claude-remarks-review/SKILL.md` step 3, and the bounds it is corrected to. Named
  * rather than inlined so that the number is greppable from the skill's side: the two documents have
@@ -256,6 +269,7 @@ class ReviewRestService : RestService() {
             "fetch" -> handleFetch(request, writer)
             "published-read" -> handlePublishedRead(request, writer)
             "answer" -> handleAnswer(request, writer)
+            "open" -> handleOpen(request, writer)
             // A behaviour change worth naming: before this, any sub-path started a review because
             // execute never looked at it at all.
             else -> badRequest(writer, cause = null, fallbackDetail = "unknown action: $action")
@@ -566,6 +580,38 @@ class ReviewRestService : RestService() {
                 AnswerOutcome.UNKNOWN_REMARK -> "unknown-remark"
             }
         )
+    }
+
+    /**
+     * `POST /api/claude-remarks/open`. Opens a real diff over the files a session names, the useful
+     * half of what `start` used to do on its own first accept. Answers `ok`, `unknown-project` or
+     * `bad-request`; there is no review to conflict with any more, so there is no `waiting` or
+     * `conflict` here the way `start` once had.
+     *
+     * **`opened` counts paths accepted, not editors opened.** The file that owns the VFS and the
+     * editor writes back through its own `invokeLater`, on purpose, so this response is written and
+     * sent before a single editor has appeared. The count is exactly what the string-only filter let
+     * through and nothing more, which is why it is computed a second time here rather than threaded
+     * back from that call.
+     *
+     * Like the acknowledgement handlers above, this parses, calls [matchProject] and one function in
+     * another file, and writes two fields. The file-opening call lives in review/OpenReviewFiles.kt,
+     * for the same reason [handleAnswer]'s consequences live in review/AnswerReceipt.kt.
+     */
+    private fun handleOpen(request: FullHttpRequest, writer: JsonWriter) {
+        val body = runCatching {
+            gson.fromJson<OpenRequest?>(createJsonReader(request), OpenRequest::class.java)
+        }
+        val parsed = body.getOrNull()
+        val wanted = parsed?.project
+        if (wanted.isNullOrBlank()) {
+            badRequest(writer, body.exceptionOrNull(), "expected a JSON object with project, and optionally files")
+            return
+        }
+        val project = matchProject(wanted, writer) ?: return
+        openReviewFiles(project, parsed.files)
+        writer.name("status").value("ok")
+        writer.name("opened").value(filterReviewPaths(parsed.files).size)
     }
 
     /**
