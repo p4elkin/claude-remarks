@@ -297,22 +297,22 @@ Spec sections 2 and 5.
   case, every ack case, the fetch `waiting` case, and the two fetch cases about a session matching or
   not matching the header)
 
-- [ ] delete the two handlers, their request classes, the deadline clamp and its three constants, and
+- [x] delete the two handlers, their request classes, the deadline clamp and its three constants, and
       the two dispatch branches
-- [ ] delete `FetchRequest.session` and both places `handleFetch` used it: the short-circuit that
+- [x] delete `FetchRequest.session` and both places `handleFetch` used it: the short-circuit that
       answered `waiting`, and the header comparison that answered `no-review` on a session mismatch.
       A readable published file is now always `ready`
-- [ ] rewrite the file's leading KDoc from scratch for the four actions that remain — `fetch`,
+- [x] rewrite the file's leading KDoc from scratch for the four actions that remain — `fetch`,
       `published-read`, `answer`, `open` — again naming none of guard 5's five symbols
-- [ ] add one sentence where `no-review` is written, saying it means "nothing has been published for
+- [x] add one sentence where `no-review` is written, saying it means "nothing has been published for
       this project" and that it kept its name from when a review was the only thing that published
-- [ ] delete the `clampDeadlineSeconds` tests from `ReviewRequestTest`, keeping `requestIsAllowed`,
+- [x] delete the `clampDeadlineSeconds` tests from `ReviewRequestTest`, keeping `requestIsAllowed`,
       `projectForPath` and `readPublished`
-- [ ] delete the start, ack and session-related cases from `ReviewEndpointSmokeTest`, keeping the
+- [x] delete the start, ack and session-related cases from `ReviewEndpointSmokeTest`, keeping the
       fetch, published-read, answer and open cases
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.ReviewRequestTest' --tests 'dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest'`
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.ReviewRequestTest' --tests 'dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest'`
       — must pass before task 5
-- [ ] run guard 5's grep again — must still be empty
+- [x] run guard 5's grep again — must still be empty
 
 ### Task 5: Delete the waiting-review files
 

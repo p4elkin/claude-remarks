@@ -18,10 +18,10 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * The one test class that runs `execute`. The first test exists for a single defect nothing else
- * can see: the JSON writer wraps a buffering OutputStreamWriter, so a missing `close()` before
- * `send` produces a 200 with an empty body — the skill then finds no `status` field and hangs to
- * its own timeout.
+ * The one test class that runs `execute`. Every test below that inspects `sent` also proves a
+ * single defect nothing else can see: the JSON writer wraps a buffering OutputStreamWriter, so a
+ * missing `close()` before `send` produces a 200 with an empty body — the skill then finds no
+ * `status` field and hangs to its own timeout.
  *
  * It calls `execute` directly, not `process`. `process` catches Throwable and calls `LOG.error`,
  * which throws in tests, and it touches a per-instance request counter. The trust rule that
@@ -64,116 +64,21 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
-     * The project path here is deliberately one nothing has open, so the answer is
-     * `unknown-project`: no waiting review is started and no temp directory is created. The
-     * fixture is needed even so — listing the open projects goes through
-     * `ProjectManager.getInstance()`, which needs a running Application.
-     */
-    fun testExecuteAnswersWithANonEmptyJsonBody() {
-        val sent = post("/api/claude-remarks/start", """{"session":"s1","label":"t","project":"/nope"}""")
-
-        assertTrue(sent, sent.contains("\"status\""))
-        assertTrue(sent, sent.contains("unknown-project"))
-    }
-
-    /**
-     * This is the only guard on the behaviour change task 5 makes: before it, any sub-path started
-     * a review because `execute` never looked at the path at all.
+     * This is the only guard on a much older behaviour change: before it, any sub-path started a
+     * review because `execute` never looked at the path at all. `WaitingReviewService` still exists
+     * to ask, even though nothing in this file can start a review through the endpoint any more.
      */
     fun testAnUnknownActionDoesNotStartAReview() {
-        val sent = post("/api/claude-remarks/frobnicate", """{"session":"s1","label":"t","project":"/nope"}""")
+        val sent = post("/api/claude-remarks/frobnicate", """{"project":"/nope"}""")
 
         assertTrue(sent, sent.contains("bad-request"))
         assertNull(WaitingReviewService.getInstance(project).current())
     }
 
-    fun testAnAcknowledgementOfASentReviewAnswersOk() {
-        val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note")
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-        WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
-
-        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"read"}""")
-        // finishReview's store mutation and balloon run inside invokeLater.
-        UIUtil.dispatchAllInvocationEvents()
-
-        assertTrue(sent, sent.contains("\"status\""))
-        assertTrue(sent, sent.contains("\"ok\""))
-        assertEquals(RemarkStatus.READ, RemarkStore.getInstance(project).all().single { it.id == remark.id }.status)
-    }
-
     /**
-     * The other four answers `handleAck` can give. The skill branches on these exact strings, so the
-     * outcome-to-string mapping is pinned here rather than left to be swapped unnoticed.
-     */
-    fun testAnAcknowledgementWithNothingWaitingAnswersNoReview() {
-        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"read"}""")
-
-        assertTrue(sent, sent.contains("\"no-review\""))
-    }
-
-    fun testAReadAcknowledgementForAReviewThatWasNeverSentAnswersNotSent() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-
-        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"read"}""")
-
-        assertTrue(sent, sent.contains("\"not-sent\""))
-        assertNotNull(WaitingReviewService.getInstance(project).current())
-    }
-
-    fun testAnAcknowledgementForAProjectNothingHasOpenAnswersUnknownProject() {
-        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"/nope","event":"read"}""")
-
-        assertTrue(sent, sent.contains("\"unknown-project\""))
-    }
-
-    fun testAnAcknowledgementWithAnEventNobodyRecognizesAnswersBadRequest() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-
-        val sent = post("/api/claude-remarks/ack", """{"session":"s1","project":"${projectPath()}","event":"nonsense"}""")
-
-        // Not read as "abandoned": an unrecognized event must not end the review.
-        assertTrue(sent, sent.contains("\"bad-request\""))
-        assertNotNull(WaitingReviewService.getInstance(project).current())
-    }
-
-    /**
-     * The deadline the skill declares really reaches the review. Without this, `handleStart` could
-     * ignore `deadlineSeconds` and hardcode its own number with the whole suite still green — which
-     * is the one thing the skill's own wait loop cannot survive, since the two clocks then disagree.
-     * This is also the only test that posts a `files` list through the endpoint.
-     */
-    fun testTheStartRequestsDeadlineReachesTheReview() {
-        val before = System.currentTimeMillis()
-
-        val sent = post(
-            "/api/claude-remarks/start",
-            """{"session":"s1","label":"t","project":"${projectPath()}","deadlineSeconds":60,"files":["A.kt"]}""",
-        )
-        UIUtil.dispatchAllInvocationEvents()
-
-        assertTrue(sent, sent.contains("\"waiting\""))
-        val deadlineAt = WaitingReviewService.getInstance(project).current()!!.deadlineAt
-        assertTrue("$deadlineAt is not about 60 seconds after $before", deadlineAt in before + 60_000..before + 70_000)
-    }
-
-    /**
-     * A fetch before anything is published answers `waiting`, with no `content` field — the skill's
-     * poll is supposed to come back.
-     */
-    fun testAFetchBeforeAnythingIsPublishedAnswersWaiting() {
-        WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
-
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
-
-        assertTrue(sent, sent.contains("\"waiting\""))
-        assertFalse(sent, sent.contains("\"content\""))
-    }
-
-    /**
-     * The transport fact as a test: once the published file names this session's review, a fetch's
-     * response body carries the whole file itself, not a path. No live review is needed at all — the
-     * fetch reads straight off the merged file, the same way a remote agent with no review running
-     * would.
+     * The transport fact as a test: a fetch's response body carries the whole published file
+     * itself, not a path, straight off the merged file — the same way a remote agent with no review
+     * running would read it.
      *
      * The `nonce` and `bytes` fields are asserted here because the remote loop is built on them:
      * `watch-remarks.sh` reads `.nonce` off exactly this response to decide whether a batch is new,
@@ -182,7 +87,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     fun testAFetchAfterThePublishCarriesTheWholePromptInTheBody() {
         writePublished(identity(), publishedBody(reviewSession = "s1"))
 
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"ready\""))
         assertTrue(sent, sent.contains("a note about A"))
@@ -193,10 +98,9 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
     /**
      * Fetching is not reading: it must not mark anything read or touch the review's phase at all.
-     *
-     * It still has to answer `ready`. This is the only test that sets up a live review in the Sent
-     * phase with a published file beside it, so it is the only place where "a live review that has
-     * been answered reads the file rather than being told to keep polling" can be pinned at all.
+     * It still has to answer `ready`, reading straight off the merged file regardless of whatever
+     * review state happens to exist alongside it — this is the one test that sets up a live review
+     * in the Sent phase with a published file beside it, so it is the only place that can pin that.
      */
     fun testAFetchMarksNothingReadAndLeavesTheReviewAlone() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note")
@@ -204,7 +108,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         WaitingReviewService.getInstance(project).start("s1", "a label", 1800)
         WaitingReviewService.getInstance(project).markSent("s1", listOf(remark.id!!))
 
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"ready\""))
         assertFalse(sent, sent.contains("\"waiting\""))
@@ -224,44 +128,12 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
         rejectWaitingReview(project)
 
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"ready\""))
         // A single line: the JSON encoding escapes REJECTION_BODY's real newlines to \n, so a
         // substring check has to stay on one line to match the encoded response.
         assertTrue(sent, sent.contains(REJECTION_BODY.lines().first()))
-    }
-
-    /**
-     * A batch that answers a different session, or none at all, must not answer with that batch's
-     * content — the header's `review:` comparison in handleFetch, as a test.
-     *
-     * Since phase 11 this is also one half of the regression guard on relaxing the action: a body
-     * that carries a session still goes through the header gate exactly as it did before, and only a
-     * body with no session at all skips it.
-     */
-    fun testAFetchForABatchThatAnswersAnotherSessionAnswersNoReview() {
-        writePublished(identity(), publishedBody(reviewSession = "s1"))
-
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s2","project":"${projectPath()}"}""")
-
-        assertTrue(sent, sent.contains("\"no-review\""))
-        assertFalse(sent, sent.contains("a note about A"))
-    }
-
-    /**
-     * The other half of that regression guard, and the sharper one: a plain publish writes no review
-     * field at all, and a caller that names a session still gets `no-review` for it. This is what
-     * "purely additive" means as a test — relaxing the gate must not make a session-carrying caller
-     * start matching batches it never matched before.
-     */
-    fun testAFetchWithASessionStillAnswersNoReviewForAPlainPublish() {
-        writePublished(identity(), publishedBody(reviewSession = null))
-
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
-
-        assertTrue(sent, sent.contains("\"no-review\""))
-        assertFalse(sent, sent.contains("a note about A"))
     }
 
     /**
@@ -324,18 +196,18 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     }
 
     /**
-     * The other two answers `handleFetch` can give for a malformed or misdirected request, the same
-     * pair `start` and `ack` already have their own parity tests for. Only `project` is required
-     * since phase 11: a body with no `session` is a listener's fetch, not a malformed one.
+     * The other two answers `handleFetch` can give for a malformed or misdirected request: a
+     * missing `project`, and a `project` nothing has open. There is no `session` field left on the
+     * request at all, so there is nothing left to make optional about it.
      */
     fun testAFetchWithNoProjectAnswersBadRequest() {
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s1"}""")
+        val sent = post("/api/claude-remarks/fetch", """{}""")
 
         assertTrue(sent, sent.contains("\"bad-request\""))
     }
 
     fun testAFetchForAProjectNothingHasOpenAnswersUnknownProject() {
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"/nope"}""")
+        val sent = post("/api/claude-remarks/fetch", """{"project":"/nope"}""")
 
         assertTrue(sent, sent.contains("\"unknown-project\""))
     }
@@ -349,7 +221,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         val body = "x".repeat(1_100_000) + "\n" + marker
         writePublished(identity(), body)
 
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"too-large\""))
         assertTrue(sent, sent.contains("\"limit\""))
@@ -364,7 +236,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     fun testAFetchOfAFileWithABrokenHeaderAnswersFailed() {
         writePublished(identity(), "not a published file at all")
 
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"failed\""))
     }
@@ -378,26 +250,10 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     fun testAFetchThatCannotReadTheFileAnswersFailedWithADetail() {
         Files.createDirectories(handshakeDir().resolve(publishedName(identity().toString())))
 
-        val sent = post("/api/claude-remarks/fetch", """{"session":"s1","project":"${projectPath()}"}""")
+        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"failed\""))
         assertTrue(sent, sent.contains("\"detail\""))
-    }
-
-    /**
-     * The session id goes into the published file's header on a line the reader finds by number, and
-     * it is the one header field written back out unchanged, since the fetch matches it. So a control
-     * character in it is refused at the edge. Without this, a session like "x\nrejected: yes" would
-     * move every header line after it and make a reader see a rejection that never happened.
-     */
-    fun testAStartWithAControlCharacterInTheSessionAnswersBadRequestAndStartsNothing() {
-        val sent = post(
-            "/api/claude-remarks/start",
-            """{"session":"s1\nrejected: yes","label":"t","project":"${projectPath()}"}""",
-        )
-
-        assertTrue(sent, sent.contains("\"bad-request\""))
-        assertNull(WaitingReviewService.getInstance(project).current())
     }
 
     /** A published batch naming [reviewSession], for the fetch tests that only need the header shape. */

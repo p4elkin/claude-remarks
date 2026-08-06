@@ -16,35 +16,26 @@ import java.nio.file.Path
 import org.jetbrains.ide.RestService
 
 /**
- * `POST /api/claude-remarks/start`, `POST /api/claude-remarks/ack`, `POST /api/claude-remarks/fetch`,
- * `POST /api/claude-remarks/published-read` and `POST /api/claude-remarks/answer`. The skill asks
- * this IDE to hold a review open for a
- * repository, then later tells the IDE whether it read the remarks or gave up waiting. Where those
- * remarks land is not part of the answer since phase 10: both sides compute the one published file's
- * path from the repository path itself. `fetch` is a third moment: it hands that file's content back
- * in the response body itself, for an agent with no filesystem access to it. Its `session` field is
- * optional since phase 11, and an absent one means *any* batch rather than one review's own — which
- * is what lets a listener read a plain publish over a tunnel. `published-read` is a
- * fourth, and independent of the other three: it acknowledges a batch a
- * publish wrote to the merged file, keyed to the nonce that batch's header carries rather than to a
- * review session, since a publish can happen with no review waiting at all. `answer` is a fifth,
- * added in phase 11, and it is the first action that carries content *into* the IDE rather than a
- * control signal: the markdown a session wrote in reply to one remark it was shown, keyed to the
- * same batch nonce for the same reason. `open` is a sixth, added in phase 12: it asks the IDE to open
- * a real diff over a set of files a session names, the useful half of what `start` already did on
- * its own first accept, now standing on its own with no review attached to it at all.
+ * `POST /api/claude-remarks/fetch`, `POST /api/claude-remarks/published-read`,
+ * `POST /api/claude-remarks/answer` and `POST /api/claude-remarks/open`. All four are actions a
+ * Claude Code skill takes against one repository's open IDE, matched by [ReviewRestService.matchProject]
+ * the same way each time. `fetch` hands the one merged published file's content back in the response
+ * body itself, for an agent with no filesystem access to it — it changes nothing, so it is safe to
+ * call as often as a poll likes. `published-read` acknowledges a batch a publish wrote to that file,
+ * keyed to the nonce its header carries, and is the one action that marks the batch's remarks read.
+ * `answer` is the one action that carries content *into* the IDE rather than a control signal: the
+ * markdown a session wrote in reply to one remark it was shown, keyed to the same batch nonce for the
+ * same reason a read acknowledgement is. `open` asks the IDE to open a real diff over a set of files a
+ * session names, so a session that has just produced a diff can put those files in front of the
+ * person before they write remarks about it.
  *
- * The answer is always HTTP 200 with a `status` field. `start` answers one of `waiting`,
- * `conflict`, `unknown-project`, `bad-request`; `ack` answers one of `ok`, `no-review`,
- * `not-sent`, `unknown-project`, `bad-request`; `fetch` answers one of `ready`, `waiting`,
- * `no-review`, `too-large`, `unknown-project`, `bad-request`, `failed`; `published-read` answers one
- * of `ok`, `already-read`, `unknown-batch`, `unknown-project`, `bad-request`; `answer` answers one of
- * `ok`, `unknown-batch`, `unknown-remark`, `too-large`, `unknown-project`, `bad-request`; `open`
- * answers one of `ok`, `unknown-project`, `bad-request`. Real status
- * codes stay
- * reserved for what `RestService.process` produces above this class — 403, 429, and 400 or 500
- * from its catch — so a plumbing failure never looks like an application answer to the shell
- * script reading it.
+ * The answer is always HTTP 200 with a `status` field. `fetch` answers one of `ready`, `no-review`,
+ * `too-large`, `unknown-project`, `bad-request`, `failed`; `published-read` answers one of `ok`,
+ * `already-read`, `unknown-batch`, `unknown-project`, `bad-request`; `answer` answers one of `ok`,
+ * `unknown-batch`, `unknown-remark`, `too-large`, `unknown-project`, `bad-request`; `open` answers one
+ * of `ok`, `unknown-project`, `bad-request`. Real status codes stay reserved for what
+ * `RestService.process` produces above this class — 403, 429, and 400 or 500 from its catch — so a
+ * plumbing failure never looks like an application answer to the shell script reading it.
  */
 
 /** The header the skill puts this IDE run's token in. */
@@ -104,37 +95,8 @@ internal fun <T> projectForPath(wanted: String, open: List<Pair<Path, T>>): T? {
     return open.firstOrNull { it.first == target }?.second
 }
 
-/**
- * Gson fills these by reflection; every field is nullable because the body is caller-supplied.
- * [files] is the cheap-diff-opening addition: paths relative to the repository root, opened in
- * editors once the review is accepted. Absent or empty means open nothing. [deadlineSeconds] is
- * how long the skill's own wait loop will poll; absent or out of range is clamped by
- * [clampDeadlineSeconds].
- */
-private class StartRequest(
-    val session: String? = null,
-    val label: String? = null,
-    val project: String? = null,
-    val files: List<String>? = null,
-    val deadlineSeconds: Long? = null,
-)
-
-/** Gson fills these by reflection too. [event] is `"read"` or `"abandoned"`, anything else is bad-request. */
-private class AckRequest(
-    val session: String? = null,
-    val project: String? = null,
-    val event: String? = null,
-)
-
-/**
- * Gson fills these by reflection too. No `event` and no `label`: a fetch changes nothing.
- *
- * [session] is optional since phase 11. A caller that sends one names the review it is polling for
- * and gets exactly the behaviour it always got; a caller that omits one is a listener with no review
- * of its own, and asks for whatever batch the file currently holds.
- */
+/** Gson fills this by reflection too. No `event` and no `label`: a fetch changes nothing. */
 private class FetchRequest(
-    val session: String? = null,
     val project: String? = null,
 )
 
@@ -178,16 +140,6 @@ private class OpenRequest(
 )
 
 /**
- * The default the skill's own `deadline_seconds` carries in
- * `docs/skill/claude-remarks-review/SKILL.md` step 3, and the bounds it is corrected to. Named
- * rather than inlined so that the number is greppable from the skill's side: the two documents have
- * to agree, and a bare 1800 in the middle of an expression is the kind of thing that drifts.
- */
-private const val DEFAULT_DEADLINE_SECONDS = 1800L
-private const val MIN_DEADLINE_SECONDS = 60L
-private const val MAX_DEADLINE_SECONDS = 86_400L
-
-/**
  * The largest published file the fetch action will put in a response. A remark with its code context
  * is a few hundred bytes, so this is thousands of remarks — unreachable in ordinary use, and still a
  * bound on what one response allocates. Named rather than inlined because the skill's own message
@@ -205,14 +157,6 @@ private const val MAX_PUBLISHED_BYTES = 1_048_576L
  * direction: a markdown document cut in the middle looks complete to whoever reads it next.
  */
 internal const val MAX_ANSWER_BYTES = 16_384
-
-/**
- * The skill declares how long it will wait. The number arrives over HTTP, so it is bounded here,
- * at the edge, rather than deeper in. Absent means the 1800 seconds the skill's own documentation
- * has always used.
- */
-internal fun clampDeadlineSeconds(seconds: Long?): Long =
-    (seconds ?: DEFAULT_DEADLINE_SECONDS).coerceIn(MIN_DEADLINE_SECONDS, MAX_DEADLINE_SECONDS)
 
 class ReviewRestService : RestService() {
 
@@ -264,8 +208,6 @@ class ReviewRestService : RestService() {
         // action name instead of the empty one it actually is.
         val action = urlDecoder.path().split(getServiceName()).last().trimStart('/')
         when (action) {
-            "start" -> handleStart(request, writer)
-            "ack" -> handleAck(request, writer)
             "fetch" -> handleFetch(request, writer)
             "published-read" -> handlePublishedRead(request, writer)
             "answer" -> handleAnswer(request, writer)
@@ -285,146 +227,40 @@ class ReviewRestService : RestService() {
         return null
     }
 
-    private fun handleStart(request: FullHttpRequest, writer: JsonWriter) {
-        val body = runCatching {
-            gson.fromJson<StartRequest?>(createJsonReader(request), StartRequest::class.java)
-        }
-        val parsed = body.getOrNull()
-        val session = parsed?.session
-        val label = parsed?.label
-        val wanted = parsed?.project
-        if (session.isNullOrBlank() || label.isNullOrBlank() || wanted.isNullOrBlank()) {
-            // A typo in the skill must produce a readable answer, not a stack trace in the IDE log.
-            badRequest(
-                writer,
-                body.exceptionOrNull(),
-                "expected a JSON object with session, label and project",
-            )
-            return
-        }
-        // The session id is written into the published file's header, on a line a reader finds by
-        // line number, and it is the one field there that is not rewritten before it goes in — it has
-        // to come back out byte for byte, because the fetch matches it against what the skill sends.
-        // So a control character in it is refused here instead, at the edge, rather than quietly
-        // changed. A session like "x\nrejected: yes" would otherwise move every header line after it.
-        if (session.any { it < ' ' }) {
-            badRequest(writer, cause = null, fallbackDetail = "session must not contain control characters")
-            return
-        }
-        val project = matchProject(wanted, writer) ?: return
-        val deadline = clampDeadlineSeconds(parsed.deadlineSeconds)
-        val result = WaitingReviewService.getInstance(project).start(session, label, deadline)
-        when (result) {
-            is StartResult.Accepted -> {
-                writer.name("status").value("waiting")
-                writer.name("project").value(project.name)
-                // The one call into the file that owns the VFS and the editor. See
-                // review/OpenReviewFiles.kt for why it lives there and not here. Only on a first
-                // accept: a retry must not open a second diff window over the same changes.
-                if (result.fresh) openReviewFiles(project, parsed.files)
-            }
-            is StartResult.Conflict -> {
-                writer.name("status").value("conflict")
-                writer.name("label").value(result.waiting.label)
-                writer.name("startedAt").value(result.waiting.startedAt)
-            }
-        }
-    }
-
-    private fun handleAck(request: FullHttpRequest, writer: JsonWriter) {
-        val body = runCatching {
-            gson.fromJson<AckRequest?>(createJsonReader(request), AckRequest::class.java)
-        }
-        val parsed = body.getOrNull()
-        val session = parsed?.session
-        val wanted = parsed?.project
-        val end = when (parsed?.event) {
-            "read" -> ReviewEnd.READ
-            "abandoned" -> ReviewEnd.ABANDONED
-            else -> null
-        }
-        if (session.isNullOrBlank() || wanted.isNullOrBlank() || end == null) {
-            badRequest(
-                writer,
-                body.exceptionOrNull(),
-                "expected a JSON object with session, project and event (\"read\" or \"abandoned\")",
-            )
-            return
-        }
-        val project = matchProject(wanted, writer) ?: return
-        // Everything the acknowledgement causes lives in the file that owns the editor side, see
-        // review/ReviewLifecycle.kt. This file only turns the outcome into a status field.
-        writer.name("status").value(
-            when (finishReview(project, session, end)) {
-                AckOutcome.OK -> "ok"
-                AckOutcome.NO_REVIEW -> "no-review"
-                AckOutcome.NOT_SENT -> "not-sent"
-            }
-        )
-    }
-
     /**
      * Hands the merged published file back in the response body, so an agent on another machine can
-     * read remarks it has no filesystem access to. Answers `ready`, `waiting`, `no-review`,
-     * `too-large`, `unknown-project`, `bad-request` or `failed`.
+     * read remarks it has no filesystem access to. Answers `ready`, `no-review`, `too-large`,
+     * `unknown-project`, `bad-request` or `failed`.
      *
-     * **Changes nothing.** Not the store, not the review's phase, not the deadline. Fetching is not
-     * reading: the `read` acknowledgement stays the only thing that marks a remark read, so a fetch whose
-     * response is lost to a dead tunnel costs one retry rather than a delivery the IDE believes in and the
-     * agent never got. It is therefore safe to call as often as the skill likes, which is what a poll
-     * needs.
+     * **Changes nothing.** Not the store. The `published-read` action is the only thing that marks a
+     * remark read, so a fetch whose response is lost to a dead tunnel costs one retry rather than a
+     * delivery the IDE believes in and the agent never got. It is therefore safe to call as often as
+     * the skill likes, which is what a poll needs.
      *
-     * A live review still in [ReviewPhase.Waiting] for this session answers `waiting` at once: nothing
-     * has been published for it yet, so there is no file worth reading. Every other case — no live
-     * review, or one already [ReviewPhase.Sent] — reads the one published file this project has, the
-     * same file a publish writes and the same file a rejection lands in (`review/ReviewLifecycle.kt`), so a
-     * fetch after either still finds it. The file's own `review:` header field is what ties a batch to
-     * the session that asked for it, since a publish or a rejection can happen with several sessions
-     * having asked at different times: a file answering a different session, or none at all, is
-     * `no-review`.
-     *
-     * **`session` is optional since phase 11, and an absent one means any batch.** Both the
-     * short-circuit and the header gate above are meaningful only when a review exists, so with no
-     * session both are skipped and the file is answered on as it is found. That is what makes a plain
-     * publish readable over a tunnel at all: it writes no review field, so the gate could never match
-     * any session id a caller could send, and such a batch was unreachable. Nothing is weakened by
-     * this — `session` was never a secret, the endpoint has never handed one out or checked one, and
-     * the token in [isHostTrusted] is the gate on this route. A session-less caller can therefore also
-     * be handed a batch answering somebody else's review, which the skill's listen mode reports and
-     * acts on rather than acknowledging.
+     * **`no-review` means nothing has been published for this project at all.** The name is a
+     * leftover: it kept the word from when a review was the only thing that ever published, and
+     * renaming it now would break every deployed copy of the skill and the watcher for a cosmetic
+     * gain.
      */
     private fun handleFetch(request: FullHttpRequest, writer: JsonWriter) {
         val body = runCatching {
             gson.fromJson<FetchRequest?>(createJsonReader(request), FetchRequest::class.java)
         }
         val parsed = body.getOrNull()
-        // Blank counts as absent, so a caller that sends an empty string is read as a listener rather
-        // than refused for a field it did not have to send in the first place.
-        val session = parsed?.session?.takeIf { it.isNotBlank() }
         val wanted = parsed?.project
         if (wanted.isNullOrBlank()) {
-            badRequest(writer, body.exceptionOrNull(), "expected a JSON object with project, and optionally session")
+            badRequest(writer, body.exceptionOrNull(), "expected a JSON object with project")
             return
         }
         val project = matchProject(wanted, writer) ?: return
-        // Skipped whole with no session: this short-circuit tells one session's own poll to come back,
-        // and a listener has no review of its own to be waiting for.
-        val live = session?.let { name ->
-            WaitingReviewService.getInstance(project).current()?.takeIf { it.sessionId == name }
-        }
-        if (live != null && live.phase == ReviewPhase.Waiting) {
-            // Nothing has been published yet. The skill's poll is supposed to come back.
-            writer.name("status").value("waiting")
-            return
-        }
         // projectIdentity is a plain java.nio call (toRealPath plus a walk up the tree for .git),
         // never a VFS one, the same reason toRealPath() is allowed in this file elsewhere.
         val identity = projectIdentity(project)
         if (identity == null) {
-            // Not `no-review`: that reads as "nothing is waiting, poll again", and the session would
-            // then spend its whole deadline on what is really a failure it can do nothing about. The
-            // project matched a moment ago, so its directory has gone since — a checkout deleted or
-            // unmounted under the open project.
+            // Not `no-review`: that reads as "nothing has been published, poll again", and the
+            // caller would then spend its whole deadline on what is really a failure it can do
+            // nothing about. The project matched a moment ago, so its directory has gone since — a
+            // checkout deleted or unmounted under the open project.
             writer.name("status").value("failed")
             writer.name("detail").value("the project's own directory could not be resolved")
             return
@@ -439,7 +275,7 @@ class ReviewRestService : RestService() {
         }
         when (read) {
             is PublishedRead.Absent ->
-                // Nothing has been published or rejected for this project at all.
+                // Nothing has been published for this project at all.
                 writer.name("status").value("no-review")
             is PublishedRead.TooLarge -> {
                 writer.name("status").value("too-large")
@@ -448,27 +284,17 @@ class ReviewRestService : RestService() {
             }
             is PublishedRead.Content -> {
                 val header = publishedHeaderOf(read.text)
-                when {
-                    header == null -> {
-                        // A lie is not a better answer than an error: this plugin wrote every
-                        // published file with a parseable header, so one that does not parse means
-                        // something else touched it, or an older plugin's file is still there.
-                        writer.name("status").value("failed")
-                        writer.name("detail").value("the published file's header could not be parsed")
-                    }
-                    // No session means any batch: there is nothing to compare the header against, and
-                    // that is what makes a plain publish — which writes no review field at all —
-                    // reachable over the tunnel.
-                    session == null || header.reviewSession == session -> {
-                        writer.name("status").value("ready")
-                        writer.name("content").value(read.text)
-                        writer.name("nonce").value(header.nonce)
-                        writer.name("bytes").value(read.bytes)
-                    }
-                    // Only reachable with a session in the body. The file exists but answers a
-                    // different session's review, or none at all — a plain publish with no review
-                    // waiting also reaches this branch.
-                    else -> writer.name("status").value("no-review")
+                if (header == null) {
+                    // A lie is not a better answer than an error: this plugin wrote every published
+                    // file with a parseable header, so one that does not parse means something else
+                    // touched it, or an older plugin's file is still there.
+                    writer.name("status").value("failed")
+                    writer.name("detail").value("the published file's header could not be parsed")
+                } else {
+                    writer.name("status").value("ready")
+                    writer.name("content").value(read.text)
+                    writer.name("nonce").value(header.nonce)
+                    writer.name("bytes").value(read.bytes)
                 }
             }
         }
@@ -483,8 +309,8 @@ class ReviewRestService : RestService() {
      *
      * This handler does nothing but parse, call [matchProject] and [reportPublishedRead], and write
      * fields. Every consequence — marking the batch's remarks read, the balloon — lives in
-     * review/PublishedAck.kt, for the same reason the ack action's consequences live in
-     * review/ReviewLifecycle.kt rather than here.
+     * review/PublishedAck.kt, kept out of this file for the same reason [handleAnswer]'s consequences
+     * live in review/AnswerReceipt.kt.
      */
     private fun handlePublishedRead(request: FullHttpRequest, writer: JsonWriter) {
         val body = runCatching {
@@ -538,10 +364,11 @@ class ReviewRestService : RestService() {
      * A second answer for a remark already answered is `ok` too. There is no separate status for a
      * replacement: the caller did nothing wrong, and replacing is the intended behaviour.
      *
-     * Like the acknowledgement handlers above, this parses, calls [matchProject] and one function in
+     * Like [handlePublishedRead] above, this parses, calls [matchProject] and one function in
      * another file, and writes fields. Every consequence — resolving the remark, capturing its
-     * position, building the answer, storing it, the balloon — lives in review/AnswerReceipt.kt, for
-     * the same reason the ack action's consequences live in review/ReviewLifecycle.kt.
+     * position, building the answer, storing it, the balloon — lives in review/AnswerReceipt.kt, kept
+     * out of this file for the same reason [handlePublishedRead]'s consequences live in
+     * review/PublishedAck.kt.
      */
     private fun handleAnswer(request: FullHttpRequest, writer: JsonWriter) {
         val body = runCatching {
@@ -594,7 +421,7 @@ class ReviewRestService : RestService() {
      * through and nothing more, which is why it is computed a second time here rather than threaded
      * back from that call.
      *
-     * Like the acknowledgement handlers above, this parses, calls [matchProject] and one function in
+     * Like [handlePublishedRead] above, this parses, calls [matchProject] and one function in
      * another file, and writes two fields. The file-opening call lives in review/OpenReviewFiles.kt,
      * for the same reason [handleAnswer]'s consequences live in review/AnswerReceipt.kt.
      */
