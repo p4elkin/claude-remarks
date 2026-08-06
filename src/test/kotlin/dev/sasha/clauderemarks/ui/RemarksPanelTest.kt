@@ -8,12 +8,9 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.intellij.ui.HyperlinkLabel
 import com.intellij.ui.PopupHandler
-import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.anchor.hashLines
 import dev.sasha.clauderemarks.editor.RemarkGutter
-import dev.sasha.clauderemarks.review.WaitingReviewService
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.answer
@@ -35,17 +32,12 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        // The light fixture project is shared across test classes. WaitingReviewService is a
-        // second piece of shared project state, on top of RemarkStore: task 6's own failure-path
-        // test deliberately leaves a review waiting, so without this clear here too, the banner
-        // test below would pass or fail depending on which test class ran first.
+        // The light fixture project is shared across test classes.
         RemarkStore.getInstance(project).clear()
-        WaitingReviewService.getInstance(project).clear()
     }
 
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
-        WaitingReviewService.getInstance(project).clear()
         super.tearDown()
     }
 
@@ -526,99 +518,6 @@ class RemarksPanelTest : BasePlatformTestCase() {
         settleInvocationQueue()
 
         assertEquals(0, FileEditorManager.getInstance(project).openFiles.size)
-    }
-
-    fun testTheBannerIsHiddenWhenNoReviewIsWaiting() {
-        val panel = panel()
-
-        assertFalse(panel.banner.isVisible)
-    }
-
-    fun testTheBannerShowsTheWaitingLabel() {
-        val panel = panel()
-        WaitingReviewService.getInstance(project).start("s1", "a review label", 1800)
-
-        panel.refresh()
-        settleInvocationQueue()
-
-        assertTrue(panel.banner.isVisible)
-        val text = panel.banner.text.orEmpty()
-        assertTrue(text, text.contains("Claude Code is waiting: a review label"))
-        assertTrue(text, text.contains("Publish to answer"))
-    }
-
-    /**
-     * The label is caller-supplied text that arrived over HTTP, and updateBanner now wraps the whole
-     * banner string in `<html>` so it can hold two lines. Swing renders that as markup, so a label
-     * carrying tags of its own has to reach the screen escaped, as the characters the person typed.
-     */
-    fun testTheBannerEscapesMarkupInTheWaitingLabel() {
-        val panel = panel()
-        WaitingReviewService.getInstance(project).start("s1", "<b>bold</b>", 1800)
-
-        panel.refresh()
-        settleInvocationQueue()
-
-        val text = panel.banner.text.orEmpty()
-        assertTrue(text, text.contains("&lt;b&gt;bold&lt;/b&gt;"))
-        assertFalse(text, text.contains("<b>"))
-    }
-
-    fun testTheBannerSaysTheRemarksAreWaitingToBeReadAfterAPublish() {
-        val panel = panel()
-        WaitingReviewService.getInstance(project).start("s1", "a review label", 1800)
-        WaitingReviewService.getInstance(project).markSent("s1", listOf("a"))
-
-        panel.refresh()
-        settleInvocationQueue()
-
-        assertTrue(panel.banner.isVisible)
-        val text = panel.banner.text.orEmpty()
-        assertTrue(text, text.contains("Published 1 remark for Claude Code"))
-        assertTrue(text, text.contains("Waiting for it to read them"))
-        // "Publish again to add more." stood here and invited the one thing that does not work: the
-        // agent's watcher has already exited with the first batch and nothing re-arms it.
-        assertFalse(text, text.contains("add more"))
-        assertTrue(text, text.contains("A further publish will not go to this review"))
-    }
-
-    /**
-     * The Send control is gone: publishing is the only way to answer a waiting review, so the
-     * banner offers exactly one link now, Reject, not two.
-     */
-    fun testTheBannerOffersRejectAndNothingElse() {
-        val panel = panel()
-        WaitingReviewService.getInstance(project)
-            .start("s1", "a review label", 1800)
-
-        panel.refresh()
-        settleInvocationQueue()
-
-        val links = UIUtil.findComponentsOfType(panel.banner, HyperlinkLabel::class.java)
-        assertEquals(1, links.size)
-        assertEquals("Reject", links.single().text)
-    }
-
-    /**
-     * Proves the staleness backstop in WaitingReviewService actually reaches the screen. The live
-     * review first, because the banner starts hidden: without that half, this test also passes when
-     * updateBanner never runs at all.
-     */
-    fun testTheBannerIsHiddenForAReviewPastItsDeadline() {
-        val panel = panel()
-        WaitingReviewService.getInstance(project)
-            .start("s1", "a review label", 1800)
-        panel.refresh()
-        settleInvocationQueue()
-        assertTrue(panel.banner.isVisible)
-
-        WaitingReviewService.getInstance(project).clear()
-        WaitingReviewService.getInstance(project)
-            .start("s2", "a stale label", 0)
-        panel.refresh()
-        settleInvocationQueue()
-
-        assertFalse(panel.banner.isVisible)
     }
 
     private fun panel(): RemarksPanel {

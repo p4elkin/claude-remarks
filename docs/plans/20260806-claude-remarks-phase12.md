@@ -241,14 +241,14 @@ Spec section 7.
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksPanelTest.kt` (every test and helper
   reaching `panel.banner` or `WaitingReviewService`, including any `setUp`/`tearDown` cleanup of it)
 
-- [ ] delete the `banner` field and `updateBanner`, and the `updateBanner()` call inside `refresh`'s
+- [x] delete the `banner` field and `updateBanner`, and the `updateBanner()` call inside `refresh`'s
       `finishOnUiThread` block
-- [ ] replace the `JPanel(BorderLayout())` wrapper with `setContent(JBScrollPane(tree))` and remove
+- [x] replace the `JPanel(BorderLayout())` wrapper with `setContent(JBScrollPane(tree))` and remove
       the now-unused `BorderLayout` and `JPanel` imports
-- [ ] remove the `ReviewPhase`, `WaitingReviewService`, `rejectWaitingReview` and
+- [x] remove the `ReviewPhase`, `WaitingReviewService`, `rejectWaitingReview` and
       `EditorNotificationPanel` imports, plus `StringUtil` if nothing else uses it
-- [ ] delete the banner tests and any review cleanup in `RemarksPanelTest`
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest'` — must pass before
+- [x] delete the banner tests and any review cleanup in `RemarksPanelTest`
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest'` — must pass before
       task 3
 
 ### Task 3: Take the review out of the publish pipeline and the acknowledgement

@@ -19,10 +19,8 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
-import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.ui.EditorNotificationPanel
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
@@ -35,9 +33,6 @@ import dev.sasha.clauderemarks.action.publishRemarks
 import dev.sasha.clauderemarks.model.AnswerState
 import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
-import dev.sasha.clauderemarks.review.ReviewPhase
-import dev.sasha.clauderemarks.review.WaitingReviewService
-import dev.sasha.clauderemarks.review.rejectWaitingReview
 import dev.sasha.clauderemarks.store.REMARKS_CHANGED
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.RemarksListener
@@ -52,10 +47,8 @@ import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.resolveAll
 import dev.sasha.clauderemarks.store.resolveAnswers
-import java.awt.BorderLayout
 import java.awt.Component
 import javax.swing.Icon
-import javax.swing.JPanel
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
@@ -119,21 +112,6 @@ class RemarksPanel(
      */
     internal val tree = DnDAwareTree(DefaultTreeModel(DefaultMutableTreeNode("remarks")))
 
-    /**
-     * Internal, not private, so RemarksPanelTest can look at what refresh() left on screen.
-     * Hidden by default; refresh() below is what turns it on, once it has actually asked the
-     * service whether a review is waiting.
-     */
-    internal val banner = EditorNotificationPanel().apply {
-        text = "Claude Code is waiting"
-        // Reject, not Cancel: this writes the decision into the published file so the waiting session
-        // stops at once. "Cancel" read as "close this banner", which is exactly the behaviour that
-        // was wrong. It is the only link the banner offers now: there is no separate Send action —
-        // publishing is how a waiting review is answered.
-        createActionLabel("Reject") { rejectWaitingReview(project) }
-        isVisible = false
-    }
-
     init {
         tree.isRootVisible = false
         tree.showsRootHandles = true
@@ -173,15 +151,7 @@ class RemarksPanel(
         )
 
         setToolbar(buildToolbar().component)
-        // A plain BorderLayout panel, not setContent(tree) directly: SimpleToolWindowPanel's own
-        // layout only has room for one centre component, and this is the wrapper task 7 adds so
-        // the banner has a place to sit above the tree without disturbing the toolbar or the tree.
-        setContent(
-            JPanel(BorderLayout()).apply {
-                add(banner, BorderLayout.NORTH)
-                add(JBScrollPane(tree), BorderLayout.CENTER)
-            }
-        )
+        setContent(JBScrollPane(tree))
 
         refresh()
     }
@@ -206,47 +176,8 @@ class RemarksPanel(
                 expandAll()
                 recollapse(wasCollapsed)
                 restoreSelection(wasSelected)
-                updateBanner()
             }
             .submit(AppExecutorUtil.getAppExecutorService())
-    }
-
-    /**
-     * The label is caller-supplied text that arrived over HTTP, not something this plugin wrote.
-     * EditorNotificationPanel.setText feeds a JLabel, and Swing renders a string starting with
-     * "<html>" as markup, so an unescaped label could inject arbitrary Swing markup into the tool
-     * window. escapeXmlEntities turns a leading "<html>" into inert text, and it runs before the
-     * label is placed inside the `<html>` wrapper below, so wrapping the whole string does not
-     * weaken it. Cut to 120 characters first, so a very long label costs one truncated escape
-     * rather than an escape of the whole thing. The Sent text below carries no caller-supplied
-     * content, only a count, so escaping it would be cargo cult.
-     *
-     * Two lines while waiting, one `<html>` string with a `<br>` between them:
-     * `setText` feeds a plain `JLabel`, which is the only way to get a second line inside it. The
-     * Reject link sits in its own panel at the right edge, which is why the second line reads
-     * "Publish to answer, or" with the link beside it rather than inside the label text.
-     */
-    private fun updateBanner() {
-        val waiting = WaitingReviewService.getInstance(project).current()
-        if (waiting == null) {
-            banner.isVisible = false
-            return
-        }
-        banner.text = when (val phase = waiting.phase) {
-            ReviewPhase.Waiting ->
-                "<html>Claude Code is waiting: " +
-                    StringUtil.escapeXmlEntities(waiting.label.take(120)) +
-                    "<br>Publish to answer, or</html>"
-            // "Publish again to add more." stood here until the final phase 10 review, and it
-            // invited the one thing that does not work: the agent's watcher exits on the first
-            // batch that answers this review and nothing re-arms it, so a second publish never
-            // reaches it. See markSent in review/WaitingReview.kt. The answer has gone; the only
-            // thing left to wait for is the agent confirming it read it.
-            is ReviewPhase.Sent ->
-                "Published ${phase.ids.size} remark${plural(phase.ids.size)} for Claude Code. " +
-                    "Waiting for it to read them. A further publish will not go to this review."
-        }
-        banner.isVisible = true
     }
 
     /** The ids currently selected, in the order the tree shows them. */
