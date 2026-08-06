@@ -31,6 +31,16 @@ data class RemarkPlacement(
     /** Whether this remark asks Claude Code for an answer. Straight out of
      *  `RemarkState.asksForAnswer`, and shown as its own line in the tooltip. */
     val asksForAnswer: Boolean,
+    /** Whether the store holds an answer for this remark. No word on the tooltip says so — the
+     *  answer draws its own balloon on the same lines, which says it better — but it is half of what
+     *  decides which of the three question marks a question gets, so the gutter needs the same fact
+     *  the tree row does.
+     *
+     *  Defaults to false, so a caller building a placement by hand keeps compiling. That is the same
+     *  reason `DocumentPlacements.answers` carries a default, and the opposite call from [phrase]
+     *  below: losing the phrase would lose stored data, while a placement built without this fact
+     *  only draws the icon a remark with no answer would draw anyway. */
+    val hasAnswer: Boolean = false,
     val startLine: Int,
     val endLine: Int,
     val orphaned: Boolean,
@@ -133,6 +143,15 @@ private fun asHtml(text: String): String =
  * The platform compares the old and the new renderer on every highlighting pass to decide whether
  * to repaint, so falling back to instance identity makes the icon flicker on every pass.
  *
+ * The same comparison cuts the other way, and that edge is the sharper one: a fact the icon is drawn
+ * from but equals ignores makes the icon never change at all. [asksForAnswer] and [hasAnswer] are
+ * both such facts — together with [status] they pick which of the six icons `RemarkStatusLook.icon`
+ * hands back — so both are part of the key. Leave either out and `apply` in `RemarkGutter.kt`, which
+ * keeps a live highlighter and assigns the fresh renderer onto it, hands the platform a renderer that
+ * compares equal to the painted one, so an answer arriving repaints nothing here. It looks like it
+ * works, because the tree row updates through a path of its own. [AnswerGutterIconRenderer] below
+ * makes the same argument about its markdown.
+ *
  * getIcon is abstract, but inherited from GutterMark rather than declared here. getTooltipText and
  * getClickAction are concrete on GutterIconRenderer, so only what is needed is overridden.
  */
@@ -141,13 +160,12 @@ class RemarkGutterIconRenderer(
     private val id: String,
     private val text: String,
     private val status: RemarkStatus,
+    private val asksForAnswer: Boolean,
+    private val hasAnswer: Boolean,
 ) : GutterIconRenderer() {
 
-    // Hardcoded rather than wired to the renderer's own facts: this class does not carry
-    // asksForAnswer or hasAnswer yet, so this passes RemarkStatusLook the plain track only, the same
-    // icon the gutter has always drawn. The next task gives this renderer both facts, in its
-    // constructor and in equals/hashCode, and updates this call along with them.
-    override fun getIcon(): Icon = RemarkStatusLook.icon(status, asksForAnswer = false, hasAnswer = false)
+    override fun getIcon(): Icon =
+        RemarkStatusLook.icon(status, asksForAnswer = asksForAnswer, hasAnswer = hasAnswer)
 
     override fun getTooltipText(): String = text
 
@@ -166,9 +184,10 @@ class RemarkGutterIconRenderer(
 
     override fun equals(other: Any?): Boolean =
         other is RemarkGutterIconRenderer &&
-            other.id == id && other.text == text && other.status == status
+            other.id == id && other.text == text && other.status == status &&
+            other.asksForAnswer == asksForAnswer && other.hasAnswer == hasAnswer
 
-    override fun hashCode(): Int = Objects.hash(id, text, status)
+    override fun hashCode(): Int = Objects.hash(id, text, status, asksForAnswer, hasAnswer)
 }
 
 /**

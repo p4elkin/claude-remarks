@@ -251,6 +251,21 @@ class RemarkGutter(private val project: Project) : Disposable {
         val path = VfsUtilCore.getRelativePath(file, root) ?: return nothing
         val lines = document.text.split("\n")
 
+        // The answers, read once into a local, because two things need them: the set of remark ids
+        // that have an answer, which is half of what decides a question's icon, and the answer
+        // placements further down.
+        //
+        // The set comes off the WHOLE list, before the per-path filter the placements use. An
+        // answer's path is normally its question's path, so filtering would usually change nothing —
+        // but the question this set answers is which remarks have an answer at all, and the document
+        // being synced has no business narrowing that.
+        //
+        // Guard 3 lets the line through by name, the way it already lets a bare all() through. The
+        // two calls written out in full in hasRemarksOrAnswers above are a different line shape and
+        // stay as they are.
+        val storedAnswers = RemarkStore.getInstance(project).allAnswers()
+        val answeredIds = storedAnswers.mapNotNull { it.remarkId }.toSet()
+
         val placements = RemarkStore.getInstance(project).all()
             .filter { it.path == path && it.id != null }
             .map { remark ->
@@ -262,6 +277,7 @@ class RemarkGutter(private val project: Project) : Disposable {
                     commit = remark.commit,
                     status = remark.status,
                     asksForAnswer = remark.asksForAnswer,
+                    hasAnswer = remark.id!! in answeredIds,
                     startLine = result.startLine,
                     endLine = result.endLine,
                     orphaned = result is AnchorResult.Orphaned,
@@ -272,7 +288,7 @@ class RemarkGutter(private val project: Project) : Disposable {
         // The same filter, against the answer's own stored anchor. An answer to a general remark
         // carries an empty path, so it never matches a real document's relative path and produces
         // no placement anywhere — the same way a general remark already does not.
-        val answers = RemarkStore.getInstance(project).allAnswers()
+        val answers = storedAnswers
             .filter { it.path == path && it.id != null }
             .map { answer ->
                 val stored = storedAnchorOf(answer)
@@ -388,6 +404,8 @@ class RemarkGutter(private val project: Project) : Disposable {
         id = placement.id,
         text = tooltipFor(placement),
         status = placement.status,
+        asksForAnswer = placement.asksForAnswer,
+        hasAnswer = placement.hasAnswer,
     )
 
     private fun rendererFor(placement: AnswerPlacement) = AnswerGutterIconRenderer(

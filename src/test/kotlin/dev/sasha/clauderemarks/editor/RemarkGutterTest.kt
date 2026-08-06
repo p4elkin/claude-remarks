@@ -24,9 +24,12 @@ import dev.sasha.clauderemarks.store.notifyRemarksChanged
 import dev.sasha.clauderemarks.store.recordAnswer
 import dev.sasha.clauderemarks.store.remark
 import dev.sasha.clauderemarks.store.resolveAnswers
+import dev.sasha.clauderemarks.store.setRemarkAsksForAnswer
 import dev.sasha.clauderemarks.store.settleInvocationQueue
+import dev.sasha.clauderemarks.ui.RemarkIcons
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
+import javax.swing.Icon
 
 /**
  * The service, driven against a real markup model. The renderer already has its own tests in
@@ -287,6 +290,66 @@ class RemarkGutterTest : BasePlatformTestCase() {
         assertTrue("closing an answers-only file should refresh the tree", heard.get() > 0)
     }
 
+    /**
+     * The gutter draws a question's icon from three facts, and whether the question has an answer is
+     * the one it did not carry until now. This is the whole trip: a remark marked as asking, an
+     * answer naming that remark, and the icon the renderer ends up handing the platform.
+     *
+     * Asserted on the icon rather than on the placement, because placementsFor is private and the
+     * icon is what the fact is for. RemarkStatusLook hands back the same instance for the same input,
+     * so assertSame is exact here.
+     */
+    fun testAQuestionWithAnAnswerDrawsTheAnsweredQuestionMark() {
+        openFoo()
+        val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?")
+        setRemarkAsksForAnswer(project, listOf(stored.id!!), true)
+        gutter.start()
+        settleInvocationQueue()
+
+        recordAnswer(project, answerOnBeta(remarkId = stored.id!!))
+        settleInvocationQueue()
+
+        assertSame(RemarkIcons.QuestionAnswered, remarkIcons().single())
+    }
+
+    /**
+     * The other half, and the one that catches an answered-id set built by the wrong rule: a
+     * question with no answer of its own must not go green because some other remark has one.
+     */
+    fun testAQuestionWithNoAnswerOfItsOwnDrawsThePendingQuestionMark() {
+        openFoo()
+        val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?")
+        setRemarkAsksForAnswer(project, listOf(stored.id!!), true)
+        gutter.start()
+        settleInvocationQueue()
+
+        // An answer in the store, on the same lines, naming a remark that is not this one.
+        recordAnswer(project, answerOnBeta())
+        settleInvocationQueue()
+
+        assertSame(RemarkIcons.QuestionPending, remarkIcons().single())
+    }
+
+    /**
+     * The answered-id set is derived from the whole answers list, before the per-path filter, and
+     * this is the test that says so. An answer's path is normally its question's path, but the set is
+     * about which questions have an answer at all — so a question in this file whose answer was
+     * stored against another file is still answered. Derive the set from the filtered list instead
+     * and this one alone goes back to the pending icon.
+     */
+    fun testAQuestionIsAnsweredEvenWhenItsAnswerIsStoredAgainstAnotherFile() {
+        openFoo()
+        val stored = addRemark(project, "Foo.kt", LINES, 1..1, "why?")
+        setRemarkAsksForAnswer(project, listOf(stored.id!!), true)
+        gutter.start()
+        settleInvocationQueue()
+
+        recordAnswer(project, answer(remarkId = stored.id!!, path = "Bar.kt"))
+        settleInvocationQueue()
+
+        assertSame(RemarkIcons.QuestionAnswered, remarkIcons().single())
+    }
+
     /** Deleting the answer takes its icon away, the same way deleting a remark takes the remark's. */
     fun testDeletingTheAnswerTakesItsIconAway() {
         openFoo()
@@ -432,6 +495,13 @@ class RemarkGutterTest : BasePlatformTestCase() {
     private fun rawIconCount(): Int =
         highlighters().count { it.gutterIconRenderer is RemarkGutterIconRenderer }
 
+    /** The distinct icons the remark renderers draw, collapsed the same way [iconCount] is. */
+    private fun remarkIcons(): List<Icon> =
+        highlighters()
+            .mapNotNull { it.gutterIconRenderer as? RemarkGutterIconRenderer }
+            .map { it.icon }
+            .distinct()
+
     /** The same highlighters as objects, so a test can tell a rebuild from a survivor. */
     private fun remarkHighlighters() =
         highlighters().filter { it.gutterIconRenderer is RemarkGutterIconRenderer }
@@ -450,8 +520,13 @@ class RemarkGutterTest : BasePlatformTestCase() {
      * An answer anchored to the second line of the file, "beta", which is also the line the remark
      * every test above adds points at. That overlap is deliberate: it is the ordinary case, a remark
      * and its own answer on the same lines.
+     *
+     * [remarkId] defaults to a value no test's remark ever has, because `addRemark` mints a fresh
+     * uuid. So the default answer is on the right lines while naming no remark in the store, and a
+     * test that wants the link has to say so.
      */
-    private fun answerOnBeta() = answer(
+    private fun answerOnBeta(remarkId: String = "r-1") = answer(
+        remarkId = remarkId,
         path = "Foo.kt",
         startLine = 1,
         endLine = 1,

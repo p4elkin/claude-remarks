@@ -204,8 +204,38 @@ class RemarkGutterRendererTest : BasePlatformTestCase() {
         assertFalse(renderer() == renderer(status = RemarkStatus.PUBLISHED))
     }
 
-    private fun renderer(id: String = "r-1", text: String = "why?", status: RemarkStatus = RemarkStatus.PENDING) =
-        RemarkGutterIconRenderer(project, id, text, status)
+    /**
+     * The assertion this class exists for. `apply` in RemarkGutter.kt keeps a live highlighter and
+     * assigns the fresh renderer onto it, and the platform repaints only when the two renderers
+     * differ. An answer arriving changes nothing else about the remark — same id, same tooltip, same
+     * status — so with hasAnswer left out of the key the green question mark never appears, and the
+     * tree row, which updates through a path of its own, makes it look as though it did.
+     *
+     * The hash is asserted as well. Two unequal objects are allowed to share a hash in general, but
+     * these two cannot under Objects.hash, and a field put in equals while being left out of
+     * hashCode is the same slip pointing the other way.
+     */
+    fun testAnAnswerArrivingIsADifferentRendererSoTheIconTurnsGreen() {
+        val asked = renderer(asksForAnswer = true)
+        val answered = renderer(asksForAnswer = true, hasAnswer = true)
+
+        assertFalse(asked == answered)
+        assertFalse(asked.hashCode() == answered.hashCode())
+    }
+
+    /** The same argument for the other new fact: a remark turned into a question has to repaint. */
+    fun testARemarkThatBecameAQuestionIsADifferentRenderer() {
+        assertFalse(renderer() == renderer(asksForAnswer = true))
+        assertFalse(renderer().hashCode() == renderer(asksForAnswer = true).hashCode())
+    }
+
+    private fun renderer(
+        id: String = "r-1",
+        text: String = "why?",
+        status: RemarkStatus = RemarkStatus.PENDING,
+        asksForAnswer: Boolean = false,
+        hasAnswer: Boolean = false,
+    ) = RemarkGutterIconRenderer(project, id, text, status, asksForAnswer, hasAnswer)
 }
 
 /**
@@ -237,7 +267,10 @@ class AnswerGutterRendererTest : BasePlatformTestCase() {
 
     /** An answer and a remark are never the same renderer, whatever they carry. */
     fun testAnAnswerRendererIsNeverEqualToARemarkRenderer() {
-        assertFalse(renderer() as Any == RemarkGutterIconRenderer(project, "a-1", "why?", RemarkStatus.PENDING))
+        assertFalse(
+            renderer() as Any ==
+                RemarkGutterIconRenderer(project, "a-1", "why?", RemarkStatus.PENDING, false, false),
+        )
     }
 
     private fun renderer(

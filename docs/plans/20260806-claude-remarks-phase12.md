@@ -489,20 +489,25 @@ before starting.
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/editor/RemarkGutterTest.kt` (placement building, if
   it constructs `RemarkPlacement` by hand)
 
-- [ ] add `hasAnswer: Boolean` to `RemarkPlacement` with a default of `false`, so every test that
+- [x] add `hasAnswer: Boolean` to `RemarkPlacement` with a default of `false`, so every test that
       builds one by hand keeps compiling
-- [ ] in `placementsFor`, read the answers into a local and derive the set of answered remark ids from
+- [x] in `placementsFor`, read the answers into a local and derive the set of answered remark ids from
       the **unfiltered** list, before the per-path filter, then pass `hasAnswer` per remark
-- [ ] give `RemarkGutterIconRenderer` `asksForAnswer` and `hasAnswer`, use all three facts for its
+- [x] give `RemarkGutterIconRenderer` `asksForAnswer` and `hasAnswer`, use all three facts for its
       icon, and include both new ones in `equals` and `hashCode`
-- [ ] write the test that two renderers differing only in `hasAnswer` are not equal, and the same for
+- [x] write the test that two renderers differing only in `hasAnswer` are not equal, and the same for
       `asksForAnswer` — this is the assertion standing between the feature and an icon that never
       updates
-- [ ] write a test that a remark with an answer produces a placement carrying `hasAnswer = true`, and
-      one without produces `false`
-- [ ] run guard 3's grep from `CLAUDE.md` — must be empty, including the new local
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.editor.RemarkGutterIconTest' --tests 'dev.sasha.clauderemarks.editor.RemarkGutterTest'`
-      — must pass before task 12
+- [x] write a test that a remark with an answer produces a placement carrying `hasAnswer = true`, and
+      one without produces `false` (asserted through the icon the renderer draws, since
+      `placementsFor` is private; a third test pins the **unfiltered** set, with an answer stored
+      against another file)
+- [x] run guard 3's grep from `CLAUDE.md` — must be empty, including the new local
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.editor.RemarkGutterIconTest' --tests 'dev.sasha.clauderemarks.editor.RemarkGutterTest'`
+      — must pass before task 12. ⚠️ The first filter matches **nothing**: `RemarkGutterIconTest.kt`
+      holds four classes and none is called that. Ran the real class names instead —
+      `RemarkTooltipTest` (10), `AnswerTooltipTest` (6), `RemarkGutterRendererTest` (6),
+      `AnswerGutterRendererTest` (5) and `RemarkGutterTest` (22), no failures
 
 ### Task 12: Drop the grey asks word
 
