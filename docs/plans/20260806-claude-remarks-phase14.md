@@ -405,24 +405,51 @@ watcher should not need a session to keep it alive", before starting.
 **Files:**
 - Modify: `build.gradle.kts`, `CLAUDE.md`, `docs/claude/design.md`, `README.md`, `docs/ideas.md`
 
-- [ ] bump to `0.11.0`
-- [ ] add a phase 14 paragraph to `CLAUDE.md` and extend the project-structure block with the new files
-- [ ] write the watcher's new shape into `CLAUDE.md` beside the paragraph that describes the script
+- [x] bump to `0.11.0` — `build.gradle.kts`, then `./gradlew verifyPluginProjectConfiguration` BUILD
+      SUCCESSFUL, which is this repository's documented check after a build-file change
+- [x] add a phase 14 paragraph to `CLAUDE.md` and extend the project-structure block with the new files
+      — the paragraph sits after phase 13's and has three parts (both preview actions, the highlight,
+      the watcher); the structure block gained `action/AskClaudePreviewAction.kt`,
+      `preview/PreviewHighlights.kt` and `claude-remarks-preview.css`, and the entries for
+      `PreviewRemarkExtension.kt`, `claude-remarks-preview.js` and `claude-remarks-markdown.xml` were
+      rewritten. The Testing section gained `PreviewHighlightsTest` and `PreviewRemarkExtensionTest`,
+      the new `watch-remarks.sh` hand checks, and a note that there is no JavaScript test setup at all
+- [x] write the watcher's new shape into `CLAUDE.md` beside the paragraph that describes the script
       today: that it can stream, that it owns its own seen nonce, and that it can claim. ⚠️ The rule
       that a watcher is only ever stopped by the pid on line 1 of its own `.watch` file does not
-      change and must survive the rewrite
-- [ ] mark the `docs/ideas.md` entry "The watcher should not need a session to keep it alive" as built,
+      change and must survive the rewrite — it did: it is restated in its own ⚠️ paragraph inside the
+      phase 14 text, saying that a streaming watcher writes the same pid file, and phase 11's copy of
+      the rule is untouched. The phase 10 sentence describing the script gained a forward pointer, and
+      the phase 12 sentence saying `--session` is refused with exit 2 is now marked half true
+- [x] mark the `docs/ideas.md` entry "The watcher should not need a session to keep it alive" as built,
       with a one-line pointer to what actually shipped — the same way every other built entry in that
-      file opens
-- [ ] write into `docs/claude/design.md` the one thing a future session must not re-derive: **why the
+      file opens — done, and it also records the two things that came out differently from the plan
+      (five outcome words, not three; `--claim` also needs `--project`). Every other entry left alone
+- [x] write into `docs/claude/design.md` the one thing a future session must not re-derive: **why the
       highlight is element-granular** — that `md-src-pos` holds source offsets, that rendered text is
       not source text, and that phase 9's search-for-the-string trick only works in the DOM→source
-      direction because the browser supplies the string
-- [ ] document the re-render problem and the `MutationObserver` answer, so nobody removes it as
-      redundant
-- [ ] update `README.md`'s preview section to say both actions exist and that annotated elements are
-      highlighted
-- [ ] move this plan to `docs/plans/completed/`
+      direction because the browser supplies the string — a new subsection, "Highlighting what a remark
+      points at, and why it is a whole element", under "A Remark on the Rendered Preview", plus a
+      shorter one, "Asking from the preview, not only remarking", for the second action
+- [x] document the re-render problem and the `MutationObserver` answer, so nobody removes it as
+      redundant — in the same subsection, with both non-obvious details argued: `document.documentElement`
+      rather than `document.body`, and `childList`/`subtree`/`characterData` but never `attributes`
+- [x] update `README.md`'s preview section to say both actions exist and that annotated elements are
+      highlighted — also the IdeaVim id note (two preview ids now), the Status paragraph (phases 10 to
+      14), the `preview/` architecture bullet, and one paragraph in listen mode about the streaming
+      shape
+- [x] move this plan to `docs/plans/completed/` — deliberately NOT moved. The harness moves the plan
+      after every phase finishes, and moving it here would break the review, finalize and stats phases
+      that read this path
+
+### Task 9 also updated `CHANGELOG.md`, which the Files block above does not name
+
+Phase 13's own task 9 added a `0.10.0` entry as an extra checkbox, so leaving the changelog at
+`0.10.0` while `build.gradle.kts` said `0.11.0` would have been the only stale version in the
+repository.
+
+- [x] add a `0.11.0` entry to `CHANGELOG.md` in the same shape as `0.10.0`'s, and correct the opening
+      line from "thirteen phases" to "fourteen phases"
 
 ## Hand checks
 

@@ -3,10 +3,10 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-13 are implemented and covered by unit tests. Phase 13 (the tool window is rebuilt: buckets
-are deleted whole, the tree splits into Open and Done, rows wrap to three lines instead of being
-cropped, the position moves below the text as one grey line, and the trailing `read`/`published` words
-go) is complete, including the version bump to `0.10.0` and this final documentation sweep.
+Phases 1-14 are implemented and covered by unit tests. Phase 14 (the rendered markdown preview gets
+Ask Claude beside Add Claude Remark and highlights the elements remarks point at, and the watcher
+script learns to stream, to keep its own seen nonce and to claim a batch itself) is complete,
+including the version bump to `0.11.0` and this final documentation sweep.
 
 ⚠️ **Read the phase paragraphs below as history, not as a feature list.** Phases 6, 7, 8 and 10 each
 built part of a waiting review, and phase 12 deleted it. Phase 5 built buckets and phase 9 built the
@@ -28,9 +28,12 @@ file is found from another machine, the endpoint accepts a token and works acros
 renders sub-line markers correctly, and an acknowledgement really does mark remarks read. What it
 proved about `start`, `ack`, the banner and the deadline is history and nothing more.
 
-**Still unchecked by hand:** the markdown preview entry point, and everything phases 10, 11, 12 and 13
-themselves built. The one build ever installed on either machine
-predates all four. Phase 10's own list is section 8 of
+**Still unchecked by hand:** the markdown preview entry point, and everything phases 10, 11, 12, 13
+and 14 themselves built. The one build ever installed on either machine
+predates all five. Phase 14's fourteen are under "Hand checks" in
+`docs/plans/20260806-claude-remarks-phase14.md`, and ⚠️ several of them are phase 9's own preview
+checks listed again on purpose, because phase 14's preview half builds on code nobody has watched
+run. Phase 10's own list is section 8 of
 `docs/plans/completed/20260805-claude-remarks-phase10.md`; phase 11's twenty-four are under "Hand
 checks" in `docs/plans/20260805-claude-remarks-phase11.md`; phase 12's twelve are under "Hand checks"
 in `docs/plans/20260806-claude-remarks-phase12.md`; phase 13's twenty-one are under "Hand checks" in
@@ -83,9 +86,12 @@ dragged. Press Add General
 Remark in the toolbar to write a remark that is not about any one file; it always shows up in the
 General group of whichever side it is on. A remark can also be written from the rendered
 markdown preview instead of from the source: select words there, right-click, and pick Add Claude
-Remark, and it points at the same characters behind the selection. This needs the Markdown plugin,
-which every JetBrains IDE bundles by default; with it turned off, only this one entry point is missing
-and everything else works as before. Press Publish Unread in the tool window to turn every remark that
+Remark or Ask Claude, and it points at the same characters behind the selection. The preview also
+shows what is already annotated: the paragraph, list item or heading a remark points at gets a faint
+background, in one of two colours, and a question still waiting for an answer looks different from a
+plain remark. This needs the Markdown plugin,
+which every JetBrains IDE bundles by default; with it turned off, only these two entry points and the
+highlighting are missing and everything else works as before. Press Publish Unread in the tool window to turn every remark that
 is not yet `READ` into one markdown prompt on the clipboard, and also to write the same prompt, with a
 five-line header on top, to one file under `~/.claude-remarks/` that a Claude Code skill can read on
 its own; a balloon says how many remarks and files. A published remark stays in the list rather than
@@ -252,7 +258,10 @@ as a failure, because the three `MarkdownHtmlPanel` getters this group calls are
 to the preview's pipe and all carry `@ApiStatus.Experimental`. **None of this has been seen running
 in a real IDE.** Whether the menu item actually appears in a running preview, whether a real browser
 selection reaches Kotlin as the right range, and whether the plugin truly still loads cleanly with
-the markdown plugin disabled, are all still owed as hand checks. See `docs/claude/design.md`, section
+the markdown plugin disabled, are all still owed as hand checks. ⚠️ **Phase 14 built on top of this
+anyway** — an Ask Claude action beside the one above and a highlight pushed the other way down the
+same pipe — so if any of it turns out not to work, this is the first place to look, and phase 14's own
+hand-check list repeats these three deliberately. See `docs/claude/design.md`, section
 "A Remark on the Rendered Preview", for the whole design, and section 12 of
 `docs/plans/completed/20260803-claude-remarks-phase9.md` for the full hand-check list.
 
@@ -278,7 +287,9 @@ path under `handshakeDir()` rather than a path handed back in a response first.
 
 The skill gained a background watcher script, `docs/skill/claude-remarks/watch-remarks.sh`, launched
 once and read for its exit code and its stdout, which is what lets listen mode wait past the ten-minute
-cap a foreground Bash call carries. It can also remember a remote IDE's four connection values (host,
+cap a foreground Bash call carries. ⚠️ That is one of the script's two shapes since phase 14, not the
+whole of it — see the phase 14 paragraph below for the streaming shape, which prints instead of
+exiting. It can also remember a remote IDE's four connection values (host,
 port, project path, token) across runs, through `docs/skill/claude-remarks/remote-config.sh`, instead of
 the person retyping all four every time. See `docs/claude/design.md`, sections "The three states, and
 why published is not read" and "The published file".
@@ -357,7 +368,11 @@ to answer, so `publishMessage` has one parameter fewer; `PublishedBatch` no long
 session and `record` takes only the ids; `sanitizeLabel` and `sanitizeControls` are both deleted, so a
 control character in `commit` shifts the header and the fetch answers `failed` rather than reporting a
 commit nobody has; the watcher script's `--require-review` and `--session` flags are refused with
-exit 2 rather than ignored; and the skill's whole `## Steps` review flow, 531 lines, is deleted. It
+exit 2 rather than ignored; and the skill's whole `## Steps` review flow, 531 lines, is deleted.
+⚠️ **Half of that flag sentence is out of date.** Phase 14 gave `--session` a meaning again — the id a
+session claims a batch under — so it is accepted beside `--claim` and still refused with exit 2 on its
+own, which is what keeps a launch line written for `0.8.0` failing loudly. `--require-review` is gone
+for good. It
 went because it was a second protocol for something that already had one — a session id, a deadline, a
 phase machine, a scheduled expiry, a banner and its own acknowledgement route, and every one of those
 was a place the two sides could disagree about a single handover. Thirteen Known Issues in
@@ -466,6 +481,70 @@ questions.
 
 See `docs/claude/design.md`, section "Open, Done, and Rows That Wrap", for the whole design, and its
 "Buckets" subsection for what was deleted and why.
+
+**Phase 14 is built.** Two halves that share nothing but the version bump. The rendered markdown
+preview gets what the editor already had, and the watcher script stops needing a session to keep it
+alive.
+
+*The preview has both actions now.* `action/AskClaudePreviewAction.kt` sits beside
+`action/AddPreviewRemarkAction.kt` in the preview's right-click menu, registered as
+`ClaudeRemarks.AskClaudePreview` in `claude-remarks-markdown.xml` and ⚠️ nowhere else — a markdown id
+in `plugin.xml` stops the whole plugin loading when the markdown plugin is off. It differs from the
+action beside it in two things: the popup's title, and that the typed text goes through `askClaude`
+rather than `addRemark`. Every refusal — no stored selection, a selection from another preview, a file
+that does not resolve, a source that moved since the page reported the selection — is written once, in
+`openPreviewRemarkInput`, and both actions call it.
+
+*The preview highlights the elements remarks point at.* `preview/PreviewHighlights.kt` is the pure
+half, with no `com.intellij` import: it takes plain values, drops an orphan, a remark about no file
+and a remark about another file, turns what is left into a character offset in the `.md` source, and
+writes a small JSON array of `{offset, kind}`. `preview/PreviewRemarkExtension.kt` pushes that array
+down the same pipe the page already posts selections up — once when the extension is created, so a
+preview opened on an annotated file highlights with no edit, and again on every `REMARKS_CHANGED`,
+with that subscription disconnected in `dispose` beside the pipe's own `removeSubscription`. The page
+marks the innermost element whose position range covers the offset, in one of two classes, a plain
+remark or a question still waiting, styled by `claude-remarks-preview.css`. The platform serves that
+file as an ordinary stylesheet because `MarkdownBrowserPreviewExtension` declares a `styles` list
+beside `scripts`. ⚠️ **The highlight can only ever be a whole element, never the exact words**, and a
+`MutationObserver` is what keeps it alive through a re-render. Both are argued in
+`docs/claude/design.md`, section "A Remark on the Rendered Preview", subsection "Highlighting what a
+remark points at, and why it is a whole element" — read it before changing either.
+
+*The watcher can stream, it owns its seen nonce, and it can claim.* `watch-remarks.sh` has two shapes
+now and `--stream` picks between them. Without it the script behaves exactly as it always has: one
+batch on stdout, exit 0. That is the path every agent other than Claude Code still takes, and it stays
+for that reason. With it the script keeps polling and prints **one short line per batch** — the nonce,
+and the watched path in `--file` mode — never the batch body, because the harness's `Monitor` tool
+turns each printed line into a notification and a monitor that emits too many events is stopped on its
+own. Three things follow. The seen nonce lives in the script rather than in the calling session, which
+removes the whole class of repeat that came from a session typing a stale nonce back into the next
+launch line. The deadline restarts on every batch. And `--claim <base_url>`, with `--session <id>` and
+`--project <path>` beside it and the token in `CLAUDE_REMARKS_TOKEN`, makes the watcher send the
+`published-read` acknowledgement itself before it prints the line, putting the answer on the end of
+that same line. `--claim` needs `--stream`: without it stdout carries the batch and the session claims
+it, so a claim from the watcher would take that batch out from under the session reading it. ⚠️ There
+are **five** outcome words, not three — `ok`, `already-read <session>`, `unknown-batch`,
+`claim-failed <status>` and `claim-failed http <code>` — and the rule for reading them is that `ok`
+means act, `already-read` means another session holds it, and anything else means the IDE did not
+confirm, so act on the batch and send `published-read` yourself. A failed claim always prints the
+nonce anyway: claiming twice is recoverable, a batch nobody hears about is not.
+
+⚠️ **The rule for stopping a watcher did not change and must survive every later rewrite of this
+paragraph.** A watcher is stopped only by the pid on the first line of its own repository's `.watch`
+file, after checking that the pid is alive and that its command line names the same watched path.
+Never by `pkill`, `killall` or a `ps | grep | kill` match on `watch-remarks.sh`: every repository's
+watcher on this machine runs a program with that name, and a blunt match stops all of them at once.
+Streaming changes nothing about this — a streaming watcher writes the same pid file the exiting one
+does.
+
+`SKILL.md`'s listen mode splits into two branches on one shell variable, `listen_monitor`, set on the
+first line of a setup block that is otherwise shared. A harness with a `Monitor` tool arms **one
+persistent monitor** and never re-arms; every other agent keeps the exit-per-batch loop, unchanged.
+The Monitor branch passes no `--owner` and no `perl … setsid` wrapper, because the watcher is the
+monitor's own child there. The summarise, answer and wait-for-go steps are written once, in a section
+both branches end in, so there is one copy rather than two that can drift. See `docs/claude/design.md`,
+sections "The Endpoint the Skill Talks To" — subsection "The streaming shape: the watcher keeps its own
+seen nonce and claims for itself" — and "A Remark on the Rendered Preview" for the whole design.
 
 ## Rules that must not break
 
@@ -779,7 +858,13 @@ src/main/kotlin/dev/sasha/clauderemarks/
   action/AddPreviewRemarkAction.kt the entry point in the rendered markdown preview's right-click
                                    menu (phase 9). Reads only what PreviewSelectionService already
                                    holds, asks the page nothing, and refuses with a dialog rather
-                                   than a hint, since there is no editor here to put a hint in
+                                   than a hint, since there is no editor here to put a hint in.
+                                   updatePreviewRemarkEntryPoint and openPreviewRemarkInput live
+                                   here and hold every check both preview actions make
+  action/AskClaudePreviewAction.kt the preview's Ask Claude, beside the action above (phase 14). Same
+                                   pair one level down as AskClaudeAction is to AddRemarkAction in
+                                   the editor: it supplies the popup title and calls askClaude, and
+                                   nothing else differs
   action/PublishRemarks.kt         publishRemarks(project, ids), the whole publish pipeline, plus the
                                    Tools-menu action (PublishUnreadRemarksAction) that calls it without
                                    the tool window; renamed from CopyRemarks.kt/copyRemarks in phase 9
@@ -805,11 +890,23 @@ src/main/kotlin/dev/sasha/clauderemarks/
   preview/PreviewSelectionService.kt
                                    @Service PROJECT, in memory only: the last selection any preview
                                    reported, with the file url beside it so a reader can compare
+  preview/PreviewHighlights.kt     which remarks the preview should highlight and where each starts
+                                   in the .md source (phase 14). PreviewHighlight, HighlightCandidate,
+                                   highlightsFor and toJson. NO com.intellij import: it takes plain
+                                   values, the same argument anchor/ and PreviewSelection.kt make,
+                                   which is why its tests need no fixture. It drops an orphan, a
+                                   remark about no file and a remark about another file
   preview/PreviewRemarkExtension.kt
                                    the browser half: the MarkdownBrowserPreviewExtension, its
                                    Provider and its ResourceProvider. Subscribes to one pipe message,
                                    parses it on the browser's callback thread, then hops to the EDT
-                                   to narrow the range against the Document and store it
+                                   to narrow the range against the Document and store it. Since phase
+                                   14 it also sends a message the other way, on creation and on every
+                                   REMARKS_CHANGED, resolving the remarks inside a
+                                   ReadAction.nonBlocking and disconnecting that subscription in
+                                   dispose. It declares the stylesheet through styles as well as the
+                                   script through scripts, and serves both from the same
+                                   ResourceProvider
   review/ReviewHandshake.kt        projectIdentity (the ONE function that decides what the plugin
                                    hashes and compares as "this project": the git top level, or the
                                    base path outside a repository), projectHash, handshakeName,
@@ -870,7 +967,12 @@ src/main/resources/META-INF/plugin.xml           declares two hard dependencies:
 src/main/resources/META-INF/claude-remarks-markdown.xml
                                                   everything that cannot exist without the markdown
                                                   plugin, skipped whole when it is disabled: the
-                                                  browserPreviewExtensionProvider registration
+                                                  browserPreviewExtensionProvider registration and,
+                                                  in Markdown.PreviewGroup, the two preview actions
+                                                  ClaudeRemarks.AddPreviewRemark and
+                                                  ClaudeRemarks.AskClaudePreview. Neither id is
+                                                  pinned by ActionIdsTest, because the test fixture
+                                                  never loads the markdown plugin
 src/main/resources/dev/sasha/clauderemarks/icons/question{Pending,Published,Answered}.svg
                                                   plus a _dark sibling for each: the three question
                                                   marks a question's row and its gutter icon draw
@@ -883,7 +985,18 @@ src/main/resources/dev/sasha/clauderemarks/preview/claude-remarks-preview.js
                                                   for selectionchange, walks up to the nearest element
                                                   carrying the position attribute (whose name it reads
                                                   from the page's own meta tag), and posts four
-                                                  offsets plus the highlighted text
+                                                  offsets plus the highlighted text. Since phase 14 it
+                                                  also subscribes to the highlight message, marks the
+                                                  innermost element covering each offset, and
+                                                  re-applies the last list on every DOM rebuild
+                                                  through a MutationObserver
+src/main/resources/dev/sasha/clauderemarks/preview/claude-remarks-preview.css
+                                                  the two highlight classes (phase 14), served as an
+                                                  ordinary stylesheet because
+                                                  MarkdownBrowserPreviewExtension declares a styles
+                                                  list. Both colours are alpha-blended over whatever
+                                                  background is there, since this page defines no
+                                                  theme colour variables a stylesheet could read
 src/main/resources/intentionDescriptions/AddRemarkIntention/description.html
 src/main/resources/intentionDescriptions/AskClaudeIntention/description.html
 src/test/kotlin/dev/sasha/clauderemarks/...   mirrors the same packages
@@ -996,9 +1109,13 @@ path with no repository, and null for a base path that is missing or unusable), 
 went with the deadline in phase 12, and `WaitingReviewTest`'s `startOrConflict` and `isStale` tests
 went with the whole file), `PreviewSelectionTest`
 (since phase 9, `parseSelectionMessage`'s refusals and `narrowToSelection`'s search, including the
-cross-line case and the malformed-message case), and `PreviewRemarkProblemTest` (since phase 9, the
+cross-line case and the malformed-message case), `PreviewRemarkProblemTest` (since phase 9, the
 pure `previewRemarkProblem`: no stored selection, a stored selection in another preview, and one that
-matches) are plain JUnit tests with
+matches), and `PreviewHighlightsTest` (phase 14, the pure `highlightsFor` and `toJson`: a plain remark
+becoming an offset, an unanswered question becoming the question kind, an answered question falling
+back to the plain kind, the three exclusions one test each — orphaned, about no file, about another
+file — several remarks each keeping their own offset, a start line past the end of the source being
+excluded rather than throwing, and the two `toJson` shapes) are plain JUnit tests with
 no fixture, so they run in milliseconds. The rest
 need a light IDE fixture
 (`BasePlatformTestCase`, which needs `testFramework(TestFrameworkType.Platform)` in
@@ -1077,7 +1194,12 @@ filter: absolute paths and `..` segments are dropped, plus a fixture-backed clas
 diff-or-editor decision, since a light fixture project has no VCS root and every file takes the
 plain-editor branch), `PreviewSelectionServiceTest` (since phase 9, fixture-backed for the same
 reason: `remember`, `forget` and `current` on the project-level service that holds the preview's last
-selection), and `RemarkStatusLookTest` (fixture-backed, because loading an icon
+selection), `PreviewRemarkExtensionTest` (phase 14, fixture-backed because the push resolves remarks
+against a real `Document`: an already-annotated file is highlighted as soon as the extension is
+created, a remark added afterwards pushes again, and `dispose` stops both. ⚠️ It fakes
+`MarkdownHtmlPanel` and `BrowserPipe` as plain Kotlin objects rather than treating the push as
+untestable, which is what makes the `REMARKS_CHANGED` leak testable at all), and
+`RemarkStatusLookTest` (fixture-backed, because loading an icon
 needs the platform: the six rows of the two icon tracks as a decision table, plus one test on its own
 for a question that is `READ` with no answer getting the **yellow** icon. A seventh test asserting that
 the same input returns the same icon instance was deleted in the phase 12 review: `icon` returns an
@@ -1171,7 +1293,15 @@ survive; and, since phase 12, that a five-line header is read and its nonce take
 old eight-line header still yields its nonce because the three extra lines read as body, that
 `--require-review` and `--session` are each refused with exit 2 rather than ignored, and that fetch mode
 sends a body carrying `project` and no `session`, checked against a one-shot local HTTP server that
-captured the raw POST body) and
+captured the raw POST body; and, since phase 14, `--stream` in both modes — two nonces out of one
+process and no third line for an unchanged file — that a run without `--stream` still prints the batch
+whole and exits 0, that `--claim` is refused without `--stream` or without `--project`, that a claim
+that cannot connect prints `claim-failed http 000` **and** the nonce, that a stream run with no
+`--claim` invokes `curl` zero times, and that the token reaches the endpoint's header and appears in no
+recorded argv, proved with a `curl` shim that wrote down its own arguments. ⚠️ Every one of those runs
+faked `HOME` **and** the port: a fake handshake left at the ordinary `63342` reaches the IDE the person
+is actually working in, which happened once during phase 14 and was stopped only by the token check.
+Point a fake handshake at a port nothing is listening on, or at a fake endpoint of your own) and
 `docs/skill/claude-remarks/remote-config.sh` (added in phase 10; each check is its own run too,
 with `HOME` pointed at a temporary directory, covering `save`/`show`/`forget`, that the token never
 appears in any output, permission and validation refusals, and that two repository roots produce two
@@ -1194,6 +1324,15 @@ as literal markdown, and — since phase 12 — whether the three question-mark 
 distinguishable at gutter size in a light theme and in a dark one, are all checked by hand in a sandbox
 IDE, not automated. A test can say an icon loaded and reports a width of 16; nothing automated can say
 it reads as yellow rather than as green.
+
+⚠️ **Phase 14 widened it again, in a new direction: there is no JavaScript test setup at all, and this
+phase did not add one.** `./gradlew test` reaches `preview/PreviewHighlights.kt` and the push in
+`preview/PreviewRemarkExtension.kt`, and it reaches nothing inside `claude-remarks-preview.js` or
+`claude-remarks-preview.css`. Whether a highlight actually appears, whether it survives typing, whether
+a question reads as different from a plain remark, and whether a heavily annotated document is still
+comfortable to read are all hand checks. The answer to that is to keep the page dumb — every decision
+that can be made in Kotlin is made there, which is why `PreviewHighlights.kt` exists as its own file
+instead of the page working the exclusions out for itself.
 
 ⚠️ **Phase 13 widened that gap.** A test can say a row produced three visible line components and
 that the fourth, grey one was drawn; nothing automated can say the fourth line of text was elided

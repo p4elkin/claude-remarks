@@ -1662,7 +1662,27 @@ same markdown.
 
 ## The watcher should not need a session to keep it alive
 
-**Planned for phase 14, tasks 5 to 7.** Skill-side only — `docs/skill/claude-remarks/SKILL.md` and
+**Built in phase 14, tasks 5 to 7, and all three changes below shipped.** See
+`docs/claude/design.md`, section "The Endpoint the Skill Talks To", subsection "The streaming shape:
+the watcher keeps its own seen nonce and claims for itself", for what it actually is:
+`watch-remarks.sh` gained `--stream`, which keeps it polling and prints one short line per batch
+instead of exiting; the seen nonce moved into the script, so no session passes one in any more; and
+`--claim <base_url>` with `--session <id>` and `--project <path>` makes the watcher send the
+`published-read` acknowledgement itself and put the answer on the end of that line.
+
+Two things turned out differently from the plan below. The claim has **five** answers, not three —
+`claim-failed <status>` and `claim-failed http <code>` join `ok`, `already-read <session>` and
+`unknown-batch`, and both of the new ones mean "the IDE did not confirm, so act on the batch and
+acknowledge it yourself". And `--claim` needs `--project` as well as `--stream`, because in `--file`
+mode the watcher knows only the published file's 16-character name and the endpoint needs the
+repository path.
+
+The deferred re-arm at the end of this entry was not built and is not needed: streaming removes the
+re-arm rather than delaying it.
+
+What follows is the reasoning that led to the phase, kept as the record of why it was built.
+
+Skill-side only — `docs/skill/claude-remarks/SKILL.md` and
 `watch-remarks.sh`. No plugin change, and nothing it touches is shared with phase 14's preview half.
 It had to come after phase 13's task 9, which rewrote the same listen-mode section; that task is
 committed, so the constraint is already met.

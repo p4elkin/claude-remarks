@@ -127,9 +127,19 @@ reflows. The published prompt draws `⟦`/`⟧` markers around those words insid
 the tree row and gutter tooltip show the column range next to the line number.
 
 **A remark can also be written on rendered markdown.** Select words in IntelliJ's markdown preview,
-right-click, and pick Add Claude Remark; the remark points at the same characters in the `.md`
-source behind the selection. This needs the Markdown plugin, which every JetBrains IDE bundles. With
-it disabled, that one entry point is simply absent and everything else is unchanged.
+right-click, and pick **Add Claude Remark** or **Ask Claude** — the same pair the editor offers, doing
+the same two things. The remark points at the same characters in the `.md` source behind the selection.
+
+The preview also shows you what is already marked up. The element a remark points at — the paragraph,
+the list item, the heading — gets a faint background, and a question still waiting for an answer gets a
+different colour from a plain remark. It is the whole element rather than the exact words, on purpose:
+the position the preview publishes is an offset into the source, and rendered text is not source text,
+so there is no honest way to light up four rendered characters from a source range that covers eight.
+The highlight appears as soon as you open a preview on an annotated file, and it survives you typing in
+the source beside it.
+
+All of this needs the Markdown plugin, which every JetBrains IDE bundles. With it disabled, those two
+entry points and the highlighting are simply absent and everything else is unchanged.
 
 **A remark about nothing in particular.** Press Add General Remark in the tool window for a note
 about the whole change rather than one file. It is rendered first in the prompt, under its own
@@ -316,6 +326,13 @@ a deliberate one — you already asked.
   publishing and then asking a session to listen left the batch sitting there. Now the first thing it
   does is read the batch already in the file and claim it.
 
+**In Claude Code it does not restart at all.** The watcher has a streaming shape since `0.11.0`: it
+keeps polling instead of stopping on each batch, it remembers by itself which batch it has already
+told you about, and it acknowledges each new one on its own before it reports it. So there is no
+re-arm between a batch arriving and the work on it starting, and there is no value a session can type
+back wrongly and make you read the same batch twice. Every other agent keeps the stop-and-restart
+loop described above, which is why both are still in the skill.
+
 It waits up to twelve hours, every batch resets that clock, and it says at the start how to stop it
 early. ⚠️ Stopping it means the pid on the first line of that repository's `.watch` file, never a
 `pkill` or `killall` matched on the script's name: every repository's watcher on the machine runs a
@@ -394,9 +411,10 @@ What that run still proves is the part that survived: the plugin loads, the hand
 publish renders correctly with its sub-line markers, an acknowledgement really does turn rows grey,
 and the endpoint works across a tunnel.
 
-Everything phases 10 to 13 built is unproven, because `0.6.0` predates all four: the merged
+Everything phases 10 to 14 built is unproven, because `0.6.0` predates all five: the merged
 published file, the acknowledgement by nonce, the watcher script, the skill's modes, the Open/Done
-split, the wrapped rows, and the appearance rules described above. ⚠️ **That includes the whole Ask Claude round trip** — the gesture,
+split, the wrapped rows, the appearance rules described above, the preview's two actions and its
+highlighting, and the watcher's streaming shape. ⚠️ **That includes the whole Ask Claude round trip** — the gesture,
 the answer coming back, the nesting, the answer's gutter icon and the markdown popup — **and every one
 of the three question-mark icons.** The automated suite covers the storage, the resolving and the
 endpoint; it cannot cover anything that is drawn, and there is no end-to-end test at all. Several
@@ -422,9 +440,10 @@ renamed:
 Publish Unread since phase 10, but the id is the part promised above, and renaming it would break
 every mapping to it with no error anywhere — IdeaVim fails an unknown id inside IdeaVim, not here.
 
-There is a fifth id, `ClaudeRemarks.AddPreviewRemark`, for the markdown preview entry point. It is
-deliberately not in that table: it is registered only where the markdown preview exists, so it is
-absent when the Markdown plugin is off, and a mapping to it would then do nothing.
+There are two more ids, `ClaudeRemarks.AddPreviewRemark` and `ClaudeRemarks.AskClaudePreview`, for the
+two markdown preview entry points. They are deliberately not in that table: they are registered only
+where the markdown preview exists, so they are absent when the Markdown plugin is off, and a mapping to
+either would then do nothing.
 
 ```vim
 nnoremap <leader>r :action ClaudeRemarks.AddRemark<CR>
@@ -508,8 +527,10 @@ icon painting, the tree colours, the balloon and the settings page layout are al
 - **`render/`** — `PromptRenderer.kt`, pure Kotlin, remarks to markdown; `PromptPayload.kt`, which
   reads the code around each remark and decides whether the payload goes to the clipboard directly
   or through a temp file.
-- **`preview/`** — the markdown preview half: the injected script, the browser extension that
-  receives a selection, and the pure arithmetic that turns it into a character range.
+- **`preview/`** — the markdown preview half: the injected script and stylesheet, the browser extension
+  that receives a selection and pushes the highlights back, the pure arithmetic that turns a selection
+  into a character range, and `PreviewHighlights.kt`, the pure half that decides which remarks the page
+  should highlight and where each one starts.
 - **`review/`** — the endpoint a skill talks to, and the one file remarks are published into. The
   package keeps its name from when it held a shared review session; nothing in it holds one now.
   `ReviewHandshake.kt` writes the file a skill reads to find this IDE; `ReviewRestService.kt` is the

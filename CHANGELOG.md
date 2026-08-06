@@ -1,6 +1,6 @@
 # Changelog
 
-This project was built in thirteen phases over five days, each one planned in a file under
+This project was built in fourteen phases over five days, each one planned in a file under
 `docs/plans/` before any code was written. The entries below are the record of those phases,
 newest first.
 
@@ -11,6 +11,62 @@ when that phase finished". Every version and date below is read out of the git h
 
 The design that came out of all this lives in `docs/claude/design.md`, which is kept current with
 the code. These entries are how the work happened; that document is what the system now is.
+
+---
+
+## 0.11.0 — 2026-08-06 — phase 14: the preview gets the other half, and the watcher stops needing a babysitter
+
+Two halves that share nothing but the version bump. The rendered markdown preview gets what the editor
+already had, and the watcher script stops needing a session to keep it alive.
+
+- **Ask Claude works in the preview.** `action/AskClaudePreviewAction.kt` sits beside
+  `action/AddPreviewRemarkAction.kt` in the preview's right-click menu, registered as
+  `ClaudeRemarks.AskClaudePreview` in `claude-remarks-markdown.xml` and nowhere else — a markdown id in
+  `plugin.xml` stops the whole plugin loading when the markdown plugin is off. The two actions differ in
+  the popup's title and in calling `askClaude` rather than `addRemark`, and in nothing else: every
+  refusal is written once, in `openPreviewRemarkInput`, and both call it.
+- **Annotated elements are highlighted in the preview.** `preview/PreviewHighlights.kt` is the pure
+  half, with no `com.intellij` import: it drops an orphan, a remark about no file and a remark about
+  another file, turns what is left into a character offset in the `.md` source, and writes a small JSON
+  array. `preview/PreviewRemarkExtension.kt` pushes that array down the same `BrowserPipe` the page
+  already posts selections up, once when the extension is created and again on every `REMARKS_CHANGED`,
+  disconnecting that subscription in `dispose`. The page marks the innermost element whose position
+  range covers the offset, in one of two classes styled by `claude-remarks-preview.css`, which the
+  platform serves as an ordinary stylesheet because `MarkdownBrowserPreviewExtension` declares a
+  `styles` list beside `scripts`.
+- **The highlight is a whole element, deliberately.** `md-src-pos` holds offsets in the source, and
+  inside an element the rendered text is not the source text — a remark on `**bold**` covers eight
+  source characters and four rendered ones. Phase 9 solved the opposite direction by searching for the
+  highlighted string, which works only because the browser hands that string over; going the other way
+  there is nothing to search with. So the innermost element whose range covers the offset lights up
+  whole, and character-exact highlighting is not attempted.
+- **A `MutationObserver` keeps the highlight alive through a re-render.** The preview rebuilds its DOM
+  as the source is typed, so a class added once is gone on the next keystroke. The observer watches
+  `document.documentElement` rather than `document.body`, because the script runs from a `<head>` script
+  tag before `document.body` exists, and it watches `childList`, `subtree` and `characterData` but never
+  `attributes`, because its own `classList.add` calls are attribute mutations and it would otherwise
+  react to its own writes.
+- **The watcher can stream.** `--stream` keeps `watch-remarks.sh` polling instead of exiting on a batch,
+  and prints one short line per batch — the nonce, and the watched path in `--file` mode — never the
+  batch body, because the harness's `Monitor` tool turns each printed line into a notification and a
+  monitor that emits too many events is stopped automatically. Without `--stream` the script behaves
+  exactly as it always has, which is the path every agent other than Claude Code takes.
+- **The watcher owns its seen nonce.** After reporting a batch it sets its own seen nonce to that
+  batch's, so nothing is passed back in on a next launch. That removes the whole class of repeat that
+  came from a session typing a stale nonce into a launch line, which had happened twice in one day.
+  The deadline restarts on every batch too.
+- **The watcher can claim.** `--claim <base_url>`, with `--session <id>`, `--project <path>`, `--stream`
+  and the token in `CLAUDE_REMARKS_TOKEN`, sends the `published-read` acknowledgement before printing
+  the batch's line and puts the answer on the end of it. There are five outcome words — `ok`,
+  `already-read <session>`, `unknown-batch`, `claim-failed <status>` and `claim-failed http <code>` — and
+  a failed claim prints the nonce anyway, because claiming twice is recoverable and a batch nobody hears
+  about is not. `--session` is a flag phase 12 refused; it is accepted again here with a new meaning, and
+  still refused on its own.
+- **Listen mode splits into two branches on one variable.** A harness with a `Monitor` tool arms one
+  persistent monitor and never re-arms; every other agent keeps the exit-per-batch loop, unchanged. The
+  summarise, answer and wait-for-go steps are written once, in a section both branches end in.
+
+Plan: `docs/plans/20260806-claude-remarks-phase14.md`.
 
 ---
 

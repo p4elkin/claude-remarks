@@ -1984,6 +1984,120 @@ The stamp is checked in `actionPerformed`, never in `update`. Reading a `Documen
 action, and `update` declares `ActionUpdateThread.BGT`; the menu item stays enabled and refuses with
 a dialog, which is what every other refusal on this action already does.
 
+### Asking from the preview, not only remarking
+
+Phase 14 put Ask Claude beside Add Claude Remark in the preview's right-click menu. The editor has had
+both since phase 11. The preview had only the first, so a question could be asked from the source and
+not from the rendered page.
+
+The two actions differ in two things and in nothing else: the title on the popup, and what happens to
+the text typed into it. `AddPreviewRemarkAction` stores it with `addRemark`. `AskClaudePreviewAction`
+stores it with `askClaude`, the same function the editor gesture calls, which sets `asksForAnswer` and
+publishes every question still waiting for an answer. Everything else is written once, in
+`updatePreviewRemarkEntryPoint` and `openPreviewRemarkInput` in `action/AddPreviewRemarkAction.kt`, and
+both actions call it: is there a stored selection, does it belong to the preview that was right-clicked,
+does the file resolve under the project root, is there an open `Document`, and has the source moved
+since the page reported the selection. That is the same amount of sharing `AddRemarkAction` and
+`AskClaudeAction` have in the editor, which is the precedent this followed.
+
+Both ids live in `META-INF/claude-remarks-markdown.xml` and in no other file. Neither is pinned by
+`ActionIdsTest`, because the test fixture does not load the markdown plugin and an assertion about
+either one would fail on a correct build. `README.md` names them instead.
+
+### Highlighting what a remark points at, and why it is a whole element
+
+Phase 14 also made the preview show what is already annotated. The element a remark points at gets a
+faint background — the paragraph, the list item, the heading. A question still waiting for an answer
+gets a different colour from a plain remark, which is the distinction the tree and the gutter already
+draw.
+
+**The highlight covers a whole element, and it cannot be the exact words.** This is the fact a future
+session must not have to re-derive. It looks like a shortcut and it is not one.
+
+`md-src-pos` holds a range of offsets **in the source**. Inside an element the rendered text is not the
+source text. A remark on `**bold**` covers eight characters of source and four characters of rendered
+text. So a source offset cannot be turned into a character position inside the DOM by arithmetic. The
+two do not line up, and nothing on the page says how they map.
+
+Phase 9 solved the opposite direction, and it is worth seeing why that trick does not turn around.
+Going from the DOM to the source, the browser hands over the exact string the person highlighted, so
+`narrowToSelection` searches for that string inside the coarse source range and lands on the exact
+characters. Going from the source to the DOM there is no string to search with. All that is known is a
+number.
+
+So the page marks the innermost element whose range covers the remark's start offset, and the whole
+element lights up. Sasha accepted that knowing what it gives up. ⚠️ Do not attempt character-exact
+highlighting again unless something changes about what the markdown generator emits.
+
+**The innermost element is the last match in document order.** A paragraph inside a list item inside a
+list all carry ranges that contain the offset. `querySelectorAll` returns elements in document order,
+and the generator opens outer tags before inner ones, so among the elements whose range contains the
+offset the last one is the deepest. One query, one pass, keep the last match. No recursion and no DOM
+walk of our own.
+
+**An offset that matches nothing is a silent skip.** The source moves while a person types, and an
+offset from an older resolve can simply stop landing on anything. That is ordinary here, not a failure,
+so nothing is logged and nothing is reported.
+
+**The re-render problem, and why the `MutationObserver` is not redundant.** The markdown plugin rebuilds
+the preview's DOM as the source is typed, through `IncrementalDOM.patch`. A class added by hand is gone
+the moment that patch next touches the element. So a highlight applied once would disappear on the next
+keystroke, and the feature would look broken while every push was correct.
+
+Two ways to fix that, and the choice was between them: the plugin re-pushes on every document change,
+or the page re-applies what it was last given. The page won. It keeps the state where it is used, it
+needs no extra listener on the plugin side, and it does not put a document listener on the EDT path for
+something cosmetic. The plugin still pushes when the extension is created and on every
+`REMARKS_CHANGED`; the observer only re-applies the last list it was handed.
+
+Two details of that observer are non-obvious, and both would break quietly if changed.
+
+- **It observes `document.documentElement`, not `document.body`.** The script runs from a `<script>`
+  tag inside `<head>`, before the parser has reached `</head>`, so `document.body` does not exist yet
+  at that moment and observing it would fail. `<html>` exists as soon as its own opening tag is parsed,
+  and `subtree: true` still covers everything inside body once body exists.
+- **It watches `childList`, `subtree` and `characterData`, and deliberately never `attributes`.** The
+  script's own `classList.add` and `classList.remove` calls are attribute mutations. An observer that
+  also watched attributes would see its own writes and re-apply itself forever. `childList` and
+  `characterData` already catch every real re-render, because typing changes either the text of a node
+  in place or the structure around it, and the script writes neither.
+
+**The push side.** `preview/PreviewRemarkExtension.kt` sends the list down the same `BrowserPipe` the
+page posts selections up, under a second message type — `BrowserPipe.send` is the direction phase 14
+added, beside the `subscribe` phase 9 already used. It resolves the remarks inside a
+`ReadAction.nonBlocking`, because resolving reads a `Document`, and sends when that read finishes on the
+UI thread. It pushes once from `init`, so a preview opened on a file that is already annotated is
+highlighted with no edit at all, and again on every `REMARKS_CHANGED`. ⚠️ That subscription is
+disconnected in `dispose`, beside the pipe's own `removeSubscription`. A preview is created and
+destroyed as often as a person opens and closes one, and a listener left behind would push into a page
+that is gone, once more per reload, for the rest of the session.
+
+**The pure half is a file of its own.** `preview/PreviewHighlights.kt` decides which remarks belong on
+the page and where each one starts, and it has no `com.intellij` import — it takes plain values through
+`HighlightCandidate`, the same argument `anchor/` and `preview/PreviewSelection.kt` already make, which
+is why its tests need no fixture and run in milliseconds. Three exclusions are pinned there, each for
+its own reason: an orphaned remark, because its stored line and column mean nothing once the code could
+not be found; a remark about no file, because it has no position at all; and a remark for a different
+file than the one previewed. An answered question is deliberately styled like a plain remark rather than
+given a third look, because the warmer colour is for a question a person is still waiting on.
+
+Keeping that decision in Kotlin is the whole reason the file exists. Nothing inside the page is reachable
+by `./gradlew test`, so every choice that can be made on the Kotlin side is made there and the page is
+kept dumb.
+
+**The stylesheet is served, not injected.** `MarkdownBrowserPreviewExtension` declares a `styles` list
+beside `scripts` — read in the platform checkout, not assumed, because the plan itself did not know — so
+`claude-remarks-preview.css` reaches the page as an ordinary `<link rel="stylesheet">` the platform
+builds itself, through the same `ResourceProvider` that already serves the script. No JavaScript of ours
+inserts a `<style>` element.
+
+**Both colours are alpha-blended, not pinned.** The preview page defines no theme colour variables a
+stylesheet of ours could read, and the markdown plugin's own `default.css` defines none either. A fixed
+hex value would look right in a light theme or in a dark one, never in both. A translucent overlay over
+whatever background is already there reads as a faint tint in either. Both are kept subtle on purpose, a
+left border and a faint background rather than a strong fill: a heavily annotated document with loud
+highlights would be worse than no highlight at all.
+
 ## The Endpoint the Skill Talks To
 
 Phase 6 let a Claude Code skill reach into a running IDE through the HTTP server the platform already
@@ -2065,6 +2179,11 @@ owner that is gone exits 3 with one sentence of its own, and a killed watcher ex
 `SIGTERM`). The skill reads the exit code and the output once, in a fresh foreground call, and decides
 what to do from those two things alone. Nothing is left behind for it to go and read.
 
+⚠️ **Since phase 14 there is a second shape, and everything above describes only the first one.**
+`--stream` picks between them, and with it the loop deliberately does not end on a batch. The
+subsection "The streaming shape" below has the whole of it. Everything in this subsection still holds
+for a run without `--stream`, which is what every agent other than Claude Code runs.
+
 ⚠️ **Exit 3 is the one exit code no session ever sees.** It means the process named by `--owner` is
 gone, and that process is the session itself, so by the time the watcher exits that way there is
 nobody left to be woken. It exists to stop an orphan, not to report anything, and `SKILL.md` says
@@ -2089,9 +2208,11 @@ server allows 30 requests a minute from one address and every tunnelled request 
 **One way of deciding a batch is new.** `--seen <nonce>` is the batch already known: report the first
 batch whose nonce differs from it. Phase 12 deleted the second way, `--require-review <session>`,
 which reported the first batch whose `review:` header field named a given session — that header field
-does not exist any more. Both flags it removed, `--require-review` and `--session`, are refused with
+does not exist any more. Both flags it removed, `--require-review` and `--session`, were refused with
 exit 2 rather than ignored, so a launch line written for `0.8.0` fails loudly instead of quietly
-watching for something else.
+watching for something else. ⚠️ **`--session` came back in phase 14 with a different meaning** — the id
+a session claims a batch under — so it is accepted beside `--claim` and still refused on its own, which
+is what keeps the `0.8.0` launch line failing. `--require-review` is gone for good.
 
 **Why it polls a copy of the file rather than the file.** In file mode the watcher copies the
 published file with `cp` and reads the header and the body out of the copy. `cp` opens an inode, and
@@ -2202,6 +2323,84 @@ argument, so it is in neither the watcher's own argv nor `curl`'s. Every process
 read an argument out of `ps`, and the token is the only gate on the endpoint — see "The security
 rule" below for why that gate is the whole of it. The request body carries no secret, so it stays on
 the command line, which is what leaves stdin free for the config.
+
+### The streaming shape: the watcher keeps its own seen nonce and claims for itself
+
+Phase 14 gave the script a second shape. `--stream` picks between them. Both are supported, both have
+to keep working, and neither is a leftover.
+
+**Why a second shape at all.** The exit-per-batch shape cost the session two shell round trips before
+any work started: the `published-read` claim, then the re-arm. A message costs about nine seconds of
+model time whatever it carries, so roughly twenty seconds of bookkeeping sat between "a batch arrived"
+and "something is being done about it". Worse, the seen nonce lived in the calling session, which had
+to type the right value back into every launch line. Arming with a stale nonce makes the watcher exit
+within a second on a batch that was already handled. That happened twice in one day, on 6 August 2026,
+and it is what raised this.
+
+**What streaming changes.** The harness's `Monitor` tool turns each line a running process prints into
+a notification. So printing is how the session is woken, and exiting would end the watch instead of
+delivering it. That is the exact opposite of the rule the subsection above is built on, which is why
+the script's own header comment now states both shapes before anything else.
+
+⚠️ **One short line per batch, never the batch body.** The line carries the nonce, the watched path in
+`--file` mode, and the claim's answer when there is one. A published file is hundreds of lines, and a
+monitor that emits too many events is stopped automatically. The session opens the file itself once it
+has the line.
+
+**The seen nonce moved into the script.** After it reports a batch, the script sets its own seen nonce
+to that batch's, so the next poll compares against it. Nothing is passed back in on a next launch,
+there is no value left for a session to get wrong, and the whole class of repeat goes away. This is the
+point of the change rather than a detail of it.
+
+**The deadline restarts on every batch**, so somebody who keeps publishing keeps their watcher.
+
+**`--claim` moves the acknowledgement into the watcher too.** `--claim <base_url>` needs `--session
+<id>`, `--project <path>`, `--stream`, and the token in `CLAUDE_REMARKS_TOKEN`. With all of them the
+script posts `published-read` for a new batch **before** it prints that batch's line, and puts the
+answer on the end of the same line. Three of those four requirements are worth the reasons behind them:
+
+- **`--stream` is required.** Without it, stdout carries the batch itself and the session sends
+  `published-read` for it. A claim from the watcher would then be answered `ok`, the session's own
+  claim would be answered `already-read`, and a session told `already-read` acts on nothing — so it
+  would walk away from a batch nobody handled.
+- **`--project` is required**, because the endpoint needs it beside the session and the nonce. In
+  `--file` mode the watcher knows only the published file's name, which is 16 hex characters no path
+  can be recovered from. ⚠️ So a launch line that claims passes `--project` in file mode too, which it
+  never had to before.
+- **The token never appears in an argument.** It is read from the environment and handed to `curl`
+  through a config file on stdin, the same shape the `--fetch` branch already used, and for the same
+  reason: every process on the machine can read an argument out of `ps`.
+
+**Five outcome words, and the rule for reading them.** `ok`, `already-read <session>`, `unknown-batch`,
+`claim-failed <status>` and `claim-failed http <code>`. The plan named three. The two `claim-failed`
+words cover a request that never reached the IDE (`http 000`), a stale token (`http 403`), and an HTTP
+200 whose status is one this endpoint answers but the plan did not name — `unknown-project`,
+`bad-request`, or no status field at all. Read them like this: **`ok` means act on the batch**,
+**`already-read` means another session holds it** and this one acts on nothing, and **anything else
+means the IDE did not confirm**, so act on the batch and send `published-read` yourself.
+
+⚠️ **A claim that fails still prints the nonce.** Claiming twice is recoverable. A batch nobody hears
+about is not.
+
+**Everything else is the same in both shapes.** The deadline, an owner that is gone, and every refusal
+exit exactly as they do without `--stream`, `--owner` included: an orphan that streams forever is worse
+than one that stops at its deadline. ⚠️ And a watcher is still stopped only by the pid on the first
+line of its own repository's `.watch` file, after checking that the pid is alive and that its command
+line names the same watched path — never by `pkill`, `killall` or a `ps | grep | kill` match on
+`watch-remarks.sh`. A streaming watcher writes the same pid file an exiting one does, so nothing about
+that rule changes.
+
+⚠️ **`Monitor` is Claude Code's own tool.** Every other agent runs the exit-per-batch shape, so
+`SKILL.md` keeps both branches and the default shape is byte for byte what it was. Listen mode picks
+between them with one shell variable on the first line of a setup block the two branches otherwise
+share, and the summarise, answer and wait-for-go steps are written once, in a section both branches
+end in, so there is one copy rather than two that can drift apart.
+
+⚠️ **Any hand check of this runs in the scratchpad with a fake `HOME` and a fake port.** Faking `HOME`
+alone is not enough: a handshake file names a port, the ordinary one is `63342`, and that is the IDE
+the person is actually working in. A phase 14 check faked only `HOME`, and its startup claim reached
+the live IDE with a made-up token and nonce. It answered 403 and marked nothing, so the token check was
+the only thing between that check and somebody's real batch being marked read.
 
 ### Why the published file's path is predictable, and that is safe here
 
