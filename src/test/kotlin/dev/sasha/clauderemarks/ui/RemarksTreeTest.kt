@@ -469,24 +469,100 @@ class RemarksTreeTest {
         assertEquals(null, bucketDropTarget(null))
     }
 
-    // ---- the Answers group ----
+    // ---- an answer nested under its question ----
 
     /**
-     * Above General, above the buckets, above the files. The answer that just arrived is the whole
-     * reason to look at the tree, so it is the first thing on it.
+     * The ordinary case, and the whole point of the nesting: the answer is drawn next to the thing
+     * it is about, inside that question's own file group, instead of in a flat group at the top.
      */
     @Test
-    fun `the Answers group is first, above General`() {
+    fun `an answer is a child of the question it answers`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt")),
+            listOf(answerRow(id = "a-1", remarkId = "r-1")),
+        )
+
+        assertEquals(1, root.childCount)
+        val file = child(root, 0)
+        assertEquals("file:src/Foo.kt", (file.userObject as GroupNode).key)
+        val question = child(file, 0)
+        assertEquals("r-1", (question.userObject as RemarkNode).id)
+        assertEquals(1, question.childCount)
+        assertEquals("a-1", (child(question, 0).userObject as AnswerNode).id)
+    }
+
+    /**
+     * The General group nests too, and it is built by its own code rather than by `addFileGroups`,
+     * so an answer to a general remark is the one case a file-group test cannot cover.
+     */
+    @Test
+    fun `an answer to a general remark is a child of it in the General group`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "")),
+            listOf(answerRow(id = "a-1", remarkId = "r-1", path = "")),
+        )
+
+        val general = child(root, 0)
+        assertEquals(GENERAL_KEY, (general.userObject as GroupNode).key)
+        val question = child(general, 0)
+        assertEquals(1, question.childCount)
+        assertEquals("a-1", (child(question, 0).userObject as AnswerNode).id)
+    }
+
+    /**
+     * The ordinary tree has one fewer top-level group than it used to: with every answer nested,
+     * there is nothing left for the group at the top to hold, and it is not drawn at all.
+     */
+    @Test
+    fun `the group for answers with no question is absent when every answer has one`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt")),
+            listOf(answerRow(id = "a-1", remarkId = "r-1")),
+        )
+
+        val keys = (0 until root.childCount)
+            .map { ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).key }
+
+        assertEquals(listOf("file:src/Foo.kt"), keys)
+    }
+
+    // ---- the group for an answer whose question is gone ----
+
+    /**
+     * An answer outlives the question it answers on purpose — `clearHandedOverRemarks` keeps answers
+     * and `deleteRemark` does not touch them — so this is an ordinary state and needs a home. Both
+     * shapes land here: an answer naming a remark nothing knows about, and one naming nothing at all.
+     */
+    @Test
+    fun `an answer whose question is not in the tree goes to the top-level group`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt")),
+            listOf(answerRow(id = "a-1", remarkId = "r-gone"), answerRow(id = "a-2", remarkId = null)),
+        )
+
+        val group = (child(root, 0).userObject as GroupNode)
+        assertEquals(ANSWERS_KEY, group.key)
+        assertEquals("Answers with no question", group.label)
+        assertEquals(setOf("a-1", "a-2"), answerIdsUnder(root, 0).toSet())
+        // And the live question keeps no child of its own.
+        assertEquals(0, child(child(root, 1), 0).childCount)
+    }
+
+    /**
+     * Above General, above the buckets, above the files — where the old Answers group sat, and with
+     * the same key, so a person who had it collapsed keeps it collapsed across the upgrade.
+     */
+    @Test
+    fun `the group for answers with no question is first, above General`() {
         val root = buildTreeRoot(
             listOf(row(path = "", id = "r-1"), row(path = "src/Foo.kt", id = "r-2")),
-            listOf(answerRow(id = "a-1")),
+            listOf(answerRow(id = "a-1", remarkId = "r-gone")),
         )
 
         val keys = (0 until root.childCount)
             .map { ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).key }
 
         assertEquals(listOf(ANSWERS_KEY, GENERAL_KEY, "file:src/Foo.kt"), keys)
-        assertEquals("Answers", (child(root, 0).userObject as GroupNode).label)
     }
 
     /** Nobody who has never received an answer gets an empty group wrapped around their tree. */
@@ -499,11 +575,12 @@ class RemarksTreeTest {
     }
 
     /**
-     * Newest first, which is a different order from every other group in the tree. Deliberate: the
-     * answer you just received is the one you want to read.
+     * Newest first, which is a different order from every other group in the tree. Deliberate: of
+     * the answers with nothing left to sit under, the one that just arrived is the one to read. A
+     * nested answer gets no order of its own — it sits where its question sits.
      */
     @Test
-    fun `answer rows are sorted newest first`() {
+    fun `the rows in that group are sorted newest first`() {
         val root = buildTreeRoot(
             emptyList(),
             listOf(
@@ -514,6 +591,45 @@ class RemarksTreeTest {
         )
 
         assertEquals(listOf("a-new", "a-middle", "a-old"), answerIdsUnder(root, 0))
+    }
+
+    /**
+     * A remark with no id gets no node at all, so an answer naming it has no parent to attach to and
+     * must still be drawn. Build the id set from the whole stored list rather than from the filtered
+     * one and this answer matches an id that never became a node: it attaches to nothing, and the row
+     * disappears from the tree with nothing failing anywhere.
+     */
+    @Test
+    fun `an answer naming a remark that got no node is still drawn`() {
+        val root = buildTreeRoot(
+            listOf(row(id = null, path = "src/Foo.kt")),
+            listOf(answerRow(id = "a-1", remarkId = "")),
+        )
+
+        assertEquals(1, root.childCount)
+        assertEquals(ANSWERS_KEY, (child(root, 0).userObject as GroupNode).key)
+        assertEquals(listOf("a-1"), answerIdsUnder(root, 0))
+    }
+
+    /**
+     * A nested row sits inside its question's file group, so the grey file name at its end would be
+     * a third copy of something already on screen. A row in the top-level group has no file group
+     * above it and keeps it. The position stays on both: an answer carries its own anchor and can
+     * drift away from the line its question resolved to.
+     */
+    @Test
+    fun `a nested answer row draws no file name and a top-level one draws its own`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt")),
+            listOf(answerRow(id = "a-1", remarkId = "r-1"), answerRow(id = "a-2", remarkId = "r-gone")),
+        )
+
+        val topLevel = child(child(root, 0), 0).userObject as AnswerNode
+        val nested = child(child(child(root, 1), 0), 0).userObject as AnswerNode
+
+        assertEquals("Foo.kt", topLevel.fileName)
+        assertEquals("", nested.fileName)
+        assertEquals("5-7", nested.position)
     }
 
     @Test
@@ -558,7 +674,7 @@ class RemarksTreeTest {
     fun `a tree with answers and no buckets still has no bucket level`() {
         val root = buildTreeRoot(
             listOf(row(id = "r-1", path = "src/Foo.kt")),
-            listOf(answerRow(id = "a-1")),
+            listOf(answerRow(id = "a-1", remarkId = "r-gone")),
         )
 
         assertEquals(2, root.childCount)
@@ -570,7 +686,10 @@ class RemarksTreeTest {
     /** An answer row is an AnswerNode, so Publish Selected and the toggle take nothing from it. */
     @Test
     fun `selecting the Answers group gives no remark rows and every answer row`() {
-        val root = buildTreeRoot(listOf(row(id = "r-1")), listOf(answerRow(id = "a-1"), answerRow(id = "a-2")))
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1")),
+            listOf(answerRow(id = "a-1", remarkId = "r-gone"), answerRow(id = "a-2", remarkId = "r-gone")),
+        )
         val group = listOf(child(root, 0))
 
         assertEquals(emptyList<RemarkNode>(), remarkNodesUnder(group))
@@ -581,7 +700,7 @@ class RemarksTreeTest {
     fun `the Answers group is not a drop target`() {
         val root = buildTreeRoot(
             listOf(row(id = "r-1", path = "src/Foo.kt", bucket = "auth refactor")),
-            listOf(answerRow(id = "a-1")),
+            listOf(answerRow(id = "a-1", remarkId = "r-gone")),
         )
         val answers = child(root, 0)
 
@@ -646,7 +765,7 @@ class RemarksTreeTest {
 
     private fun row(
         path: String = "src/Foo.kt",
-        id: String = "r-1",
+        id: String? = "r-1",
         text: String = "why?",
         status: RemarkStatus = RemarkStatus.PENDING,
         result: AnchorResult = AnchorResult.Exact(4, 6),
@@ -675,7 +794,7 @@ class RemarksTreeTest {
     /** The same builder shape as [row], for the answers half of a rebuild. */
     private fun answerRow(
         id: String = "a-1",
-        remarkId: String = "r-1",
+        remarkId: String? = "r-1",
         path: String = "src/Foo.kt",
         markdown: String = "because two threads write it",
         answeredAt: Long = 0L,

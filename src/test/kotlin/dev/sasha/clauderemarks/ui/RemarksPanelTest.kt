@@ -398,17 +398,24 @@ class RemarksPanelTest : BasePlatformTestCase() {
     /**
      * The refresh resolves answers as well as remarks now. Nothing in RemarksTreeTest can catch the
      * panel forgetting the second half: it builds the node model directly and never runs a refresh.
+     *
+     * It also says the nested answer row is really *visible*, which the node-model tests cannot: a
+     * child node that nothing expands is a row nobody sees. `expandAll` walks a live `rowCount`, so
+     * it opens the question node with no help, and the row count here is what proves it.
      */
-    fun testAnAnswerGetsARowAtTheTopOfTheTree() {
+    fun testAnAnswerGetsARowNestedUnderItsQuestion() {
         val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
         recordAnswer(project, answer(id = "a-1", remarkId = remark.id!!, path = "A.kt"))
 
         val panel = panel()
 
-        // the Answers group, its one row, the file group, its one row
-        assertEquals(4, panel.tree.rowCount)
-        val first = panel.tree.getPathForRow(0).lastPathComponent as DefaultMutableTreeNode
-        assertEquals(ANSWERS_KEY, (first.userObject as GroupNode).key)
+        // the file group, its one remark, and the answer under that remark — no group at the top
+        assertEquals(3, panel.tree.rowCount)
+        val question = panel.tree.getPathForRow(1).lastPathComponent as DefaultMutableTreeNode
+        assertEquals(remark.id, (question.userObject as RemarkNode).id)
+        val nested = panel.tree.getPathForRow(2).lastPathComponent as DefaultMutableTreeNode
+        assertEquals(question, nested.parent)
+        assertEquals("a-1", (nested.userObject as AnswerNode).id)
     }
 
     /**
@@ -450,11 +457,11 @@ class RemarksPanelTest : BasePlatformTestCase() {
         )
         val panel = panel()
 
-        panel.tree.setSelectionRow(1)
+        // Row 0 is the file group, row 1 the remark, row 2 the answer nested under it.
+        panel.tree.setSelectionRow(2)
         assertEquals("because two threads write it", panel.selectedAnswerRow()?.markdown)
 
-        // Row 3 is the remark under its file group, below the two answer rows.
-        panel.tree.setSelectionRow(3)
+        panel.tree.setSelectionRow(1)
         assertNull(panel.selectedAnswerRow())
     }
 

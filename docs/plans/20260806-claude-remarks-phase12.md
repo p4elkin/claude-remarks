@@ -373,24 +373,25 @@ Spec sections 9 and 10.
   `buildTreeRoot`, `answerNode`, `ANSWERS_LABEL`, and `AnswerNode.fileName`'s KDoc)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksTreeTest.kt` (the Answers-group tests)
 
-- [ ] change `ANSWERS_LABEL` to `"Answers with no question"`, keeping `ANSWERS_KEY` as `"answers"` so
+- [x] change `ANSWERS_LABEL` to `"Answers with no question"`, keeping `ANSWERS_KEY` as `"answers"` so
       a collapsed state survives the upgrade, and say in its KDoc why the word "orphaned" is avoided
-- [ ] in `buildTreeRoot`, split the id-carrying answers into those whose `remarkId` names a remark in
+- [x] in `buildTreeRoot`, split the id-carrying answers into those whose `remarkId` names a remark in
       the same filtered list the nodes are built from, and everything else
-- [ ] attach each matched answer as a child of its remark's `DefaultMutableTreeNode`, in both the
+- [x] attach each matched answer as a child of its remark's `DefaultMutableTreeNode`, in both the
       General group and the file groups
-- [ ] add the top-level group for the rest, above General, only when at least one exists, still sorted
+- [x] add the top-level group for the rest, above General, only when at least one exists, still sorted
       newest first
-- [ ] give `answerNode` a `nested` parameter that leaves `fileName` empty, and update
+- [x] give `answerNode` a `nested` parameter that leaves `fileName` empty, and update
       `AnswerNode.fileName`'s KDoc to say the position stays because an answer's anchor can drift from
       its question's
-- [ ] write tests: a matched answer is its question's child; an answer naming nothing is in the
+- [x] write tests: a matched answer is its question's child; an answer naming nothing is in the
       top-level group; the group is absent when every answer has a question; a nested row carries no
       file name and a top-level row does; the top-level group is newest first
-- [ ] write a test that an answer whose `remarkId` names a remark with no id — which produces no node
+- [x] write a test that an answer whose `remarkId` names a remark with no id — which produces no node
       — lands in the top-level group rather than disappearing
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'` — must pass before
-      task 8
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'` — must pass before
+      task 8 (run together with `RemarksPanelTest`, which the nesting moves rows in: 57 and 25 tests,
+      no failures)
 
 ### Task 8: Make Delete cover a question's answer, and ask only for a group
 
@@ -585,6 +586,13 @@ Spec section 18. Checked by hand in the scratchpad, never against the real `~/.c
 ### Task 15: Verify acceptance criteria
 
 - [ ] verify every requirement in the Overview is implemented, section by section against the spec
+- [ ] ⚠️ **check the endpoint's test coverage did not erode.** Tasks 4, 5 and 6 each deleted tests, and
+      three separate times the stated reason was "it became an exact duplicate of another test once its
+      review setup was removed". Every one of those calls was defensible on its own, but three agents
+      independently pruning the same test class is how coverage quietly thins. Go through
+      `ReviewEndpointSmokeTest` against the four surviving actions — `fetch`, `published-read`,
+      `answer`, `open` — and confirm every status value each one can answer still has a test. Add back
+      whatever is missing rather than assuming a passing suite means a covering suite
 - [ ] run the full suite: `./gradlew test`
 - [ ] run `./gradlew build`
 - [ ] run `./gradlew verifyPluginProjectConfiguration`

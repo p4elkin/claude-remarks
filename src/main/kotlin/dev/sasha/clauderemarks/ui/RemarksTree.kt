@@ -27,14 +27,25 @@ const val GENERAL_KEY = "general"
 const val GENERAL_LABEL = "General"
 
 /**
- * The key of the group that holds every answer a Claude Code session sent back. A file key always
+ * The key of the group that holds every answer with no question left in the tree. A file key always
  * starts with "file:" and a bucket key with "bucket:", and [GENERAL_KEY] is the bare word "general",
  * so this second bare word cannot collide with any of them — the same argument [GENERAL_KEY] makes.
+ *
+ * The group used to hold every answer, and the key is deliberately unchanged now that it holds only
+ * some of them: `RemarksPanel` records collapsed groups by key, so keeping the word means a person
+ * who had this group shut keeps it shut across the upgrade.
  */
 const val ANSWERS_KEY = "answers"
 
-/** The label drawn on that group, beside [GENERAL_LABEL] for the same reason. */
-const val ANSWERS_LABEL = "Answers"
+/**
+ * The label drawn on that group, beside [GENERAL_LABEL] for the same reason.
+ *
+ * ⚠️ The word "orphaned" is deliberately avoided. The tree already writes "(orphaned…)" on a row
+ * whose *code* could not be found, which is a different state entirely — such a row's question may
+ * be perfectly alive, and an answer in this group may point at code that resolves exactly. One word
+ * for two states in one tree is how a person learns to distrust both.
+ */
+const val ANSWERS_LABEL = "Answers with no question"
 
 /** What every bucket group's key starts with. See [buildTreeRoot] for why the key is not the label. */
 const val BUCKET_KEY_PREFIX = "bucket:"
@@ -87,6 +98,7 @@ data class RemarkNode(
  * [position] and [fileName] are both empty for an answer to a general remark: such an answer has no
  * file, so there is no position to print and no file name to print beside it. Every other answer
  * carries the same position string a remark row does, resolved through the same [rowPosition].
+ * [fileName] is also empty for an answer nested under its question; see the field's own KDoc.
  *
  * [markdown] is carried on the node rather than looked up again when the popup opens, so a double
  * click reads the body the row was built from and not whatever the store holds a moment later.
@@ -114,6 +126,17 @@ data class AnswerNode(
      */
     val startLine: Int,
     val position: String,
+    /**
+     * The file name drawn in grey at the end of the row, or empty when the row must not draw one:
+     * an answer nested under its question, which already sits inside that question's file group, and
+     * an answer with no file at all.
+     *
+     * ⚠️ [position] is deliberately **not** dropped on a nested row the same way. An answer carries
+     * its own anchor, so it can drift away from the line its question resolved to, and then the two
+     * rows really do point at different lines — which is the one thing only this row can say. A file
+     * name can never differ from its question's that way, so there it is a third copy of something
+     * already on screen.
+     */
     val fileName: String,
     /**
      * The remark this answers, copied off the stored answer, or empty when the answer carries none —
@@ -170,8 +193,14 @@ fun remarkNode(row: ResolvedRemark, hasAnswer: Boolean = false): RemarkNode {
     )
 }
 
-/** The same, for an answer. The position rules are shared with [remarkNode] rather than copied. */
-fun answerNode(row: ResolvedAnswer): AnswerNode {
+/**
+ * The same, for an answer. The position rules are shared with [remarkNode] rather than copied.
+ *
+ * [nested] says the row is being built as a child of its own question, which is the ordinary case.
+ * The only thing it changes is [AnswerNode.fileName]; see that field's KDoc for why the position
+ * stays either way.
+ */
+fun answerNode(row: ResolvedAnswer, nested: Boolean = false): AnswerNode {
     val answer = row.answer
     val general = isAboutNoFile(answer)
     val path = answer.path.orEmpty()
@@ -183,7 +212,7 @@ fun answerNode(row: ResolvedAnswer): AnswerNode {
         // from, so the row cannot say one line and navigate to another.
         startLine = row.result.startLine,
         position = if (general) "" else rowPosition(row.result, row.startColumn, row.endColumn) + label,
-        fileName = if (general) "" else path.substringAfterLast('/'),
+        fileName = if (general || nested) "" else path.substringAfterLast('/'),
         question = answer.question.orEmpty(),
         firstLine = firstLineOf(answer.markdown),
         markdown = answer.markdown.orEmpty(),
@@ -301,9 +330,17 @@ private fun leavesOf(node: DefaultMutableTreeNode): List<Any> =
  * Copy Selected both match on the id, and an empty id matches no stored remark. RemarkGutter drops
  * the same rows for the same reason.
  *
- * The Answers group sits above all of it, and appears only once an answer exists. It is flat, like
- * the General group, and sorted **newest first** — a different order from every other group in the
- * tree, and deliberately so: the answer that just arrived is the one worth reading.
+ * An answer is a **child of the question it answers**, wherever that question sits — in the General
+ * group or in a file group, in a bucket or not. So it is next to the thing it is about, and it takes
+ * that question's place in bucket, file and line order rather than any order of its own. Being a
+ * child here is a view and nothing else: the store has two independent records, and Delete calls
+ * `deleteAnswer` for the answer row in its own right.
+ *
+ * An answer whose question is **not** in the tree — one carrying no `remarkId`, and one naming a
+ * remark that is gone or that got no node — has no parent to sit under, and goes into a flat
+ * top-level group keyed [ANSWERS_KEY] above the General group, sorted **newest first**, a different
+ * order from every other group in the tree. That group appears only when at least one such answer
+ * exists, which is not the ordinary case: normally every answer nests and the group is absent.
  */
 fun buildTreeRoot(
     rows: List<ResolvedRemark>,
@@ -311,17 +348,28 @@ fun buildTreeRoot(
 ): DefaultMutableTreeNode {
     val root = DefaultMutableTreeNode("remarks")
 
-    // Filtered once, then used twice. An answer with no id draws no row — the same rule a remark
-    // with no id follows below — so it must not flip its remark's suffix from "asks" to "answered"
-    // either: a row saying the question was answered, with no answer anywhere to open, is worse
-    // than the row saying nothing.
+    // Filtered once, then used three times. An answer with no id draws no row — the same rule a
+    // remark with no id follows below — so it must not flip its remark's suffix from "asks" to
+    // "answered" either: a row saying the question was answered, with no answer anywhere to open, is
+    // worse than the row saying nothing.
     val withIds = answers.filter { it.answer.id != null }
-    val answerRows = withIds
-        .map(::answerNode)
-        .sortedByDescending { it.answeredAt }
-    if (answerRows.isNotEmpty()) {
+
+    // The remarks that will really get a node, and so the ids an answer can attach to. Taken from
+    // this same filtered list rather than asked of the store again: a remark with no id produces no
+    // node, so an answer naming one has no parent and has to be treated as having none at all.
+    val remarkRows = rows.filter { it.remark.id != null }
+    val questionIds = remarkRows.mapNotNull { it.remark.id }.toSet()
+
+    val (nestedAnswers, looseAnswers) = withIds.partition { it.answer.remarkId in questionIds }
+    val nestedByQuestion = nestedAnswers.groupBy(
+        { it.answer.remarkId.orEmpty() },
+        { answerNode(it, nested = true) },
+    )
+
+    val looseRows = looseAnswers.map(::answerNode).sortedByDescending { it.answeredAt }
+    if (looseRows.isNotEmpty()) {
         val answersNode = DefaultMutableTreeNode(GroupNode(ANSWERS_KEY, ANSWERS_LABEL))
-        answerRows.forEach { answersNode.add(DefaultMutableTreeNode(it)) }
+        looseRows.forEach { answersNode.add(DefaultMutableTreeNode(it)) }
         root.add(answersNode)
     }
 
@@ -333,20 +381,19 @@ fun buildTreeRoot(
     // Split on the stored remark, then map and sort each side, rather than mapping first and asking
     // the node. Same rows in the same order either way — partition keeps order and the sort is
     // stable — but this way the question "is this about no file" is asked of isAboutNoFile once.
-    val (generalRows, fileRows) = rows.filter { it.remark.id != null }
-        .partition { isAboutNoFile(it.remark) }
+    val (generalRows, fileRows) = remarkRows.partition { isAboutNoFile(it.remark) }
     val order = compareBy<RemarkNode>({ it.bucket ?: "" }, { it.path }, { it.startLine })
     val general = generalRows.map { remarkNode(it, it.remark.id in answered) }.sortedWith(order)
     val aboutAFile = fileRows.map { remarkNode(it, it.remark.id in answered) }.sortedWith(order)
 
     if (general.isNotEmpty()) {
         val generalNode = DefaultMutableTreeNode(GroupNode(GENERAL_KEY, GENERAL_LABEL))
-        general.forEach { generalNode.add(DefaultMutableTreeNode(it)) }
+        general.forEach { generalNode.add(questionTreeNode(it, nestedByQuestion)) }
         root.add(generalNode)
     }
 
     if (aboutAFile.none { it.bucket != null }) {
-        addFileGroups(root, "", aboutAFile)
+        addFileGroups(root, "", aboutAFile, nestedByQuestion)
         return root
     }
 
@@ -358,7 +405,7 @@ fun buildTreeRoot(
         // in a real bucket name, because setRemarkBucket trims it.
         val key = bucket?.let { BUCKET_KEY_PREFIX + it } ?: NO_BUCKET_KEY
         val bucketNode = DefaultMutableTreeNode(GroupNode(key, label))
-        addFileGroups(bucketNode, "$key/", inBucket)
+        addFileGroups(bucketNode, "$key/", inBucket, nestedByQuestion)
         root.add(bucketNode)
     }
     return root
@@ -387,14 +434,32 @@ private fun addFileGroups(
     parent: DefaultMutableTreeNode,
     keyPrefix: String,
     nodes: List<RemarkNode>,
+    answersByQuestion: Map<String, List<AnswerNode>>,
 ) {
     nodes.groupBy { it.path }.forEach { (path, inFile) ->
         val fileNode = DefaultMutableTreeNode(
             GroupNode("${keyPrefix}file:$path", path.substringAfterLast('/'), shortDirectory(path))
         )
-        inFile.forEach { fileNode.add(DefaultMutableTreeNode(it)) }
+        inFile.forEach { fileNode.add(questionTreeNode(it, answersByQuestion)) }
         parent.add(fileNode)
     }
+}
+
+/**
+ * One remark's tree node, with the answer to it already attached as a child. The one place a remark
+ * node is built, so the General group and the file groups cannot end up nesting differently.
+ *
+ * A list of children rather than one: `recordAnswer` upserts on the remark id, so the store cannot
+ * hold two answers to one question and this is expected to hold zero or one. If two ever do appear,
+ * both are drawn, which is visible rather than silently hidden.
+ */
+private fun questionTreeNode(
+    node: RemarkNode,
+    answersByQuestion: Map<String, List<AnswerNode>>,
+): DefaultMutableTreeNode {
+    val questionNode = DefaultMutableTreeNode(node)
+    answersByQuestion[node.id]?.forEach { questionNode.add(DefaultMutableTreeNode(it)) }
+    return questionNode
 }
 
 /**
@@ -430,9 +495,12 @@ fun bucketDropTarget(node: DefaultMutableTreeNode?): BucketDrop? {
     return when {
         top.key == NO_BUCKET_KEY -> BucketDrop(null)
         top.key.startsWith(BUCKET_KEY_PREFIX) -> BucketDrop(top.key.removePrefix(BUCKET_KEY_PREFIX))
-        // The General group, the Answers group and a file group at the top level all land here. A
-        // general remark is about the whole change, so there is no bucket to read off it; an answer
-        // is not in a bucket at all; and a tree with no bucket level has nothing to drop onto.
+        // The General group, the group for answers with no question, and a file group at the top
+        // level all land here. A general remark is about the whole change, so there is no bucket to
+        // read off it; an answer with no question is under no bucket at all; and a tree with no
+        // bucket level has nothing to drop onto. An answer nested under a question inside a bucket
+        // does resolve to that bucket, which is harmless: a drag carries `selectedIds()`, which is
+        // remark ids only, so such a row drags nothing.
         else -> null
     }
 }
