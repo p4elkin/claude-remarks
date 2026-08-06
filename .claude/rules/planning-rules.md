@@ -56,7 +56,7 @@ code instead.
 
 That directory holds a person's actual remarks and their published files. Any shell check that reads
 or writes it runs in the scratchpad with `HOME` pointed at a temporary directory. This includes every
-check of `docs/skill/claude-remarks*/watch-remarks.sh` and `remote-config.sh`.
+check of `src/main/resources/dev/sasha/clauderemarks/skill/watch-remarks.sh` and `remote-config.sh`.
 
 ⚠️ **Faking `HOME` is not enough on its own. Fake the port too.** A handshake file names a port, and
 the ordinary port is `63342`, which is the IDE the person is actually working in. Phase 14's task 7

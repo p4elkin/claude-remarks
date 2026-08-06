@@ -481,18 +481,20 @@ fi
 
 # Where the watcher script is. See "Where the two scripts are, and how to name them" below: the
 # skill's directory is not on PATH, so the launch line printed at the end of this block has to
-# carry an absolute path or it answers "command not found".
+# carry an absolute path or it answers "command not found". The third candidate below is not an
+# implementation detail: it is what lets this script run straight out of a checkout of this
+# repository, with no install step at all.
 listen_skill_dir=
 for listen_candidate in \
   "$HOME/.claude/skills/claude-remarks" \
   "$PWD/.claude/skills/claude-remarks" \
-  "$PWD/docs/skill/claude-remarks"
+  "$PWD/src/main/resources/dev/sasha/clauderemarks/skill"
 do
   [ -x "$listen_candidate/watch-remarks.sh" ] && { listen_skill_dir=$listen_candidate; break; }
 done
 if [ -z "$listen_skill_dir" ]; then
   echo "watch-remarks.sh was not found in ~/.claude/skills/claude-remarks/, in"
-  echo "./.claude/skills/claude-remarks/ or in ./docs/skill/claude-remarks/."
+  echo "./.claude/skills/claude-remarks/ or in ./src/main/resources/dev/sasha/clauderemarks/skill/."
   echo "Install the skill the way docs/skill/README.md describes, or say where it is. Do not run"
   echo "it by its bare name: it is not on PATH."
   exit 1
@@ -1192,19 +1194,21 @@ line runs it first**, and the launch line it prints then carries an absolute pat
 
 ```sh
 # Resolve this skill's own directory. Rename the two variables per mode, the same way every other
-# block here does: listen_skill_dir/listen_candidate is listen mode's copy of exactly this.
+# block here does: listen_skill_dir/listen_candidate is listen mode's copy of exactly this. The
+# third candidate is not an implementation detail: it is what lets this script run straight out of
+# a checkout of this repository, with no install step at all.
 skill_dir=
 for candidate in \
   "$HOME/.claude/skills/claude-remarks" \
   "$PWD/.claude/skills/claude-remarks" \
-  "$PWD/docs/skill/claude-remarks"
+  "$PWD/src/main/resources/dev/sasha/clauderemarks/skill"
 do
   [ -x "$candidate/watch-remarks.sh" ] && { skill_dir=$candidate; break; }
 done
 if [ -z "$skill_dir" ]; then
   echo "watch-remarks.sh was not found in any of the three places this skill looks:"
   echo "  ~/.claude/skills/claude-remarks/, ./.claude/skills/claude-remarks/,"
-  echo "  ./docs/skill/claude-remarks/"
+  echo "  ./src/main/resources/dev/sasha/clauderemarks/skill/"
   echo "Install the skill the way docs/skill/README.md describes, or say where it is, and run this"
   echo "again. Do not fall back to the bare name: it is not on PATH and never has been."
   exit 1

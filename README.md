@@ -272,17 +272,22 @@ works as it always did.
 
 ## The Claude Code skill
 
-`docs/skill/claude-remarks/` is a normal Claude Code skill that reads remarks out of the IDE.
-Install it by symlinking or copying the directory into `~/.claude/skills/`:
+The skill that reads remarks out of the IDE is a normal Claude Code skill, and since phase 15 its
+three files live inside the plugin's own resources, under
+`src/main/resources/dev/sasha/clauderemarks/skill/`. The ordinary way to install it is the Install
+button on the plugin's settings page (Settings → Tools → Claude Remarks), which copies the three
+files out of the running plugin. The fallback, for a checkout with no plugin build to hand, is to
+symlink or copy the directory into `~/.claude/skills/` by hand:
 
 ```sh
-ln -s "$(pwd)/docs/skill/claude-remarks" ~/.claude/skills/claude-remarks
+ln -s "$(pwd)/src/main/resources/dev/sasha/clauderemarks/skill" ~/.claude/skills/claude-remarks
 # or
-cp -r docs/skill/claude-remarks ~/.claude/skills/claude-remarks
+cp -r src/main/resources/dev/sasha/clauderemarks/skill ~/.claude/skills/claude-remarks
 ```
 
-⚠️ The directory was called `claude-remarks-review` until review mode was retired, so an install made
-before that is a dangling symlink and has to be recreated with one of the commands above.
+⚠️ The directory was `docs/skill/claude-remarks/` until phase 15 moved it into the plugin's own
+resources, and `claude-remarks-review` before that, until review mode was retired. An install made
+before either move is a dangling symlink and has to be recreated with one of the commands above.
 
 It is kept in this repository rather than only under `~/.claude/skills` because the skill and the
 IDE endpoint it talks to are one protocol, with five pairs of halves that have to agree — the request
@@ -392,8 +397,8 @@ or `Referer`, is the whole security model.
 
 The two commands that read the port and the token, and the `ssh -R` line that starts the tunnel, are
 in the "Over SSH: the IDE on another machine" section of
-`docs/skill/claude-remarks/SKILL.md`. They are not repeated here, so there is one copy to
-keep right.
+`src/main/resources/dev/sasha/clauderemarks/skill/SKILL.md`. They are not repeated here, so there is
+one copy to keep right.
 
 ## Status
 
@@ -489,10 +494,11 @@ given here on purpose: it goes stale on the next commit, and `./gradlew test` pr
 not for an agent session.
 
 **Two files that ship with the plugin have no automated check at all.** The suite is Kotlin and runs
-no shell, so it never touches `docs/skill/claude-remarks/watch-remarks.sh` or
-`remote-config.sh` — everything the skill's waiting and its stored remote configuration are built
-on. Both are checked by hand instead, each check its own run; `CLAUDE.md`'s Testing section lists
-what those cover. A green suite says nothing about either.
+no shell, so it never touches
+`src/main/resources/dev/sasha/clauderemarks/skill/watch-remarks.sh` or `remote-config.sh` —
+everything the skill's waiting and its stored remote configuration are built on. Both are checked by
+hand instead, each check its own run; `CLAUDE.md`'s Testing section lists what those cover. A green
+suite says nothing about either.
 
 There are also no UI-rendering or end-to-end tests. The popup appearing at the caret, the gutter
 icon painting, the tree colours, the balloon and the settings page layout are all hand checks.

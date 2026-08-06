@@ -1,21 +1,29 @@
 # Installing the claude-remarks skill
 
-`claude-remarks/` is a normal Claude Code skill. Install it by copying or symlinking the
-directory into `~/.claude/skills/`:
+The skill's three files — `SKILL.md`, `watch-remarks.sh` and `remote-config.sh` — live inside the
+plugin now, as plain resources under
+`src/main/resources/dev/sasha/clauderemarks/skill/`. The ordinary way to install the skill is the
+Install button on the plugin's settings page (Settings → Tools → Claude Remarks), which copies the
+three files out of the running plugin, stamps the installed `SKILL.md` with its version, and makes
+the two scripts executable.
+
+The two commands below are the fallback, for a checkout with no plugin build to hand, or before
+phase 15's install button exists in an installed version:
 
 ```sh
-ln -s "$(pwd)/docs/skill/claude-remarks" ~/.claude/skills/claude-remarks
+ln -s "$(pwd)/src/main/resources/dev/sasha/clauderemarks/skill" ~/.claude/skills/claude-remarks
 ```
 
 or, without a symlink:
 
 ```sh
-cp -r docs/skill/claude-remarks ~/.claude/skills/claude-remarks
+cp -r src/main/resources/dev/sasha/clauderemarks/skill ~/.claude/skills/claude-remarks
 ```
 
-⚠️ **The directory was called `claude-remarks-review` until phase 12 retired review mode.** An
-install made before that points at a path this repository no longer has, so it has to be removed and
-recreated under the new name; a symlink left behind simply dangles.
+⚠️ **The directory was called `docs/skill/claude-remarks/` until phase 15 moved it into the plugin's
+own resources**, and `claude-remarks-review` before that, until phase 12 retired review mode. An
+install made before either move points at a path this repository no longer has, so it has to be
+removed and recreated under the new name; a symlink left behind simply dangles.
 
 It is kept in this repository, not only under `~/.claude/skills`, because the skill and the IDE
 endpoint it talks to are one protocol, and five separate pairs of halves have to agree:
