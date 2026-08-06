@@ -394,13 +394,26 @@ class RemarksPanel(
 
     /**
      * Deleting the rows you picked out asks nothing: you selected them and then pressed Delete,
-     * which is not silent. Selecting a group node — a file, a bucket, or the Answers group — is the
-     * other case. It stands for every row under it, and on a collapsed node that is an unknown
-     * number of rows nobody has published yet. That one asks, the same way Clear All does.
+     * which is not silent. Selecting a group node — a file, a bucket, the General group or the
+     * Answers group — is the other case. It stands for every row under it, and on a collapsed node
+     * that is an unknown number of rows nobody has published yet. That one asks, the same way
+     * Clear All does.
      *
      * Answer rows go through deleteAnswer and remark rows through deleteRemark, and a selection can
      * hold both. Without the answer half, Delete on an answer row would do nothing at all, with no
      * message — remarkNodesUnder returns remark rows only.
+     *
+     * The confirmation rule is "does the selection contain a GroupNode", not the arithmetic this
+     * replaced (how many selected paths were themselves a leaf, against how many rows the
+     * selection covered once every group was expanded). That count was a proxy for "is there
+     * anything in the selection not actually on screen", which is exactly what a GroupNode means:
+     * it hides an unknown number of rows until it is expanded. Before an answer could nest under
+     * its question, a RemarkNode had no children, so a selected leaf always covered exactly one
+     * row and the two rules never disagreed. Nesting broke only the arithmetic, not the intent
+     * behind it: selecting one question row now covers two rows — itself and its answer — while
+     * only the question was pointed at, so the old count would have popped a dialog for a plain
+     * single-row delete. Both rows are already on screen the moment the question is clicked, so
+     * there is nothing hidden to warn about, and the new rule says so correctly.
      *
      * Internal, not private, so RemarksPanelTest can press Delete without a keystroke.
      */
@@ -409,11 +422,10 @@ class RemarksPanel(
         val answers = selectedAnswerNodes()
         val total = nodes.size + answers.size
         if (total == 0) return
-        val pickedOut = tree.selectionPaths.orEmpty().count {
-            val user = (it.lastPathComponent as? DefaultMutableTreeNode)?.userObject
-            user is RemarkNode || user is AnswerNode
+        val selectionHasGroup = tree.selectionPaths.orEmpty().any {
+            (it.lastPathComponent as? DefaultMutableTreeNode)?.userObject is GroupNode
         }
-        if (total > pickedOut && !confirmDelete(total)) return
+        if (selectionHasGroup && !confirmDelete(total)) return
         nodes.forEach { deleteRemark(project, it.id) }
         answers.forEach { deleteAnswer(project, it.id) }
     }

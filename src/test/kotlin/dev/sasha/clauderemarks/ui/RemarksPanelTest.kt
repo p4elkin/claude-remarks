@@ -4,6 +4,8 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.ui.TestDialog
+import com.intellij.openapi.ui.TestDialogManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.TestActionEvent
@@ -431,6 +433,49 @@ class RemarksPanelTest : BasePlatformTestCase() {
         settleInvocationQueue()
 
         assertTrue(RemarkStore.getInstance(project).allAnswers().isEmpty())
+    }
+
+    /**
+     * Nesting's other half for Delete: a question and its answer are two rows, but the person
+     * pointed at one of them, the question. `leavesOf` now recurses into a RemarkNode, so Delete
+     * takes both — otherwise the answer would survive with no question left to sit under, and
+     * reappear in the no-question group instead of just disappearing.
+     *
+     * Neither the question nor its answer is a GroupNode, so this also proves nothing asks first:
+     * no TestDialog is registered here at all, and Messages.showYesNoDialog throws if the
+     * production code ever tries to show one without a test double in place.
+     */
+    fun testDeletingASelectedQuestionRemovesItsAnswerTooWithNoDialog() {
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
+        recordAnswer(project, answer(id = "a-1", remarkId = remark.id!!, path = "A.kt"))
+        val panel = panel()
+
+        // Row 0 is the file group, row 1 the question, row 2 the answer nested under it.
+        panel.tree.setSelectionRow(1)
+
+        panel.deleteSelected()
+        settleInvocationQueue()
+
+        assertTrue(RemarkStore.getInstance(project).all().isEmpty())
+        assertTrue(RemarkStore.getInstance(project).allAnswers().isEmpty())
+    }
+
+    /**
+     * The other side of the same change: a group row still hides an unknown number of rows — a
+     * file group here, but the same is true of a bucket, the General group and the Answers group
+     * — so selecting one still asks. TestDialog.NO answers the dialog with no real window, and the
+     * remark surviving is what proves the dialog was actually consulted, not skipped: if
+     * deleteSelected stopped asking, the remark would already be gone by the time this checks.
+     */
+    fun testSelectingAFileGroupStillAsksFirst() {
+        addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val panel = panel()
+        panel.tree.setSelectionRow(0)
+
+        TestDialogManager.setTestDialog(TestDialog.NO, testRootDisposable)
+        panel.deleteSelected()
+
+        assertEquals(1, RemarkStore.getInstance(project).all().size)
     }
 
     /**

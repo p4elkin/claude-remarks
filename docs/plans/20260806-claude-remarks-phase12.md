@@ -406,16 +406,16 @@ Spec section 11.
   `answerNodesUnder`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksPanelTest.kt` (the delete confirmation)
 
-- [ ] make `leavesOf` return a `RemarkNode` **and** its children's leaves, so `answerNodesUnder` finds
+- [x] make `leavesOf` return a `RemarkNode` **and** its children's leaves, so `answerNodesUnder` finds
       a selected question's answer
-- [ ] replace `deleteSelected`'s arithmetic with "ask when the selection contains a `GroupNode`", and
+- [x] replace `deleteSelected`'s arithmetic with "ask when the selection contains a `GroupNode`", and
       write in the KDoc that this is what the old count was a proxy for and that it is equivalent for
       every selection that was possible before nesting
-- [ ] write tests: `answerNodesUnder` on a selected question returns its answer; `remarkNodesUnder` on
+- [x] write tests: `answerNodesUnder` on a selected question returns its answer; `remarkNodesUnder` on
       it still returns only the remark
-- [ ] write a test that deleting a selected question row removes both rows without a dialog
-- [ ] write a test that a selected group row still asks first
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest' --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest'`
+- [x] write a test that deleting a selected question row removes both rows without a dialog
+- [x] write a test that a selected group row still asks first
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest' --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest'`
       — must pass before task 9
 
 ### Task 9: The three question-mark icons

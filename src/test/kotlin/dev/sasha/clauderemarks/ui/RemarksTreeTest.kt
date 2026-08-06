@@ -696,6 +696,35 @@ class RemarksTreeTest {
         assertEquals(listOf("a-1", "a-2"), answerNodesUnder(group).map { it.id })
     }
 
+    /**
+     * `leavesOf` used to stop at a RemarkNode. Since an answer nests under its question, that would
+     * have left a selected question's answer alive after Delete took the question — a delete that
+     * makes a different row (the now-orphaned answer, in the no-question group) appear rather than
+     * just removing what was selected.
+     */
+    @Test
+    fun `selecting a question also selects the answer nested under it`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt")),
+            listOf(answerRow(id = "a-1", remarkId = "r-1")),
+        )
+        val question = child(child(root, 0), 0)
+
+        assertEquals(listOf("a-1"), answerNodesUnder(listOf(question)).map { it.id })
+    }
+
+    /** The other half: selecting the question still gives exactly its own remark, not two copies. */
+    @Test
+    fun `selecting a question still gives only its own remark from remarkNodesUnder`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt")),
+            listOf(answerRow(id = "a-1", remarkId = "r-1")),
+        )
+        val question = child(child(root, 0), 0)
+
+        assertEquals(listOf("r-1"), remarkNodesUnder(listOf(question)).map { it.id })
+    }
+
     @Test
     fun `the Answers group is not a drop target`() {
         val root = buildTreeRoot(

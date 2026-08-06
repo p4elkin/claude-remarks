@@ -299,13 +299,24 @@ fun answerNodesUnder(selected: List<DefaultMutableTreeNode>): List<AnswerNode> =
  * Recursive, not one level down. A bucket node's children are file nodes, and a one-level walk over
  * them finds GroupNodes and answers nothing at all — so selecting a bucket and pressing Copy
  * Selected or Delete would do nothing, with no message.
+ *
+ * A RemarkNode is not a leaf in the same sense any more: since an answer nests under the question
+ * it answers, a RemarkNode's own children can hold one AnswerNode. Stopping there the way an
+ * AnswerNode does would leave a selected question's answer behind — Delete would take the question
+ * and the answer would survive with no question left to sit under, which is a delete that makes a
+ * different row jump to the no-question group rather than just disappearing. So a RemarkNode
+ * contributes itself AND recurses into its children; it is the only user object that does both.
  */
 private fun leavesOf(node: DefaultMutableTreeNode): List<Any> =
     when (val user = node.userObject) {
-        is RemarkNode, is AnswerNode -> listOfNotNull(user)
-        else -> (0 until node.childCount).flatMap { index ->
-            (node.getChildAt(index) as? DefaultMutableTreeNode)?.let(::leavesOf).orEmpty()
-        }
+        is AnswerNode -> listOf(user)
+        is RemarkNode -> listOf(user) + childLeavesOf(node)
+        else -> childLeavesOf(node)
+    }
+
+private fun childLeavesOf(node: DefaultMutableTreeNode): List<Any> =
+    (0 until node.childCount).flatMap { index ->
+        (node.getChildAt(index) as? DefaultMutableTreeNode)?.let(::leavesOf).orEmpty()
     }
 
 /**
