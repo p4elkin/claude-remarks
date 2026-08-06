@@ -477,6 +477,13 @@ checks, deliberately re-listed** — this phase builds on code that has never ru
     `--stream` and confirm it behaves exactly as it did before this phase.
 14. A watcher whose claim fails (stop the IDE, then publish by hand into the file) still reports the
     batch, with the http code beside it.
+15. ⚠️ **A batch published while the session is still reading the previous one does not destroy that
+    previous one.** Publish batch A and let the streaming watcher print its line, then publish batch
+    B before opening what the line named, then open it: it must still hold batch A. This is the
+    review finding the claim-then-print order created — the claim marks A `READ`, Publish Unread
+    only carries remarks that are not `READ`, so an A that got overwritten before it was read could
+    never come back. The line names a snapshot for exactly this reason, so a session must never
+    "helpfully" read the published file or re-`fetch` instead. Run it in both modes.
 
 ## Post-Completion
 

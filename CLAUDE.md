@@ -518,9 +518,17 @@ remark points at, and why it is a whole element" — read it before changing any
 now and `--stream` picks between them. Without it the script behaves exactly as it always has: one
 batch on stdout, exit 0. That is the path every agent other than Claude Code still takes, and it stays
 for that reason. With it the script keeps polling and prints **one short line per batch** — the nonce,
-and the watched path in `--file` mode — never the batch body, because the harness's `Monitor` tool
-turns each printed line into a notification and a monitor that emits too many events is stopped on its
-own. Three things follow. The seen nonce lives in the script rather than in the calling session, which
+the path of a snapshot of that batch, and the claim's answer, three fields in both modes — never the
+batch body, because the harness's `Monitor` tool turns each printed line into a notification and a
+monitor that emits too many events is stopped on its own. ⚠️ **That path is a snapshot the watcher
+wrote, never the published file, and a session must read it rather than the published file or a fresh
+`fetch`.** The claim goes out before the line is printed, so the batch is already `READ` in the IDE;
+the published file is overwritten by the next publish; and Publish Unread selects on "not `READ`". So
+a session reading the live file after a second publish would lose the first batch for good, with its
+remarks sitting in Done looking handled. A copy taken at detection time cannot change under the
+session reading it. The script keeps the four newest snapshots, names them from the nonce, puts them
+in the temp directory rather than `~/.claude-remarks`, and deletes none of them on exit — a watcher
+that dies at its deadline must leave the last batch readable. Three more things follow. The seen nonce lives in the script rather than in the calling session, which
 removes the whole class of repeat that came from a session typing a stale nonce back into the next
 launch line. The deadline restarts on every batch. And `--claim <base_url>`, with `--session <id>` and
 `--project <path>` beside it and the token in `CLAUDE_REMARKS_TOKEN`, makes the watcher send the
@@ -1308,7 +1316,13 @@ process and no third line for an unchanged file — that a run without `--stream
 whole and exits 0, that `--claim` is refused without `--stream` or without `--project`, that a claim
 that cannot connect prints `claim-failed http 000` **and** the nonce, that a stream run with no
 `--claim` invokes `curl` zero times, and that the token reaches the endpoint's header and appears in no
-recorded argv, proved with a `curl` shim that wrote down its own arguments. ⚠️ Every one of those runs
+recorded argv, proved with a `curl` shim that wrote down its own arguments; and, since the phase 14
+review, the batch snapshot — that a batch overwritten in the published file **after** its line was
+printed is still whole in the snapshot that line named, checked in `--file` mode against a real
+overwrite and in `--fetch` mode against a fake endpoint that starts answering with a second batch, that
+six batches leave only the four newest snapshots on disk, that a killed watcher leaves them behind
+rather than cleaning them up, and that a run without `--stream` writes no snapshot at all.
+⚠️ Every one of those runs
 faked `HOME` **and** the port: a fake handshake left at the ordinary `63342` reaches the IDE the person
 is actually working in, which happened once during phase 14 and was stopped only by the token check.
 Point a fake handshake at a port nothing is listening on, or at a fake endpoint of your own) and

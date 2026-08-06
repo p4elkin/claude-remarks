@@ -14,9 +14,16 @@
 # printing is how the session is woken and exiting would end the watch instead of delivering it.
 # Three things follow from that, and each of them is deliberate:
 #
-#   - One short line per batch, never the batch body: the nonce, plus the watched path in --file
-#     mode. A monitor that emits too many events is stopped automatically, and a published file is
-#     hundreds of lines. The session opens the file itself once it has the line.
+#   - One short line per batch, never the batch body: the nonce, the path of the snapshot this
+#     script wrote for that batch, and the claim's answer when there is one. A monitor that emits
+#     too many events is stopped automatically, and a published file is hundreds of lines. The
+#     session opens the snapshot itself once it has the line.
+#   - The path on that line is a snapshot, never the published file. ⚠️ The published file is one
+#     file that every publish overwrites, the batch is claimed before the line is printed, and the
+#     session reads it tens of seconds later. A second publish inside that window would replace a
+#     batch that is already marked READ in the IDE, so Publish Unread would never carry it again:
+#     it would be lost, and it would look handled. A copy taken at detection time cannot change
+#     under the session reading it. See snapshot_path_for below.
 #   - The seen nonce lives in this script, not in the calling session. Nothing has to be passed
 #     back in with --seen on a next launch, so there is no value left for a session to get wrong,
 #     and a batch that was already handled cannot be reported a second time.
@@ -47,9 +54,11 @@ usage() {
   echo "                    [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]" >&2
   echo "" >&2
   echo "--stream keeps polling instead of exiting on a batch. It prints one line per batch —" >&2
-  echo "  the nonce, and the watched path in --file mode — never the batch body, and it keeps" >&2
-  echo "  its own seen nonce, so nothing has to be passed back in on a next launch. Without it" >&2
-  echo "  one batch goes to stdout whole and the script exits 0, exactly as it always has." >&2
+  echo "  the nonce and the path of a snapshot of that batch — never the batch body, and it keeps" >&2
+  echo "  its own seen nonce, so nothing has to be passed back in on a next launch. Read the" >&2
+  echo "  snapshot, never the published file: that file is overwritten by the next publish, and" >&2
+  echo "  the batch it replaced is already claimed. Without --stream one batch goes to stdout" >&2
+  echo "  whole and the script exits 0, exactly as it always has." >&2
   echo "" >&2
   echo "--claim <base_url> --session <id> acknowledges each new batch from here, with a" >&2
   echo "  published-read POST, before the batch's line is printed. The answer goes on the end of" >&2
@@ -72,6 +81,7 @@ claim_url=
 session=
 claim_resp=
 claim_outcome=
+snap_tmp=
 deadline=1800
 poll=
 poll_set=
@@ -273,13 +283,18 @@ cleanup() {
 }
 trap cleanup EXIT
 # EXIT alone does not fire when the shell is killed by a signal. Without these three a killed
-# watcher leaves both its pid file and its mktemp copy of the published file — a file holding the
-# person's own remarks — behind in the temp directory. 143 is the conventional 128 + SIGTERM, which
-# any kill produces: a harness restart, a machine suspending, a stray kill, or the person stopping
-# this watcher on purpose. Nothing takes over from another watcher any more, so a session reading
-# an exit code above 128 should report that its watcher was killed and start a new one — never read
-# it as a batch or as the deadline.
-trap 'cleanup; rm -f "${tmpcopy:-}" "${resp:-}" "${claim_resp:-}"; exit 143' INT TERM HUP
+# watcher leaves both its pid file and its half-written temp files — one of them a copy of the
+# published file, holding the person's own remarks — behind in the temp directory. 143 is the
+# conventional 128 + SIGTERM, which any kill produces: a harness restart, a machine suspending, a
+# stray kill, or the person stopping this watcher on purpose. Nothing takes over from another
+# watcher any more, so a session reading an exit code above 128 should report that its watcher was
+# killed and start a new one — never read it as a batch or as the deadline.
+#
+# ⚠️ The batch snapshots below are deliberately NOT removed here, and are not removed on a clean
+# exit either. A watcher that stops at its deadline, or is killed, must leave the last batch it
+# reported readable: the session may not have opened it yet, and the published file it came from
+# may have been overwritten since.
+trap 'cleanup; rm -f "${tmpcopy:-}" "${resp:-}" "${claim_resp:-}" "${snap_tmp:-}"; exit 143' INT TERM HUP
 
 start_ts=$(date +%s)
 deadline_ts=$((start_ts + deadline))
@@ -341,6 +356,56 @@ owner_is_gone() {
   [ -n "$owner_set" ] || return 1
   kill -0 "$owner" 2>/dev/null && return 1
   return 0
+}
+
+# How many snapshots to keep, and the list of the ones this run has written, oldest first.
+#
+# These two pull against each other and four is where they meet. A twelve-hour watch must not fill
+# the temp directory with copies of every batch a person ever published, and a snapshot must not be
+# deleted while a session may still be about to read it. A session reads its batch inside one turn,
+# so one is almost always enough; more than four sitting unread means the session is not consuming
+# batches at all, and keeping the fifth would not help it.
+#
+# ⚠️ Nothing is deleted on exit — see the signal trap above — and the snapshot the line being
+# printed names is never deleted, whatever this list says.
+snapshot_keep=4
+snapshots=
+
+# The path a batch's snapshot gets, and why the printed line names one at all.
+#
+# In stream mode a batch is claimed — every remark in it marked READ in the IDE — before its line is
+# printed, and the session that reads that line does so tens of seconds later, after the harness's
+# notification and after its own turn begins. The published file is a single file that every publish
+# overwrites. So a second publish inside that window replaces a batch whose remarks are already
+# READ, and action/PublishRemarks.kt's Publish Unread selects on "not READ": those remarks can never
+# appear in another batch. They would be gone, sitting in the IDE's Done group looking handled. A
+# copy taken at detection time cannot change under the session reading it, which is the whole fix.
+#
+# $1 is the nonce and $2 a temp file this script just made. The snapshot is named from the nonce, so
+# two batches can never collide, and it is written beside $2 — inside the temp directory, never in
+# ~/.claude-remarks, where anything present is read by the plugin and by this skill as a real
+# published file. Naming it beside $2 also keeps the rename onto this name inside one filesystem.
+# Anything in the nonce that is not a letter, a digit, a dot, an underscore or a dash becomes a
+# dash: the nonce is read out of a file, and a filename is not the place to trust it.
+snapshot_path_for() {
+  snapshot_dir=$(dirname "$2")
+  snapshot_safe=$(printf '%s' "$1" | tr -c '0-9A-Za-z._-' '-')
+  printf '%s/claude-remarks-batch-%s.md' "$snapshot_dir" "$snapshot_safe"
+}
+
+# Remembers $1 as the newest snapshot and deletes everything older than the last $snapshot_keep.
+# Called after the line naming $1 is printed, never before, and it never deletes $1 itself.
+keep_recent_snapshots() {
+  snapshots="$snapshots$1
+"
+  while :; do
+    snapshot_count=$(printf '%s' "$snapshots" | wc -l | tr -d '[:space:]')
+    [ "$snapshot_count" -gt "$snapshot_keep" ] || break
+    snapshot_oldest=$(printf '%s' "$snapshots" | sed -n '1p')
+    [ "$snapshot_oldest" = "$1" ] || rm -f "$snapshot_oldest"
+    snapshots="$(printf '%s' "$snapshots" | sed '1d')
+"
+  done
 }
 
 # The claim, written once so the two loops cannot disagree about it. It takes the nonce of the batch
@@ -472,14 +537,28 @@ if [ "$mode" = file ]; then
 
     if [ "$nonce" != "$seen" ]; then
       if [ -n "$stream" ]; then
+        # The snapshot first, before the claim and before the line: the copy this loop already
+        # holds becomes the batch's own file, and that is what the line names. See
+        # snapshot_path_for for why naming $file here would lose batches. Renamed rather than
+        # copied — it is already a whole copy of one batch, and a rename inside one directory is
+        # atomic, so a session opening the name never sees a half-written file.
+        snapshot=$(snapshot_path_for "$nonce" "$tmpcopy")
+        if ! mv "$tmpcopy" "$snapshot" 2>/dev/null; then
+          # Before the claim, so nothing has been marked read and the batch is still waiting for
+          # whoever comes next. Exiting loudly is right here: the temp directory just accepted a
+          # file from mktemp, so a rename inside it failing is not something polling recovers from.
+          echo "watch-remarks.sh: could not write the batch snapshot $snapshot" >&2
+          rm -f "$tmpcopy"
+          exit 2
+        fi
+        tmpcopy=
         # The claim goes out before the line is printed, so the word it produces can travel on that
         # same line. It is empty with no --claim, and the line is then the two fields it always was.
         claim_batch "$nonce"
         # One line, two fields plus the claim's answer, and nothing else — see the header comment
-        # for why more is what stops the watch rather than what helps it. The path is here because
-        # the session needs somewhere to read the batch from, and in this mode it opens the file
-        # itself.
-        echo "$nonce $file${claim_outcome:+ $claim_outcome}"
+        # for why more is what stops the watch rather than what helps it.
+        echo "$nonce $snapshot${claim_outcome:+ $claim_outcome}"
+        keep_recent_snapshots "$snapshot"
         # This assignment is the point of stream mode. The seen nonce is this script's own state
         # now, so the next poll compares against the batch just reported, and there is no value
         # left for a calling session to pass back in wrongly on a re-arm.
@@ -487,8 +566,6 @@ if [ "$mode" = file ]; then
         # Somebody still publishing is somebody still working, so the wait starts again from this
         # batch rather than running out at a deadline measured from the launch.
         deadline_ts=$(($(date +%s) + deadline))
-        rm -f "$tmpcopy"
-        tmpcopy=
         sleep_capped || timed_out_file
         continue
       fi
@@ -547,11 +624,26 @@ while :; do
       nonce=$(jq -r '.nonce // empty' "$resp")
       if [ "$nonce" != "$seen" ]; then
         if [ -n "$stream" ]; then
-          # The nonce, and the claim's answer after it when there is one: in fetch mode the batch
-          # lives on the IDE machine and there is no local file to name, so no path goes here. The
-          # session fetches it for itself, the same way it does without --stream.
+          # The batch's body is already in $resp, from the fetch that carried its nonce, so the
+          # snapshot costs one write and no second request. The line names it here for exactly the
+          # reason it does in --file mode: the session used to fetch the batch again for itself,
+          # and a fetch made after a second publish answers with the newer batch while the older
+          # one — the one this line claimed — is already marked READ and can never be published
+          # again. See snapshot_path_for.
+          snap_tmp=$(mktemp)
+          snapshot=$(snapshot_path_for "$nonce" "$snap_tmp")
+          if ! jq -r '.content' "$resp" > "$snap_tmp" 2>/dev/null || ! mv "$snap_tmp" "$snapshot" 2>/dev/null; then
+            # Before the claim, like the --file branch above, so the batch is still waiting for
+            # whoever comes next rather than marked read and lost.
+            echo "watch-remarks.sh: could not write the batch snapshot $snapshot" >&2
+            rm -f "$snap_tmp" "$resp"
+            exit 2
+          fi
+          snap_tmp=
           claim_batch "$nonce"
-          echo "$nonce${claim_outcome:+ $claim_outcome}"
+          # The same three fields as --file mode, so a session reads one shape in both.
+          echo "$nonce $snapshot${claim_outcome:+ $claim_outcome}"
+          keep_recent_snapshots "$snapshot"
           seen=$nonce
           deadline_ts=$(($(date +%s) + deadline))
         else

@@ -330,8 +330,10 @@ a deliberate one — you already asked.
 keeps polling instead of stopping on each batch, it remembers by itself which batch it has already
 told you about, and it acknowledges each new one on its own before it reports it. So there is no
 re-arm between a batch arriving and the work on it starting, and there is no value a session can type
-back wrongly and make you read the same batch twice. Every other agent keeps the stop-and-restart
-loop described above, which is why both are still in the skill.
+back wrongly and make you read the same batch twice. It also puts a copy of each batch aside and
+points the session at the copy, so publishing again while the session is still reading the previous
+batch cannot overwrite the one it is working on. Every other agent keeps the stop-and-restart loop
+described above, which is why both are still in the skill.
 
 It waits up to twelve hours, every batch resets that clock, and it says at the start how to stop it
 early. ⚠️ Stopping it means the pid on the first line of that repository's `.watch` file, never a

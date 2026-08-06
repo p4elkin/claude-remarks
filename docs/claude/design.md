@@ -2408,10 +2408,31 @@ a notification. So printing is how the session is woken, and exiting would end t
 delivering it. That is the exact opposite of the rule the subsection above is built on, which is why
 the script's own header comment now states both shapes before anything else.
 
-⚠️ **One short line per batch, never the batch body.** The line carries the nonce, the watched path in
-`--file` mode, and the claim's answer when there is one. A published file is hundreds of lines, and a
-monitor that emits too many events is stopped automatically. The session opens the file itself once it
-has the line.
+⚠️ **One short line per batch, never the batch body.** The line carries the nonce, the path of a
+snapshot of that batch, and the claim's answer when there is one — three fields, the same shape in
+both modes. A published file is hundreds of lines, and a monitor that emits too many events is stopped
+automatically. The session opens the snapshot itself once it has the line.
+
+⚠️ **The path on that line is a snapshot, and it has to be.** The first version of this named the
+published file itself, and that loses batches. The order is: copy the file, read the nonce out of the
+copy, claim the batch — which marks every remark in it `READ` in the IDE — print the line, delete the
+copy. The session reads the file it was told about tens of seconds later, after the notification and
+after its own turn begins. A publish landing inside that window overwrites the published file, and the
+batch that was replaced is already `READ`, so `action/PublishRemarks.kt`'s Publish Unread, which
+selects on "not `READ`", can never carry it again. Those remarks are gone, and they sit in the tree's
+Done group looking handled. So the script renames its copy to a name of its own instead of deleting
+it, and the line names that. A file nothing writes to cannot change under the session reading it.
+`--fetch` mode has the same hole in a second shape — the session used to fetch the batch again, and a
+fetch answers with whatever batch the IDE holds *now* — so it writes a snapshot from the body it
+already fetched and prints the same three fields.
+
+**The snapshots are named from the nonce, kept four deep, and never cleaned up on exit.** From the
+nonce, so two batches cannot collide. In the temp directory beside the script's other temp files, never
+in `~/.claude-remarks`, where anything present is read as a real published file. Four, because a
+twelve-hour watch must not fill the temp directory while a snapshot must not be deleted under a session
+that has not opened it yet — a session reads its batch inside one turn, and more than four unread means
+nothing is consuming them at all. Not deleted on exit, because a watcher that stops at its deadline or
+is killed has to leave the last batch it reported readable.
 
 **The seen nonce moved into the script.** After it reports a batch, the script sets its own seen nonce
 to that batch's, so the next poll compares against it. Nothing is passed back in on a next launch,

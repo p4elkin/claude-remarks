@@ -214,6 +214,13 @@ internal class PreviewRemarkExtension(
     init {
         browserPipe.subscribe(SELECTION_MESSAGE_TYPE, handler)
         browserPipe.subscribe(PAGE_READY_MESSAGE_TYPE, pageReadyHandler)
+        // Subscribed here, before the page has necessarily said documentReady, and a change landing
+        // in that window pushes into a page with no __IntelliJTools yet. That is harmless and is
+        // meant to stay this way: BrowserPipe.send swallows the JS error, and the documentReady push
+        // that follows recomputes the whole current state rather than a delta, so nothing that was
+        // lost stays lost. Delaying this subscription until the page is ready would instead open a
+        // real gap — a REMARKS_CHANGED arriving between the ready message and the subscription would
+        // be missed by both.
         messageBusConnection = previewedProject?.messageBus?.connect()?.also {
             it.subscribe(REMARKS_CHANGED, RemarksListener { pushHighlights() })
         }

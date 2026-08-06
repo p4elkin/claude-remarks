@@ -645,17 +645,31 @@ second watcher at all.
 there is no orphan for `--owner` to catch. A wrong pid there would end the watch on its first poll,
 which is the only thing passing it could still do.
 
-**Each batch arrives as one line, and field 1 is always the nonce.**
+**Each batch arrives as one line, three fields, the same shape in both modes.**
 
 ```
-<nonce> <path> <outcome>     in --file mode
-<nonce> <outcome>            in --fetch mode
+<nonce> <snapshot-path> <outcome>
 ```
 
-No prefix and no label. The path is there because the session has to read the batch from somewhere,
-and in `--file` mode it opens that file itself. In `--fetch` mode there is no local file, so the
-batch is read with one `fetch` over the tunnel — POST `<base url>/fetch` with `{project}` and the
-token on stdin through `curl --config -`, and the response's `content` is the batch.
+No prefix and no label. Field 2 is a **snapshot**: a copy of that batch the watcher wrote the moment
+it saw it, sitting in the temp directory and named after the batch's own nonce. It is not the
+published file, and in `--fetch` mode it is not something this session fetched — the watcher already
+had the batch in hand and wrote it down.
+
+⚠️ **Read the snapshot. Never read the published file instead, and never fetch the batch again.**
+That looks like the same thing and is not. The published file is one file that every publish
+overwrites, and the batch was claimed — every remark in it marked `READ` in the IDE — before this
+line was printed. So a publish landing between the claim and this session getting to work replaces
+the batch this line names, and the replaced one can never come back: Publish Unread only ever picks
+up remarks that are not `READ`. Those remarks would be gone while sitting in the IDE's Done group
+looking handled. The snapshot cannot change under a session reading it, which is the whole reason it
+exists. A `fetch` over the tunnel has exactly the same hole — it answers with whatever batch the IDE
+holds *now* — so in `--fetch` mode too, the snapshot is what to open.
+
+The watcher keeps the four most recent snapshots and deletes older ones as new batches arrive, so a
+long watch does not fill the temp directory. Four is far past what a session reading its batches in
+the turn they arrive ever needs. They are deliberately not deleted when the watcher stops, so a batch
+reported just before the deadline is still readable.
 
 **The outcome word is the claim the watcher already made.** Five words are possible, not three:
 
@@ -676,11 +690,11 @@ nobody handles is not recoverable at all, and it is the failure this whole desig
 `already-read` naming an id this session used earlier is handled as if it said `ok` — see the
 exit-143 bullet below.
 
-- **Read the batch**, from the path on the line or through the `fetch` above. ⚠️ **Check line 2's
-  nonce against field 1 of the line that woke this session.** The published file is overwritten by
-  the next publish and by nothing else, so a batch published while this session was busy has already
-  replaced the one it was told about. If the two differ, act on what the file holds now and say so —
-  and when the monitor's line for that newer batch arrives, say it was already handled.
+- **Read the batch**, from the snapshot path in field 2 of the line, in both modes. Its line 2 holds
+  the same nonce as field 1 — the snapshot is a copy of that one batch and nothing rewrites it — so
+  there is no mismatch to check for and no newer batch hiding behind the path. A batch published
+  while this session was busy is a batch of its own, with a snapshot and a line of its own, and it
+  arrives as the next notification.
 - **Acknowledge the batch yourself when the outcome word was not `ok`.** Use the `published-read`
   block the exit-per-batch branch spells out below, with field 1's nonce in place of
   `$listen_nonce` and the session id the setup block printed in place of `$listen_session`. For
@@ -1272,10 +1286,14 @@ watch-remarks.sh --fetch <base_url> --project <path>
 - `--seen <nonce>` is the nonce already known. Omit it, or pass an empty string, to mean "any batch
   is new."
 - `--stream` keeps the watcher polling instead of exiting on a batch. It then prints **one short
-  line per batch** — the nonce, plus the watched path in `--file` mode — never the batch body, and
-  it keeps its own seen nonce, so nothing has to be passed back in on a next launch. Listen mode's
-  monitor branch passes it and nothing else does. Without it the script behaves exactly as it always
-  has: one batch to stdout whole, then exit 0.
+  line per batch** — the nonce, then the path of a snapshot of that batch, then the claim's answer
+  when there is one — never the batch body, and it keeps its own seen nonce, so nothing has to be
+  passed back in on a next launch. Listen mode's monitor branch passes it and nothing else does.
+  Without it the script behaves exactly as it always has: one batch to stdout whole, then exit 0.
+  ⚠️ The snapshot is what a session reads, in both modes: the published file is overwritten by the
+  next publish, the batch was already claimed before the line was printed, and a batch that is
+  `READ` in the IDE is never published again. The script keeps the four most recent snapshots and
+  deletes nothing on exit.
 - `--claim <base_url> --session <id>` makes the watcher send the `published-read` acknowledgement
   itself, before it prints a batch's line, and put the answer on the end of that same line: `ok`,
   `already-read <session>`, `unknown-batch`, `claim-failed <status>` or `claim-failed http <code>`.

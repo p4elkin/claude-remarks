@@ -57,10 +57,11 @@ data class HighlightCandidate(
  * [HighlightCandidate.startLine] and adding [HighlightCandidate.startColumn] — the same offset
  * `md-src-pos` is written in, which is why the page can search for it directly with no further
  * translation. The column is clamped to the end of its own line, so a remark whose line got shorter
- * points at the end of that line rather than somewhere in the next block. A
- * [HighlightCandidate.startLine] or resulting offset outside [source] is dropped rather than thrown:
- * the source may have moved since the remark was resolved, and a highlight pointing nowhere is the
- * ordinary case here, not a bug — the caller does not need to tell it apart from any other exclusion.
+ * points at the end of that line rather than somewhere in the next block — and that clamp is also
+ * what puts every offset produced here inside [source], with no further bounds check needed. A
+ * [HighlightCandidate.startLine] outside [source] is dropped rather than thrown: the source may have
+ * moved since the remark was resolved, and a highlight pointing nowhere is the ordinary case here,
+ * not a bug — the caller does not need to tell it apart from any other exclusion.
  */
 fun highlightsFor(
     candidates: List<HighlightCandidate>,
@@ -88,10 +89,14 @@ private fun highlightFor(
     // clamp the offset walks off the end of that line into the next block, or into a blank gap, and
     // highlights an element the remark has nothing to do with — which looks like a bug in the
     // highlighting rather than like a remark whose words are gone.
+    //
+    // The clamp is also the whole bounds check: lineStart is never negative, the column is refused
+    // above when it is, and lineEndOffset never returns more than sourceLength — so the result is
+    // inside the source by construction. A second `offset in 0..sourceLength` test stood here until
+    // the phase 14 review and could not fire.
     val lineStart = lineStarts[candidate.startLine]
     val lineEnd = lineEndOffset(candidate.startLine, lineStarts, sourceLength)
     val offset = minOf(lineStart + candidate.startColumn, lineEnd)
-    if (offset !in 0..sourceLength) return null
 
     return PreviewHighlight(offset, candidate.asksForAnswer && !candidate.hasAnswer)
 }
