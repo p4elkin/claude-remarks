@@ -1705,9 +1705,16 @@ prints while it runs. So a watcher that loops forever would never notify anybody
 sit waiting for a signal that cannot arrive, and the deadline would pass unnoticed. Every path out of
 the script is therefore an explicit exit, and none of them loops back — a new batch exits 0 with the
 whole file on stdout, the deadline exits 1 with one sentence, anything wrong exits 2 with a reason,
-and a killed watcher exits 143 (128 plus `SIGTERM`). The skill reads the exit code
+an owner that is gone exits 3 with one sentence of its own, and a killed watcher exits 143 (128 plus
+`SIGTERM`). The skill reads the exit code
 and the output once, in a fresh foreground call, and decides what to do from those two things alone.
 Nothing is left behind for it to go and read.
+
+⚠️ **Exit 3 is the one exit code no session ever sees.** It means the process named by `--owner` is
+gone, and that process is the session itself, so by the time the watcher exits that way there is
+nobody left to be woken. It exists to stop an orphan, not to report anything, and both modes in
+`SKILL.md` say plainly that nothing should be written to handle it. The subsection below says why the
+watcher can be orphaned at all.
 
 ⚠️ **143 used to mean "another watcher took over", and since phase 11 it means nothing of the kind.**
 Nothing takes over any more, so 143 is just a kill: a harness restart, a machine going to sleep, a
@@ -1790,16 +1797,62 @@ the pid file is *for* now, and that is exactly what makes a blunt match unnecess
 check the deleted takeover block used to perform is now the reader's job, and `SKILL.md` is where it
 is written down.
 
-**The pid write is still made under a lock**, though it now guards less than it used to. The lock is
-a directory beside the pid file, `~/.claude-remarks/<16 hex characters>.watch.lock`, taken with
-`mkdir` — atomic on every POSIX filesystem, and it fails rather than quietly succeeding when the
-directory is already there. With the read-kill-write sequence gone, what is left to protect is the
-two-line write itself: two watchers starting for the same project in the same moment must not
-interleave their lines and leave a file whose pid and path belong to different processes. It is held
-for that write only and released before the poll loop starts. A watcher killed before it can release
-it leaves the directory behind, so the wait is bounded: after ten seconds the next watcher breaks the
-lock and takes it. The direction of that fallback is deliberate — the worst it can cost is a pid file
-written by two processes at once, and it can never leave a project where no watcher can start at all.
+**The pid write is atomic, and it takes no lock.** The two lines go to a temp name beside the pid
+file and are then renamed onto it. A rename within one directory is atomic on every POSIX
+filesystem, so two watchers starting for the same project in the same moment cannot interleave their
+lines and leave a file whose pid and path belong to different processes — a reader sees one whole
+file or the other. This replaced a `mkdir` lock that guarded exactly this write and could wait ten
+seconds before breaking a stale one. The rename needs no waiting, no stale-lock rule, and nothing
+released afterwards, so no `.watch.lock` directory exists any more.
+
+### The watcher runs in its own session, and `--owner` is what pays for it
+
+**The incident.** On 2026-08-06 four watchers died in one evening with `Terminated: 15`, a plain
+`SIGTERM` from outside. Not a takeover — nothing kills a watcher since phase 11, and no second
+watcher was running on that repository. Watchers belonging to a different session on a *different*
+repository died in the same moment, which is what says the signal was aimed at a process group and
+swept them all up. A session launches its watcher as an ordinary background shell task, so the
+watcher sits in the launching shell's own process group and any group-wide signal reaches it.
+
+**The fix is `setsid`, and only `setsid`.** Every launch line in `SKILL.md` now reads
+`perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- <the script> …`. ⚠️ macOS ships no `setsid`
+binary, so the obvious one-word form is not available; `POSIX::setsid` is in core Perl, which is on
+every Mac. `exec` replaces perl with the watcher, so the watcher keeps perl's pid and the pid file
+still names the pid to stop it by.
+
+⚠️ **A `( nohup … & )` double fork looks like it does the same thing and does not.** Measured, all
+three forms:
+
+| launch | PPID | PGID | in the launching shell's process group? |
+|---|---|---|---|
+| plain background task | the shell | the shell's | yes |
+| `( nohup … & )` double fork | 1 | **still the shell's** | yes |
+| `perl … setsid(); exec @ARGV` | 1 once the launching shell exits | **its own** | no |
+
+The double fork reparents to `init`, so `ps` shows PPID 1 and it reads as detached, but a process
+group is not left behind that way and `kill -- -<pgid>` still reaches it. Checked directly: with all
+three started inside one process group and `kill -TERM -<that group>` sent, the plain form died, the
+double fork died, and the `setsid` form survived.
+
+**What detaching costs, and what `--owner` buys back.** A watcher in its own session is not stopped
+when the session that started it ends. It reparents to `init` and runs to its deadline — twelve hours
+in listen mode. That orphan is not dangerous the way it first looks: it catches a batch, writes it to
+a file nobody reads and exits, and nothing is marked read, because the *session* claims a batch
+through `published-read` and the watcher never does. What it does cost is the pid file. The orphan
+holds it, so a person stopping "the watcher" for that repository stops the orphan and leaves the live
+one running, and something looks like it is listening when nothing is. So the script gained
+`--owner <pid>`: the poll loop tests it with `kill -0` once per iteration, beside the deadline check,
+in both the file loop and the fetch loop, and exits 3 when it is gone. The flag is optional and the
+script is byte-for-byte its old self without it; it is validated exactly the way `--deadline` is, and
+zero is refused because `kill -0 0` asks about the caller's whole process group and would answer
+"alive" forever.
+
+**The owner is `$PPID`, not `$$`.** Inside a Claude Code Bash call, `$$` is that call's own shell,
+which exits as soon as the block printing the launch line finishes — a watcher owning it would exit
+on its first poll. `$PPID` is the `claude` process the session runs as. Measured across two Bash
+calls of one session: `$$` was 70289 then 71025 while `$PPID` was 75461 both times, and 75461 was the
+`claude` process. It is the same number in every Bash call of a session and it is gone exactly when
+the session is gone, which is the whole definition of the owner.
 
 **The token for `--fetch` never appears in an argument.** It is read from `CLAUDE_REMARKS_TOKEN` in
 the environment, and it reaches `curl` through a config file on stdin rather than through a `-H`

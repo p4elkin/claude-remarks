@@ -897,7 +897,12 @@ header, and — since phase 11 reversed this one — that a second watcher on th
 **not** kill the first, that both are still alive afterwards, that the pid file then holds the second
 watcher's pid, and that a watcher on another path is left completely untouched; plus that fetch mode
 now starts with no `--session` while still refusing with no `--project` and no
-`CLAUDE_REMARKS_TOKEN`) and
+`CLAUDE_REMARKS_TOKEN`; and, since the phase 11 follow-up on 2026-08-06, `--owner`: a live owner
+keeps the watcher polling, a killed owner ends it inside one poll interval with exit 3 and its own
+message, a non-numeric, empty or zero value is refused with exit 2, and no `--owner` at all leaves
+every earlier behaviour untouched — plus that the `perl … setsid()` launch form really does leave the
+launching shell's process group, checked by signalling that whole group and watching only that form
+survive) and
 `docs/skill/claude-remarks-review/remote-config.sh` (added in phase 10; each check is its own run too,
 with `HOME` pointed at a temporary directory, covering `save`/`show`/`forget`, that the token never
 appears in any output, permission and validation refusals, and that two repository roots produce two

@@ -14,6 +14,45 @@ the code. These entries are how the work happened; that document is what the sys
 
 ---
 
+## after 0.8.0 — 2026-08-06 — follow-up to phase 11: the watcher survives a group kill
+
+Nothing in the plugin changed here. This is the skill side only —
+`docs/skill/claude-remarks-review/watch-remarks.sh` and `SKILL.md` — driven by something that
+happened in real use: four watchers died in one evening with `Terminated: 15`, a plain `SIGTERM`
+from outside, together with watchers belonging to a different session on a different repository.
+A watcher launched as an ordinary background task sits in the launching shell's process group, and
+one group-wide signal takes all of them.
+
+- **The watcher is launched in a session and a process group of its own**, through
+  `perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- …`, on every launch line in `SKILL.md`:
+  listen mode and review mode, local and `--fetch`. macOS ships no `setsid` binary, and a
+  `( nohup … & )` double fork does **not** do the same thing — it reparents to `init` but keeps the
+  shell's process group, so a group-wide kill still reaches it. Both facts are measured and written
+  into `SKILL.md` beside the launch lines, because the double fork is the form somebody will
+  otherwise "simplify" back to.
+- **`--owner <pid>` stops a watcher whose session is gone.** Detaching means the watcher now outlives
+  the session that started it, and an orphan holding the pid file makes something look like it is
+  listening when nothing is. Given `--owner`, the poll loop tests that pid with `kill -0` once per
+  iteration, beside the deadline check, in both the file loop and the fetch loop, and exits `3` with
+  its own sentence on stderr. Optional, and the script behaves exactly as before without it. Every
+  launch line passes `$PPID`, the session's own `claude` process — not `$$`, which is the Bash call's
+  short-lived shell.
+- **Exit `3` is documented as the code no session ever sees**, because the process it names is the
+  session itself. Both modes say plainly that nothing should be written to handle it.
+- Two paragraphs describing a `.watch.lock` directory were corrected: the pid write has been a
+  temp-file-and-rename since phase 11 and takes no lock at all.
+
+Checked by hand, each its own run, against a temporary `HOME`: `sh -n`; a watcher with `--owner` on a
+live pid keeps polling; killing that pid ends the watcher inside one poll interval with code `3` and
+its own message, and it removes its pid file; a watcher with no `--owner` still times out at `1` and
+still reports a new batch at `0`; a non-numeric, empty or zero `--owner` is refused with `2`; and the
+three launch forms were started inside one process group and signalled with `kill -TERM -<group>` —
+the plain form and the double fork died, the `setsid` form survived.
+
+Written in: no plan file. This is a small follow-up to phase 11.
+
+---
+
 ## 0.8.0 — 2026-08-05 — phase 11: the answer comes back
 
 Until now everything the plugin did pointed one way: a person marks code, an agent reads it. This

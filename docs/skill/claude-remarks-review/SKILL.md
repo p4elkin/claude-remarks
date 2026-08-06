@@ -416,16 +416,28 @@ echo "listen_session=$listen_session"
 echo "listen_project=$listen_project"
 echo "listen_seen=$listen_seen"
 [ -n "$listen_remote" ] || echo "listen_file=$listen_file"
+# The owner pid, and why it is $PPID and not $$. $$ is this Bash call's own shell, and that shell
+# exits the moment this block finishes printing — a watcher owned by it would exit on its first poll.
+# $PPID is the Claude Code process this session runs as: it is the same number in every Bash call of
+# this session (measured: $$ moved from 70289 to 71025 between two calls while $PPID stayed 75461),
+# and it is gone exactly when the session is gone. So it is what "the session that started this
+# watcher" means. The number is baked into the printed line rather than left as $PPID, the same way
+# every other value in this block is.
 echo "run this next, as its own Bash call, marked background:"
 if [ -n "$listen_remote" ]; then
   echo "with CLAUDE_REMARKS_TOKEN set in its environment to the stored token — never echo the token"
-  printf "  '%s/watch-remarks.sh' --fetch '%s' --project '%s' --seen '%s' --deadline 43200\n" \
-    "$listen_skill_dir" "$listen_base_url" "$listen_project" "$listen_seen"
+  printf "  perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '%s/watch-remarks.sh' --fetch '%s' --project '%s' --seen '%s' --owner %s --deadline 43200\n" \
+    "$listen_skill_dir" "$listen_base_url" "$listen_project" "$listen_seen" "$PPID"
 else
-  printf "  '%s/watch-remarks.sh' --file '%s' --seen '%s' --deadline 43200\n" \
-    "$listen_skill_dir" "$listen_file" "$listen_seen"
+  printf "  perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '%s/watch-remarks.sh' --file '%s' --seen '%s' --owner %s --deadline 43200\n" \
+    "$listen_skill_dir" "$listen_file" "$listen_seen" "$PPID"
 fi
 ```
+
+**The `perl` wrapper in front of the script is not decoration, and must not be simplified away.** It
+puts the watcher in a session and a process group of its own, so that a signal aimed at this
+session's process group cannot reach it. "The watcher script" section below carries the measurements
+and the reason the obvious alternatives do not work.
 
 **What the startup claim answered decides what to do with the pending batch**, and the three answers
 `published-read` already gives cover every case:
@@ -514,8 +526,11 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
     normal.
   - **Then re-arm, immediately — before answering anything and before summarising anything.** Run
     the same launch line again as its own new Bash call, marked background, by the same absolute
-    path the startup block resolved and printed and never by the bare name, with `--seen` set to
-    this batch's nonce and a fresh `--deadline 43200`. Re-arming is not a choice put to the person
+    path the startup block resolved and printed and never by the bare name, keeping the `perl`
+    wrapper and the same `--owner` value, with `--seen` set to
+    this batch's nonce and a fresh `--deadline 43200`. `$PPID` in the new Bash call is the same
+    number the startup block printed, so a re-arm can read it again rather than remembering it.
+    Re-arming is not a choice put to the person
     and not something to ask about: listening carries on by itself until one of the three endings
     below.
 
@@ -537,6 +552,10 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
 - **Exit 1.** The twelve-hour deadline passed with nothing new. Report it and stop. There is
   nothing to acknowledge — `published-read` is never sent for a batch that never arrived.
 - **Exit 2.** Something the watcher could not get past. Report what it printed verbatim and stop.
+- **Exit 3 never reaches this session, and there is nothing to write for it.** It means the process
+  named by `--owner` is gone, and that process is this session. A session cannot be handed the exit
+  code of a watcher that outlived it. It is written down here so nobody adds handling for a case
+  that cannot arrive.
 - **Any exit code above 128, 143 in particular.** The watcher was killed. 143 is `128 + SIGTERM`,
   which any kill produces — a harness restart, a machine going to sleep, a stray `kill`. Nothing
   arrived and nothing is owed, so acknowledge nothing. Say in one line that the watcher was killed,
@@ -839,9 +858,10 @@ skill is installed somewhere else, use that directory instead.
 
 **The two scripts share one exit-code scheme.** `0` means the command did what it was asked. `2`
 means a refusal — a bad argument, a value the script will not store, a file it cannot read, or an
-answer no amount of polling can fix. `1` belongs to `watch-remarks.sh` alone and means one thing
-only: the deadline passed with nothing new, which is not a failure. `remote-config.sh` never exits
-`1`, so a caller can read `1` as a deadline wherever it sees it.
+answer no amount of polling can fix. `1` and `3` belong to `watch-remarks.sh` alone and mean one
+thing each: `1` is the deadline passing with nothing new, which is not a failure, and `3` is the
+process named by `--owner` being gone. `remote-config.sh` never exits `1` or `3`, so a caller can
+read either as the watcher's wherever it sees it.
 
 ## The watcher script
 
@@ -853,15 +873,68 @@ never loop forever — a background command that never exits never notifies, and
 for a signal that cannot arrive. Launch it with a background Bash call, never a foreground one, and
 read what it printed once it exits.
 
+### Launching it, and why the `perl` line is there
+
+Every launch line in this file has this shape, and the `perl` in front of the script is load-bearing:
+
+```
+perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '<skill dir>/watch-remarks.sh' <flags…>
+```
+
+⚠️ **Do not "simplify" this to `nohup … &` or to a `( … & )` double fork. Both were tried and both
+fail**, and they fail in a way that looks fine: the watcher starts, claims its pid file and polls
+normally, right up until something signals the launching shell's process group.
+
+**What went wrong.** A session launches its watcher as an ordinary background Bash task. Four
+watchers died in one evening with `Terminated: 15` — a plain `SIGTERM` from outside. It was not a
+takeover: nothing in this skill kills a watcher any more, and no second watcher was running on that
+repository. Watchers belonging to a different session on a *different* repository died at the same
+moment, which is what says the signal was aimed at a process group and swept them all up.
+
+**The three launch shapes, measured:**
+
+| launch | PPID | PGID | in the launching shell's process group? |
+|---|---|---|---|
+| plain background task | the shell | the shell's | yes |
+| `( nohup … & )` double fork | 1 | **still the shell's** | yes |
+| `perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- …` | 1 once the launching shell exits | **its own** | no |
+
+The double fork is the trap. It does reparent to `init`, so `ps` shows PPID 1 and it looks detached —
+but a process group is not inherited from the parent that way, and `kill -- -<pgid>` still reaches
+it. Only `setsid()` puts the process in a group of its own. Checked directly: with the three forms
+started inside one process group and `kill -TERM -<that group>` sent, the plain form died, the double
+fork died, and the `setsid` form survived.
+
+⚠️ **macOS ships no `setsid` binary**, which is why the obvious one-word fix is not available here.
+Perl is on every Mac and `POSIX::setsid` is in its core, so the line above is the portable form.
+`exec` replaces perl with the watcher, so the watcher keeps perl's own pid — the pid it writes to its
+pid file is still the pid to stop it by, and nothing about the pid file changes.
+
+**Detaching means the watcher outlives the session, and `--owner` is what pays for that.** A watcher
+in its own session is not stopped when the session that started it goes away. It reparents to `init`
+and runs to its deadline — twelve hours, in listen mode. Such an orphan is not dangerous in the way
+it first looks: it catches a batch, writes it to a file nobody reads and exits, and nothing is marked
+read, because the *session* claims a batch and the watcher never does. What it does cost is the pid
+file. The orphan holds it, so a person stopping "the watcher" for that repository stops the orphan
+and leaves the live one running, and something looks like it is listening when nothing is. So every
+launch line passes `--owner`, and the watcher stops on its own when its session is gone.
+
+**`--owner` is passed `$PPID`, never `$$`.** `$$` is the Bash call's own shell, and that shell exits
+as soon as the block printing the launch line finishes — a watcher owning it would exit on its first
+poll. `$PPID` is the Claude Code process this session runs as. Measured in this repository: across
+two Bash calls of one session `$$` was 70289 then 71025, while `$PPID` was 75461 both times, and
+75461 was the `claude` process itself. It is the same number in every Bash call of a session, and it
+is gone exactly when the session is gone, which is the whole definition of the owner.
+
 **Two forms, one per branch of the wait.** The name is written bare here only because this is a
 synopsis of the flags; every line actually run names the script by absolute path, for the reason the
 section above gives.
 
 ```
 watch-remarks.sh --file <path> [--seen <nonce>] [--require-review <session>]
-                  [--deadline <seconds>] [--poll <seconds>]
+                  [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]
 watch-remarks.sh --fetch <base_url> --project <path> [--session <id>]
-                  [--seen <nonce>] [--deadline <seconds>] [--poll <seconds>]
+                  [--seen <nonce>] [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]
 ```
 
 - `--file <path>` is the local branch: poll the published file directly. Default poll interval 2
@@ -886,6 +959,13 @@ watch-remarks.sh --fetch <base_url> --project <path> [--session <id>]
 - `--poll <seconds>` is for hand runs and the by-hand checks only. Nothing in this file passes it;
   both defaults above are chosen inside the script. It is kept because a deadline check that had to
   wait the real 2 or 5 seconds per poll would take too long to run by hand.
+- `--owner <pid>` names the process the watcher belongs to. Every launch line in this file passes it,
+  set to `$PPID` — see "Launching it, and why the `perl` line is there" just above for what that is
+  and why the watcher would otherwise outlive the session. The loop tests it with `kill -0` once per
+  poll, beside the deadline check, and exits `3` when it is gone. Optional: with no `--owner` the
+  script behaves exactly as it did before this flag existed. Validated the way `--deadline` is —
+  a non-numeric value, an empty one and zero are all refused with exit `2`. Zero has a reason of its
+  own: `kill -0 0` asks about the caller's whole process group and would answer "alive" forever.
 - The token for `--fetch` is read from `CLAUDE_REMARKS_TOKEN` in the environment, never from an
   argument — an argument is visible to every process on the machine through `ps`, and the token is
   the only gate on the endpoint. The script then hands it to `curl` on stdin, through
@@ -903,6 +983,12 @@ an HTTP status other than 200, or one of the fetch answers that no amount of pol
 response), `failed` (the IDE reached the published file and could not use it: an IOException, a
 header it could not parse, or a project directory that no longer resolves), `bad-request` and
 `unknown-project`.
+
+`3`, with one sentence on stderr, when the process named by `--owner` is gone. **No session ever
+sees this exit code**, because the process it names is the session itself: by the time the watcher
+exits this way there is nobody left to hand the code to. It exists so that a detached watcher stops
+instead of running to its deadline, and so that a person reading a stopped watcher's own output can
+tell this ending from the deadline. Write no handling for it in either mode.
 
 **An exit code above 128 is a signal, and it means this watcher was killed.** 143 is the one to
 expect, `128 + SIGTERM`, which any kill produces: a harness restart, a machine going to sleep, a
@@ -928,14 +1014,12 @@ pid file when it exits, on every exit path, signals included, and only if the fi
 own pid: a later watcher for the same project may have overwritten it while this one was running.
 
 The pid file names the watcher that started most recently for that project, so with two listeners on
-one repository, stopping by that file stops the newer one. Writing those two lines is one step now
-and no longer a read-kill-write claim, but it is still made under a lock — a directory beside the pid
-file, `<the same 16 hex characters>.watch.lock`, created with `mkdir`, which is atomic — so that two
-watchers starting in the same moment cannot interleave their lines and leave a file holding one
-watcher's pid above the other's path. That is the only reason a `.watch.lock` directory ever appears
-in `~/.claude-remarks`, and it is held for a moment, not for the wait. One left behind by a watcher
-killed mid-write is broken by the next watcher after ten seconds, so a stale one delays a start once
-and never blocks it.
+one repository, stopping by that file stops the newer one. Writing those two lines takes no lock: they
+go to a temp name beside the pid file and are then renamed onto it, and a rename within one directory
+is atomic on every POSIX filesystem, so two watchers starting in the same moment cannot interleave
+their lines and leave a file holding one watcher's pid above the other's path. A reader sees one whole
+file or the other. No `.watch.lock` directory exists any more; anything still describing one is out of
+date.
 
 The 16 hex characters come straight off the `--file` path's own basename when that basename really
 is 16 hex characters, which is what every path this file prints looks like. A `--file` pointed
@@ -1290,18 +1374,26 @@ watcher means knowing which of the two files names it.
      echo "published_file=$published_file"
      echo "seen_nonce=$seen_nonce   # printed to read, not passed — see below"
      echo "run this next, as its own Bash call, marked background:"
-     printf "  '%s/watch-remarks.sh' --file '%s' --require-review '%s' --deadline '%s'\n" \
-       "$skill_dir" "$published_file" "$session" "$deadline_seconds"
+     printf "  perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '%s/watch-remarks.sh' --file '%s' --require-review '%s' --owner %s --deadline '%s'\n" \
+       "$skill_dir" "$published_file" "$session" "$PPID" "$deadline_seconds"
    else
      echo "session=$session"
      echo "base_url=$base_url"
      echo "ide_project=$ide_project"
      echo "run this next, as its own Bash call, marked background, with CLAUDE_REMARKS_TOKEN set in"
      echo "its environment to the token read in step 2 — do not echo the token itself"
-     printf "  '%s/watch-remarks.sh' --fetch '%s' --session '%s' --project '%s' --deadline '%s'\n" \
-       "$skill_dir" "$base_url" "$session" "$ide_project" "$deadline_seconds"
+     printf "  perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '%s/watch-remarks.sh' --fetch '%s' --session '%s' --project '%s' --owner %s --deadline '%s'\n" \
+       "$skill_dir" "$base_url" "$session" "$ide_project" "$PPID" "$deadline_seconds"
    fi
    ```
+
+   **The `perl` wrapper and `--owner $PPID` are both required, and neither is decoration.** The
+   wrapper puts the watcher in its own session and process group, so a signal aimed at this session's
+   process group cannot take it with it; `--owner` is what then stops the watcher when this session
+   goes away, since a detached watcher would otherwise run to its full deadline with nobody left to
+   report to. "Launching it, and why the `perl` line is there" above carries the measurements, and
+   explains why `$$` is the wrong number and `$PPID` the right one. Do not rewrite either into
+   `nohup … &`: that form was measured and it does **not** leave the shell's process group.
 
    **`--seen` is deliberately not passed here, and the watcher ignores it under `--require-review`
    anyway.** The nonce above is read in the same shell that posted to `/start`, so a publish landing
@@ -1389,6 +1481,11 @@ watcher means knowing which of the two files names it.
      here has actually given up on the review, and it may still be genuinely waiting for a batch
      that has not arrived yet. The IDE's own scheduled deadline is what eventually clears the banner
      if nothing else does.
+
+   - **Exit 3 cannot reach this session, and needs no handling.** It means the process named by
+     `--owner` is gone, and that process is this session. There is nobody left to be handed the exit
+     code. Write nothing for it here, and in particular do not send `ack` of any kind for it — the
+     IDE's own scheduled deadline is what clears a banner left behind by a session that ended.
 
    - **Any exit code above 128, 143 in particular.** The watcher was killed. 143 is
      `128 + SIGTERM`, which any kill produces — a harness restart, a machine going to sleep, a stray

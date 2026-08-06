@@ -1,15 +1,19 @@
 #!/bin/sh
 # A background command that never exits never notifies the session waiting on it — so every path
-# out of this script (a new batch, the deadline, an error) is an explicit exit, and none of them
-# loop back.
+# out of this script (a new batch, the deadline, an owner that is gone, an error) is an explicit
+# exit, and none of them loop back.
 set -u
 
 usage() {
   echo "usage:" >&2
   echo "  watch-remarks.sh --file <path> [--seen <nonce>] [--require-review <session>]" >&2
-  echo "                    [--deadline <seconds>] [--poll <seconds>]" >&2
+  echo "                    [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]" >&2
   echo "  watch-remarks.sh --fetch <base_url> --project <path> [--session <id>]" >&2
   echo "                    [--seen <nonce>] [--deadline <seconds>] [--poll <seconds>]" >&2
+  echo "                    [--owner <pid>]" >&2
+  echo "" >&2
+  echo "exit codes: 0 a batch (on stdout), 1 the deadline passed, 2 a refusal," >&2
+  echo "            3 the --owner process is gone, above 128 this watcher was killed" >&2
   exit 2
 }
 
@@ -23,13 +27,15 @@ require_review=
 deadline=1800
 poll=
 poll_set=
+owner=
+owner_set=
 
 while [ $# -gt 0 ]; do
   # Every flag below takes a value. Checked here rather than in each branch, because `set -u` turns
   # a missing one into "$2: unbound variable" — a shell error in place of the usage text the
   # unrecognized-argument branch already prints for every other mistake.
   case "$1" in
-    --file | --fetch | --session | --project | --seen | --require-review | --deadline | --poll)
+    --file | --fetch | --session | --project | --seen | --require-review | --deadline | --poll | --owner)
       if [ $# -lt 2 ]; then
         echo "watch-remarks.sh: $1 needs a value" >&2
         usage
@@ -45,6 +51,7 @@ while [ $# -gt 0 ]; do
     --require-review) require_review=$2; shift 2 ;;
     --deadline) deadline=$2; shift 2 ;;
     --poll) poll=$2; poll_set=yes; shift 2 ;;
+    --owner) owner=$2; owner_set=yes; shift 2 ;;
     *) echo "watch-remarks.sh: unrecognized argument: $1" >&2; usage ;;
   esac
 done
@@ -85,6 +92,29 @@ case "$poll" in
   *[!0-9]* | '') echo "watch-remarks.sh: --poll must be a positive whole number of seconds" >&2; exit 2 ;;
 esac
 [ "$poll" -gt 0 ] || { echo "watch-remarks.sh: --poll must be greater than zero" >&2; exit 2; }
+
+# --owner is optional, and everything about this script is unchanged when it is absent. Given, it
+# names the process this watcher belongs to — the Claude Code session that launched it — and the poll
+# loops below stop as soon as that process is gone.
+#
+# It exists because the launch line in SKILL.md now puts the watcher in its own session and process
+# group, so that a signal aimed at the launching shell's process group cannot reach it. That is the
+# fix for watchers dying on a stray group-wide kill, and it has a cost: the watcher now outlives the
+# session that started it, reparented to init, running to its deadline. Such an orphan catches a
+# batch, writes it to a file nobody reads and exits. Nothing is marked read — the session claims a
+# batch, not the watcher — so the batch is still there for somebody else. What it does cost is the
+# pid file: the orphan holds it, so a person stopping "the watcher" for this repository stops the
+# orphan and leaves the live one running, and something looks like it is listening when nothing is.
+#
+# Validated exactly the way --deadline is, refusals included. Zero is refused for a reason of its
+# own: `kill -0 0` asks about every process in the caller's own process group, which is never what
+# naming an owner means, and it would answer "alive" forever.
+if [ -n "$owner_set" ]; then
+  case "$owner" in
+    *[!0-9]* | '') echo "watch-remarks.sh: --owner must be a positive whole number, a process id" >&2; exit 2 ;;
+  esac
+  [ "$owner" -gt 0 ] || { echo "watch-remarks.sh: --owner must be greater than zero" >&2; exit 2; }
+fi
 
 # The pid file's name: the same 16 hex characters review/ReviewHandshake.kt's projectHash uses
 # (sha256 of the project's real path, first 16 hex characters), so the pid file sits beside the
@@ -208,6 +238,31 @@ timed_out_fetch() {
   exit 1
 }
 
+# The same pair for --owner, written the same way and for the same reason: the check runs once per
+# mode, and the sentence must not drift between them. Exit 3 is this ending and nothing else — 0 is a
+# batch, 1 the deadline, 2 a refusal, anything above 128 a signal. On stderr like every other ending,
+# because stdout carries the batch and nothing else.
+#
+# ⚠️ The session that launched this watcher never sees this exit code. It is gone by definition; that
+# is what the code means. It is here for a person reading the watcher's own output afterwards.
+owner_gone_file() {
+  echo "the session that started this watcher (pid $owner) is gone — stopping the watch on $file" >&2
+  exit 3
+}
+
+owner_gone_fetch() {
+  echo "the session that started this watcher (pid $owner) is gone — stopping the watch on $project" >&2
+  exit 3
+}
+
+# One place decides whether the owner is still there, so the two loops cannot disagree about it. No
+# --owner means no owner to lose, which is what keeps every existing run byte for byte as it was.
+owner_is_gone() {
+  [ -n "$owner_set" ] || return 1
+  kill -0 "$owner" 2>/dev/null && return 1
+  return 0
+}
+
 if [ "$mode" = file ]; then
   tmpcopy=
   last_probe=
@@ -215,6 +270,9 @@ if [ "$mode" = file ]; then
     now=$(date +%s)
     if [ "$now" -ge "$deadline_ts" ]; then
       timed_out_file
+    fi
+    if owner_is_gone; then
+      owner_gone_file
     fi
 
     if [ ! -f "$file" ]; then
@@ -322,6 +380,9 @@ while :; do
   now=$(date +%s)
   if [ "$now" -ge "$deadline_ts" ]; then
     timed_out_fetch
+  fi
+  if owner_is_gone; then
+    owner_gone_fetch
   fi
 
   resp=$(mktemp)
