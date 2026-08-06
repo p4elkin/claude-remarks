@@ -1,6 +1,8 @@
 package dev.sasha.clauderemarks.ui
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.util.ui.JBUI
@@ -15,6 +17,7 @@ import java.awt.Component
 import java.awt.FontMetrics
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
+import javax.accessibility.AccessibleContext
 import javax.swing.Icon
 import javax.swing.JPanel
 import javax.swing.JTree
@@ -76,9 +79,18 @@ const val OPEN_LABEL = "Open"
  * ⚠️ An answer alone is enough, so an answered question leaves Open the moment the answer lands,
  * even if nothing ever acknowledged it. That was decided knowing the cost — the question moves out
  * of the list a person is working through while its answer is still worth reading. Two things make
- * it acceptable: the answer stays nested under its question wherever that question sits, and Done is
- * ordered newest-processed first, so what just arrived sits at the top of Done rather than buried in
- * it. Do not soften this to "READ only" because it reads as friendlier; it was decided against.
+ * it acceptable: the answer stays nested under its question wherever that question sits, expanded
+ * already, so opening Done is the one click that reaches it; and inside each file group Done is
+ * ordered newest-processed first, so what just arrived sits at the top of its file group rather than
+ * buried in it. Do not soften this to "READ only" because it reads as friendlier; it was decided
+ * against.
+ *
+ * ⚠️ **A row shown here can still be picked up by Publish Unread, and that is deliberate.** This
+ * group's test is "`READ`, or has an answer"; Publish Unread's is "not `READ`". A question answered
+ * by a session that never acknowledged the batch satisfies the first and not the second, so it sits
+ * under Done and is handed over again by the next Publish Unread. Do not narrow Publish Unread's
+ * filter to match this one: "not `READ`" is what makes a batch nobody acknowledged get re-sent, and
+ * that is the only thing standing between a missed batch and remarks lost for good.
  */
 const val DONE_KEY = "done"
 
@@ -125,20 +137,27 @@ data class RemarkNode(
      * includes every remark stored before the field existed. See `readAt` in `model/RemarkState.kt`.
      */
     val readAt: Long = 0L,
+    /**
+     * When the answer nested under this question came back, or 0 when there is none. Filled while
+     * the tree is built, from the same map that attaches the answer row — not a stored field.
+     */
+    val answeredAt: Long = 0L,
 ) {
     /**
-     * The moment this row last changed hands, which is what Done is ordered by, newest first.
+     * The moment this row last changed hands, which is what Done is ordered by inside its file
+     * group, newest first.
+     *
+     * Whichever of [readAt] and [answeredAt] is later, because either one on its own is enough to put
+     * the row in Done and the row should sort by the thing that actually put it there. An answered
+     * question that nothing ever acknowledged has only [answeredAt]; without it such a row sorted by
+     * when it was *written* and could land at the bottom of a long Done group, which is exactly the
+     * case the immediate move to Done creates. See [DONE_KEY].
      *
      * The fallback to [createdAt] is what keeps old data readable. Every remark read before [readAt]
      * existed carries 0, so without it the whole backlog would sort as one lump at the epoch, in
      * whatever order the store happened to hand it over.
-     *
-     * A question answered but never acknowledged falls back the same way. That is rare — a session
-     * acknowledges the batch before it answers anything in it, so the acknowledgement's stamp is
-     * already there by the time an answer arrives — and the plain two-field rule is worth more than
-     * a third case almost nothing would exercise.
      */
-    val processedAt: Long get() = if (readAt != 0L) readAt else createdAt
+    val processedAt: Long get() = maxOf(readAt, answeredAt).takeIf { it != 0L } ?: createdAt
 }
 
 /**
@@ -226,7 +245,7 @@ data class AnswerNode(
  *
  * This is now the only place that rule lives; describe() held a second copy and is gone.
  */
-fun remarkNode(row: ResolvedRemark, hasAnswer: Boolean = false): RemarkNode {
+fun remarkNode(row: ResolvedRemark, hasAnswer: Boolean = false, answeredAt: Long = 0L): RemarkNode {
     val result = row.result
     val label = movedOrOrphanedLabel(result, row.remark.startLine, row.remark.endLine, row.remark.commit)
     val general = isAboutNoFile(row.remark)
@@ -245,6 +264,7 @@ fun remarkNode(row: ResolvedRemark, hasAnswer: Boolean = false): RemarkNode {
         hasAnswer = hasAnswer,
         createdAt = row.remark.createdAt,
         readAt = row.remark.readAt,
+        answeredAt = answeredAt,
     )
 }
 
@@ -374,7 +394,10 @@ private fun childLeavesOf(node: DefaultMutableTreeNode): List<Any> =
  * **Rows inside a file are ordered by the time they last changed hands**, not by the line they point
  * at: [RemarkNode.createdAt] in Open, oldest first, so a new remark lands at the bottom of its file
  * group and nothing above it moves; [RemarkNode.processedAt] in Done, newest first, so whatever was
- * just picked up sits at the top. Two rows carrying the same time fall back to the resolved line,
+ * just picked up sits at the top of its own file group. ⚠️ **The file groups themselves stay in path
+ * order on both sides**, so Done is not one newest-first list — it is a list of files, each ordered
+ * newest-processed first inside itself. That is what was asked for, and it is why both comparators
+ * take the path as their first key. Two rows carrying the same time fall back to the resolved line,
  * which is what keeps the order steady for remarks written in the same millisecond — and for every
  * remark stored before either stamp meant anything.
  *
@@ -451,7 +474,15 @@ fun buildTreeRoot(
  */
 private val OPEN_ORDER = compareBy<RemarkNode>({ it.path }, { it.createdAt }, { it.startLine })
 
-/** Done: the same, but newest-processed first. See [RemarkNode.processedAt] for what that reads. */
+/**
+ * Done: the same, but newest-processed first *inside each file*. See [RemarkNode.processedAt] for
+ * what that reads.
+ *
+ * ⚠️ The path stays the first key on purpose, so file groups are in path order and only the rows
+ * within one file are newest-first. Done is deliberately **not** one newest-processed-first list
+ * across every file. Do not "fix" this by moving [RemarkNode.processedAt] to the front; it is what
+ * was asked for.
+ */
 private val DONE_ORDER = compareBy<RemarkNode> { it.path }
     .thenByDescending { it.processedAt }
     .thenBy { it.startLine }
@@ -479,8 +510,8 @@ private fun addSide(
     // the node. Same rows in the same order either way — partition keeps order and the sort is
     // stable — but this way the question "is this about no file" is asked of isAboutNoFile once.
     val (generalRows, fileRows) = rows.partition { isAboutNoFile(it.remark) }
-    val general = generalRows.map { remarkNode(it, it.remark.id in answered) }.sortedWith(order)
-    val aboutAFile = fileRows.map { remarkNode(it, it.remark.id in answered) }.sortedWith(order)
+    val general = generalRows.map { leafNode(it, answered, answersByQuestion) }.sortedWith(order)
+    val aboutAFile = fileRows.map { leafNode(it, answered, answersByQuestion) }.sortedWith(order)
 
     val side = DefaultMutableTreeNode(GroupNode(sideKey, sideLabel))
     if (general.isNotEmpty()) {
@@ -491,6 +522,22 @@ private fun addSide(
     addFileGroups(side, sideKey, aboutAFile, answersByQuestion)
     root.add(side)
 }
+
+/**
+ * One remark's leaf node, with both facts its answer contributes filled in from the same map that
+ * will attach the answer row: whether there is one at all, which decides the icon and the side, and
+ * when it came back, which [RemarkNode.processedAt] sorts Done by. Read from one place, so a question
+ * cannot end up in Done sorted by a time no answer under it agrees with.
+ */
+private fun leafNode(
+    row: ResolvedRemark,
+    answered: Set<String>,
+    answersByQuestion: Map<String, List<AnswerNode>>,
+): RemarkNode = remarkNode(
+    row,
+    row.remark.id in answered,
+    answersByQuestion[row.remark.id.orEmpty()]?.maxOfOrNull { it.answeredAt } ?: 0L,
+)
 
 /**
  * The directory shown next to a file's name, or null when the file sits in the project root and
@@ -558,15 +605,68 @@ const val MAX_TEXT_LINES = 3
  * Room taken off the tree's own width before the text is wrapped: the icon, the gap after it, and
  * enough slack that a vertical scroll bar appearing does not push the last word of every row onto a
  * line of its own.
+ *
+ * Internal rather than private so `RemarkTreeRendererTest` can do the same arithmetic the renderer
+ * does, instead of asserting on a number copied out of here.
  */
-private val ROW_MARGIN get() = JBUI.scale(36)
+internal val ROW_MARGIN get() = JBUI.scale(36)
 
 /**
  * The narrowest the text may ever be wrapped to. A tree that has not been laid out yet reports a
  * width of zero, and without a floor every row would come back as three one-character lines and stay
  * that way until something invalidated the row heights.
+ *
+ * Internal for the same reason as [ROW_MARGIN].
  */
-private val MIN_WRAP_WIDTH get() = JBUI.scale(120)
+internal val MIN_WRAP_WIDTH get() = JBUI.scale(120)
+
+/** Logged from a renderer, so it is a top-level `val` rather than a field on a reused component. */
+private val RENDERER_LOG = logger<RemarkTreeRenderer>()
+
+/**
+ * One line of a row.
+ *
+ * A plain `SimpleColoredComponent` fires a property change, revalidates and repaints itself on every
+ * `clear()`, every `append(...)` and every `icon =`, through its own `revalidateAndRepaint`. A row
+ * resets four of these components and then appends to as many of them as it needs, and that happens
+ * once per paint *and* once per height computation. `ColoredTreeCellRenderer`, the class this
+ * renderer replaced, overrides that method to nothing with the comment "no need for this in a
+ * renderer", and the reason is that a renderer lives outside the tree's own component hierarchy:
+ * there is nothing there to invalidate and nothing there to repaint.
+ *
+ * ⚠️ `SimpleColoredComponent` skips only the `revalidate()` half on its own, and only when it is
+ * itself a `TreeCellRenderer` (`myAutoInvalidate = !(this instanceof TreeCellRenderer)`). A line
+ * component is not one — the panel around it is — so nothing was skipped before this class existed.
+ */
+private class RowLine : SimpleColoredComponent() {
+    override fun revalidateAndRepaint() = Unit
+}
+
+/**
+ * The attributes a fragment is really drawn with once the row's selection state is taken into
+ * account: the given [attributes] normally, and the platform's forced selection foreground when the
+ * row is selected, the tree is focused, and the current theme asks for it.
+ *
+ * ⚠️ This is the substitution `ColoredTreeCellRenderer.append` used to make for free, and dropping it
+ * with that class was a real regression. `SimpleColoredComponent` draws a fragment in the attribute's
+ * own colour whenever it has one, ignoring the component's foreground — and `GRAYED_ATTRIBUTES`
+ * carries one. So a `READ` remark's grey body, and every row's grey metadata line, stayed grey on top
+ * of the selection band, which the default dark theme sets
+ * `Tree.forceFocusedSelectionForeground` precisely to prevent.
+ *
+ * Internal rather than private to the renderer so a test can drive it directly: a tree inside a test
+ * fixture never has focus, so the substitution can never be reached through a real render.
+ */
+internal fun selectionAdjusted(
+    attributes: SimpleTextAttributes,
+    selected: Boolean,
+    focused: Boolean,
+): SimpleTextAttributes =
+    if (selected && focused && JBUI.CurrentTheme.Tree.Selection.forceFocusedSelectionForeground()) {
+        SimpleTextAttributes(attributes.style, UIUtil.getTreeSelectionForeground(true))
+    } else {
+        attributes
+    }
 
 /**
  * A row is a **stack of lines**, not one line, so a remark long enough to be worth writing is worth
@@ -615,7 +715,7 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
      * Painting is not testable without a screen; which lines came back visible, and what text and
      * attributes each of them carries, is.
      */
-    internal val lines: List<SimpleColoredComponent> = List(MAX_TEXT_LINES) { SimpleColoredComponent() }
+    internal val lines: List<SimpleColoredComponent> = List(MAX_TEXT_LINES) { RowLine() }
 
     /**
      * The fourth row, below the text: the position, its "(moved)"/"(orphaned…)" suffix, and, for an
@@ -627,7 +727,15 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
      * that name, and folding the metadata line in would make every one of them count to four when
      * they mean three.
      */
-    internal val metadataLine: SimpleColoredComponent = SimpleColoredComponent()
+    internal val metadataLine: SimpleColoredComponent = RowLine()
+
+    /**
+     * Whether the row being drawn is selected, and whether the tree it is in has focus. Fields rather
+     * than parameters carried down, because every `append` on this row needs both — see
+     * [selectionAdjusted] for what they decide.
+     */
+    private var rowSelected = false
+    private var treeFocused = false
 
     init {
         val constraints = GridBagConstraints().apply {
@@ -645,6 +753,15 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
         }
     }
 
+    /**
+     * ⚠️ The whole body is wrapped, and only `ProcessCanceledException` is let out.
+     *
+     * `ColoredTreeCellRenderer` makes this method `final` and does exactly this, for a reason worth
+     * repeating here: an exception thrown from a renderer escapes into `BasicTreeUI.paintRow` on the
+     * EDT, and since painting repeats, so does the exception — one bad row makes the whole tool
+     * window unusable rather than drawing one bad row. A cancellation is rethrown because swallowing
+     * one breaks the platform's own cancellation, and everything else is logged so it is still found.
+     */
     override fun getTreeCellRendererComponent(
         tree: JTree,
         value: Any?,
@@ -654,9 +771,28 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
         row: Int,
         hasFocus: Boolean,
     ): Component {
+        try {
+            drawRow(tree, value, selected)
+        } catch (cancelled: ProcessCanceledException) {
+            throw cancelled
+        } catch (failed: Exception) {
+            // The platform guards its own logging call the same way: a logger that throws while a
+            // row is painting would put the tree back exactly where this catch block took it from.
+            try {
+                RENDERER_LOG.error(failed)
+            } catch (ignored: Exception) {
+                // Nothing left to do with it.
+            }
+        }
+        return this
+    }
+
+    private fun drawRow(tree: JTree, value: Any?, selected: Boolean) {
         // tree.hasFocus(), not the hasFocus parameter: that one says the ROW has focus, while
         // UIUtil's argument is whether the TREE does — an unfocused tree draws a paler selection.
         val focused = tree.hasFocus()
+        rowSelected = selected
+        treeFocused = focused
         background = if (selected) UIUtil.getTreeSelectionBackground(focused) else UIUtil.getTreeBackground()
         isOpaque = selected
         val rowForeground = UIUtil.getTreeForeground(selected, focused)
@@ -695,12 +831,35 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
             // heading that grew taller than the rows under it would read as the more important thing.
             is GroupNode -> lines[0].let { line ->
                 line.isVisible = true
-                line.append(user.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-                user.detail?.let { line.append("  $it", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
+                append(line, user.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+                user.detail?.let { append(line, "  $it", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
             }
         }
-        return this
     }
+
+    /**
+     * Every fragment this renderer draws goes through here, so the forced selection foreground can
+     * never be applied to some of a row and not the rest. See [selectionAdjusted].
+     */
+    private fun append(line: SimpleColoredComponent, text: String, attributes: SimpleTextAttributes) {
+        line.append(text, selectionAdjusted(attributes, rowSelected, treeFocused))
+    }
+
+    /**
+     * The row's own accessible name: the text of every line it left visible, joined.
+     *
+     * `JTree`'s `AccessibleJTree` builds a node's accessible context out of whatever the renderer
+     * hands back, so this is what a screen reader announces for a row. `SimpleColoredComponent`
+     * supplies one carrying its fragments' text and `ColoredTreeCellRenderer` inherited it; a plain
+     * `JPanel`'s context has a null name, so every row went silent when the renderer became one.
+     */
+    override fun getAccessibleContext(): AccessibleContext =
+        super.getAccessibleContext().also { it.accessibleName = visibleRowText() }
+
+    private fun visibleRowText(): String = (lines + metadataLine)
+        .filter { it.isVisible }
+        .joinToString(" ") { it.getCharSequence(false).toString() }
+        .trim()
 
     /**
      * One remark or answer row: [icon] on the first line, [body] wrapped across as many of the
@@ -719,9 +878,18 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
      * nested answer with no move or orphan to report. `GridBagLayout` skips a hidden child when it
      * measures, so such a row is exactly as tall as its text, not one blank line taller.
      *
-     * ⚠️ [metadata] is appended as one fragment, never run through [wrapToLines]. A position that
-     * combines a sub-line range, an "(orphaned, written at …)" suffix and a long file name could in
-     * principle be wide enough to overflow the row rather than wrap or elide.
+     * ⚠️ [metadata] is **elided**, never wrapped. It goes through [elideToWidth] rather than
+     * [wrapToLines] because it is one deliberate string: wrapping it would re-flow it and collapse
+     * the two-space gap [metadataOf] puts between a position and a file name. Eliding is still needed
+     * — a sub-line range plus an "(orphaned, written at …)" suffix plus a long file name can be wider
+     * than the row, and one row wider than the viewport puts a horizontal scroll bar under the whole
+     * tree.
+     *
+     * ⚠️ It is drawn in `GRAYED_SMALL_ATTRIBUTES`, not `GRAYED_ATTRIBUTES`. Every row in Done is
+     * `READ` or answered, and `RemarkStatusLook.textAttributes` gives a `READ` body the *same* grey —
+     * so with the plain grey the body and the line under it were the same colour and the metadata
+     * stopped reading as subordinate to the text it belongs to. The smaller size is what tells them
+     * apart on those rows. Checked with `javap` against the 2025.2 jars: the constant exists there.
      */
     private fun drawWrappedRow(
         icon: Icon,
@@ -737,12 +905,13 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
             val line = lines[index]
             line.isVisible = true
             if (index == 0) line.icon = icon
-            line.append(text, bodyAttributes)
+            append(line, text, bodyAttributes)
         }
 
         if (metadata.isNotEmpty()) {
             metadataLine.isVisible = true
-            metadataLine.append(metadata, SimpleTextAttributes.GRAYED_ATTRIBUTES)
+            val shown = elideToWidth(metadata, width) { metrics.stringWidth(it) }
+            append(metadataLine, shown, SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
         }
     }
 
@@ -783,8 +952,13 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
      * **not** read back from `tree.getRowBounds`. Those bounds are produced by asking this very
      * renderer for its preferred size, so reading them here would be a renderer asking the layout
      * cache a question only the renderer can answer.
+     *
+     * Internal rather than private so `RemarkTreeRendererTest` can check the indent arithmetic
+     * exactly. Every node in a real tree sits at level 2 or deeper — side, then file group, then the
+     * row — while a test that renders a bare node renders one at level 0, so nothing that goes
+     * through a rendered row exercises the subtraction at all.
      */
-    private fun wrapWidth(tree: JTree, node: DefaultMutableTreeNode?): Int {
+    internal fun wrapWidth(tree: JTree, node: DefaultMutableTreeNode?): Int {
         val available = tree.visibleRect.width.takeIf { it > 0 } ?: tree.width
         val perLevel = UIUtil.getTreeLeftChildIndent() + UIUtil.getTreeRightChildIndent()
         val indent = (node?.level ?: 0) * perLevel

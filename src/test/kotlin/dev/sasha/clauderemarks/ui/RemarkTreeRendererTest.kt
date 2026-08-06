@@ -6,6 +6,7 @@ import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.model.RemarkStatus
+import javax.swing.UIManager
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 
@@ -24,6 +25,26 @@ import javax.swing.tree.DefaultTreeModel
  * left holding — and every one of those is a way the row could go wrong silently.
  */
 class RemarkTreeRendererTest : BasePlatformTestCase() {
+
+    private var forcedForegroundBefore: Any? = null
+
+    override fun setUp() {
+        super.setUp()
+        forcedForegroundBefore = UIManager.get(FORCE_SELECTION_FOREGROUND)
+    }
+
+    /**
+     * ⚠️ The theme key is put back by hand. `UIManager`'s defaults are shared by the whole test run,
+     * exactly like the light fixture project, so a key left set here would change how every later
+     * class's renderer draws.
+     */
+    override fun tearDown() {
+        try {
+            UIManager.put(FORCE_SELECTION_FOREGROUND, forcedForegroundBefore)
+        } finally {
+            super.tearDown()
+        }
+    }
 
     fun testAShortRemarkDrawsOneLine() {
         val renderer = render(remarkRow(text = "why is this synchronized?"))
@@ -83,7 +104,23 @@ class RemarkTreeRendererTest : BasePlatformTestCase() {
 
         val metadataFragments = fragments(renderer.metadataLine)
         assertEquals(listOf("4-6"), metadataFragments.map { it.first })
-        assertSame(SimpleTextAttributes.GRAYED_ATTRIBUTES, metadataFragments.single().second)
+        assertSame(SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES, metadataFragments.single().second)
+    }
+
+    /**
+     * ⚠️ The metadata line is the **smaller** grey, not the plain one. `RemarkStatusLook` gives a
+     * `READ` remark's body exactly the plain grey, and every row in Done is `READ` or answered — so
+     * with one grey for both, the body and the line under it were the same colour on every row in
+     * Done and the metadata stopped reading as subordinate.
+     */
+    fun testAReadRowsMetadataLineIsStillToldApartFromItsGreyBody() {
+        val renderer = render(remarkRow(text = "why?", position = "4-6", status = RemarkStatus.READ))
+
+        val body = fragments(renderer.lines[0]).single().second
+        val metadata = fragments(renderer.metadataLine).single().second
+        assertSame(SimpleTextAttributes.GRAYED_ATTRIBUTES, body)
+        assertNotSame(body, metadata)
+        assertTrue(metadata.isSmaller)
     }
 
     /** A read remark greys out whole, the same rule the one-line renderer followed. */
@@ -194,6 +231,117 @@ class RemarkTreeRendererTest : BasePlatformTestCase() {
         assertEquals(UIUtil.getTreeBackground(), renderer.background)
     }
 
+    /**
+     * ⚠️ The regression this pins is invisible in a light theme and obvious in the default dark one.
+     * `ColoredTreeCellRenderer` overrode `append` to rewrite every fragment's colour to the tree's
+     * selection foreground when the row is selected, the tree is focused and the theme sets
+     * `Tree.forceFocusedSelectionForeground` — which the dark themes do. Without that substitution a
+     * grey fragment keeps its own colour, because `SimpleColoredComponent` prefers the attribute's
+     * colour over the component's foreground, so a `READ` row's whole body and every row's metadata
+     * line stayed grey on top of the selection band.
+     *
+     * The key is set here rather than read: a test fixture loads no theme, so the production path
+     * would silently take the "theme does not ask for it" branch and assert nothing.
+     */
+    fun testAGreyFragmentTakesTheSelectionForegroundOnAFocusedSelectedRow() {
+        UIManager.put(FORCE_SELECTION_FOREGROUND, true)
+
+        val adjusted = selectionAdjusted(
+            SimpleTextAttributes.GRAYED_ATTRIBUTES,
+            selected = true,
+            focused = true,
+        )
+
+        assertEquals(UIUtil.getTreeSelectionForeground(true), adjusted.fgColor)
+        assertEquals(SimpleTextAttributes.GRAYED_ATTRIBUTES.style, adjusted.style)
+    }
+
+    /** And nothing is rewritten on a row that is not selected, or in a tree that has no focus. */
+    fun testAFragmentKeepsItsOwnAttributesWhenTheRowIsNotSelectedOrTheTreeIsNotFocused() {
+        UIManager.put(FORCE_SELECTION_FOREGROUND, true)
+        val grey = SimpleTextAttributes.GRAYED_ATTRIBUTES
+
+        assertSame(grey, selectionAdjusted(grey, selected = false, focused = true))
+        assertSame(grey, selectionAdjusted(grey, selected = true, focused = false))
+    }
+
+    /** A theme that does not ask for the substitution gets the attributes it was given, untouched. */
+    fun testAThemeThatDoesNotForceTheSelectionForegroundLeavesTheAttributesAlone() {
+        UIManager.put(FORCE_SELECTION_FOREGROUND, false)
+        val grey = SimpleTextAttributes.GRAYED_ATTRIBUTES
+
+        assertSame(grey, selectionAdjusted(grey, selected = true, focused = true))
+    }
+
+    /**
+     * The indent subtraction runs on every painted row and nothing else reaches it: every node in a
+     * real tree sits at level 2 or deeper — the side, then the file group, then the row — while every
+     * other test in this class renders a node that is its own tree's root, at level 0.
+     */
+    fun testTheWrapWidthLosesOneIndentPerLevelOfDepth() {
+        val renderer = RemarkTreeRenderer()
+        val root = DefaultMutableTreeNode("remarks")
+        val group = DefaultMutableTreeNode(GroupNode(DONE_KEY, DONE_LABEL))
+        val leaf = DefaultMutableTreeNode(remarkRow(text = "why?"))
+        root.add(group)
+        group.add(leaf)
+        val tree = Tree(DefaultTreeModel(root))
+        tree.setSize(600, 200)
+        val perLevel = UIUtil.getTreeLeftChildIndent() + UIUtil.getTreeRightChildIndent()
+
+        assertEquals(600 - ROW_MARGIN, renderer.wrapWidth(tree, root))
+        assertEquals(600 - perLevel - ROW_MARGIN, renderer.wrapWidth(tree, group))
+        assertEquals(600 - 2 * perLevel - ROW_MARGIN, renderer.wrapWidth(tree, leaf))
+    }
+
+    /**
+     * The floor, which is what a tree that has not been laid out yet needs: it reports a width of 0,
+     * and without this every row would come back as three one-character lines.
+     */
+    fun testATreeWithNoWidthYetWrapsAtTheFloorRatherThanAtNothing() {
+        val renderer = RemarkTreeRenderer()
+        val node = DefaultMutableTreeNode(remarkRow(text = "why?"))
+
+        assertEquals(MIN_WRAP_WIDTH, renderer.wrapWidth(Tree(DefaultTreeModel(node)), node))
+    }
+
+    /**
+     * A long orphaned position plus a long file name used to be appended as one fragment however wide
+     * it came out, and one row wider than the viewport puts a horizontal scroll bar under the whole
+     * tree. It is elided rather than wrapped, because that line is one deliberate string — wrapping
+     * would re-flow it and collapse the two-space gap between the position and the file name.
+     */
+    fun testAMetadataLineTooWideForTheRowIsCutShortWithAnEllipsis() {
+        val renderer = render(
+            remarkRow(
+                text = "why?",
+                position = "9:12-11:5 (orphaned, written at 5dc8d197)",
+            ),
+            treeWidth = 160,
+        )
+
+        assertTrue(textOf(renderer.metadataLine), textOf(renderer.metadataLine).endsWith("…"))
+    }
+
+    /**
+     * `JTree`'s `AccessibleJTree` builds a row's accessible context out of whatever the renderer hands
+     * back. `SimpleColoredComponent` supplies one carrying its own text and `ColoredTreeCellRenderer`
+     * inherited it; a plain `JPanel`'s context has a null name, so a screen reader announced nothing
+     * at all for every row until this override existed.
+     */
+    fun testARowsAccessibleNameIsTheTextItDrew() {
+        val renderer = render(remarkRow(text = "why is this synchronized?", position = "4-6"))
+
+        assertEquals("why is this synchronized? 4-6", renderer.getAccessibleContext().accessibleName)
+    }
+
+    /** And a row that drew nothing on its metadata line does not announce a stray separator either. */
+    fun testAGeneralRemarksAccessibleNameIsItsTextAlone() {
+        val renderer = render(remarkRow(text = "the whole change reads well", position = ""))
+
+        assertEquals("the whole change reads well", renderer.getAccessibleContext().accessibleName)
+    }
+
     /** Long enough that no plausible font fits it into three lines of a 220-pixel row. */
     private fun longText() = (1..80).joinToString(" ") { "word$it" }
 
@@ -244,5 +392,10 @@ class RemarkTreeRendererTest : BasePlatformTestCase() {
             drawn += walk.fragment to walk.textAttributes
         }
         return drawn
+    }
+
+    private companion object {
+        /** The theme key `JBUI.CurrentTheme.Tree.Selection.forceFocusedSelectionForeground` reads. */
+        const val FORCE_SELECTION_FOREGROUND = "Tree.forceFocusedSelectionForeground"
     }
 }

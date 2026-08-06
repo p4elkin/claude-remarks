@@ -540,15 +540,24 @@ No Kotlin. `./gradlew test` covers none of this.
 Nothing here is reachable by `./gradlew test`.
 
 1. A long remark wraps to three lines and the fourth is elided, not clipped.
-2. The metadata line sits **below** the text, in grey, and reads as subordinate to it.
+2. The metadata line sits **below** the text, in grey, and reads as subordinate to it. ⚠️ It is drawn
+   in `GRAYED_SMALL_ATTRIBUTES` since the review pass, because a `READ` row's body is exactly the plain
+   grey and the two were indistinguishable on every row in Done. Check the smaller size actually reads
+   as subordinate rather than as an accident, in both a light and a dark theme.
 3. A general remark shows no metadata line and no empty gap where one would be.
 4. A multi-line remark written with Shift+Enter keeps its own line breaks.
-5. Selection paints correctly across all lines of a multi-line row, not just the first.
+5. Selection paints correctly across all lines of a multi-line row, not just the first — and ⚠️ **the
+   grey parts of a selected row are readable on the selection band.** In a dark theme, select a Done
+   row (whose whole body is grey) and a row with a metadata line, with the tree focused, and check
+   neither stays inactive-grey on top of the selection colour. That substitution is
+   `selectionAdjusted`, and it is what `ColoredTreeCellRenderer` used to do for free.
 6. Done starts collapsed; opening it survives a refresh.
 7. A remark moves from Open to Done when an agent acknowledges it, without the tree jumping.
 8. An answered question is under Done with its answer still nested beneath it.
-9. Done is ordered newest-processed first, and remarks read before this phase (with `readAt == 0`)
-   order by when they were written rather than all collapsing together.
+9. Done is ordered newest-processed first **inside each file group**, with the file groups themselves
+   in path order — that is what was asked for, and it is deliberately not one newest-first list across
+   every file. Remarks read before this phase (with `readAt == 0`) order by when they were written
+   rather than all collapsing together.
 10. No drag is possible anywhere in the tree, and nothing looks like it invites one.
 11. The right-click menu offers Ask for an Answer and Publish, and no Move to Bucket…
 12. A session picking up a batch prints the two-group bullet summary before doing any work.
@@ -558,14 +567,18 @@ Nothing here is reachable by `./gradlew test`.
 *Added while task 7 was built. All four are about the stacked-line renderer, and none is reachable by
 a test.*
 
-14. ⚠️ **Widening or narrowing the tool window does not re-wrap rows already on screen.** The wrap
-    width is read once per render, and `setRowHeight(0)` makes JTree cache each row's height, so
-    nothing asks the renderer again until the tree is rebuilt. Pressing Refresh, or writing any
-    remark, rebuilds it and the rows re-wrap. Check how bad this looks in practice before deciding
-    whether it needs fixing — the fix is a resize listener calling
-    `TreeUtil.invalidateCacheAndRepaint(tree.ui)`, which was deliberately left out: it is
-    `@ApiStatus.Experimental`, and adding a third reason for `build.gradle.kts` to subtract
-    `EXPERIMENTAL_API_USAGES` is not something to do on the way past.
+14. **Handled in the review pass. What is left is how it feels, not whether it happens.** Resizing
+    the tool window now re-wraps the rows: a `ComponentListener` on the scroll pane's viewport
+    restarts a one-shot 150 ms `javax.swing.Timer`, which calls `nodeStructureChanged` to drop JTree's
+    cached row bounds and then re-applies the expand, recollapse and reselect a rebuild does.
+    `TreeUtil.invalidateCacheAndRepaint` was still not used — it is `@ApiStatus.Experimental`. Two
+    things to look at instead:
+    - **Dragging the tool window's edge does not flicker.** The timer is one shot and restarted on
+      every resize event, so a drag should produce one rebuild when it stops, not one per pixel. If
+      the tree redraws while the edge is moving, the coalescing is not working.
+    - **Expansion and selection survive a resize.** `nodeStructureChanged` throws both away, and the
+      three restores put them back. Open a file group inside Done, select a row, drag the edge, and
+      check both are still there — including Done still being shut if it was shut.
 15. The icon sits inside the first line component, so the second and third lines — and, since task 8,
     the metadata line below them — start at the panel's left edge — under the icon, not aligned with
     the first line's text. Check whether that reads as a hanging indent or as ragged. The platform's
@@ -578,12 +591,13 @@ a test.*
     use the full available width now. Confirmed in the code, not by hand.
 17. A remark whose text is one word longer than the tree is wide breaks mid-word rather than
     overflowing. Check that the break looks deliberate and not like a truncation.
-18. ⚠️ **The metadata line is one fragment, never wrapped.** `drawWrappedRow` runs the text through
-    `wrapToLines`, but appends the metadata as a single string. A row whose position combines a
-    sub-line range with an "(orphaned, written at 5dc8d197)" suffix, or an orphan-group answer whose
-    file name is long, could be wide enough to overflow the row rather than wrap or elide. Check a
-    long orphaned position and a long file name together before deciding whether the metadata line
-    needs `wrapToLines` too.
+18. **Handled in the review pass: the metadata line is elided, not wrapped.** It goes through
+    `elideToWidth` rather than `wrapToLines`, because that line is one deliberate string and wrapping
+    would re-flow it and collapse the two-space gap between the position and the file name. So it can
+    no longer push a horizontal scroll bar under the whole tree. What is left to look at: put a
+    sub-line range, an "(orphaned, written at 5dc8d197)" suffix and a long file name on one row in a
+    narrow tool window, and check the cut still leaves something worth reading rather than an ellipsis
+    two characters in.
 
 *Added while task 9 was built. All three are about a session following `SKILL.md`, and nothing in
 this repository can check any of them: the document is prose an agent reads, and `./gradlew test`

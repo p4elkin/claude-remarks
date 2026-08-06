@@ -32,17 +32,20 @@ grouping by state, and a row stops being one cropped line.
 - **The tree splits into Open and Done.** A row is Done once it is `READ` **or** it has an answer, Open
   until then. Done starts collapsed, and stays open across a refresh once a person opens it. An
   answered question moves to Done at once, even when nothing acknowledged it — decided knowing the
-  cost, and paid for by the answer staying nested under its question and by Done ordering
-  newest-processed first. "Answers with no question" stays as its own group above Open, because an
-  answer with no question is a loose end and not finished work. Every group inside a side carries its
-  side's key as a prefix, since one file can hold rows on both sides and the panel matches groups by
-  key alone. `expandAll` takes a `keepDoneOpen` flag read before the rebuild: `collapsedGroups` records
-  what is shut, and "not shut" also covers "no such group yet".
+  cost, and paid for by the answer staying nested under its question, expanded already so opening Done
+  is one click, and by Done ordering newest-processed first inside each file group. The file groups
+  themselves stay in path order on both sides. "Answers with no question" stays as its own group above
+  Open, because an answer with no question is a loose end and not finished work. Every group inside a
+  side carries its side's key as a prefix, since one file can hold rows on both sides and the panel
+  matches groups by key alone. `expandAll` walks the model rather than the rows, so a node inside a
+  shut Done is expanded too, and it takes a `keepDoneOpen` flag read before the rebuild:
+  `collapsedGroups` records what is shut, and "not shut" also covers "no such group yet".
 - **`RemarkState` gains `readAt`**, stamped in `RemarkStore.markRead` and nowhere else, so Done can be
   ordered by when a row was processed rather than when it was written. Inside a file, Open is oldest
-  first by `createdAt` and Done is newest first by `processedAt`, which falls back to `createdAt` when
-  `readAt` is 0 — every remark read before this phase carries 0, and without the fallback the whole
-  backlog would sort as one lump at the epoch.
+  first by `createdAt` and Done is newest first by `processedAt` — the later of `readAt` and the time
+  the nested answer came back, since either one alone puts the row in Done — falling back to
+  `createdAt` when neither is set. Every remark read before this phase carries 0, and without the
+  fallback the whole backlog would sort as one lump at the epoch.
 - **Rows wrap, to at most three lines of text, with the rest elided.** `RemarkTreeRenderer` becomes a
   `JPanel` on a `GridBagLayout` stacking `SimpleColoredComponent` lines, because
   `ColoredTreeCellRenderer` is one of those and paints a single line by construction.
@@ -51,11 +54,16 @@ grouping by state, and a row stops being one cropped line.
   receives lines that are already split and never wraps anything. `ui/WrapText.kt`'s `wrapToLines`
   takes a `widthOf` measurer rather than a `FontMetrics`, so that file has no import statement at all
   and its tests run in milliseconds. Line breaks typed with Shift+Enter are kept instead of flattened.
+  Resizing the tool window re-wraps every row: a component listener on the scroll pane's viewport
+  restarts a one-shot 150 ms timer, which drops JTree's cached row bounds and puts the expansion and
+  the selection back.
 - **The position moves below the text.** The line range, its `(moved)`/`(orphaned…)` suffix and an
   orphan-group answer's file name are one grey line under the wrapped text instead of a prefix in
   front of it, hidden outright when there is nothing to put in it. The three-line cap counts lines of
   text, not lines of row. The body wraps to the row's full width now, because the position no longer
-  takes width off all three lines whether or not they draw it.
+  takes width off all three lines whether or not they draw it. That line is drawn in the smaller grey,
+  because a `READ` row's body is the plain grey and the two were otherwise indistinguishable, and it is
+  cut short with an ellipsis rather than pushing a horizontal scroll bar under the whole tree.
 - **The trailing `read` and `published` words are gone.** The icon, the colour and the Done group each
   say it already; the same argument phase 12 used to delete `asks` and `answered`.
 - **A session summarises a batch before acting on it.** `SKILL.md`'s read mode and listen mode both

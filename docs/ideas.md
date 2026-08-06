@@ -8,21 +8,24 @@ Raised by Sasha on 2026-08-02, after the first real install into IntelliJ.
 
 ## Named buckets in the tool window
 
-**Built in phase 5.** See `docs/claude/design.md`, section "Buckets", for the actual shape:
-`RemarkState.bucket`, a third tree level that appears only once a bucket is used, and
-`remarkNodesUnder` walking the whole subtree under a selected node. Two of the open questions below
-were answered by cutting rather than building:
+⚠️ **Built in phase 5 and deleted whole in phase 13. This idea is closed.** `RemarkState.bucket`, the
+`setRemarkBucket` mutator, the third tree level and the `Move to Bucket…` menu entry that was the only
+way to make a bucket are all gone. An element still carrying `<option name="bucket" value="x"/>`
+deserializes and drops the option on the next save, and that migration test is the only place the word
+survives in the source. See `docs/claude/design.md`, section "Buckets" — which now records the deletion
+and the reason — and its section "Open and Done" for what carries the tree today.
 
-- **No current bucket.** A whole reading pass is bucketed at once, by selecting several rows and
-  choosing Move to Bucket, so there was nothing for a "current bucket" default to save. Add one if
-  someone forgets to move remarks afterwards and minds.
-- **No Copy Bucket button.** Selecting the bucket node and pressing Copy Selected already means
-  "copy this bucket," once Copy Selected walks the whole subtree instead of one level down. One
-  fewer button, one fewer thing to grey out correctly.
+**Why it went.** The level was never used. What it was reached for — keeping the working list short —
+is what Open and Done do instead, and they do it from a fact the plugin already has (has an agent
+acknowledged this, has an answer come back) rather than from a name somebody has to type and then keep
+typing. Two of the questions below were already answered by cutting rather than building, which was the
+first sign: there was no current bucket and no Copy Bucket button, because neither was missed.
+
+What follows is the phase 5 reasoning, kept as the record of why it was built.
 
 The nesting order shipped as bucket → file → remark, not bucket → tag → file, for the reason
-already given below: it keeps the file grouping people already have, and the copied prompt is
-grouped by file for the same reason. There is no toggle between the two orders.
+already given below: it kept the file grouping people already have, and the copied prompt is
+grouped by file for the same reason. There was no toggle between the two orders.
 
 Group remarks into buckets the user names, instead of only by file. A bucket would be something
 like "auth refactor" or "review of MR 412". Inside a bucket, sub-group by the tags that already
@@ -354,9 +357,11 @@ sticky, survives clicking around, and reads as a deliberate choice.
 
 How hard: the control exists. `CheckboxTree` (`CheckboxTreeBase` plus `CheckedTreeNode`, all in
 `com.intellij.ui`, confirmed in the platform checkout) is the standard tree with checkboxes, and it
-already handles ticking a parent to tick everything under it. That is worth a lot here: with the
-bucket level phase 5 adds, ticking a bucket node means "send this bucket" for free, which is
-exactly the feature that was deliberately left unbuilt as a separate button.
+already handles ticking a parent to tick everything under it. That is worth a lot here: ticking a file
+group means "send this file", and ticking the Open group means "send everything still waiting", for
+free. ⚠️ This used to say "ticking a bucket node", which no longer means anything — phase 13 deleted
+buckets, and the levels a tick can land on today are the two sides, a General or file group, and a
+row.
 
 Two things to get right:
 
@@ -757,16 +762,24 @@ need.
 
 ## Drag a remark onto a bucket
 
-**Built in phase 9's group four, with one deliberate cut from the cheap version below.** Drag one or
-more selected rows, or a whole file or bucket group, onto a bucket row to move them there, or onto
-`(no bucket)` to clear it. `ui/RemarksTree.kt`'s `bucketDropTarget` decides the target, and
-`RemarksToolWindowFactory` wires `DnDAwareTree`/`DnDSupport` onto the existing `setRemarkBucket`.
-**The "New bucket…" drop target was not built.** Dragging can only move remarks onto a bucket that
-already exists; creating one by name is still only `Move to Bucket…` in the right-click menu. See
-the phase 9 plan's "What this phase deliberately does not build" for why: an empty bucket has
-nowhere to live in state that does not already exist, since a bucket is derived from its members
-rather than stored on its own, and the drop-target version that shipped does not need that new
-state at all. Only creating one out of thin air would have.
+⚠️ **Built in phase 9's group four and deleted whole in phase 13, with the buckets it dragged onto.
+This idea is closed.** `ui/RemarksTreeDnd.kt` was deleted as a file, `bucketDropTarget` with it, and
+the tree went back from `DnDAwareTree` to a plain `Tree`. This was the only drag anywhere in the
+plugin, so **nothing in the tool window drags now**. See the "Named buckets in the tool window" entry
+above for why buckets went, and `docs/claude/design.md`, section "Buckets", for the deletion itself.
+
+⚠️ **Do not read what follows as a description of anything that exists.** `RemarkState.bucket`,
+`setRemarkBucket` and `Move to Bucket…` are all gone, so every piece this entry says "already exists"
+would have to be built again first. Reviving the drag would mean reviving buckets, and that was
+decided against.
+
+What follows is the phase 9 reasoning, kept as the record of why it was built.
+
+**The "New bucket…" drop target was never built.** Dragging could only move remarks onto a bucket that
+already existed; creating one by name stayed a `Move to Bucket…` job. See the phase 9 plan's "What this
+phase deliberately does not build" for why: an empty bucket had nowhere to live in state that did not
+already exist, since a bucket was derived from its members rather than stored on its own, and the
+drop-target version that shipped did not need that new state at all.
 
 **Decided: build the cheap version.** Drag one or more selected rows in the tool window onto a bucket
 row to move them there. Dropping onto a "New bucket…" row asks for a name and creates the bucket with

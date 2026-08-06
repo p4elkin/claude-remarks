@@ -18,6 +18,7 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.PopupHandler
@@ -48,11 +49,20 @@ import dev.sasha.clauderemarks.store.projectRoot
 import dev.sasha.clauderemarks.store.resolveAll
 import dev.sasha.clauderemarks.store.resolveAnswers
 import java.awt.Component
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import javax.swing.Icon
 import javax.swing.JTree
+import javax.swing.Timer
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
+
+/**
+ * How long a resize has to stop for before the rows are wrapped again. Long enough that a drag
+ * produces one rebuild, short enough that letting go feels like it took effect at once.
+ */
+private const val REWRAP_DELAY_MS = 150
 
 /**
  * Adds the tree row at [x], [y] to the selection, unless it is already there.
@@ -106,6 +116,15 @@ class RemarksPanel(
      */
     internal val tree = Tree(DefaultTreeModel(DefaultMutableTreeNode("remarks")))
 
+    /**
+     * One shot, restarted on every resize event, so dragging the tool window's edge across a hundred
+     * pixels costs one rebuild when the drag stops rather than one per pixel.
+     */
+    private val rewrapTimer = Timer(REWRAP_DELAY_MS) { rewrapRows() }.apply { isRepeats = false }
+
+    /** The width the rows on screen were last wrapped for, so a resize that changes nothing is free. */
+    private var lastWrapWidth = -1
+
     init {
         tree.isRootVisible = false
         tree.showsRootHandles = true
@@ -149,9 +168,53 @@ class RemarksPanel(
         )
 
         setToolbar(buildToolbar().component)
-        setContent(JBScrollPane(tree))
+        val scroller = JBScrollPane(tree)
+        setContent(scroller)
+
+        // The viewport, not the tree. Inside a scroll pane the tree is as wide as its widest row, so
+        // narrowing the tool window need not resize the tree component at all, while the viewport
+        // always changes — and RemarkTreeRenderer.wrapWidth measures against tree.visibleRect, which
+        // is the viewport's width. This also covers the very first layout, where the panel is built
+        // and refreshed before it is added to the tool window content and every row is measured at a
+        // width of zero.
+        scroller.viewport.addComponentListener(object : ComponentAdapter() {
+            override fun componentResized(event: ComponentEvent) = rewrapTimer.restart()
+        })
+        Disposer.register(parent, Disposable { rewrapTimer.stop() })
 
         refresh()
+    }
+
+    /**
+     * Wraps every row again for the width the tree has now, and puts the tree back the way the person
+     * left it.
+     *
+     * ⚠️ **`nodeStructureChanged` is the whole mechanism.** `tree.setRowHeight(0)` makes JTree cache
+     * each row's bounds, and a row's height is only ever recomputed when the layout cache is dropped;
+     * nothing else asks the renderer again, so a resize alone left every row wrapped for the old
+     * width — narrower rows cropped, wider ones elided at three short lines. Telling the model its
+     * structure changed drops that cache. It also throws away the expansion state and the selection,
+     * which is why the three restores that follow a rebuild in [refresh] are repeated here.
+     *
+     * `TreeUtil.invalidateCacheAndRepaint` does the same job in one call and is deliberately not used:
+     * it is `@ApiStatus.Experimental`, and `build.gradle.kts` already subtracts
+     * `EXPERIMENTAL_API_USAGES` for two reasons that both have to go before that line can. A third is
+     * not worth a resize.
+     */
+    private fun rewrapRows() {
+        val width = tree.visibleRect.width
+        if (width <= 0 || width == lastWrapWidth) return
+        lastWrapWidth = width
+        val model = tree.model as? DefaultTreeModel ?: return
+        val root = model.root as? DefaultMutableTreeNode ?: return
+
+        val wasSelected = selectionKeys()
+        val wasCollapsed = collapsedGroups()
+        val doneWasOpen = groupIsExpanded(DONE_KEY)
+        model.nodeStructureChanged(root)
+        expandAll(keepDoneOpen = doneWasOpen)
+        recollapse(wasCollapsed)
+        restoreSelection(wasSelected)
     }
 
     fun refresh() {
@@ -212,33 +275,44 @@ class RemarksPanel(
     }
 
     /**
-     * Expands every group row **except Done**, which starts shut: Done holds what has already been
-     * dealt with, and the tree is read for what still needs reading.
+     * Expands every node that has children, **inside Done as well as outside it**, and then shuts the
+     * Done row itself again unless [keepDoneOpen] says the person had opened it.
      *
-     * [keepDoneOpen] is what stops that fighting the collapse restore. Shut, the Done row is skipped
-     * and its whole subtree with it — nothing inside it becomes a row, so nothing inside it is
-     * expanded, and opening Done by hand shows its file groups closed. Open, Done is treated like
-     * any other group, so a file group the person opened inside it is expanded again on the next
-     * rebuild and [recollapse] shuts the ones they had shut.
+     * ⚠️ **Expanding inside a shut Done is the whole point, and it is why this walks the model rather
+     * than the rows.** A collapsed node's descendants are not rows at all, so a row walk can never
+     * reach them: Done came up shut with every file group inside it shut too, and every question
+     * inside those shut as well, which made a freshly arrived answer three clicks away instead of
+     * one. The immediate move of an answered question into Done was accepted on the promise that its
+     * answer stays one expansion away; this is what keeps that promise.
      *
-     * ⚠️ The other shape — expand everything, then collapse Done again at the end — looks equivalent
-     * and is not. `Tree.collapsePath` collapses the whole visible subtree when
-     * `ide.tree.collapse.recursively` is on, which is the default, so every rebuild would throw away
-     * whatever was open inside Done.
+     * ⚠️ **`collapsePaths`, not `collapsePath`.** The singular one collapses the whole visible subtree
+     * when `ide.tree.collapse.recursively` is on, which is the default, so it would undo everything
+     * this method just did inside Done. The plural one collapses exactly the paths it is given —
+     * `setExpandedState(path, false)` for a single path — and JTree keeps each descendant's expanded
+     * state in its own map, so they are all still expanded when Done is opened again.
+     *
+     * Expanding a descendant expands its ancestors too, so Done is briefly open in the middle of this
+     * and shut again at the end. That order is forced: there is no way to mark a node expanded while
+     * its parent stays shut.
      *
      * On the very first build there is no Done row yet, [groupIsExpanded] answers false, and Done
      * comes up shut — which is the default this phase wanted.
-     *
-     * A while loop, NOT `for (row in 0 until tree.rowCount)`: that builds the range once, from the
-     * row count before anything expanded, so expanding the first file pushed the other file nodes
-     * past the end of the range and every file but the first stayed shut.
      */
     private fun expandAll(keepDoneOpen: Boolean) {
-        var row = 0
-        while (row < tree.rowCount) {
-            val isDone = keyOf(tree.getPathForRow(row)?.lastPathComponent) == DONE_KEY
-            if (keepDoneOpen || !isDone) tree.expandRow(row)
-            row++
+        val root = tree.model.root as? DefaultMutableTreeNode ?: return
+        expandFrom(root, TreePath(root))
+        if (keepDoneOpen) return
+        groupNodes().firstOrNull { (key, _) -> key == DONE_KEY }
+            ?.let { (_, path) -> tree.collapsePaths(listOf(path)) }
+    }
+
+    /** Depth first from the model, so a node under a shut ancestor is reached just the same. */
+    private fun expandFrom(node: DefaultMutableTreeNode, path: TreePath) {
+        if (node.childCount == 0) return
+        tree.expandPath(path)
+        for (index in 0 until node.childCount) {
+            val child = node.getChildAt(index) as? DefaultMutableTreeNode ?: continue
+            expandFrom(child, path.pathByAddingChild(child))
         }
     }
 

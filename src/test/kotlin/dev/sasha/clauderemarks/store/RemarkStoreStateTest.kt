@@ -406,9 +406,16 @@ class RemarkStoreStateTest {
      *
      * ⚠️ Written in `<option>` form, the way BaseState actually stores a property — see the note on
      * the severity and tag test above for why attribute form tests nothing at all.
+     *
+     * ⚠️ **The load half is the whole test.** There is deliberately no assertion that the written-back
+     * XML no longer says "bucket": `RemarkState` declares no such property any more, so no
+     * implementation could emit that string and such an assertion could never fail. What can fail, and
+     * is asserted instead, is that the three fields beside the unknown one survive the whole way back
+     * out through `RemarksState` — an unknown `<option>` making the deserializer give up on the rest
+     * of the element is exactly the failure this guards.
      */
     @Test
-    fun `a remark stored with the old bucket option still loads and drops it on the next save`() {
+    fun `a remark stored with the old bucket option still loads and keeps every field beside it`() {
         val restored = deserializeOne(
             """
             <option name="id" value="r-1" />
@@ -421,7 +428,14 @@ class RemarkStoreStateTest {
         assertEquals("r-1", restored.id)
         assertEquals("src/Foo.kt", restored.path)
         assertEquals("old remark", restored.text)
-        assertFalse(asXml(restored), asXml(restored).contains("bucket"))
+
+        // And out again, the way the store writes workspace.xml on the next save.
+        val written = JDOMUtil.write(
+            XmlSerializer.serialize(RemarkStore.RemarksState().also { it.addRemark(restored) })
+        )
+        assertTrue(written, written.contains("r-1"))
+        assertTrue(written, written.contains("src/Foo.kt"))
+        assertTrue(written, written.contains("old remark"))
     }
 
     /**

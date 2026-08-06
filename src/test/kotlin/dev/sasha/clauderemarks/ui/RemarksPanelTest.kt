@@ -427,8 +427,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
      * panel forgetting the second half: it builds the node model directly and never runs a refresh.
      *
      * It also says the nested answer row is really *visible*, which the node-model tests cannot: a
-     * child node that nothing expands is a row nobody sees. `expandAll` walks a live `rowCount`, so
-     * it opens the question node with no help, and the row count here is what proves it.
+     * child node that nothing expands is a row nobody sees. `expandAll` walks the model, so it opens
+     * the question node with no help, and the row count here is what proves it.
      *
      * ⚠️ The answer is also what puts this question in Done, which starts shut — so the whole thing
      * is one row until Done is opened. That is the cost of counting an answer as processed, and it
@@ -448,6 +448,31 @@ class RemarksPanelTest : BasePlatformTestCase() {
         assertEquals(remark.id, (question.userObject as RemarkNode).id)
         val nested = panel.tree.getPathForRow(3).lastPathComponent as DefaultMutableTreeNode
         assertEquals(question, nested.parent)
+        assertEquals("a-1", (nested.userObject as AnswerNode).id)
+    }
+
+    /**
+     * ⚠️ **One click on Done, and the answer is on screen.** That is the whole payment for moving an
+     * answered question into Done the moment its answer lands, and it is not free: a collapsed node's
+     * descendants are not rows at all, so an `expandAll` that walked rows could never reach inside a
+     * shut Done. Everything under it came up shut — the file group, and the question inside it — and a
+     * freshly arrived answer was three clicks away rather than one.
+     *
+     * Nothing here calls the test's own expand helper. Row 0 is expanded once, exactly the way a
+     * person clicking the Done handle does it, and the row count afterwards is the assertion.
+     */
+    fun testExpandingDoneAloneShowsTheFileGroupTheQuestionAndItsAnswer() {
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
+        recordAnswer(project, answer(id = "a-1", remarkId = remark.id!!, path = "A.kt"))
+        val panel = panel()
+        assertEquals(1, panel.tree.rowCount)
+        assertEquals(DONE_KEY, keyOfRow(panel.tree.getPathForRow(0).lastPathComponent))
+
+        panel.tree.expandRow(0)
+
+        // Done, the file group, the question, and the answer nested under it — all from one click.
+        assertEquals(4, panel.tree.rowCount)
+        val nested = panel.tree.getPathForRow(3).lastPathComponent as DefaultMutableTreeNode
         assertEquals("a-1", (nested.userObject as AnswerNode).id)
     }
 
@@ -664,8 +689,10 @@ class RemarksPanelTest : BasePlatformTestCase() {
      * leaves Done shut, so a test about anything *inside* Done — an answered question and its nested
      * answer, which are the ordinary shape now — has nothing on screen to select without this.
      *
-     * The same while loop the panel's own expandAll uses, and for the same reason: expanding a row
-     * pushes every row below it down, so a range built once from the starting rowCount stops short.
+     * A while loop, not a range built once from the starting rowCount: expanding a row pushes every
+     * row below it down, so a fixed range stops short. The panel's own expandAll walks the model
+     * instead, which is what lets it reach inside a shut Done — see
+     * [testExpandingDoneAloneShowsTheFileGroupTheQuestionAndItsAnswer].
      */
     private fun expandEverything(panel: RemarksPanel) {
         var row = 0

@@ -411,20 +411,31 @@ the same migration phase 11 pinned for `tag` and `severity`. The history file's 
 because that file is append-only.
 
 *The tree splits into Open and Done.* A row is Done once it is `READ` **or** it has an answer, Open
-until then. Done starts collapsed. ⚠️ An answered question moves to Done at once, even when nothing
-acknowledged it — decided knowing the cost, and paid for by the answer staying nested under its
-question and by Done ordering newest-processed first. "Answers with no question" stays as its own
-top-level group above Open, not folded into Done: an answer with no question is a loose end, not
+until then. Done starts collapsed, with everything inside it already expanded, so opening it is one
+click. ⚠️ An answered question moves to Done at once, even when nothing acknowledged it — decided
+knowing the cost, and paid for by the answer staying nested under its question, one click away, and by
+Done ordering newest-processed first **inside each file group** (the file groups themselves stay in
+path order on both sides — Done is not one newest-first list). ⚠️ A row under Done can still be picked
+up by Publish Unread: Done's test is "`READ`, or has an answer" and Publish Unread's is "not `READ`",
+and narrowing Publish Unread to match would stop a batch nobody acknowledged being re-sent. The
+`DONE_KEY` KDoc says so where somebody would go to "fix" it. "Answers with no question" stays as its
+own top-level group above Open, not folded into Done: an answer with no question is a loose end, not
 finished work. ⚠️ Every group *inside* a side carries its side's key as a prefix (`open/general`,
 `done/file:src/Foo.kt`), because one file can hold rows on both sides and `RemarksPanel` matches
-groups by key alone. ⚠️ `expandAll` takes a `keepDoneOpen` flag read **before** the rebuild, because
-`collapsedGroups` records what is shut and "not shut" also covers "no such group yet".
+groups by key alone. ⚠️ `expandAll` walks the **model**, not the rows — a collapsed node's descendants
+are not rows, so a row walk could never expand anything inside a shut Done — and shuts Done again at
+the end with `Tree.collapsePaths`, never `collapsePath`, which collapses the whole visible subtree by
+default. It takes a `keepDoneOpen` flag read **before** the rebuild, because `collapsedGroups` records
+what is shut and "not shut" also covers "no such group yet".
 
 *`RemarkState` gains `readAt`.* Stamped in `RemarkStore.markRead`, which `RemarkEdits.markRemarksRead`
 is the only route to, and guard 6 gates that function to two callers — so it is a single-writer field
 by construction. It is 0 for every remark read before this phase, and `processedAt` falls back to
 `createdAt` when it is, so the old backlog orders by when it was written instead of collapsing to the
 epoch. Inside a file, Open sorts by `createdAt` oldest first and Done by `processedAt` newest first.
+`processedAt` is the later of `readAt` and the time the answer nested under the row came back, because
+either one alone is enough to put the row in Done — a question answered by a session that never
+acknowledged the batch has no `readAt` at all.
 
 *Rows wrap, and the position moves below the text.* `RemarkTreeRenderer` is a `JPanel` on a
 `GridBagLayout` stacking `SimpleColoredComponent` lines, not a `ColoredTreeCellRenderer`, which paints
@@ -435,8 +446,18 @@ lines that are already split and never wraps anything. It takes a `widthOf: (Str
 than a `FontMetrics`, which is why that file has no `import` line at all and its tests run in
 milliseconds. The three-line cap counts lines **of text**; a fourth grey row carries the position, the
 `(moved)`/`(orphaned…)` suffix and an orphan-group answer's file name, and is hidden when there is
-nothing to put in it. The trailing `read` and `published` words are deleted — the icon, the colour and
-the Done group already say it three times over.
+nothing to put in it, drawn in `GRAYED_SMALL_ATTRIBUTES` so it is still told apart from a `READ` row's
+body, which is the same plain grey. The trailing `read` and `published` words are deleted — the icon,
+the colour and the Done group already say it three times over. ⚠️ **Four things
+`ColoredTreeCellRenderer` gave for free had to be written out by hand**, and each is a real failure
+without it: the forced selection foreground (`selectionAdjusted`, or a grey fragment stays grey on the
+selection band), the try/catch around the whole render (an exception from a renderer repeats on every
+repaint), the accessible name (a bare `JPanel` announces nothing), and a no-op `revalidateAndRepaint`
+on each line component. **Resizing the tool window re-wraps the rows**: a `ComponentListener` on the
+scroll pane's viewport restarts a one-shot 150 ms `javax.swing.Timer`, which calls
+`nodeStructureChanged` to drop JTree's cached row bounds and then re-applies the expand, recollapse and
+reselect a rebuild does. ⚠️ Not `TreeUtil.invalidateCacheAndRepaint`, which is
+`@ApiStatus.Experimental`.
 
 *A session summarises a batch before acting on it.* `SKILL.md`'s read mode and listen mode both write
 a two-group bullet list — things to change, questions to answer — after acknowledging and before any
@@ -708,8 +729,8 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    narrowed by phase 12), then the two sides, OPEN_KEY and DONE_KEY
                                    (phase 13), each holding a General group for a remark about no file
                                    and then files, with an answer nested under its own question.
-                                   RemarkNode.processedAt is what Done orders by, readAt falling back
-                                   to createdAt. Every group inside a side is keyed with its side's
+                                   RemarkNode.processedAt is what Done orders by, the later of readAt
+                                   and the nested answer's answeredAt, falling back to createdAt. Every group inside a side is keyed with its side's
                                    prefix. Also RemarkTreeRenderer, the stacked-line cell renderer:
                                    MAX_TEXT_LINES text rows plus a grey metadataLine below them.
                                    leavesOf recurses into a RemarkNode, which is what makes Delete on
@@ -717,18 +738,24 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    when the icon took over saying that a remark asks; the bucket
                                    level, bucketDropTarget and the trailing read/published words went
                                    in phase 13
-  ui/WrapText.kt                   wrapToLines (phase 13): the pure word-break the renderer wraps a
-                                   row with. NO imports at all — it takes a widthOf measurer instead
-                                   of a FontMetrics, which is what keeps it free of java.awt and
-                                   com.intellij and its tests running in milliseconds. The platform's
-                                   own MultiLineTodoRenderer never wraps, so there is nothing to fall
-                                   back on here
+  ui/WrapText.kt                   wrapToLines and elideToWidth (phase 13): the pure word-break the
+                                   renderer wraps a row with, and the cut-short-but-never-re-flowed
+                                   one the grey metadata line uses. NO imports at all — they take a
+                                   widthOf measurer instead of a FontMetrics, which is what keeps the
+                                   file free of java.awt and com.intellij and its tests running in
+                                   milliseconds. The platform's own MultiLineTodoRenderer never wraps,
+                                   so there is nothing to fall back on here
   ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar (six buttons, each with its
                                    own description since phase 11), self-refresh on REMARKS_CHANGED.
                                    setRowHeight(0) since phase 13 — the whole variable-row-height
-                                   mechanism, cited from TodoPanel.java:251 — and expandAll takes a
-                                   keepDoneOpen flag read before the rebuild, since collapsedGroups
-                                   cannot tell "the person opened Done" from "Done is new".
+                                   mechanism, cited from TodoPanel.java:251 — and expandAll walks the
+                                   model rather than the rows, so a node inside a shut Done is
+                                   expanded too, shutting Done again at the end with collapsePaths. It
+                                   takes a keepDoneOpen flag read before the rebuild, since
+                                   collapsedGroups cannot tell "the person opened Done" from "Done is
+                                   new". A ComponentListener on the scroll pane's viewport restarts a
+                                   one-shot 150 ms Timer that re-wraps every row for the new width,
+                                   through nodeStructureChanged plus the same three restores.
                                    The waiting-review banner above the tree was deleted in phase 12,
                                    and deleteSelected now asks selectionHidesRows whether the
                                    selection stands for a row that is off screen, rather than
@@ -944,11 +971,16 @@ group is absent when every answer has a question, a nested row carries no file n
 does, and an answer naming a remark that produced no node lands in the top-level group rather than
 disappearing; and since phase 13 the Open/Done split: a `READ` remark is under Done, an answered
 question is under Done with its answer still nested, `PENDING` and `PUBLISHED` are under Open, Done
-orders by `readAt`, a remark with `readAt == 0` falls back to `createdAt`, and an empty side produces
+orders by `readAt`, a remark with `readAt == 0` falls back to `createdAt`, two Done rows sharing a
+processed time fall back to the resolved line, a question answered but never acknowledged is processed
+when its answer came back, and an empty side produces
 no group at all), `WrapTextTest` (phase 13's word-break, with a fixed width per character so the
 arithmetic is exact: a short text staying on one line, a break on a space, a run of spaces collapsing,
 a single word longer than the width breaking mid-word, a `\n` starting a new line, more lines than the
-cap truncating with an ellipsis, and empty text giving one empty line), the markdown renderer (including the General section, rendered
+cap truncating with an ellipsis, empty text giving one empty line, the space in front of an ellipsis
+being trimmed, `maxLines` below one still giving a line, a 20,000-character word being measured a
+bounded number of times rather than a number that grows with it, and `elideToWidth` leaving text that
+fits exactly as it was written), the markdown renderer (including the General section, rendered
 first with no code block), the settings round trip, `GitHeadTest` (reads real `.git` directories built on disk for
 the test, including a worktree, a detached HEAD and packed refs, plus `gitTopLevel` for a directory
 below the repository root, for a worktree, and with no repository at all), `RemarkHistoryTest` (the
@@ -996,14 +1028,21 @@ diff viewer), the renderer-equality half of `RemarkGutterIconTest`, `RemarkGutte
 service, including that a general remark produces no placement anywhere), `RemarksPanelTest` (the
 tool window panel: every group ends up expanded, the selection survives a rebuild,
 and the Add General Remark button is offered and enabled with no selection and no editor open; since
-phase 13 also that Done starts collapsed while Open is expanded, and that a Done a person opened by
-hand is still open after a refresh. ⚠️ Three refresh-based tests go through a `refreshAndSettle`
+phase 13 also that Done starts collapsed while Open is expanded, that a Done a person opened by
+hand is still open after a refresh, and ⚠️ that expanding **only** the Done row shows the file group,
+the question and its nested answer with no further clicks — the one that pins `expandAll` walking the
+model, since a row walk can never reach inside a collapsed node. ⚠️ Three refresh-based tests go through a `refreshAndSettle`
 helper that asserts the tree root object actually changed: "the tree looks the same after a refresh"
 passes just as happily when the async `ReadAction` never finished, and that vacuity would hide the
 whole `keepDoneOpen` path), `RemarkTreeRendererTest` (phase 13, fixture-backed because every
 assertion needs a real `SimpleColoredComponent`, a real `Tree` and `UIUtil`'s theme colours: how many
 line components a row drew, what each carries, and whether the grey metadata row was drawn at all —
-a general remark draws none and a positioned remark does),
+a general remark draws none and a positioned remark does; plus the wrap width losing one indent per
+level of depth and falling back to its floor at width zero, the metadata line being cut short with an
+ellipsis rather than overflowing, a row's accessible name being the text it drew, and
+`selectionAdjusted` rewriting a grey fragment's colour on a focused selected row. ⚠️ That last one
+sets `Tree.forceFocusedSelectionForeground` in `UIManager` and puts it back in `tearDown`: a test
+fixture loads no theme, so reading the key instead would silently assert nothing),
 `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
 0-based line argument), the collector half of `PromptPayloadTest`, `PublishRemarksTest` (renamed
 from `CopyRemarksTest` in phase 9; since phase 10, that a publish with no ids takes every remark that

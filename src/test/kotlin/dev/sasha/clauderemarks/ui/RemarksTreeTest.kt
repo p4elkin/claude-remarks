@@ -343,10 +343,70 @@ class RemarksTreeTest {
         assertEquals(listOf("b-written-later", "a-written-first"), idsUnder(doneSide(root), 0))
     }
 
+    /**
+     * The tie-break Done needs most, and the one Open's own test already has. `PublishedAck.kt`
+     * acknowledges a whole batch in one `markRemarksRead` call and the store stamps every remark in
+     * that batch with the same `readAt`, so two remarks in one file sharing a `readAt` is the
+     * ordinary case rather than a corner.
+     *
+     * The ids are named so that alphabetical order DISAGREES with line order, the same way Open's
+     * tie-break test names its own: with ids that happen to agree, sorting by id would pass this.
+     */
+    @Test
+    fun `Done rows sharing a processed time fall back to the line they resolved to`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "a-later", status = RemarkStatus.READ, readAt = 500L, result = AnchorResult.Exact(20, 20)),
+                row(id = "b-earlier", status = RemarkStatus.READ, readAt = 500L, result = AnchorResult.Exact(3, 3)),
+            )
+        )
+
+        assertEquals(listOf("b-earlier", "a-later"), idsUnder(doneSide(root), 0))
+    }
+
     @Test
     fun `processedAt is the read time when there is one and the written time when there is not`() {
         assertEquals(300L, remarkNode(row(createdAt = 100L, readAt = 300L)).processedAt)
         assertEquals(100L, remarkNode(row(createdAt = 100L, readAt = 0L)).processedAt)
+    }
+
+    /**
+     * The third case the two-field rule used to miss. A question that reached Done because its answer
+     * arrived, with nothing ever acknowledging the batch, has no `readAt` at all — so it used to sort
+     * by when it was *written* and could land at the bottom of a long Done group, which is exactly the
+     * case the immediate move to Done creates.
+     */
+    @Test
+    fun `an answered question with no readAt is processed when its answer came back`() {
+        assertEquals(700L, remarkNode(row(createdAt = 100L), answeredAt = 700L).processedAt)
+    }
+
+    /** And the later of the two wins when both are set, since either one alone puts the row in Done. */
+    @Test
+    fun `processedAt is the later of the read time and the answer time`() {
+        assertEquals(900L, remarkNode(row(createdAt = 100L, readAt = 900L), answeredAt = 700L).processedAt)
+        assertEquals(900L, remarkNode(row(createdAt = 100L, readAt = 700L), answeredAt = 900L).processedAt)
+    }
+
+    /**
+     * The same fact through the whole rebuild rather than through one node: the answer's own time is
+     * read off the map that attaches the answer row, so a question answered later sits above one
+     * answered earlier even though neither was ever acknowledged.
+     */
+    @Test
+    fun `an answered question sorts in Done by when its answer arrived`() {
+        val root = buildTreeRoot(
+            listOf(
+                row(id = "a-answered-first", createdAt = 900L, result = AnchorResult.Exact(3, 3)),
+                row(id = "b-answered-later", createdAt = 100L, result = AnchorResult.Exact(20, 20)),
+            ),
+            listOf(
+                answerRow(id = "x-1", remarkId = "a-answered-first", answeredAt = 100L),
+                answerRow(id = "x-2", remarkId = "b-answered-later", answeredAt = 300L),
+            ),
+        )
+
+        assertEquals(listOf("b-answered-later", "a-answered-first"), idsUnder(doneSide(root), 0))
     }
 
     /** An empty heading above another empty heading would be two rows saying nothing. */

@@ -57,8 +57,8 @@ A remark has these fields:
   nothing ever did — which includes every remark stored before phase 13 added the field. Stamped in
   `RemarkStore.markRead`, and only there, so a second acknowledgement of the same remark leaves the
   first stamp alone. Guard 6 in `CLAUDE.md` allows exactly two files to reach `markRemarksRead`,
-  which is what makes this a single-writer field by construction. Done orders by it; see "Open and
-  Done" below.
+  which is what makes this a single-writer field by construction. Done orders by it, together with
+  the time an answer came back; see "Open and Done" below.
 - `textHash`: The first 16 hex characters of a SHA-256 hash of the lines at creation time.
 - `contextBefore`, `contextAfter`: A few lines of context from above and below the remark, joined with newlines in a single string. Stored this way instead of as a list because the serializer handles single strings more predictably.
 - `commit`: The repository HEAD read straight out of `.git` when the remark was written, or null
@@ -627,7 +627,7 @@ no way to re-point a remark from the UI, so they become dead records.
 The fix is a `BulkFileListener` on `VFS_CHANGES` reading `VFileMoveEvent` and the rename form of
 `VFilePropertyChangeEvent`, rewriting `RemarkState.path` for every remark under the old path —
 including the remarks in every file under a renamed *directory*. It needs one more mutation
-function in `store/RemarkEdits.kt`, past the thirteen public functions already there today, because
+function in `store/RemarkEdits.kt`, past the twelve public functions already there today, because
 that file holds the only route that changes a remark, and it needs its own tests. That is a task in
 its own right rather than a review fix, which is why it is written down here instead of being
 half-built.
@@ -1611,28 +1611,45 @@ handed over yet has an Open group and no Done group.
 leaves Open the moment its answer lands, even when nothing ever acknowledged the batch. That was
 decided knowing the cost: the question moves out of the list a person is working through while its
 answer is still worth reading. Two things make it acceptable. The answer stays nested under its
-question wherever that question sits, so nothing is hidden. And Done is ordered newest-processed
-first, so whatever just arrived is the top row of Done rather than buried in it. ⚠️ Do not soften this
-to "`READ` only" because it reads as friendlier. It was decided against.
+question wherever that question sits, and everything inside Done is expanded already, so opening Done
+is the one click that reaches it. And inside its own file group Done is ordered newest-processed
+first, so whatever just arrived is the top row of that group rather than buried in it. ⚠️ Do not
+soften this to "`READ` only" because it reads as friendlier. It was decided against.
+
+⚠️ **A row under Done can still be picked up by Publish Unread, and that is deliberate.** Done's test
+is "`READ`, or has an answer"; Publish Unread's is "not `READ`". A question answered by a session that
+never acknowledged the batch satisfies the first and not the second, so it sits under Done and the next
+Publish Unread hands it over again. Do not narrow Publish Unread's filter to match Done: "not `READ`"
+is what makes a batch nobody acknowledged get re-sent, and that is the only thing standing between a
+missed batch and remarks lost for good. The `DONE_KEY` KDoc says the same, where somebody would go to
+"fix" it.
 
 **Rows inside a file are ordered by the time they last changed hands**, not by the line they point
 at:
 
 - Open sorts by `createdAt`, oldest first. A newly written remark lands at the bottom of its file
   group and nothing above it moves, so the tree does not jump under the person's hand while they read.
-- Done sorts by `processedAt`, newest first. `processedAt` is `readAt` when that is set, and
-  `createdAt` when it is 0.
+- Done sorts by `processedAt`, newest first. `processedAt` is the later of `readAt` and the time the
+  answer nested under the row came back, and `createdAt` when neither is set.
 
-**That fallback is what keeps old data readable.** Every remark read before phase 13 added `readAt`
-carries 0, so without the fallback the whole backlog would sort as one lump at the epoch, in whatever
-order the store happened to hand it over. A question that was answered but never acknowledged falls
-back the same way. That is rare — a session acknowledges a batch before it answers anything in it, so
-the stamp is already there when the answer arrives — and the plain two-field rule is worth more than a
-third case almost nothing would exercise.
+**Both of the first two, because either one alone is enough to put the row in Done**, and a row should
+sort by the thing that actually put it there. A question answered by a session that never acknowledged
+the batch has no `readAt` at all; ordering it by when it was *written* could drop it to the bottom of a
+long Done group, which is exactly the case the immediate move to Done creates. The answer's own time is
+read off the same map that attaches the answer row, so the row and the answer under it can never
+disagree about it.
 
-Both comparators keep the file path as the first key, so file groups stay in path order and only the
-rows inside a file are time-ordered. The resolved line is the last tie-break, which is what keeps a
-store full of `createdAt == 0` rows in a steady order.
+**The fallback to `createdAt` is what keeps old data readable.** Every remark read before phase 13
+added `readAt` carries 0, so without it the whole backlog would sort as one lump at the epoch, in
+whatever order the store happened to hand it over.
+
+⚠️ **Both comparators keep the file path as the first key**, so the file groups stay in path order and
+only the rows inside one file are time-ordered. Done is therefore **not** one newest-processed-first
+list across every file — it is a list of files, each newest-first inside itself, which is what was
+asked for. Do not "fix" this by moving `processedAt` to the front of `DONE_ORDER`. The resolved line is
+the last tie-break, which is what keeps a store full of `createdAt == 0` rows in a steady order, and
+what orders one acknowledged batch: a whole batch is stamped with the same `readAt` in one call, so two
+rows in a file sharing a `processedAt` is the ordinary case.
 
 **"Answers with no question" stays above Open, and is not folded into Done.** An answer whose
 question is gone is a loose end, not finished work. It keeps the top-level group phase 12 gave it,
@@ -1646,7 +1663,22 @@ together and select together — and a selected group is what Delete acts on, af
 every row under it. The keys are never persisted, so changing them cost no migration. `ANSWERS_KEY`
 keeps its bare value, because that group sits outside both sides.
 
-**Done starts collapsed, and opening it survives a refresh.** That needed more than skipping Done in
+**Done starts collapsed, with everything inside it already expanded.** `expandAll` walks the *model*,
+not the rows, and expands every node that has children wherever it sits — then shuts the Done row
+itself again at the end. ⚠️ A collapsed node's descendants are not rows at all, so a row walk could
+never reach inside a shut Done: the file groups inside it came up shut, and the questions inside those
+came up shut too, which put a freshly arrived answer three clicks away instead of one. That one click
+is the whole payment for moving an answered question into Done the moment its answer lands.
+
+⚠️ **The shut at the end is `Tree.collapsePaths`, not `Tree.collapsePath`.** The singular one collapses
+the whole visible subtree when `ide.tree.collapse.recursively` is on, which is the default, so it would
+undo everything the walk just did inside Done. The plural one collapses exactly the paths it is given,
+and JTree keeps each descendant's expanded state in a map of its own, so they are all still expanded
+when Done is opened again. Expanding a descendant expands its ancestors, so Done really is open in the
+middle of this and shut again at the end; there is no way to mark a node expanded while its parent
+stays shut.
+
+**Opening Done survives a refresh.** That needed more than skipping Done in
 `expandAll`. `collapsedGroups` records which groups are *shut*, and "not in that set" also covers "no
 such group in the tree at all", which is exactly what the first build looks like — so the collapse
 restore alone cannot tell "the person opened Done" from "Done is new". `expandAll` therefore takes a
@@ -1699,6 +1731,32 @@ focus, not whether the row is selected, so the call is
 `if (selected) UIUtil.getTreeSelectionBackground(tree.hasFocus()) else UIUtil.getTreeBackground()`.
 Verified with `javap` and against the checkout, not recalled.
 
+**Four more things `ColoredTreeCellRenderer` did for free had to be written out by hand.** Each one is
+a real failure without it, and none of them shows up in a test that only asks what a row drew:
+
+- ⚠️ **The forced selection foreground.** That class overrode `append` to rewrite every fragment's
+  colour to `UIUtil.getTreeSelectionForeground(true)` when the row is selected, the tree is focused and
+  the theme sets `Tree.forceFocusedSelectionForeground` — which the default dark themes do.
+  `SimpleColoredComponent` draws a fragment in the *attribute's* own colour whenever it has one,
+  ignoring the component's foreground, and `GRAYED_ATTRIBUTES` carries one. So without the
+  substitution a `READ` row's whole body and every row's metadata line stayed grey on top of the
+  selection band. `selectionAdjusted` in `ui/RemarksTree.kt` is that substitution, and every `append`
+  in the renderer goes through one helper so it can never be applied to part of a row.
+- ⚠️ **The exception guard.** `getTreeCellRendererComponent` is `final` in that class and wraps its
+  whole body in a try/catch, rethrowing `ProcessCanceledException` and logging everything else. An
+  exception thrown from a renderer escapes into `BasicTreeUI.paintRow` on the EDT, and painting
+  repeats — so one bad row makes the whole tool window unusable rather than drawing one bad row.
+- **The accessible name.** `JTree`'s `AccessibleJTree` builds a node's accessible context out of
+  whatever the renderer hands back. `SimpleColoredComponent` supplies one carrying its fragments'
+  text; a plain `JPanel`'s has a null name, so a screen reader announced nothing at all for every row.
+  The renderer overrides `getAccessibleContext` and gives it the joined text of the visible lines.
+- **`revalidateAndRepaint` is a no-op on a line component.** A plain `SimpleColoredComponent` fires a
+  property change, revalidates and repaints on every `clear()`, every `append` and every `icon =`, and
+  a row resets four of them once per paint *and* once per height computation. That class overrides the
+  method to nothing with the comment "no need for this in a renderer"; the private `RowLine` subclass
+  here does the same. ⚠️ `SimpleColoredComponent` skips only the `revalidate()` half on its own, and
+  only when it is itself a `TreeCellRenderer` — a line component is not one, the panel around it is.
+
 **The wrap width is worked out from the node's own depth**, times
 `UIUtil.getTreeLeftChildIndent() + getTreeRightChildIndent()`, taken off the tree's visible width. It
 is deliberately **not** read back from `tree.getRowBounds(row)`: those bounds are produced by JTree
@@ -1706,20 +1764,37 @@ asking this very renderer for its preferred size, so reading them inside the ren
 question only the renderer can answer. A floor, `MIN_WRAP_WIDTH`, covers a tree that has not been laid
 out yet and reports a width of 0 — without it every row would come back as three one-character lines.
 
-⚠️ **Widening the tool window does not re-wrap rows already on screen.** The width is read once per
-render, and `setRowHeight(0)` makes JTree cache each row's height, so nothing asks the renderer again
-until the tree is rebuilt. Pressing Refresh, or writing any remark, rebuilds it. The fix, if this ever
-reads badly, is a resize listener calling `TreeUtil.invalidateCacheAndRepaint(tree.ui)` — left out on
-purpose, because that method is `@ApiStatus.Experimental` and adding a third reason for
-`build.gradle.kts` to subtract `EXPERIMENTAL_API_USAGES` is not a decision to take on the way past.
+**Resizing the tool window re-wraps the rows, after a pause.** The width is read once per render, and
+`setRowHeight(0)` makes JTree cache each row's bounds, so nothing asks the renderer again on its own —
+narrowing left rows wider than the viewport, which is the cropping this phase set out to remove, and
+widening left a long remark elided at three short lines. A `ComponentListener` on the scroll pane's
+**viewport** restarts a one-shot 150 ms `javax.swing.Timer`, so dragging an edge across a hundred
+pixels costs one rebuild at the end rather than one per pixel. When it fires, `nodeStructureChanged` on
+the root drops the layout cache, and the same three restores a rebuild does — expand, recollapse,
+reselect — put the tree back the way the person left it. A width that has not actually changed does
+nothing.
+
+⚠️ The viewport rather than the tree, because inside a scroll pane the tree is as wide as its widest
+row: narrowing the tool window need not resize the tree component at all, while the viewport always
+changes, and `wrapWidth` measures against `tree.visibleRect`. This also covers the very first layout,
+where the panel is built and refreshed before it is added to the tool window content and every row is
+measured at a width of zero.
+
+⚠️ `TreeUtil.invalidateCacheAndRepaint` does the same job in one call and is deliberately **not** used:
+it is `@ApiStatus.Experimental`, and `build.gradle.kts` already subtracts `EXPERIMENTAL_API_USAGES` for
+two reasons that both have to go before that line can. A third is not worth a resize.
 
 ### `wrapToLines` is pure, and that is the point
 
-`ui/WrapText.kt` holds one public function:
+`ui/WrapText.kt` holds two public functions:
 
 ```kotlin
 fun wrapToLines(text: String, maxWidth: Int, maxLines: Int, widthOf: (String) -> Int): List<String>
+fun elideToWidth(text: String, maxWidth: Int, widthOf: (String) -> Int): String
 ```
+
+The second is for the grey metadata line, which must be cut short but never re-flowed. See "The
+metadata line sits below the text" below.
 
 **It takes a `widthOf` measurer rather than a `FontMetrics`.** That is what keeps the file free of
 `java.awt` and of `com.intellij` — it has no `import` statement at all — which is the same argument
@@ -1738,12 +1813,26 @@ The rules it follows:
   an ellipsis fits, so the row shows that more text follows.
 - Empty text gives one empty line, never an empty list, so a caller building one renderer row per line
   always has a row to build.
+- The trailing whitespace goes before the ellipsis. A cut landing just after a space used to render as
+  "ab …", with a gap that reads like a missing word rather than like text continuing.
+- ⚠️ **Wrapping stops as soon as more lines exist than `maxLines` can keep.** A remark has no length
+  cap — the input is a plain text area and Shift+Enter is documented — and this runs on the EDT for
+  every row `JTree` needs a height for. Without the early stop a pasted stack trace was wrapped in full
+  on every rebuild for the three lines that survive, and the mid-word break re-measured the whole
+  remaining string once per line it produced, which is quadratic in the length of one long word.
+- `maxLines` below 1 is raised to 1 rather than refused. This is a drawing helper on a paint path, and
+  one line is a better answer there than an exception thrown out of a renderer.
 
 ### The metadata line sits below the text
 
 The position, its `(moved)` / `(orphaned…)` suffix, and an orphan-group answer's file name used to sit
 in grey **in front of** the remark text, on the first line. They are now one grey line **below** the
-text, on a fourth `GridBagLayout` row in `SimpleTextAttributes.GRAYED_ATTRIBUTES`.
+text, on a fourth `GridBagLayout` row in `SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES`.
+
+⚠️ **The smaller grey, not the plain one.** `RemarkStatusLook.textAttributes` gives a `READ` remark's
+body exactly `GRAYED_ATTRIBUTES`, and every row under Done is `READ` or answered — so with one grey for
+both, the body and the line under it were the same colour on every row in Done and the metadata stopped
+reading as subordinate to the text it belongs to. The smaller size is what tells them apart there.
 
 Three things follow, and each is worth knowing before touching that renderer:
 
@@ -1759,9 +1848,11 @@ Three things follow, and each is worth knowing before touching that renderer:
   through `rowPosition` to the string "1-1" — a line nobody selected, pointing at nothing. It now asks
   `isAboutNoFile` and returns an empty position, the way `answerNode()` already did.
 
-⚠️ **The metadata line is appended as one fragment and never run through `wrapToLines`.** A position
-combining a sub-line range, an "(orphaned, written at …)" suffix and a long file name could in
-principle be wide enough to overflow the row rather than wrap or elide. Nothing has hit it yet.
+⚠️ **The metadata line is elided, never wrapped.** It goes through `elideToWidth` in `ui/WrapText.kt`
+rather than `wrapToLines`, because it is one deliberate string: wrapping would re-flow it and collapse
+the two-space gap between the position and the file name. Eliding is still needed — a sub-line range
+plus an "(orphaned, written at …)" suffix plus a long file name really can be wider than the row, and
+one row wider than the viewport puts a horizontal scroll bar under the whole tree.
 
 ### What tests can and cannot say about all this
 

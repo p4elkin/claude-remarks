@@ -143,7 +143,11 @@ it. Done starts collapsed, and stays open across a refresh once you open it. A g
 with no question** appears above Open when some answer's question has been cleared.
 
 Inside a file, Open is oldest first, so a remark you just wrote lands at the bottom and nothing above
-it jumps. Done is newest-processed first, so whatever an agent just picked up is the top row.
+it jumps. Done is newest-processed first, so whatever an agent just picked up is the top row of its
+file group. The file groups themselves stay in path order on both sides, so Done is a list of files,
+each newest-first inside itself, rather than one newest-first list. Everything inside Done is expanded
+already, so opening Done is one click to whatever arrived. Resizing the tool window re-wraps the rows
+a moment after you let go of the edge.
 
 Right-click a row for the same menu the gutter icon offers. Delete removes the rows you picked out
 without asking, and takes a question's answer with it; on a group node it stands for everything
