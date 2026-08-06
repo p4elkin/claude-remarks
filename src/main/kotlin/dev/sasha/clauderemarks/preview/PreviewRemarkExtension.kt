@@ -1,14 +1,34 @@
 package dev.sasha.clauderemarks.preview
 
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.util.concurrency.AppExecutorUtil
+import com.intellij.util.messages.MessageBusConnection
+import dev.sasha.clauderemarks.anchor.AnchorResult
+import dev.sasha.clauderemarks.store.REMARKS_CHANGED
+import dev.sasha.clauderemarks.store.RemarkStore
+import dev.sasha.clauderemarks.store.RemarksListener
+import dev.sasha.clauderemarks.store.relativePathOf
+import dev.sasha.clauderemarks.store.resolveAll
 import org.intellij.plugins.markdown.extensions.MarkdownBrowserPreviewExtension
 import org.intellij.plugins.markdown.ui.preview.BrowserPipe
 import org.intellij.plugins.markdown.ui.preview.MarkdownHtmlPanel
 import org.intellij.plugins.markdown.ui.preview.ResourceProvider
 
-/** The message type both halves agree on. The script posts it, this file subscribes to it. */
+/** The message type both halves agree on. The script posts it, this file subscribes to it. This
+ *  one travels UP: the page's own selectionchange listener posts it. */
 private const val SELECTION_MESSAGE_TYPE = "claude-remarks/selection"
+
+/**
+ * The message type [pushHighlights] sends. This one travels DOWN, the opposite direction from
+ * [SELECTION_MESSAGE_TYPE]: from this class to the page, whenever the remarks for the previewed
+ * file might have changed. The page's own subscribe side lives in `claude-remarks-preview.js`.
+ */
+private const val HIGHLIGHTS_MESSAGE_TYPE = "claude-remarks/highlights"
 
 /**
  * The script's name, which is three things at once: the resource loaded from this plugin's own jar,
@@ -59,8 +79,25 @@ internal class PreviewRemarkExtension(
         }
     }
 
+    /**
+     * Kept so [dispose] can disconnect it by hand, beside [browserPipe]'s own
+     * `removeSubscription`. Deliberately not `project.messageBus.connect(this)`: that would tie
+     * teardown to how the platform disposes this extension rather than to this file's own
+     * [dispose], and every other subscription this class owns is already torn down explicitly
+     * rather than left to a parent disposable. Null when [MarkdownHtmlPanel.getProject] was null
+     * at construction time, in which case there is nothing to push and nothing to subscribe.
+     */
+    private var messageBusConnection: MessageBusConnection? = null
+
     init {
         browserPipe.subscribe(SELECTION_MESSAGE_TYPE, handler)
+        messageBusConnection = panel.project?.messageBus?.connect()?.also {
+            it.subscribe(REMARKS_CHANGED, RemarksListener { pushHighlights() })
+        }
+        // Pushed once here too, not only from the REMARKS_CHANGED subscription above: a preview
+        // opened on a file that already carries remarks must highlight them immediately, without
+        // waiting for an edit that would fire the topic.
+        pushHighlights()
     }
 
     /**
@@ -96,6 +133,57 @@ internal class PreviewRemarkExtension(
         }
     }
 
+    /**
+     * Computes this file's highlights off the EDT, then sends them down the pipe once the read
+     * action finishes on the UI thread — the same [ReadAction.nonBlocking] shape
+     * `editor/RemarkGutter.kt`'s `scheduleSync` already uses, and for the same reason:
+     * [computeHighlights] resolves remarks against a real `Document`, which
+     * `store/RemarkResolver.kt` requires a read action for.
+     *
+     * Called once from [init] and again every time [REMARKS_CHANGED] fires. A project already
+     * disposed by the time the read action finishes sends nothing, rather than pushing into a
+     * pipe whose panel may already be gone.
+     */
+    private fun pushHighlights() {
+        val project = panel.project ?: return
+        val file = panel.virtualFile ?: return
+        ReadAction.nonBlocking<List<PreviewHighlight>> { computeHighlights(project, file) }
+            .expireWith(this)
+            .coalesceBy(this, file)
+            .finishOnUiThread(ModalityState.defaultModalityState()) { highlights ->
+                if (!project.isDisposed) browserPipe.send(HIGHLIGHTS_MESSAGE_TYPE, toJson(highlights))
+            }
+            .submit(AppExecutorUtil.getAppExecutorService())
+    }
+
+    /**
+     * Runs inside a read action, off the EDT. Turns the store's remarks for [file] into
+     * [HighlightCandidate]s and hands them to [highlightsFor], the pure half in
+     * `preview/PreviewHighlights.kt`.
+     *
+     * [HighlightCandidate.hasAnswer] is read straight off `RemarkStore.allAnswers()`, the same
+     * call `editor/RemarkGutter.kt`'s `placementsFor` already makes for the same fact, rather than
+     * through [dev.sasha.clauderemarks.store.resolveAnswers]'s anchoring: only whether an answer
+     * exists is needed here, never where it resolves to.
+     */
+    private fun computeHighlights(project: Project, file: VirtualFile): List<PreviewHighlight> {
+        val previewedPath = relativePathOf(project, file) ?: return emptyList()
+        val document = FileDocumentManager.getInstance().getDocument(file) ?: return emptyList()
+        val answeredIds = RemarkStore.getInstance(project).allAnswers().mapNotNull { it.remarkId }.toSet()
+        val candidates = resolveAll(project).map { resolved ->
+            val id = resolved.remark.id
+            HighlightCandidate(
+                path = resolved.remark.path,
+                isOrphaned = resolved.result is AnchorResult.Orphaned,
+                startLine = resolved.result.startLine,
+                startColumn = resolved.startColumn,
+                asksForAnswer = resolved.remark.asksForAnswer,
+                hasAnswer = id != null && id in answeredIds,
+            )
+        }
+        return highlightsFor(candidates, previewedPath, document.text)
+    }
+
     override val resourceProvider: ResourceProvider = this
 
     override val scripts: List<String> = listOf(SCRIPT_NAME)
@@ -127,6 +215,11 @@ internal class PreviewRemarkExtension(
      */
     override fun dispose() {
         browserPipe.removeSubscription(SELECTION_MESSAGE_TYPE, handler)
+        // Beside the removeSubscription above, on purpose: this extension is created and
+        // destroyed as often as a preview is, and a subscription left behind here would
+        // accumulate one dead REMARKS_CHANGED listener per reload, each still trying to push into
+        // a pipe whose page may already be gone — the leak this checkbox exists to close.
+        messageBusConnection?.disconnect()
         val project = panel.project ?: return
         if (project.isDisposed) return
         val file = panel.virtualFile ?: return

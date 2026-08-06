@@ -227,16 +227,16 @@ Pure Kotlin, fixture-free, test-first. This is the arithmetic half.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/preview/PreviewRemarkExtension.kt` (a second message
   type, a `browserPipe.send` call, and a `REMARKS_CHANGED` subscription)
 
-- [ ] add a second message type constant beside `SELECTION_MESSAGE_TYPE`, named after this plugin the
+- [x] add a second message type constant beside `SELECTION_MESSAGE_TYPE`, named after this plugin the
       same way, and say in its KDoc that this one travels **down** while the other travels up
-- [ ] push once when the extension is created, so a preview opened on an already-annotated file is
+- [x] push once when the extension is created, so a preview opened on an already-annotated file is
       highlighted without waiting for a change
-- [ ] subscribe to `REMARKS_CHANGED` and push again on every change, and ⚠️ unsubscribe in `dispose`
+- [x] subscribe to `REMARKS_CHANGED` and push again on every change, and ⚠️ unsubscribe in `dispose`
       beside the existing `removeSubscription` — a preview is created and destroyed often, and a
       listener that outlives its panel is a leak that only shows up after an hour of editing
-- [ ] resolve the remarks off the EDT if resolving touches a `Document`, following the
+- [x] resolve the remarks off the EDT if resolving touches a `Document`, following the
       `ReadAction.nonBlocking` pattern the tool window and the gutter already use
-- [ ] write a fixture-backed test that the extension pushes on creation and on a remark change, if the
+- [x] write a fixture-backed test that the extension pushes on creation and on a remark change, if the
       pipe can be faked; if it cannot, say so in the progress log and cover it by hand check instead
 
 ### Task 4: Receive and apply the highlight in the page
