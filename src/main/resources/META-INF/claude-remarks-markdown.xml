@@ -26,5 +26,15 @@
                 description="Attach a remark to the words selected in the rendered preview">
             <add-to-group group-id="Markdown.PreviewGroup" anchor="last"/>
         </action>
+        <!-- The preview's Ask Claude, beside ClaudeRemarks.AskClaude in the editor. Same group, same
+             reason its id is not pinned by ActionIdsTest: the fixture never loads the markdown
+             plugin. Anchored last, after ClaudeRemarks.AddPreviewRemark, matching the editor's own
+             order of Add Claude Remark then Ask Claude in EditorPopupMenu. -->
+        <action id="ClaudeRemarks.AskClaudePreview"
+                class="dev.sasha.clauderemarks.action.AskClaudePreviewAction"
+                text="Ask Claude"
+                description="Ask Claude about the words selected in the rendered preview and get the answer back on the line">
+            <add-to-group group-id="Markdown.PreviewGroup" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>

@@ -187,19 +187,19 @@ Independent of everything else in this phase. Two lines of real difference from 
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/action/PreviewRemarkProblemTest.kt` if the shared
   refusal logic moves
 
-- [ ] read `action/AddPreviewRemarkAction.kt` whole first — it already does the selection lookup, the
+- [x] read `action/AddPreviewRemarkAction.kt` whole first — it already does the selection lookup, the
       `previewRemarkProblem` check, the `fileTargetProblem` check and the refusal dialog, and this
       action must reuse every one of them rather than restating any
-- [ ] add the action: same body, then `addRemark(..., asksForAnswer = true)` and `publishRemarks` on
+- [x] add the action: same body, then `addRemark(..., asksForAnswer = true)` and `publishRemarks` on
       every question still open, exactly as `action/AskClaudeAction.kt` does for the editor
-- [ ] register it in `claude-remarks-markdown.xml` only. ⚠️ Never in `plugin.xml` — an id from the
+- [x] register it in `claude-remarks-markdown.xml` only. ⚠️ Never in `plugin.xml` — an id from the
       markdown plugin there stops this plugin loading entirely when markdown is disabled
-- [ ] factor the shared body out rather than copying it, if the two actions end up more than a few
+- [x] factor the shared body out rather than copying it, if the two actions end up more than a few
       lines apart. `AddRemarkAction`/`AskClaudeAction` in the editor are the precedent for how much
       duplication is acceptable here
-- [ ] write a test for whatever pure part comes out of the factoring; if nothing pure comes out, say so
+- [x] write a test for whatever pure part comes out of the factoring; if nothing pure comes out, say so
       in the progress log rather than adding a test that asserts nothing
-- [ ] run the narrow test command for the classes touched
+- [x] run the narrow test command for the classes touched
 
 ### Task 2: Work out which remarks the preview should highlight
 

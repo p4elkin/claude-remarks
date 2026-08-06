@@ -100,89 +100,128 @@ fun previewStampProblem(stored: StoredSelection, documentStamp: Long): String? =
  * reason: this is a popup menu, and a greyed-out item's description is shown nowhere a person can
  * see, so a refusal there is indistinguishable from a broken plugin. The refusal is a dialog rather
  * than a hint at the caret, because there is no editor here to put a hint in.
+ *
+ * The whole refusal chain and the popup plumbing live in [openPreviewRemarkInput], shared with
+ * [AskClaudePreviewAction] the same way [updateRemarkEntryPoint] is shared by the two editor
+ * gestures — see that function's KDoc for why this pair copies less than the editor pair does.
  */
 class AddPreviewRemarkAction : AnAction() {
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
-    override fun update(e: AnActionEvent) {
-        val project = e.project
-        e.presentation.isVisible = true
-        e.presentation.isEnabled = project != null
-        e.presentation.description = when (project) {
-            null -> "No project is open."
-            else -> refusal(project, e) ?: PREVIEW_HINT
-        }
-    }
+    override fun update(e: AnActionEvent) = updatePreviewRemarkEntryPoint(e, PREVIEW_HINT)
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val stored = PreviewSelectionService.getInstance(project).current()
-            ?: return refuse(project, NOTHING_SELECTED)
-        previewRemarkProblem(stored, e.getData(CommonDataKeys.VIRTUAL_FILE)?.url)
-            ?.let { return refuse(project, it) }
-
-        val file = selectionFile(stored)
-        fileTargetProblem(project, file)?.let { return refuse(project, it) }
-        // One check for the pair fileTargetProblem has already ruled out, rather than a silent
-        // return for one of them and a "!!" for the other two lines apart. Past this the compiler
-        // knows the file is there, so the rest of the method needs neither.
-        val path = file?.let { relativePathOf(project, it) }
-        if (file == null || path == null) return refuse(project, NO_TARGET)
-        val document = FileDocumentManager.getInstance().getDocument(file)
-            ?: return refuse(project, NO_DOCUMENT)
-
-        // The source may have been edited since the page reported this selection, which moves the
-        // words under those offsets while the offsets themselves stay valid.
-        previewStampProblem(stored, document.modificationStamp)?.let { return refuse(project, it) }
-
-        // The offsets were checked against the source when the page reported them, and the file may
-        // have got shorter since. selectedLines would throw on an offset past the end rather than
-        // refuse, so the check happens here. The stamp check above already covers every edit this
-        // could catch; this stays as the guard on the throw itself, which is not something to leave
-        // resting on another check being correct.
-        val range = stored.range
-        if (range.endOffsetExclusive > document.textLength) return refuse(project, MOVED_ON)
-
-        val lines = selectedLines(document, range.startOffset, range.endOffsetExclusive)
-        val columns = selectedColumns(document, range.startOffset, range.endOffsetExclusive)
-        val stampWhenOpened = document.modificationStamp
-
-        val popup = buildInputPopup(project, "Add Claude Remark", "") { typed ->
-            // The same guard openNewRemarkInput makes, for the same reason: the range was taken
-            // when the box opened and the text is read now, seconds later. If the file changed in
-            // between, those offsets describe characters the person never chose.
-            if (document.modificationStamp != stampWhenOpened) {
-                Messages.showWarningDialog(project, MOVED_ON, NOT_ADDED_TITLE)
-                return@buildInputPopup
-            }
+        openPreviewRemarkInput(project, e, "Add Claude Remark") { p, path, lines, range, columns, typed ->
             addRemark(
-                project, path, document.text.split("\n"), lines, typed,
+                p, path, lines, range, typed,
                 startColumn = columns.first, endColumn = columns.second,
             )
         }
-        // The preview is a browser component with no caret to position against, so the popup is
-        // centred over it, the same placement openGeneralRemarkInput uses over the tool window's
-        // tree. showInFocusCenter is the fallback for a context that names no component at all.
-        val component = e.getData(PlatformDataKeys.CONTEXT_COMPONENT)
-        if (component == null) popup.showInFocusCenter() else popup.showInCenterOf(component)
     }
-
-    /** The whole refusal, selection first and then the file it names. Used by update's description. */
-    private fun refusal(project: Project, e: AnActionEvent): String? {
-        val stored = PreviewSelectionService.getInstance(project).current() ?: return NOTHING_SELECTED
-        return previewRemarkProblem(stored, e.getData(CommonDataKeys.VIRTUAL_FILE)?.url)
-            ?: fileTargetProblem(project, selectionFile(stored))
-    }
-
-    /**
-     * The file the selection was made in, which is the file the remark is stored against. The stored
-     * url is the authority here rather than the data context: [previewRemarkProblem] has already
-     * refused the case where the two disagree, and the context may name no file at all.
-     */
-    private fun selectionFile(stored: StoredSelection): VirtualFile? =
-        VirtualFileManager.getInstance().findFileByUrl(stored.fileUrl)
-
-    private fun refuse(project: Project, problem: String) =
-        Messages.showWarningDialog(project, problem, NOT_ADDED_TITLE)
 }
+
+/**
+ * The enablement rules both preview entry points follow — this one and
+ * `action/AskClaudePreviewAction.kt`'s `AskClaudePreviewAction`. Mirrors
+ * `action/AddRemarkAction.kt`'s `updateRemarkEntryPoint`, which does the same job for the two editor
+ * gestures: visible and enabled whenever a project is open, with the description carrying whatever
+ * [previewRefusal] finds, or [hint] when there is nothing to say.
+ */
+internal fun updatePreviewRemarkEntryPoint(e: AnActionEvent, hint: String) {
+    val project = e.project
+    e.presentation.isVisible = true
+    e.presentation.isEnabled = project != null
+    e.presentation.description = when (project) {
+        null -> "No project is open."
+        else -> previewRefusal(project, e) ?: hint
+    }
+}
+
+/** The whole refusal, selection first and then the file it names. Used by update's description. */
+private fun previewRefusal(project: Project, e: AnActionEvent): String? {
+    val stored = PreviewSelectionService.getInstance(project).current() ?: return NOTHING_SELECTED
+    return previewRemarkProblem(stored, e.getData(CommonDataKeys.VIRTUAL_FILE)?.url)
+        ?: fileTargetProblem(project, selectionFile(stored))
+}
+
+/**
+ * Everything both preview entry points do before a remark is stored: find the stored selection,
+ * refuse in every way [AddPreviewRemarkAction] always refused, resolve it to a file, a path and a
+ * Document, then open the popup at [title] and hand [store] the pieces it needs once the text is
+ * typed — `(project, path, lines, range, columns, typed)`, the same shape [addRemark] and
+ * `action/AskClaudeAction.kt`'s `askClaude` both already take.
+ *
+ * **Why this is one shared function and not two copies with a different ending**, unlike
+ * `openNewRemarkInput`/`openAskClaudeInput` in the editor: the preview's refusal chain is five checks
+ * long — no selection, another preview's selection, no file under the project root, no open Document,
+ * a stamp that moved — where the editor's is one call to `remarkTargetProblem`. Copying that chain
+ * for a second action risks the two drifting on which refusal fires first, which the editor pair's
+ * much shorter body never risked. What still differs between the two callers is only [title] and what
+ * [store] does with the typed text, so that is all a caller supplies.
+ */
+internal fun openPreviewRemarkInput(
+    project: Project,
+    e: AnActionEvent,
+    title: String,
+    store: (Project, String, List<String>, IntRange, Pair<Int, Int>, String) -> Unit,
+) {
+    val stored = PreviewSelectionService.getInstance(project).current()
+        ?: return refuse(project, NOTHING_SELECTED)
+    previewRemarkProblem(stored, e.getData(CommonDataKeys.VIRTUAL_FILE)?.url)
+        ?.let { return refuse(project, it) }
+
+    val file = selectionFile(stored)
+    fileTargetProblem(project, file)?.let { return refuse(project, it) }
+    // One check for the pair fileTargetProblem has already ruled out, rather than a silent
+    // return for one of them and a "!!" for the other two lines apart. Past this the compiler
+    // knows the file is there, so the rest of the method needs neither.
+    val path = file?.let { relativePathOf(project, it) }
+    if (file == null || path == null) return refuse(project, NO_TARGET)
+    val document = FileDocumentManager.getInstance().getDocument(file)
+        ?: return refuse(project, NO_DOCUMENT)
+
+    // The source may have been edited since the page reported this selection, which moves the
+    // words under those offsets while the offsets themselves stay valid.
+    previewStampProblem(stored, document.modificationStamp)?.let { return refuse(project, it) }
+
+    // The offsets were checked against the source when the page reported them, and the file may
+    // have got shorter since. selectedLines would throw on an offset past the end rather than
+    // refuse, so the check happens here. The stamp check above already covers every edit this
+    // could catch; this stays as the guard on the throw itself, which is not something to leave
+    // resting on another check being correct.
+    val range = stored.range
+    if (range.endOffsetExclusive > document.textLength) return refuse(project, MOVED_ON)
+
+    val lines = selectedLines(document, range.startOffset, range.endOffsetExclusive)
+    val columns = selectedColumns(document, range.startOffset, range.endOffsetExclusive)
+    val stampWhenOpened = document.modificationStamp
+
+    val popup = buildInputPopup(project, title, "") { typed ->
+        // The same guard openNewRemarkInput makes, for the same reason: the range was taken
+        // when the box opened and the text is read now, seconds later. If the file changed in
+        // between, those offsets describe characters the person never chose.
+        if (document.modificationStamp != stampWhenOpened) {
+            Messages.showWarningDialog(project, MOVED_ON, NOT_ADDED_TITLE)
+            return@buildInputPopup
+        }
+        store(project, path, document.text.split("\n"), lines, columns, typed)
+    }
+    // The preview is a browser component with no caret to position against, so the popup is
+    // centred over it, the same placement openGeneralRemarkInput uses over the tool window's
+    // tree. showInFocusCenter is the fallback for a context that names no component at all.
+    val component = e.getData(PlatformDataKeys.CONTEXT_COMPONENT)
+    if (component == null) popup.showInFocusCenter() else popup.showInCenterOf(component)
+}
+
+/**
+ * The file the selection was made in, which is the file the remark is stored against. The stored
+ * url is the authority here rather than the data context: [previewRemarkProblem] has already
+ * refused the case where the two disagree, and the context may name no file at all.
+ */
+private fun selectionFile(stored: StoredSelection): VirtualFile? =
+    VirtualFileManager.getInstance().findFileByUrl(stored.fileUrl)
+
+private fun refuse(project: Project, problem: String) =
+    Messages.showWarningDialog(project, problem, NOT_ADDED_TITLE)
