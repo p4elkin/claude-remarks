@@ -59,8 +59,8 @@ internal data class PublishedAckAnswer(
  * no persisted field and no migration. [record] is meant to be called from the EDT, before the
  * published file is written, so a fast acknowledgement can never race a batch this service does not
  * know about yet. [acknowledge] is called from the endpoint's netty IO thread. Both are
- * `@Synchronized`; there is no unsynchronized reader here the way `WaitingReviewService.current()`
- * needs one, because nothing here is read from the EDT at a pace that cannot afford a lock.
+ * `@Synchronized`, with no unsynchronized fast-path reader, because nothing here is read from the
+ * EDT at a pace that cannot afford a lock.
  *
  * At most [MAX_REMEMBERED_BATCHES] batches are kept, oldest dropped first. A person who publishes
  * many times with nothing ever acknowledging eventually gets `unknown-batch` for the oldest ones,
@@ -142,9 +142,9 @@ internal class PublishedBatchService {
     }
 
     /**
-     * Test cleanup only, the same shape as `RemarkStore.clear()` and `WaitingReviewService.clear()`:
-     * the light fixture project is shared across test methods and test classes, so a batch recorded
-     * by one test is still remembered when the next one starts.
+     * Test cleanup only, the same shape as `RemarkStore.clear()`: the light fixture project is
+     * shared across test methods and test classes, so a batch recorded by one test is still
+     * remembered when the next one starts.
      */
     @Synchronized
     internal fun clear() {
@@ -160,9 +160,8 @@ internal class PublishedBatchService {
 /**
  * The endpoint's only entry point into what an acknowledgement of a published batch causes. The
  * endpoint runs on a netty IO thread, so both the store mutation and the balloon go inside
- * [ApplicationManager]'s `invokeLater`, the same way `review/ReviewLifecycle.kt`'s `reportLater` does,
- * checking `project.isDisposed` inside the queued runnable rather than in front of it, because a
- * project can close in the gap between the two.
+ * [ApplicationManager]'s `invokeLater`, checking `project.isDisposed` inside the queued runnable
+ * rather than in front of it, because a project can close in the gap between the two.
  *
  * **The `invokeLater` is load-bearing and not decoration, for one reason.** It stops a fast
  * acknowledgement from landing between a publish's file write and the rest of that publish, which is

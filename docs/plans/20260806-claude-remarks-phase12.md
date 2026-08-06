@@ -633,28 +633,50 @@ edited script also reports no syntax error.
 
 ### Task 15: Verify acceptance criteria
 
-- [ ] verify every requirement in the Overview is implemented, section by section against the spec
-- [ ] ⚠️ **check the endpoint's test coverage did not erode.** Tasks 4, 5 and 6 each deleted tests, and
+- [x] verify every requirement in the Overview is implemented, section by section against the spec
+      (review mode's `start`/`ack` gone, the banner gone, the two files and three test classes gone;
+      the five-line header confirmed in `PublishedRemarks.kt`; `FetchRequest` down to `project`; the
+      `open` action present and tested; the answer-nesting and the narrowed "Answers with no question"
+      group confirmed in `RemarksTree.kt`'s `buildTreeRoot`; the two-track icon confirmed in
+      `RemarkStatusLook.icon` and `RemarkGutterIconRenderer`'s `equals`/`hashCode`; the grey `asksLabel`
+      confirmed gone from the tree renderer. The version bump to `0.9.0` is deliberately still open —
+      that is task 16's own checkbox, not this one's)
+- [x] ⚠️ **check the endpoint's test coverage did not erode.** Tasks 4, 5 and 6 each deleted tests, and
       three separate times the stated reason was "it became an exact duplicate of another test once its
       review setup was removed". Every one of those calls was defensible on its own, but three agents
       independently pruning the same test class is how coverage quietly thins. Go through
       `ReviewEndpointSmokeTest` against the four surviving actions — `fetch`, `published-read`,
       `answer`, `open` — and confirm every status value each one can answer still has a test. Add back
-      whatever is missing rather than assuming a passing suite means a covering suite
-- [ ] run the full suite: `./gradlew test`
-- [ ] run `./gradlew build`
-- [ ] run `./gradlew verifyPluginProjectConfiguration`
-- [ ] run `./gradlew verifyPlugin` and confirm the report has no new internal-API usage
-- [ ] run all seven guard commands from `CLAUDE.md` and confirm every one comes back empty, with guard
-      6 now naming two files rather than three
-- [ ] fix the stale KDoc references tasks 4 and 5 deliberately left behind, because prose is invisible
+      whatever is missing rather than assuming a passing suite means a covering suite. **Result: no
+      erosion found, nothing added.** Enumerated every `writer.name("status").value(...)` site in each
+      of the four handlers directly off `ReviewRestService.kt` (not off its class KDoc's own summary,
+      in case that summary itself had drifted) and cross-checked against a literal grep for each status
+      string in `ReviewEndpointSmokeTest.kt`: fetch's six (`ready`, `no-review`, `too-large`,
+      `unknown-project`, `bad-request`, `failed` — `failed` has two tests, one per cause), published-read's
+      five (`ok`, `already-read`, `unknown-batch`, `unknown-project`, `bad-request`), answer's six (`ok`,
+      `unknown-batch`, `unknown-remark`, `too-large`, `unknown-project`, `bad-request`), and open's three
+      (`ok`, `unknown-project`, `bad-request`) all have at least one covering test today
+- [x] run the full suite: `./gradlew test` — BUILD SUCCESSFUL
+- [x] run `./gradlew build` — BUILD SUCCESSFUL
+- [x] run `./gradlew verifyPluginProjectConfiguration` — BUILD SUCCESSFUL
+- [x] run `./gradlew verifyPlugin` and confirm the report has no new internal-API usage — Compatible, 9
+      experimental-API usages (the markdown preview extension's three `MarkdownHtmlPanel` getters and
+      `ui/AnswerPopup.kt`'s `JBHtmlPane`, exactly the two reasons `CLAUDE.md`'s Toolchain section already
+      names), **zero** internal-API usages reported
+- [x] run all seven guard commands from `CLAUDE.md` and confirm every one comes back empty, with guard
+      6 now naming two files rather than three — all seven empty
+- [x] fix the stale KDoc references tasks 4 and 5 deliberately left behind, because prose is invisible
       to the compiler and they knew a later pass would sweep it: `review/AnswerReceipt.kt` mentions
       `WaitingReviewService` and `finishReview` (around lines 47 and 74), and `store/RemarkEdits.kt`
       mentions `review/ReviewLifecycle.kt`'s `reportReviewEnd` (around line 127). Read the surrounding
       paragraph in each case rather than deleting the sentence — each one is explaining *why* something
-      is the way it is, and the reason usually survives even though the named symbol does not
-- [ ] confirm no source file outside `docs/` and `.claude/` mentions a waiting review, a review
-      session, a review phase or a rejection
+      is the way it is, and the reason usually survives even though the named symbol does not. ➕ the
+      same sweep (see next checkbox) turned up seven more dangling references the plan did not name, in
+      five more files, all fixed the same way — see the task's decision/deviation log entries
+- [x] confirm no source file outside `docs/` and `.claude/` mentions a waiting review, a review
+      session, a review phase or a rejection — after the fixes above, the only surviving match is one
+      deliberate one in `ActionIdsTest.kt`, which says in so many words that review mode existed in the
+      past and is gone now, the same shape task 13 already established as acceptable for `SKILL.md`
 
 ### Task 16: Update the documentation and the version
 

@@ -302,8 +302,7 @@ class ReviewRestService : RestService() {
 
     /**
      * `POST /api/claude-remarks/published-read`. Acknowledges a batch a publish wrote to the merged
-     * file, keyed to the nonce that batch's header carries rather than to a review session, since a
-     * publish can happen with no review waiting at all. `session` is a name the calling session
+     * file, keyed to the nonce that batch's header carries. `session` is a name the calling session
      * invents for itself; the endpoint never hands one out and never checks it, only reports it back
      * on `already-read`, so a second session can be told who got there first.
      *

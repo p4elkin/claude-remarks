@@ -8,8 +8,7 @@ import java.time.format.DateTimeFormatter
 
 /**
  * The published file: what Publish Unread and Publish Selected write to disk, under handshakeDir(),
- * so a Claude Code skill can read published remarks whenever it likes, with no review ever having
- * been started. Since phase 10 a review's answer and a rejection land in this same file.
+ * so a Claude Code skill can read published remarks whenever it likes.
  * See docs/claude/design.md, "The published file".
  */
 

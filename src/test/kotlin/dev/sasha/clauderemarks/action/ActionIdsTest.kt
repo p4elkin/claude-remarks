@@ -50,13 +50,14 @@ class ActionIdsTest : BasePlatformTestCase() {
     }
 
     /**
-     * The third control that used to answer a waiting review. Phase 10 deleted the action class and
-     * its registration, because publishing is now the only way to answer one. Nothing else notices a
-     * dead registration coming back: an action nobody can reach still loads without complaint.
+     * A control that, back when review mode existed, answered a waiting review. Phase 10 deleted
+     * the action class and its registration, once publishing became the only way to answer one;
+     * phase 12 then deleted review mode itself. Nothing else notices a dead registration coming
+     * back: an action nobody can reach still loads without complaint.
      */
     fun testTheSendToWaitingActionIsGone() {
         assertNull(
-            "ClaudeRemarks.SendToWaiting was removed in phase 10: a publish answers a waiting review",
+            "ClaudeRemarks.SendToWaiting was removed in phase 10, and review mode itself in phase 12",
             ActionManager.getInstance().getAction("ClaudeRemarks.SendToWaiting"),
         )
     }

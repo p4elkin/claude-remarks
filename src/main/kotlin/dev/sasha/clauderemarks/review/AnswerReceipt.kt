@@ -44,7 +44,7 @@ internal enum class AnswerOutcome { OK, UNKNOWN_BATCH, UNKNOWN_REMARK }
 
 /**
  * The endpoint's only entry point into what an answer causes, the same shape
- * [reportPublishedRead] has for `published-read` and `finishReview` has for `ack`. Rule 5 in
+ * [reportPublishedRead] has for `published-read`. Rule 5 in
  * `CLAUDE.md` is why this lives here rather than in the file holding the endpoint: that file runs on
  * a netty IO thread and may not reach the VFS at all, and building an answer does.
  *
@@ -58,8 +58,8 @@ internal enum class AnswerOutcome { OK, UNKNOWN_BATCH, UNKNOWN_REMARK }
  *
  * **The ordering race `reportPublishedRead` guards against does not apply here**, which is why this
  * does not have to queue on the EDT for correctness the way that one does. An answer touches no
- * `status` field and no review phase; it writes only to a list nothing else writes. There is nothing
- * for it to race with a publish that is still finishing.
+ * `status` field; it writes only to a list nothing else writes. There is nothing for it to race
+ * with a publish that is still finishing.
  *
  * **It can still race another answer to the same question**, and that one is guarded here. Two
  * `answer` POSTs for the same remark, close together, are two of these pipelines in flight at once,
@@ -71,9 +71,7 @@ internal enum class AnswerOutcome { OK, UNKNOWN_BATCH, UNKNOWN_REMARK }
  * write whose stamp is older than the one already stored. Ordering is decided by arrival, and
  * completion order stops mattering.
  *
- * **This never touches [WaitingReviewService].** The action is keyed to a published batch's nonce
- * exactly the way `published-read` is, so it works with no review ever started — which is the
- * ordinary case for a question asked through the Ask Claude gesture.
+ * The action is keyed to a published batch's nonce exactly the way `published-read` is.
  *
  * The lookup is [PublishedBatchService.batchCarries] and not `acknowledge`: answering must not
  * consume the batch, because the batch still has to be acknowledgeable afterwards and because

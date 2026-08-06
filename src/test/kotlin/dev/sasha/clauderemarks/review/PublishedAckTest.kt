@@ -13,8 +13,8 @@ import org.junit.Assert.assertNotEquals
 /**
  * PublishedBatchService's transitions, fixture-backed because a project-level @Service needs a
  * project. UIUtil.dispatchAllInvocationEvents() drains reportPublishedRead's invokeLater after every
- * acknowledgement that answers OK, the same reason ReviewLifecycleTest calls settleInvocationQueue()
- * after every acknowledgement.
+ * acknowledgement that answers OK, the same reason ReviewEndpointSmokeTest's answer tests call
+ * settleInvocationQueue() after posting an answer.
  */
 class PublishedAckTest : BasePlatformTestCase() {
 
@@ -135,9 +135,8 @@ class PublishedAckTest : BasePlatformTestCase() {
     }
 
     /**
-     * A rejection is recorded as a batch with no ids, so acknowledging one must not show a balloon
-     * saying Claude Code read zero remarks. The answer is still ok: the batch is real and this
-     * session is the first to name it.
+     * An empty batch — no remarks in it — must not show a balloon saying Claude Code read zero
+     * remarks. The answer is still ok: the batch is real and this session is the first to name it.
      *
      * Both halves in one test on purpose. The ordinary batch afterwards is what proves the listener
      * really does see this plugin's balloons, so the empty case's assertion cannot pass by seeing

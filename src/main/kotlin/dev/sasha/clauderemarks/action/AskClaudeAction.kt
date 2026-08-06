@@ -29,10 +29,9 @@ private const val ASK_HINT = "Ask Claude about the selected lines and get the an
  * next publish. Ctrl+Alt+Shift+A writes a question the agent answers, and the answer comes back onto
  * the line. The gesture carries the intent, so nothing has to guess which kind a remark is.
  *
- * Publishing here is the point rather than a convenience: asking is one motion. Two side effects
- * come with that, because this is the ordinary publish and not a second kind of one. It writes the
- * clipboard, as every publish does. And it answers a waiting review if one is waiting, which
- * consumes that review's single answer.
+ * Publishing here is the point rather than a convenience: asking is one motion. It writes the
+ * clipboard and the published file, the same as every other publish — this is the ordinary publish
+ * and not a second kind of one.
  *
  * The batch it publishes is every question still waiting for an answer, not only the one just
  * written — see [askClaude] and `openQuestionIds` for why a narrower batch loses questions.
