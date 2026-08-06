@@ -395,16 +395,23 @@ Read the Technical Details section before starting; the platform pattern is
   a metadata row; `RemarkNode` and `AnswerNode` keep their fields, only the placement changes)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksTreeTest.kt`
 
-- [ ] add a fourth `gridy` row to the renderer for metadata, in
+- [x] add a fourth `gridy` row to the renderer for metadata, in
       `SimpleTextAttributes.GRAYED_ATTRIBUTES`
-- [ ] move the position and its `(moved)`/`(orphaned…)` suffix there for a remark row, and the
+- [x] move the position and its `(moved)`/`(orphaned…)` suffix there for a remark row, and the
       position plus the file name for an answer row in the orphan group
-- [ ] hide the metadata row when there is nothing to put in it — a general remark has no position
-- [ ] ⚠️ the three-line cap now means three lines **of text**, plus one metadata line. Say so in the
+- [x] hide the metadata row when there is nothing to put in it — a general remark has no position
+      — ➕ this also needed a fix in `remarkNode()` itself: a real general remark's stored line
+      numbers are 0 and 0, and before this task that resolved through `rowPosition` to the string
+      "1-1" rather than to nothing. `remarkNode()` now checks `isAboutNoFile` and returns `""`
+      directly, the same way `answerNode()` already did for a general remark's answer
+- [x] ⚠️ the three-line cap now means three lines **of text**, plus one metadata line. Say so in the
       renderer's KDoc, or the next reader will think the cap is four
-- [ ] write a test that a general remark produces no metadata row and a positioned remark does
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'` — must pass before
+- [x] write a test that a general remark produces no metadata row and a positioned remark does
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'` — must pass before
       task 9
+      — ➕ ran with `--tests 'dev.sasha.clauderemarks.ui.RemarkTreeRendererTest'` beside it, the same
+      way task 7 did, since the renderer's own row-drawing tests live there and this task rewrites
+      three of them: 54 and 15 tests, both files, all green, 0 skipped
 
 ### Task 9: The skill summarises a batch before acting on it
 
@@ -499,16 +506,24 @@ a test.*
     `TreeUtil.invalidateCacheAndRepaint(tree.ui)`, which was deliberately left out: it is
     `@ApiStatus.Experimental`, and adding a third reason for `build.gradle.kts` to subtract
     `EXPERIMENTAL_API_USAGES` is not something to do on the way past.
-15. The icon sits inside the first line component, so the second and third lines start at the panel's
-    left edge — under the icon, not aligned with the first line's text. Check whether that reads as a
-    hanging indent or as ragged. The platform's own `MultiLineTodoRenderer` puts the icon in a
-    separate `gridx = 0` component instead, which aligns every line; that is the change to make if
-    this looks wrong.
-16. The grey position in front of the text narrows **all three** lines, not just the one it is drawn
-    on, because `wrapToLines` takes a single width. Task 8 moves the position onto its own row below
-    the text, which removes this entirely — so check it only if task 8 is not done yet.
+15. The icon sits inside the first line component, so the second and third lines — and, since task 8,
+    the metadata line below them — start at the panel's left edge — under the icon, not aligned with
+    the first line's text. Check whether that reads as a hanging indent or as ragged. The platform's
+    own `MultiLineTodoRenderer` puts the icon in a separate `gridx = 0` component instead, which
+    aligns every line; that is the change to make if this looks wrong.
+16. **Resolved by task 8, not a hand check any more.** The grey position used to sit in front of the
+    text and narrow all three wrapped lines, because `wrapToLines` took one width for the whole row.
+    Task 8 moved the position onto its own metadata row below the text, and `drawWrappedRow` no
+    longer takes a prefix or a suffix off the width before wrapping the body — the three text lines
+    use the full available width now. Confirmed in the code, not by hand.
 17. A remark whose text is one word longer than the tree is wide breaks mid-word rather than
     overflowing. Check that the break looks deliberate and not like a truncation.
+18. ⚠️ **The metadata line is one fragment, never wrapped.** `drawWrappedRow` runs the text through
+    `wrapToLines`, but appends the metadata as a single string. A row whose position combines a
+    sub-line range with an "(orphaned, written at 5dc8d197)" suffix, or an orphan-group answer whose
+    file name is long, could be wide enough to overflow the row rather than wrap or elide. Check a
+    long orphaned position and a long file name together before deciding whether the metadata line
+    needs `wrapToLines` too.
 
 ## Post-Completion
 

@@ -74,13 +74,16 @@ class RemarkTreeRendererTest : BasePlatformTestCase() {
         assertEquals("", textOf(renderer.lines[1]))
     }
 
-    fun testARemarkRowDrawsItsPositionInGreyAndItsTextInTheStatusAttributes() {
+    fun testARemarkRowDrawsItsTextAloneOnTheFirstLineAndItsPositionOnTheMetadataLine() {
         val renderer = render(remarkRow(text = "why?", position = "4-6"))
-        val drawn = fragments(renderer.lines[0])
 
-        assertEquals(listOf("4-6  ", "why?"), drawn.map { it.first })
-        assertSame(SimpleTextAttributes.GRAYED_ATTRIBUTES, drawn[0].second)
-        assertSame(RemarkStatusLook.textAttributes(RemarkStatus.PENDING), drawn[1].second)
+        val textFragments = fragments(renderer.lines[0])
+        assertEquals(listOf("why?"), textFragments.map { it.first })
+        assertSame(RemarkStatusLook.textAttributes(RemarkStatus.PENDING), textFragments.single().second)
+
+        val metadataFragments = fragments(renderer.metadataLine)
+        assertEquals(listOf("4-6"), metadataFragments.map { it.first })
+        assertSame(SimpleTextAttributes.GRAYED_ATTRIBUTES, metadataFragments.single().second)
     }
 
     /** A read remark greys out whole, the same rule the one-line renderer followed. */
@@ -93,17 +96,25 @@ class RemarkTreeRendererTest : BasePlatformTestCase() {
         )
     }
 
-    /** A general remark has no position, and must not draw the two spaces that would separate one. */
-    fun testARemarkWithNoPositionDrawsNoGreyPrefixAtAll() {
+    /** A general remark has no position, so the metadata row has nothing to draw and stays hidden. */
+    fun testAGeneralRemarkDrawsNoMetadataRow() {
         val renderer = render(remarkRow(text = "the whole change reads well", position = ""))
 
-        assertEquals(
-            listOf("the whole change reads well"),
-            fragments(renderer.lines[0]).map { it.first },
-        )
+        assertFalse(renderer.metadataLine.isVisible)
     }
 
-    fun testAnAnswerRowKeepsItsPositionInFrontAndItsFileNameAfterTheText() {
+    /**
+     * The other half of the same pair: a remark that does carry a position gets a visible metadata
+     * row, which is what proves the hidden case above is really conditional and not just always off.
+     */
+    fun testARemarkWithAPositionDrawsAVisibleMetadataRow() {
+        val renderer = render(remarkRow(text = "why is this synchronized?", position = "4-6"))
+
+        assertTrue(renderer.metadataLine.isVisible)
+        assertEquals("4-6", textOf(renderer.metadataLine))
+    }
+
+    fun testAnAnswerRowDrawsItsTextAloneAndItsPositionAndFileNameOnTheMetadataLine() {
         val renderer = render(
             AnswerNode(
                 id = "a-1",
@@ -117,12 +128,34 @@ class RemarkTreeRendererTest : BasePlatformTestCase() {
                 answeredAt = 0L,
             )
         )
-        val drawn = fragments(renderer.lines[0])
 
-        assertEquals(listOf("4-6  ", "because two threads write it", "  Foo.kt"), drawn.map { it.first })
-        assertSame(SimpleTextAttributes.GRAYED_ATTRIBUTES, drawn[0].second)
-        assertSame(SimpleTextAttributes.REGULAR_ATTRIBUTES, drawn[1].second)
-        assertSame(SimpleTextAttributes.GRAYED_ATTRIBUTES, drawn[2].second)
+        assertEquals(
+            listOf("because two threads write it"),
+            fragments(renderer.lines[0]).map { it.first },
+        )
+        assertEquals("4-6  Foo.kt", textOf(renderer.metadataLine))
+    }
+
+    /**
+     * A nested answer carries no file name — see [AnswerNode.fileName] — so the metadata line shows
+     * only its position, with none of the two-space gap a file name after it would need.
+     */
+    fun testANestedAnswerRowsMetadataLineIsThePositionAlone() {
+        val renderer = render(
+            AnswerNode(
+                id = "a-1",
+                path = "src/Foo.kt",
+                startLine = 3,
+                position = "4-6",
+                fileName = "",
+                question = "why?",
+                firstLine = "because two threads write it",
+                markdown = "because two threads write it",
+                answeredAt = 0L,
+            )
+        )
+
+        assertEquals("4-6", textOf(renderer.metadataLine))
     }
 
     fun testAGroupRowDrawsItsLabelBoldAndItsDirectoryGreyOnOneLine() {

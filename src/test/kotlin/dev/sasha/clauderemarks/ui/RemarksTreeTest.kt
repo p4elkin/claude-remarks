@@ -150,6 +150,17 @@ class RemarksTreeTest {
         )
     }
 
+    /**
+     * `answerNode` already leaves an answer's position empty for a general remark — see "an answer to
+     * a general remark has no position and no file name" below. A remark must match it: its stored
+     * line numbers are both 0, the same "no anchor" default a real sub-line remark never carries, so
+     * printing whatever they resolve to would show line 1 for a remark that was never about any line.
+     */
+    @Test
+    fun `a general remark has no position`() {
+        assertEquals("", remarkNode(row(path = "", result = AnchorResult.Exact(0, 0))).position)
+    }
+
     @Test
     fun `a published remark's node carries PUBLISHED and a read one carries READ`() {
         assertEquals(RemarkStatus.PUBLISHED, remarkNode(row(status = RemarkStatus.PUBLISHED)).status)

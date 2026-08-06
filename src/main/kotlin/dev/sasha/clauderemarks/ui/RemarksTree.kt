@@ -219,15 +219,21 @@ data class AnswerNode(
  * result that came back at exactly the stored range is not called moved, because that is the case
  * where the block was edited where it stands.
  *
+ * Empty for a general remark — one `isAboutNoFile` says is about no file — the same way [answerNode]
+ * already leaves an answer's position empty for an answer to one. A general remark's stored line
+ * numbers are 0 and 0, never a real anchor, so without this check the row would print "1-1" on its
+ * metadata line: a line nobody selected, that points at nothing.
+ *
  * This is now the only place that rule lives; describe() held a second copy and is gone.
  */
 fun remarkNode(row: ResolvedRemark, hasAnswer: Boolean = false): RemarkNode {
     val result = row.result
     val label = movedOrOrphanedLabel(result, row.remark.startLine, row.remark.endLine, row.remark.commit)
+    val general = isAboutNoFile(row.remark)
     return RemarkNode(
         id = row.remark.id.orEmpty(),
         path = row.remark.path.orEmpty(),
-        position = rowPosition(result, row.startColumn, row.endColumn) + label,
+        position = if (general) "" else rowPosition(result, row.startColumn, row.endColumn) + label,
         // Whatever was typed, newlines and all. A row used to be flattened onto one line, because one
         // SimpleColoredComponent cannot draw a newline; since phase 13 a row is a stack of them and
         // `wrapToLines` splits on '\n' itself, so a remark written with Shift+Enter keeps the breaks
@@ -538,8 +544,13 @@ private fun questionTreeNode(
 }
 
 /**
- * How many lines of text one row may draw. A fourth line of remark text is elided with an ellipsis
- * rather than drawn, so one long remark cannot push the whole tree off screen.
+ * How many lines of **text** one row may draw — the wrapped body only. A fourth line of remark text
+ * is elided with an ellipsis rather than drawn, so one long remark cannot push the whole tree off
+ * screen.
+ *
+ * ⚠️ Not the row's total height. Since task 8, every row that has one carries a fourth
+ * `SimpleColoredComponent`, [RemarkTreeRenderer.metadataLine] at `gridy = MAX_TEXT_LINES`, that this
+ * constant does not count: it caps the wrapped body, not the row.
  */
 const val MAX_TEXT_LINES = 3
 
@@ -570,6 +581,13 @@ private val MIN_WRAP_WIDTH get() = JBUI.scale(120)
  * than removed: `GridBagLayout` skips a hidden child when it measures, so a one-line row really is
  * one line tall, and the components survive to be reused by the next row.
  *
+ * **A fourth row, at `gridy = [MAX_TEXT_LINES]`, carries the metadata line**: the position, its
+ * "(moved)"/"(orphaned…)" suffix, and, for an answer with no question left in the tree, the file
+ * name after it. It is its own `SimpleColoredComponent`, [metadataLine], not a fourth entry in
+ * [lines] — grey by construction and hidden the same way an unused text line is when there is
+ * nothing to put in it. Moving these below the text rather than in front of it, where they used to
+ * sit on the first line, is what task 8 does; see [drawWrappedRow] for how.
+ *
  * ⚠️ **Stacking `SimpleColoredComponent` rather than the `HighlightableCellRenderer` the TODO tree
  * stacks is deliberate.** That one takes highlights as `TextAttributes`, which would mean translating
  * every style in this file. `SimpleColoredComponent` takes `append(text, SimpleTextAttributes)` — the
@@ -599,6 +617,18 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
      */
     internal val lines: List<SimpleColoredComponent> = List(MAX_TEXT_LINES) { SimpleColoredComponent() }
 
+    /**
+     * The fourth row, below the text: the position, its "(moved)"/"(orphaned…)" suffix, and, for an
+     * answer with no question in the tree, the file name after it. Grey by construction, and hidden
+     * whenever there is nothing to put in it — see [drawWrappedRow].
+     *
+     * A field of its own rather than a fourth entry in [lines]: every existing reader of [lines] —
+     * [drawWrappedRow] itself and `RemarkTreeRendererTest` — means "one of the wrapped text lines" by
+     * that name, and folding the metadata line in would make every one of them count to four when
+     * they mean three.
+     */
+    internal val metadataLine: SimpleColoredComponent = SimpleColoredComponent()
+
     init {
         val constraints = GridBagConstraints().apply {
             gridx = 0
@@ -606,7 +636,7 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
             fill = GridBagConstraints.HORIZONTAL
             anchor = GridBagConstraints.WEST
         }
-        lines.forEachIndexed { index, line ->
+        (lines + metadataLine).forEachIndexed { index, line ->
             // SimpleColoredComponent's own constructor makes itself opaque. Left that way, every line
             // would paint the plain tree background over the selection band this panel draws.
             line.isOpaque = false
@@ -631,7 +661,7 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
         isOpaque = selected
         val rowForeground = UIUtil.getTreeForeground(selected, focused)
 
-        lines.forEach {
+        (lines + metadataLine).forEach {
             it.clear()
             it.icon = null
             it.foreground = rowForeground
@@ -646,19 +676,17 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
                     asksForAnswer = user.asksForAnswer,
                     hasAnswer = user.hasAnswer,
                 ),
-                prefix = user.position,
                 body = user.text,
                 bodyAttributes = RemarkStatusLook.textAttributes(user.status),
-                suffix = "",
+                metadata = user.position,
                 width = wrapWidth(tree, node),
             )
 
             is AnswerNode -> drawWrappedRow(
                 icon = AllIcons.General.Balloon,
-                prefix = user.position,
                 body = user.firstLine,
                 bodyAttributes = SimpleTextAttributes.REGULAR_ATTRIBUTES,
-                suffix = user.fileName,
+                metadata = metadataOf(user.position, user.fileName),
                 width = wrapWidth(tree, node),
             )
 
@@ -675,46 +703,62 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
     }
 
     /**
-     * One remark or answer row: [icon] and the grey [prefix] on the first line, [body] wrapped across
-     * as many of the [MAX_TEXT_LINES] as it needs, and the grey [suffix] after the last of them.
+     * One remark or answer row: [icon] on the first line, [body] wrapped across as many of the
+     * [MAX_TEXT_LINES] as it needs, and [metadata] on [metadataLine] below all of them, grey and on
+     * its own row rather than sharing the first line of text the way it did before task 8.
      *
-     * The icon goes on the first line only, so the lines under it start at the panel's left edge
-     * rather than under a second copy of it.
+     * The icon goes on the first line only, so every line under it, [metadataLine] included, starts
+     * at the panel's left edge rather than under a second copy of it.
      *
-     * [prefix] and [suffix] are measured and taken off [width] for **every** line, not just the ones
-     * they are drawn on. Wrapping the body a few characters early on the lines that carry neither is
-     * the cheap half of the trade; the expensive half would be a per-line width, which [wrapToLines]
-     * deliberately does not take.
+     * [metadata] costs [body] nothing of [width] any more. Before task 8 this function measured a
+     * prefix and a suffix and took both off [width] before wrapping, which is why the position used
+     * to narrow all three text lines whether or not a given line drew it. Now that the position has
+     * its own row, [wrapToLines] gets the row's whole width.
+     *
+     * [metadataLine] is hidden outright when [metadata] is empty — every general remark, and every
+     * nested answer with no move or orphan to report. `GridBagLayout` skips a hidden child when it
+     * measures, so such a row is exactly as tall as its text, not one blank line taller.
+     *
+     * ⚠️ [metadata] is appended as one fragment, never run through [wrapToLines]. A position that
+     * combines a sub-line range, an "(orphaned, written at …)" suffix and a long file name could in
+     * principle be wide enough to overflow the row rather than wrap or elide.
      */
     private fun drawWrappedRow(
         icon: Icon,
-        prefix: String,
         body: String,
         bodyAttributes: SimpleTextAttributes,
-        suffix: String,
+        metadata: String,
         width: Int,
     ) {
         val metrics = textMetrics()
-        val prefixText = if (prefix.isEmpty()) "" else "$prefix  "
-        val suffixText = if (suffix.isEmpty()) "" else "  $suffix"
-        val room = (width - metrics.stringWidth(prefixText) - metrics.stringWidth(suffixText))
-            .coerceAtLeast(MIN_WRAP_WIDTH)
-        val wrapped = wrapToLines(body, room, MAX_TEXT_LINES) { metrics.stringWidth(it) }
+        val wrapped = wrapToLines(body, width, MAX_TEXT_LINES) { metrics.stringWidth(it) }
 
         wrapped.forEachIndexed { index, text ->
             val line = lines[index]
             line.isVisible = true
-            if (index == 0) {
-                line.icon = icon
-                if (prefixText.isNotEmpty()) {
-                    line.append(prefixText, SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                }
-            }
+            if (index == 0) line.icon = icon
             line.append(text, bodyAttributes)
-            if (index == wrapped.lastIndex && suffixText.isNotEmpty()) {
-                line.append(suffixText, SimpleTextAttributes.GRAYED_ATTRIBUTES)
-            }
         }
+
+        if (metadata.isNotEmpty()) {
+            metadataLine.isVisible = true
+            metadataLine.append(metadata, SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        }
+    }
+
+    /**
+     * The metadata line's text for an answer row: the position, then the file name after it when
+     * there is one, with the same two-space gap the row used to draw between its prefix and suffix
+     * before task 8. Empty when both are, which is a nested answer to a general remark.
+     *
+     * A remark row needs no equivalent function: [RemarkNode.position] is the whole metadata line on
+     * its own, since a remark carries no second grey fact the way an orphan-group answer's file name
+     * is.
+     */
+    private fun metadataOf(position: String, fileName: String): String = when {
+        position.isEmpty() -> fileName
+        fileName.isEmpty() -> position
+        else -> "$position  $fileName"
     }
 
     /**
