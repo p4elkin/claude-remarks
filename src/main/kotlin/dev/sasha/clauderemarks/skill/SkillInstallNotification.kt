@@ -56,6 +56,39 @@ fun shouldNotifySkillInstall(
 }
 
 /**
+ * What the balloon says, for each of the three states it can fire in.
+ *
+ * ⚠️ **One fixed sentence is wrong here, and it was wrong in two states out of three.**
+ * [shouldNotifySkillInstall] fires for [SkillInstall.SkillPresence.Missing], for a
+ * [SkillInstall.SkillPresence.Present] carrying no stamp — a copy installed by hand before this
+ * phase — and for a `Present` carrying a different version. Saying "is not installed" in all three
+ * told somebody holding `0.11.0` that they had nothing, while the settings row said "0.11.0
+ * installed, 0.12.0 bundled" at the same moment. The two surfaces must never disagree about the
+ * same machine, so this distinguishes exactly the states
+ * [dev.sasha.clauderemarks.skill.skillRowText] distinguishes, and invents no fourth one.
+ *
+ * Returns null for [SkillInstall.SkillPresence.Symlink], the development checkout: there is no
+ * balloon in that state, so there is no sentence for it either, and inventing one would be a state
+ * this function claims to have and the notification never shows.
+ */
+fun skillInstallNotificationText(
+    presence: SkillInstall.SkillPresence,
+    bundledVersion: String,
+): String? = when (presence) {
+    SkillInstall.SkillPresence.Symlink -> null
+    SkillInstall.SkillPresence.Missing ->
+        "The Claude Remarks skill ($bundledVersion) is not installed for Claude Code."
+    is SkillInstall.SkillPresence.Present ->
+        if (presence.version == null) {
+            "Claude Code has a copy of the Claude Remarks skill, and it carries no version. " +
+                "This plugin bundles $bundledVersion."
+        } else {
+            "Claude Code has version ${presence.version} of the Claude Remarks skill. " +
+                "This plugin bundles $bundledVersion."
+        }
+}
+
+/**
  * Checks whether [project] should see the skill-install notification, and shows it if so.
  *
  * Called inline from [dev.sasha.clauderemarks.editor.RemarkGutterStartup.execute], a suspend
@@ -92,6 +125,10 @@ fun notifySkillInstallIfNeeded(project: Project) {
     if (!shouldNotifySkillInstall(true, presence, bundledVersion, dismissed, shownThisRun.get())) {
         return
     }
+    // Null only for a symlink, which the line above has already refused — so this is the
+    // "impossible" branch, taken rather than forced with !! so a later change to either function
+    // stays quiet instead of throwing on project open.
+    val message = skillInstallNotificationText(presence, bundledVersion) ?: return
     // Double-checked against the same flag shouldNotifySkillInstall just read: two projects can
     // reach this point in the same run, and only the one that wins the compareAndSet may show a
     // balloon.
@@ -99,10 +136,7 @@ fun notifySkillInstallIfNeeded(project: Project) {
 
     val notification = NotificationGroupManager.getInstance()
         .getNotificationGroup(NOTIFICATION_GROUP)
-        .createNotification(
-            "The Claude Remarks skill ($bundledVersion) is not installed for Claude Code.",
-            NotificationType.INFORMATION,
-        )
+        .createNotification(message, NotificationType.INFORMATION)
     notification.addAction(
         NotificationAction.createSimple("Install") {
             AppExecutorUtil.getAppExecutorService().execute {

@@ -555,9 +555,15 @@ Nothing here is reachable by `./gradlew test`.
    installed.
 8. Codex and Gemini are both listed as found, with no button, and the sentence explaining why.
 9. Put the development symlink back, restart, open a project: **no notification**, and the settings row
-   says it is a symlink. Press the button: it refuses with a sentence, and `git status` in the
-   checkout is still clean. ⚠️ Check `git status`, not just the message — a refusal that still wrote
-   is exactly the failure this check exists for.
+   says it is a symlink and a development install. ⚠️ **There is no button on that row at all** —
+   `skillRowText` returns a null button label for a symlink and the row hides the button, which is
+   safer than offering one that would only refuse. So the check is: the row says symlink, nothing is
+   pressable, and `git status` in the checkout is still clean. (This check used to say the button
+   "refuses with a sentence". That was written before the row hid the button, and it never matched
+   what was built.)
+9b. Point `~/.claude` itself at a directory somewhere harmless — a symlinked ancestor rather than a
+   symlinked leaf — and press Install from the settings row. It must refuse naming that ancestor, and
+   nothing at the far end may change. This is the case a check on the leaf alone let straight through.
 10. Press Don't ask again, restart, open a project: no notification. The settings row still works.
 11. Delete the stamp line by hand from an installed `SKILL.md`, restart: the notification appears and
     the settings row says the version is unknown.

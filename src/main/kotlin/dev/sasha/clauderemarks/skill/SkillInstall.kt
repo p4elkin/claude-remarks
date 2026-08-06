@@ -19,13 +19,43 @@ object SkillInstall {
     private const val STAMP_KEY = "claude-remarks-plugin-version"
     private val STAMP_LINE_PATTERN = Regex("""^#\s*$STAMP_KEY:\s*(\S+)""")
 
+    /** A byte-order mark, which a file edited on Windows can carry in front of its first line. */
+    private const val BOM = '﻿'
+
+    /**
+     * The one file that carries the version stamp, and the one [installSkill] writes **last**. See
+     * that function's own KDoc for why the order matters.
+     */
+    private const val SKILL_MD = "SKILL.md"
+
     /**
      * The three files that make up the skill, in one place because **nothing enumerates the
      * directory**: listing jar entries through a classloader is not something to rely on. Adding a
      * fourth file to the skill later means adding its name here too — forgetting is silent, because
      * the file simply does not get installed and nothing reports it.
+     *
+     * This is the list of names, not the order they are written in. [installSkill] deliberately
+     * writes `SKILL.md` last, whatever order this list happens to be in.
      */
-    val SKILL_FILES: List<String> = listOf("SKILL.md", "watch-remarks.sh", "remote-config.sh")
+    val SKILL_FILES: List<String> = listOf(SKILL_MD, "watch-remarks.sh", "remote-config.sh")
+
+    /**
+     * The path segments this code appends below a person's home directory to reach the installed
+     * skill: `.claude`, then `skills`, then `claude-remarks`.
+     *
+     * One list, because two things read it and they must never disagree — the target
+     * [detectHarnesses] hands back, and the set of components [installSkill] refuses to write
+     * through when any one of them turns out to be a symlink.
+     */
+    private val CLAUDE_SKILL_SEGMENTS = listOf(".claude", "skills", "claude-remarks")
+
+    /**
+     * Where Claude Code's copy of this skill goes under [home]. The one place this path is spelled
+     * out — the settings row and the notification both ask for it here rather than each writing the
+     * same three segments again.
+     */
+    fun claudeSkillDir(home: Path): Path =
+        CLAUDE_SKILL_SEGMENTS.fold(home) { path, segment -> path.resolve(segment) }
 
     /**
      * The absolute resource path for one of the skill's files, leading slash and all.
@@ -48,19 +78,32 @@ object SkillInstall {
      * the frontmatter starts, which is what keeps this safe no matter what the rest of the file
      * contains. `SkillInstallTest` pins this against the real `SKILL.md`, so it fails if someone later
      * moves the insertion point further down "to tidy it up."
+     *
+     * ⚠️ **A byte-order mark and CRLF line endings both have to be tolerated, and both are
+     * preserved.** A comparison of the first line against the literal `"---"` misses `"---\r"` and
+     * `"﻿---"`, and the stamp would then be placed *in front of* line 1 — the frontmatter would
+     * never open, Claude Code would silently not register the skill, and [stampedVersionOf] would
+     * still read the version back, so the settings row would report it up to date. This repository
+     * carries no `.gitattributes`, so a clone made with Git for Windows' default `core.autocrlf=true`
+     * produces exactly that file. The mark and the line ending are put back rather than dropped:
+     * rewriting a CRLF file as LF as a side effect of stamping it is not this function's business.
      */
     fun stampVersion(text: String, version: String): String {
         val stamp = "# $STAMP_KEY: $version"
-        val firstLineEnd = text.indexOf('\n')
-        val firstLine = if (firstLineEnd == -1) text else text.substring(0, firstLineEnd)
+        val mark = if (text.startsWith(BOM)) BOM.toString() else ""
+        val body = text.removePrefix(mark)
+        val firstLineEnd = body.indexOf('\n')
+        val rawFirstLine = if (firstLineEnd == -1) body else body.substring(0, firstLineEnd)
+        val eol = if (rawFirstLine.endsWith("\r")) "\r\n" else "\n"
+        val firstLine = rawFirstLine.removeSuffix("\r")
         return if (firstLine == "---") {
             if (firstLineEnd == -1) {
-                "$text\n$stamp"
+                mark + body + eol + stamp
             } else {
-                text.substring(0, firstLineEnd + 1) + stamp + "\n" + text.substring(firstLineEnd + 1)
+                mark + body.substring(0, firstLineEnd + 1) + stamp + eol + body.substring(firstLineEnd + 1)
             }
         } else {
-            "$stamp\n$text"
+            mark + stamp + eol + body
         }
     }
 
@@ -94,14 +137,22 @@ object SkillInstall {
     /**
      * Every harness actually found under [home]. Only existing directories are found — **a harness
      * directory is never created here**, because creating one would be the plugin guessing that a
-     * tool is wanted. The one directory this phase ever creates is the skill's own target directory,
-     * inside a harness directory that already exists, and that happens in [installSkill], not here.
+     * tool is wanted. The directories the plugin does create are the skill's own target directory
+     * and, when it is not there yet, the `skills/` directory above it — both **inside a `~/.claude`
+     * that already exists**, which is the install itself rather than a guess. That happens in
+     * [installSkill], not here.
+     *
+     * ⚠️ **Claude Code is keyed on `~/.claude`, not on `~/.claude/skills`.** `skills/` is created
+     * when a first skill is added, so somebody who has used Claude Code but never added a personal
+     * skill has `~/.claude` — settings, projects, history — and no `skills/` at all. Keying on
+     * `skills/` made the whole feature invisible to exactly the person it was built for: no row, no
+     * button and no balloon. The target below still points inside `skills/`, and
+     * `atomicWriteString` creates the directories it needs on the way.
      */
     fun detectHarnesses(home: Path): List<HarnessInfo> {
         val found = mutableListOf<HarnessInfo>()
-        val claudeSkills = home.resolve(".claude").resolve("skills")
-        if (Files.exists(claudeSkills)) {
-            found += HarnessInfo("Claude Code", true, claudeSkills.resolve("claude-remarks"))
+        if (Files.exists(home.resolve(CLAUDE_SKILL_SEGMENTS.first()))) {
+            found += HarnessInfo("Claude Code", true, claudeSkillDir(home))
         }
         if (Files.exists(home.resolve(".codex"))) {
             found += HarnessInfo("Codex", false, null)
@@ -171,18 +222,38 @@ object SkillInstall {
      * for a checkout and wrong for an install; the two being opposite on purpose is exactly why this
      * reason is written here rather than only in a plan file.
      *
-     * **Refuses outright when [targetDir], or any of the three files inside it, is a symlink**,
-     * before writing anything at all. On this machine `~/.claude/skills/claude-remarks` is a symlink
-     * into the checkout, and writing through it would silently overwrite the plugin's own source
-     * files with stamped copies — this check is what stops that.
+     * **Refuses outright when any directory this code appends below the home directory, or any of
+     * the three files inside [targetDir], is a symlink**, before writing anything at all. On this
+     * machine `~/.claude/skills/claude-remarks` is a symlink into the checkout, and writing through
+     * it would silently overwrite the plugin's own source files with stamped copies.
+     *
+     * ⚠️ **Checking only [targetDir] is not enough, and a blanket `toRealPath()` comparison is
+     * wrong.** A dotfiles checkout can make `~/.claude` or `~/.claude/skills` itself the symlink; the
+     * leaf is then an ordinary directory, the leaf check passes, and `Files.createDirectories` plus
+     * the rename inside `atomicWriteString` follow the ancestor link and write into the far end —
+     * exactly what this refusal exists to prevent. The check is on [appendedDirectories], the three
+     * components this code creates, and never on the home directory or anything above it: on macOS
+     * `/tmp` is a symlink to `/private/tmp` and a temporary directory resolves under
+     * `/private/var/folders/…`, so "refuse when the resolved path differs from the lexical one"
+     * would refuse every temporary directory and any home directory sitting under a symlinked mount.
+     *
+     * **`SKILL.md` is written last, and it is the file carrying the stamp.** The two scripts go
+     * first, then their executable bits, then the stamped `SKILL.md`. So a stamp is only ever on
+     * disk once the install really finished. ⚠️ With `SKILL.md` written first, a later write or a
+     * refused `setExecutable` left a stamped `SKILL.md` beside a missing or non-executable script:
+     * [skillPresence] then read the bundled version back, the settings row said "up to date" and
+     * the notification never fired again, while a real session answered that `watch-remarks.sh` was
+     * not found.
      */
     fun installSkill(
         targetDir: Path,
         version: String,
         readResource: (name: String) -> InputStream?,
     ): String? {
-        if (Files.isSymbolicLink(targetDir)) {
-            return developmentSymlinkProblem(targetDir)
+        for (dir in appendedDirectories(targetDir)) {
+            if (Files.isSymbolicLink(dir)) {
+                return developmentSymlinkProblem(dir)
+            }
         }
         for (name in SKILL_FILES) {
             val file = targetDir.resolve(name)
@@ -191,27 +262,45 @@ object SkillInstall {
             }
         }
 
+        val others = SKILL_FILES.filter { it != SKILL_MD }
         try {
-            for (name in SKILL_FILES) {
+            for (name in others) {
                 val bytes = readResource(name)?.use { it.readBytes() }
                     ?: return "$name could not be read from the plugin's own resources."
-                val text = String(bytes, Charsets.UTF_8)
-                val content = if (name == "SKILL.md") stampVersion(text, version) else text
-                atomicWriteString(targetDir.resolve(name), content)
+                atomicWriteString(targetDir.resolve(name), String(bytes, Charsets.UTF_8))
             }
         } catch (e: IOException) {
             return "the skill could not be written to $targetDir: ${e.message}"
         }
 
-        for (name in SKILL_FILES.filter { it.endsWith(".sh") }) {
+        for (name in others.filter { it.endsWith(".sh") }) {
             val file = targetDir.resolve(name).toFile()
             if (!file.setExecutable(true, true)) {
                 return "$name at $targetDir could not be made executable."
             }
         }
 
+        try {
+            val bytes = readResource(SKILL_MD)?.use { it.readBytes() }
+                ?: return "$SKILL_MD could not be read from the plugin's own resources."
+            val stamped = stampVersion(String(bytes, Charsets.UTF_8), version)
+            atomicWriteString(targetDir.resolve(SKILL_MD), stamped)
+        } catch (e: IOException) {
+            return "the skill could not be written to $targetDir: ${e.message}"
+        }
+
         return null
     }
+
+    /**
+     * [targetDir] and every directory above it that this code may create — `claude-remarks`,
+     * `skills` and `.claude`, one per segment in [CLAUDE_SKILL_SEGMENTS]. It stops there on purpose:
+     * the home directory and everything above it belong to the person, and refusing an install
+     * because one of *those* is a symlink would refuse a perfectly ordinary machine. See
+     * [installSkill]'s own KDoc for the whole argument.
+     */
+    private fun appendedDirectories(targetDir: Path): List<Path> =
+        generateSequence(targetDir) { it.parent }.take(CLAUDE_SKILL_SEGMENTS.size).toList()
 
     private fun developmentSymlinkProblem(path: Path): String =
         "$path looks like a development install (a symlink) and has to be removed before the " +

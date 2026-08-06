@@ -2856,9 +2856,23 @@ through the link, into `src/main/resources/dev/sasha/clauderemarks/skill/`. The 
 its own source files with stamped copies, and the person would find a dirty working tree they never
 edited.
 
-So `installSkill` checks `Files.isSymbolicLink` on the target directory **and** on each of the three
-files inside it, before it writes anything at all, and returns a sentence saying it looks like a
-development install and has to be removed first.
+So `installSkill` checks `Files.isSymbolicLink` before it writes anything at all, and returns a
+sentence saying it looks like a development install and has to be removed first.
+
+⚠️ **It checks the ancestors too, not only the leaf.** The components are `~/.claude`,
+`~/.claude/skills`, `~/.claude/skills/claude-remarks` and the three files inside — everything this
+code appends below the home directory, one per segment of `CLAUDE_SKILL_SEGMENTS`, which is also what
+builds the target path, so the two can never disagree. A dotfiles checkout can make `~/.claude`
+itself the symlink: the leaf is then an ordinary directory, a leaf-only check passes, and
+`Files.createDirectories` plus the rename inside `atomicWriteString` follow the ancestor link and
+write into the far end.
+
+⚠️ **It is deliberately not a `toRealPath()` comparison.** "Refuse when the resolved path differs
+from the lexical one" sounds like the general version of this rule and is wrong: on macOS `/tmp` is a
+symlink to `/private/tmp` and a temporary directory resolves under `/private/var/folders/…`, so that
+rule refuses every temporary directory the tests use, and would refuse a real install on a machine
+whose home directory sits under a symlinked mount. The home directory and everything above it belong
+to the person and are never inspected.
 
 The notification does not fire in this case either. A checkout is not a broken install, and offering
 an action that would only be refused is worse than staying quiet. `shouldNotifySkillInstall` gives
@@ -2897,6 +2911,15 @@ lines:
 It never throws and it never guesses. A stamp line that does not parse reads exactly the same as no
 stamp at all.
 
+⚠️ **A byte-order mark and CRLF endings both have to be tolerated, and both are preserved.**
+Comparing the first line against the literal `"---"` misses `"---\r"` and `"﻿---"`. In either case
+the stamp would land in *front* of line 1, the frontmatter would never open, and Claude Code would
+silently not register the skill — while `stampedVersionOf` still read the version back, so the
+settings row reported it up to date. This repository carries no `.gitattributes`, so a clone made
+with Git for Windows' default `core.autocrlf=true` produces exactly that file. The mark and the line
+ending are put back rather than dropped: rewriting a CRLF file as LF as a side effect of stamping it
+is not `stampVersion`'s business.
+
 ### Why the executable bit is set again after the copy
 
 ⚠️ **A resource read out of a jar carries no permission bits.** `SKILL.md`'s own
@@ -2910,15 +2933,35 @@ After the write, `installSkill` calls `File.setExecutable(true, true)` on every 
 `Files.setPosixFilePermissions`, which throws `UnsupportedOperationException` on a filesystem with no
 POSIX view.
 
+### Why `SKILL.md` is written last
+
+The order is: the two scripts, then their executable bits, then the stamped `SKILL.md`. So the stamp
+is only ever on disk once the install really finished.
+
+⚠️ **With `SKILL.md` written first, a partly failed install reported itself up to date for ever.** A
+later write that failed, or a `setExecutable` that returned false, left the already-stamped
+`SKILL.md` behind. `skillPresence` then read the bundled version back, `skillRowText` said "up to
+date", and `shouldNotifySkillInstall` returned false from then on — while a real session answered
+that `watch-remarks.sh` was not found, because `SKILL.md`'s own resolution block tests
+`[ -x "$candidate/watch-remarks.sh" ]`. Neither surface ever offered to repair it. `SKILL_FILES` is
+the list of names and not the write order; the order lives in `installSkill`, with the reason beside
+it.
+
 ### Detection never creates anything
 
-Three directories are looked for under the home directory, and only existing ones count:
-`~/.claude/skills` is Claude Code and is installable, `~/.codex` is Codex and `~/.gemini` is Gemini.
+Three directories are looked for under the home directory, and only existing ones count: `~/.claude`
+is Claude Code and is installable, `~/.codex` is Codex and `~/.gemini` is Gemini.
+
+⚠️ **Claude Code is keyed on `~/.claude`, not on `~/.claude/skills`.** `skills/` is created when a
+first skill is added, so somebody who uses Claude Code but has never added a personal skill has
+`~/.claude` — settings, projects, history — and no `skills/` at all. Keying on `skills/` made the
+whole feature invisible to exactly the person it was built for: the settings row said no supported
+agent was found, there was no button, and the balloon returned early without firing.
 
 **A harness directory is never created.** Creating one would be the plugin guessing that a tool is
-wanted on this machine. The one directory the plugin does create is the skill's own target directory,
-`~/.claude/skills/claude-remarks`, inside a directory that already exists. That is the install itself,
-not a guess.
+wanted on this machine. What the plugin does create is the skill's own target directory,
+`~/.claude/skills/claude-remarks`, and `skills/` above it when it is not there yet — both **inside a
+`~/.claude` that already exists**. That is the install itself, not a guess.
 
 ⚠️ **Codex and Gemini are listed with no button, and no path is guessed for them.** `HarnessInfo`
 carries a null `targetDir` for both, which is how "found, but not installable" is represented. Each
@@ -2945,6 +2988,13 @@ unstamped or a different version, **and** the person has not dismissed it, **and
 yet in this IDE run. That last one is a plain application-level `AtomicBoolean`: without it, opening
 three projects would show three balloons. Its three actions are Install, Settings and Don't ask again.
 
+⚠️ **The balloon's sentence comes from `skillInstallNotificationText`, one per firing state, and the
+two surfaces must never disagree about the same machine.** One fixed "is not installed" sentence was
+wrong in two of the three states it fired in: somebody holding `0.11.0`, or an unstamped copy from
+before this phase, was told they had nothing while the settings row said "0.11.0 installed, 0.12.0
+bundled" at that very moment. There are three sentences and no fourth one — a symlink gets none,
+because it gets no balloon.
+
 ⚠️ **The dismissal roams.** `RemarkSettings` goes through JetBrains Settings Sync deliberately, so
 `skillInstallPromptDismissed` does too. Pressing Don't ask again on one machine also silences the
 balloon on the other machine, where the skill may well not be installed. That is accepted rather than
@@ -2962,6 +3012,20 @@ action would buy nothing and would say something untrue about what the code touc
 fills the row's labels back in through `invokeLater`. The button click arrives on the EDT and does the
 same. `RemarkGutterStartup.execute` is a suspend function already running off the EDT, so the
 notification's own check runs inline there with no hop at all.
+
+⚠️ **Both hops back pass `ModalityState.any()`, and a bare `invokeLater` is broken here.** Off the
+EDT the default modality is `nonModal()`, and the settings dialog is modal — `SettingsDialogFactory`
+creates it modal and the advanced setting that would make it a window defaults to off. The platform's
+event queue skips a runnable whose modality the current one does not accept, so with a bare
+`invokeLater` every row stays hidden and the group shows only "Checking for Claude Code, Codex and
+Gemini…" for as long as the page is open. The Install button is never reachable, and a finished or
+failed install never updates the row either. `any()` is the right answer rather than a workaround
+precisely because these two blocks only set Swing text, enablement and visibility: they touch no PSI,
+no `Document`, no VFS and no project model, so there is no state they could read half-changed under a
+modal dialog. ⚠️ The initial fill appeared to work in some paths purely by accident —
+`CardLayoutPanel.selectLater` happens to post `createPanel()` with `ModalityState.stateForComponent`,
+which the pooled task then inherits, while `selectNow` on the EDT gives no such inheritance. One
+working case here is not evidence.
 
 **It only reaches this machine.** For a Claude Code session on the far side of an SSH tunnel, the
 skill has to exist over there, and no button in this IDE can put it there. The settings page says so

@@ -590,22 +590,40 @@ it.
 
 *What a person sees.* Settings → Tools → Claude Remarks lists every harness found and, for Claude
 Code, gives a button: Install when nothing is there, Reinstall otherwise. Reinstall stays enabled when
-the copy is up to date, because somebody who edited the installed copy needs a way back. A balloon on
-project open says the same thing when the installed copy is missing, unstamped or a different version.
+the copy is up to date, because somebody who edited the installed copy needs a way back. A symlinked
+skill directory gets **no button at all** — the row says it is a development install, which is safer
+than a button that would only refuse. A balloon on project open says the same thing when the installed
+copy is missing, unstamped or a different version, with **one sentence per state** from
+`skillInstallNotificationText` — the two surfaces must never disagree about the same machine, and one
+fixed "is not installed" sentence was wrong in two of the three states it fired in.
 ⚠️ Codex and Gemini are **found and listed with no button**, and a sentence says why: each tool's own
 layout has to be read from its own documentation first, and a guessed path writes a file nobody reads.
 The gap is on screen rather than silent, which was the point of listing them.
 
-⚠️ **Four things here nobody should have to work out a second time.** The install **copies and never
+⚠️ **Seven things here nobody should have to work out a second time.** The install **copies and never
 symlinks**, because an installed plugin lives under a versioned path and a symlink into it dies on the
-next plugin update — development does the opposite, on purpose. The install **refuses when the target
-is a symlink**, because on a developer's machine that symlink points back into the checkout, so
-writing through it would overwrite the plugin's own source files. The version stamp goes on **line
-2**, because `description:` in the frontmatter is a `>` block scalar and a `#` line inside a block
-scalar is content rather than a comment. And the **executable bit is set explicitly after the copy**,
-because a resource read out of a jar carries no permission bits and `SKILL.md` tests `[ -x … ]` — a
-copy without it makes the skill say `watch-remarks.sh` was not found while the file sits right there.
-All four are argued in `docs/claude/design.md`, section "Shipping the Skill Inside the Plugin".
+next plugin update — development does the opposite, on purpose. The install **refuses when any
+component it appends below the home directory is a symlink** — `~/.claude`, `~/.claude/skills`,
+`~/.claude/skills/claude-remarks` and the three files — because on a developer's machine one of those
+points back into the checkout, so writing through it would overwrite the plugin's own source files.
+⚠️ Checking only the leaf let a symlinked `~/.claude` straight through, and a blanket `toRealPath()`
+comparison is the wrong general version: on macOS `/tmp` is a symlink and a temporary directory
+resolves under `/private/var/folders/…`, so that rule would refuse every temporary directory and any
+home directory under a symlinked mount. Detection is **keyed on `~/.claude`, not on
+`~/.claude/skills`**, because `skills/` only exists once a first skill has been added, and keying on
+it made the feature invisible to exactly the person it was built for. The version stamp goes on
+**line 2**, because `description:` in the frontmatter is a `>` block scalar and a `#` line inside a
+block scalar is content rather than a comment — and `stampVersion` **tolerates and preserves a
+byte-order mark and CRLF**, because `"---\r"` compared against `"---"` puts the stamp in front of
+line 1 and the frontmatter then never opens. `SKILL.md` is written **last**, after both scripts and
+their executable bits, so a partly failed install never leaves a stamp that makes both surfaces
+report it up to date for ever. The **executable bit is set explicitly after the copy**, because a
+resource read out of a jar carries no permission bits and `SKILL.md` tests `[ -x … ]` — a copy
+without it makes the skill say `watch-remarks.sh` was not found while the file sits right there. And
+the settings group's two hops back to the EDT pass **`ModalityState.any()`**: the settings dialog is
+modal, and a bare `invokeLater` leaves every row hidden behind "Checking for Claude Code, Codex and
+Gemini…" with the Install button unreachable. All seven are argued in `docs/claude/design.md`,
+section "Shipping the Skill Inside the Plugin".
 
 ⚠️ `RemarkSettings.skillInstallPromptDismissed` roams through Settings Sync, the way every setting in
 that class does. So pressing Don't ask again on one machine also silences the balloon on the other
@@ -955,23 +973,33 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    Remarks skill group: one row per detected harness, detection and
                                    the copy both on AppExecutorUtil.getAppExecutorService() with
                                    the labels filled back in through invokeLater, and no ReadAction
-                                   anywhere, because nothing here touches PSI, a Document or the VFS
+                                   anywhere, because nothing here touches PSI, a Document or the VFS.
+                                   ⚠️ Both invokeLater calls pass ModalityState.any(): the settings
+                                   dialog is modal, and a bare invokeLater is skipped outright, which
+                                   leaves every row hidden and the Install button unreachable
   skill/SkillInstall.kt            the pure half of the install (phase 15): SKILL_FILES,
-                                   stampVersion, stampedVersionOf, detectHarnesses, skillPresence
-                                   and installSkill, which returns null or a sentence the way
-                                   store/RemarkTarget.kt's problem functions do. NO com.intellij
-                                   import — the resource reader is a parameter, which is what keeps
-                                   the classloader out and lets a test feed fake contents
+                                   claudeSkillDir (the one place ~/.claude/skills/claude-remarks is
+                                   spelled out), stampVersion, stampedVersionOf, detectHarnesses,
+                                   skillPresence and installSkill, which returns null or a sentence
+                                   the way store/RemarkTarget.kt's problem functions do. NO
+                                   com.intellij import — the resource reader is a parameter, which is
+                                   what keeps the classloader out and lets a test feed fake contents.
+                                   Detection keys on ~/.claude, the symlink refusal covers every
+                                   component appended below the home directory rather than only the
+                                   leaf, and SKILL.md is written last so a partial install never
+                                   leaves a stamp behind
   skill/BundledSkillVersion.kt     bundledPluginVersion(): the plugin's own version, through
                                    PluginManager.getPluginByClass. Its own file precisely because
                                    that is a com.intellij import and SkillInstall.kt may carry none
   skill/SkillRowText.kt            skillRowText: the settings row's status sentence and its button
                                    label, pure so every combination is testable with no UI fixture
   skill/SkillInstallNotification.kt
-                                   shouldNotifySkillInstall (pure, and it never fires for a symlink)
-                                   and notifySkillInstallIfNeeded, the balloon with Install,
-                                   Settings and Don't ask again. A top-level AtomicBoolean is what
-                                   makes it at most one balloon per IDE run
+                                   shouldNotifySkillInstall (pure, and it never fires for a symlink),
+                                   skillInstallNotificationText (pure, one sentence per firing state
+                                   so the balloon and the settings row can never disagree about the
+                                   same machine) and notifySkillInstallIfNeeded, the balloon with
+                                   Install, Settings and Don't ask again. A top-level AtomicBoolean
+                                   is what makes it at most one balloon per IDE run
   render/PromptRenderer.kt         pure Kotlin, zero platform imports. Remarks to markdown, general
                                    remarks first under their own heading and with no code block.
                                    PROMPT_NOTES (called SEVERITY_SCALE_NOTE until phase 11) is the
@@ -1221,7 +1249,20 @@ becoming an offset, an unanswered question becoming the question kind, an answer
 back to the plain kind, the three exclusions one test each — orphaned, about no file, about another
 file — several remarks each keeping their own offset, a start line past the end of the source being
 excluded rather than throwing, three tests on the column being clamped to its own line, and the two
-`toJson` shapes) are plain JUnit tests with
+`toJson` shapes), and phase 15's four skill classes — `SkillResourceTest` (all three skill resources
+resolve on the classpath and are not empty, asking production for the path rather than writing a copy
+of it, the same argument `RemarkIconsTest` makes), `SkillInstallTest` (the stamp on both branches
+⚠️ including CRLF and a byte-order mark, the pin against the real `SKILL.md` that the stamp never
+lands inside the `description:` block scalar, `stampedVersionOf`'s three answers and its five-line
+cutoff, detection ⚠️ including a bare `~/.claude` with no `skills/` inside it, the install's success
+path with both scripts executable, ⚠️ that `SKILL.md` is written **last** and that a later file
+failing leaves no stamp behind, and the symlink refusals ⚠️ for a symlinked `~/.claude` and a
+symlinked `skills/` as well as for the leaf and the three files, each asserting nothing at the far end
+changed, plus one that an ordinary temporary directory is **not** refused, which is what fails if
+somebody replaces the check with a `toRealPath()` comparison), `SkillRowTextTest` (every branch of
+the settings row's sentence and button label) and `SkillInstallNotificationTest`
+(`shouldNotifySkillInstall` across every combination, and ⚠️ that the balloon's sentence never says
+"not installed" about a machine that has a copy) — are plain JUnit tests with
 no fixture, so they run in milliseconds. The rest
 need a light IDE fixture
 (`BasePlatformTestCase`, which needs `testFramework(TestFrameworkType.Platform)` in

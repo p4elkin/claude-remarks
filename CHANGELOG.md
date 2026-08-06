@@ -47,11 +47,26 @@ and the first one is what the second one needed.
   versioned path, so a symlink into it dies on the next plugin update and leaves a skill entry
   pointing at nothing. Development does the opposite on purpose, and the two being opposite is why
   the reason is written into the install function's own KDoc.
-- **The install refuses when the target is a symlink.** On a developer's machine
-  `~/.claude/skills/claude-remarks` points back into the checkout, so writing through it would
+- **The install refuses when any component it appends below the home directory is a symlink.**
+  `~/.claude`, `~/.claude/skills`, `~/.claude/skills/claude-remarks` and the three files inside. On a
+  developer's machine one of those points back into the checkout, so writing through it would
   overwrite the plugin's own source files with stamped copies and leave a dirty working tree nobody
-  edited. The check runs before anything is written, and the notification does not fire in this case
-  at all — a checkout is not a broken install.
+  edited. ⚠️ The leaf alone is not enough — a dotfiles checkout can make `~/.claude` itself the link,
+  and the leaf is then an ordinary directory the check would wave through. It is deliberately not a
+  `toRealPath()` comparison: on macOS `/tmp` is a symlink and a temporary directory resolves under
+  `/private/var/folders/…`, so that rule would refuse every temporary directory and any home
+  directory under a symlinked mount. The check runs before anything is written, the row hides its
+  button entirely rather than offering one that would refuse, and the notification does not fire in
+  this case at all — a checkout is not a broken install.
+- **Claude Code is detected on `~/.claude`, not on `~/.claude/skills`.** `skills/` is created when a
+  first skill is added, so somebody who uses Claude Code but has never added a personal skill has
+  `~/.claude` and no `skills/` at all. The target still goes inside `skills/`, which is created on
+  the way — inside a `~/.claude` that already exists, so no harness directory is ever guessed into
+  being.
+- **`SKILL.md` is written last, after both scripts and their executable bits.** A stamp is only ever
+  on disk once the install really finished. With it written first, a later failure left a stamped
+  `SKILL.md` behind, the settings row said "up to date" and the notification never fired again, while
+  a real session answered that `watch-remarks.sh` was not found.
 - **The version stamp is one line, and it goes on line 2.** The installed `SKILL.md` gets
   `# claude-remarks-plugin-version: 0.12.0` right after the opening `---`. A YAML comment rather than
   a frontmatter key, because the keys are Claude Code's contract and a comment cannot collide with
@@ -59,6 +74,9 @@ and the first one is what the second one needed.
   one is content rather than a comment, so a stamp placed further down would end up as text inside
   the description the harness matches the skill on. Reading it back gives three answers, never two —
   a version, "installed but unstamped", or "not installed" — and it never throws and never guesses.
+  ⚠️ A byte-order mark and CRLF endings are both tolerated and both preserved: `"---\r"` compared
+  against `"---"` would put the stamp in front of line 1, the frontmatter would never open, and
+  Claude Code would silently not register the skill while the stamp still read back as up to date.
 - **The executable bit is set explicitly after the copy.** A resource read out of a jar carries no
   permission bits, and `SKILL.md`'s own directory-resolution block tests `[ -x watch-remarks.sh ]`.
   So a copy without it makes the installed skill report that `watch-remarks.sh` was not found while

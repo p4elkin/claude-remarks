@@ -1,6 +1,7 @@
 package dev.sasha.clauderemarks.settings
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.components.JBTextArea
@@ -64,16 +65,6 @@ class RemarkSettingsConfigurable : BoundConfigurable("Claude Remarks") {
 }
 
 /**
- * The absolute path Claude Code's own skill directory would sit at under [home] — the same path
- * [SkillInstall.detectHarnesses] hands back as `Claude Code`'s
- * [SkillInstall.HarnessInfo.targetDir]. Recomputed here, rather than stashed from a detection result,
- * so the Install/Reinstall button always acts against a fresh answer to "is it still there" instead
- * of a possibly stale one from whenever the row last redrew.
- */
-private fun claudeCodeTargetDir(home: Path): Path =
-    home.resolve(".claude").resolve("skills").resolve("claude-remarks")
-
-/**
  * The skill-installation group: one row per detected harness, filled in asynchronously.
  *
  * **Threading.** This runs from `createPanel()`, on the EDT. Detection and the install both touch
@@ -81,6 +72,15 @@ private fun claudeCodeTargetDir(home: Path): Path =
  * [AppExecutorUtil.getAppExecutorService] and report back through `invokeLater`. Deliberately no
  * `ReadAction` anywhere in this function: one would buy nothing here and would say something untrue
  * about what this code touches.
+ *
+ * ⚠️ **Both hops back pass [ModalityState.any], and a bare `invokeLater` is broken here.** Off the
+ * EDT the default modality is `nonModal()`, the settings dialog is modal, and the platform's event
+ * queue skips a runnable whose modality the current one does not accept — so with a bare
+ * `invokeLater` the whole group stays on "Checking for Claude Code, Codex and Gemini…" for as long
+ * as the page is open, and the Install button never appears. `any()` is the right answer rather than
+ * a workaround precisely because these two blocks only set Swing text, enablement and visibility:
+ * they touch no PSI, no `Document`, no VFS and no project model, so there is no state they could
+ * read half-changed under a modal dialog.
  *
  * **No dialog and no balloon.** This configurable is application level and has no
  * [com.intellij.openapi.project.Project] to notify through; the row's own status label is the only
@@ -122,12 +122,12 @@ private fun Panel.buildSkillRows() {
             val codex = harnesses.find { it.displayName == "Codex" }
             val gemini = harnesses.find { it.displayName == "Gemini" }
             val claudeText = claude?.let {
-                skillRowText(true, SkillInstall.skillPresence(claudeCodeTargetDir(home)), bundledVersion)
+                skillRowText(true, SkillInstall.skillPresence(SkillInstall.claudeSkillDir(home)), bundledVersion)
             }
             val codexText = codex?.let { skillRowText(false, null, bundledVersion) }
             val geminiText = gemini?.let { skillRowText(false, null, bundledVersion) }
 
-            ApplicationManager.getApplication().invokeLater {
+            ApplicationManager.getApplication().invokeLater({
                 loadingRow.visible(false)
                 noneRow.visible(harnesses.isEmpty())
 
@@ -146,7 +146,7 @@ private fun Panel.buildSkillRows() {
 
                 geminiRow.visible(geminiText != null)
                 if (geminiText != null) geminiStatus.component.text = "Gemini: ${geminiText.statusText}"
-            }
+            }, ModalityState.any())
         }
     }
 
@@ -157,7 +157,7 @@ private fun Panel.buildSkillRows() {
         claudeButton.component.isEnabled = false
         AppExecutorUtil.getAppExecutorService().execute {
             val home = Path.of(System.getProperty("user.home"))
-            val targetDir = claudeCodeTargetDir(home)
+            val targetDir = SkillInstall.claudeSkillDir(home)
             val version = bundledPluginVersion()
             val problem = if (version == null) {
                 "the bundled version could not be resolved, so nothing was installed."
@@ -167,10 +167,10 @@ private fun Panel.buildSkillRows() {
                 }
             }
             if (problem != null) {
-                ApplicationManager.getApplication().invokeLater {
+                ApplicationManager.getApplication().invokeLater({
                     claudeStatus.component.text = "Claude Code: $problem"
                     claudeButton.component.isEnabled = true
-                }
+                }, ModalityState.any())
             } else {
                 refresh()
             }

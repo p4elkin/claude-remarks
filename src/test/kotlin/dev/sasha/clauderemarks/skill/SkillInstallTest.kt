@@ -51,6 +51,35 @@ class SkillInstallTest {
     }
 
     @Test
+    fun `stampVersion still opens the frontmatter on a CRLF file, and keeps the CRLF`() {
+        // A clone made with Git for Windows' default core.autocrlf=true produces exactly this file,
+        // and this repository carries no .gitattributes to stop it. Comparing the first line against
+        // the literal "---" misses "---\r", the stamp lands in FRONT of line 1, the frontmatter
+        // never opens and Claude Code silently does not register the skill — while stampedVersionOf
+        // still reads the version back, so the settings row reports it up to date.
+        val text = "---\r\nname: claude-remarks\r\n---\r\nbody\r\n"
+
+        val stamped = SkillInstall.stampVersion(text, "0.12.0")
+
+        assertTrue(stamped.startsWith("---\r\n# claude-remarks-plugin-version: 0.12.0\r\n"))
+        assertFalse(
+            "stamping must not rewrite a CRLF file as LF as a side effect",
+            stamped.replace("\r\n", "").contains("\n"),
+        )
+        assertEquals("0.12.0", SkillInstall.stampedVersionOf(stamped))
+    }
+
+    @Test
+    fun `stampVersion still opens the frontmatter on a file with a byte-order mark, and keeps it`() {
+        val text = "﻿---\nname: claude-remarks\n---\nbody\n"
+
+        val stamped = SkillInstall.stampVersion(text, "0.12.0")
+
+        assertEquals("﻿---\n# claude-remarks-plugin-version: 0.12.0\nname: claude-remarks\n---\nbody\n", stamped)
+        assertEquals("0.12.0", SkillInstall.stampedVersionOf(stamped))
+    }
+
+    @Test
     fun `stamping the real SKILL_md never puts the stamp inside the description block scalar`() {
         val original = SkillInstall::class.java
             .getResourceAsStream(SkillInstall.resourcePath("SKILL.md"))!!
@@ -117,9 +146,13 @@ class SkillInstallTest {
     }
 
     @Test
-    fun `only Claude Code's skills directory present, is found and installable`() {
+    fun `a bare dot-claude with no skills directory is still Claude Code, found and installable`() {
+        // The person this feature was built for: they use Claude Code, so ~/.claude holds their
+        // settings, projects and history — but skills/ is created when a first skill is added, and
+        // they have never added one. Keying detection on ~/.claude/skills made the whole feature
+        // invisible to exactly them: no row, no button and no balloon.
         val home = Files.createTempDirectory("claude-remarks-home-").toRealPath()
-        Files.createDirectories(home.resolve(".claude").resolve("skills"))
+        Files.createDirectories(home.resolve(".claude"))
 
         val harnesses = SkillInstall.detectHarnesses(home)
 
@@ -128,6 +161,30 @@ class SkillInstallTest {
         assertEquals("Claude Code", claude.displayName)
         assertTrue(claude.installable)
         assertEquals(home.resolve(".claude/skills/claude-remarks"), claude.targetDir)
+    }
+
+    @Test
+    fun `a dot-claude that already holds a skills directory is found the same way`() {
+        val home = Files.createTempDirectory("claude-remarks-home-").toRealPath()
+        Files.createDirectories(home.resolve(".claude").resolve("skills"))
+
+        val claude = SkillInstall.detectHarnesses(home).single()
+
+        assertEquals("Claude Code", claude.displayName)
+        assertTrue(claude.installable)
+        assertEquals(SkillInstall.claudeSkillDir(home), claude.targetDir)
+    }
+
+    @Test
+    fun `installing into a bare dot-claude creates the skills directory on the way`() {
+        val home = Files.createTempDirectory("claude-remarks-home-").toRealPath()
+        Files.createDirectories(home.resolve(".claude"))
+        val targetDir = SkillInstall.detectHarnesses(home).single().targetDir!!
+
+        val result = SkillInstall.installSkill(targetDir, "0.12.0", ::fakeResource)
+
+        assertNull(result)
+        assertEquals(SkillInstall.SkillPresence.Present("0.12.0"), SkillInstall.skillPresence(targetDir))
     }
 
     @Test
@@ -161,7 +218,7 @@ class SkillInstallTest {
     @Test
     fun `all three present, all three are found`() {
         val home = Files.createTempDirectory("claude-remarks-home-").toRealPath()
-        Files.createDirectories(home.resolve(".claude").resolve("skills"))
+        Files.createDirectories(home.resolve(".claude"))
         Files.createDirectories(home.resolve(".codex"))
         Files.createDirectories(home.resolve(".gemini"))
 
@@ -267,6 +324,47 @@ class SkillInstallTest {
     }
 
     @Test
+    fun `a later file failing leaves no stamped SKILL_md behind, so the install still reads as missing`() {
+        // The failure that matters is a LATER file, not the first one. With SKILL.md written first,
+        // a failed script write left the stamp on disk: skillPresence read the bundled version back,
+        // the settings row said "up to date" and the balloon never fired again, while a real session
+        // answered that watch-remarks.sh was not found. So SKILL.md is written last, and this fails
+        // remote-config.sh — the last name in SKILL_FILES — to prove it.
+        val targetDir = Files.createTempDirectory("claude-remarks-target-").toRealPath()
+            .resolve("claude-remarks")
+
+        val result = SkillInstall.installSkill(targetDir, "0.12.0") { name ->
+            if (name == "remote-config.sh") null else fakeResource(name)
+        }
+
+        assertNotNull(result)
+        assertFalse(
+            "a stamped SKILL.md left behind would report the install up to date for ever",
+            Files.exists(targetDir.resolve("SKILL.md")),
+        )
+        assertEquals(SkillInstall.SkillPresence.Missing, SkillInstall.skillPresence(targetDir))
+    }
+
+    @Test
+    fun `SKILL_md is written last, so the two scripts are on disk before any stamp is`() {
+        // The order itself, pinned directly rather than only through its consequence above: a
+        // reordering that puts SKILL.md back at the front would revive the stale "up to date" bug
+        // and this is what fails when it does.
+        val targetDir = Files.createTempDirectory("claude-remarks-target-").toRealPath()
+            .resolve("claude-remarks")
+        val order = mutableListOf<String>()
+
+        val result = SkillInstall.installSkill(targetDir, "0.12.0") { name ->
+            order += name
+            fakeResource(name)
+        }
+
+        assertNull(result)
+        assertEquals("SKILL.md", order.last())
+        assertEquals(setOf("watch-remarks.sh", "remote-config.sh"), order.dropLast(1).toSet())
+    }
+
+    @Test
     fun `refuses when the target directory is a symlink, and writes nothing at the far end`() {
         val realDir = Files.createTempDirectory("claude-remarks-real-").toRealPath()
         val marker = realDir.resolve("marker.txt")
@@ -282,6 +380,61 @@ class SkillInstallTest {
         assertTrue(result!!.contains("symlink"))
         assertEquals(listOf(marker), Files.list(realDir).use { it.toList() })
         assertEquals("original", Files.readString(marker))
+    }
+
+    @Test
+    fun `refuses when dot-claude itself is a symlink, and writes nothing at the far end`() {
+        // A dotfiles checkout pointing ~/.claude into a repository. The leaf, ~/.claude/skills/
+        // claude-remarks, is then an ordinary directory that does not exist yet, so a check on the
+        // leaf alone passes and Files.createDirectories plus the rename inside atomicWriteString
+        // follow the ancestor link and write into the far end. That is precisely the case this
+        // refusal exists for.
+        val checkout = Files.createTempDirectory("claude-remarks-checkout-").toRealPath()
+        val marker = checkout.resolve("marker.txt")
+        Files.writeString(marker, "original")
+
+        val home = Files.createTempDirectory("claude-remarks-home-").toRealPath()
+        Files.createSymbolicLink(home.resolve(".claude"), checkout)
+
+        val result = SkillInstall.installSkill(SkillInstall.claudeSkillDir(home), "0.12.0", ::fakeResource)
+
+        assertNotNull(result)
+        assertTrue(result!!.contains("symlink"))
+        assertEquals(listOf(marker), Files.list(checkout).use { it.toList() })
+        assertEquals("original", Files.readString(marker))
+    }
+
+    @Test
+    fun `refuses when the skills directory is a symlink, and writes nothing at the far end`() {
+        val checkout = Files.createTempDirectory("claude-remarks-checkout-").toRealPath()
+        val marker = checkout.resolve("marker.txt")
+        Files.writeString(marker, "original")
+
+        val home = Files.createTempDirectory("claude-remarks-home-").toRealPath()
+        Files.createDirectories(home.resolve(".claude"))
+        Files.createSymbolicLink(home.resolve(".claude").resolve("skills"), checkout)
+
+        val result = SkillInstall.installSkill(SkillInstall.claudeSkillDir(home), "0.12.0", ::fakeResource)
+
+        assertNotNull(result)
+        assertTrue(result!!.contains("symlink"))
+        assertEquals(listOf(marker), Files.list(checkout).use { it.toList() })
+        assertEquals("original", Files.readString(marker))
+    }
+
+    @Test
+    fun `an ordinary temporary directory is not refused, whatever its real path resolves to`() {
+        // ⚠️ The refusal must never be "the resolved path differs from the lexical one". On macOS
+        // /tmp is a symlink to /private/tmp and a temporary directory resolves under
+        // /private/var/folders/…, so that rule would refuse every temporary directory these tests
+        // use and every home directory sitting under a symlinked mount. This deliberately does NOT
+        // call toRealPath(), so the path carries whatever indirection the platform gives it.
+        val home = Files.createTempDirectory("claude-remarks-home-")
+        Files.createDirectories(home.resolve(".claude"))
+
+        val result = SkillInstall.installSkill(SkillInstall.claudeSkillDir(home), "0.12.0", ::fakeResource)
+
+        assertNull(result)
     }
 
     @Test
