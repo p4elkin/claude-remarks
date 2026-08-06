@@ -1,7 +1,6 @@
 package dev.sasha.clauderemarks.ui
 
 import com.intellij.icons.AllIcons
-import com.intellij.ide.dnd.aware.DnDAwareTree
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
@@ -24,6 +23,7 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
+import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.EditSourceOnDoubleClickHandler
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.action.notifyRemarks
@@ -58,8 +58,8 @@ import javax.swing.tree.TreePath
  * Adds the tree row at [x], [y] to the selection, unless it is already there.
  *
  * addSelectionPath, not setSelectionPath: right-clicking inside a selection of several rows must not
- * collapse it to the one row under the pointer, because moving a whole reading pass into a bucket is
- * exactly what that selection is for.
+ * collapse it to the one row under the pointer, because acting on that whole selection — Publish
+ * Selected, Delete — is exactly what a multi-row selection is for.
  *
  * A top-level function, so RemarksPanelTest can drive the rule without a window: showing a real
  * popup menu needs one, and this is the part that was wrong.
@@ -103,14 +103,8 @@ class RemarksPanel(
 
     /**
      * Internal, not private, so RemarksPanelTest can look at what the refresh left on screen.
-     *
-     * DnDAwareTree, not Tree: it extends `com.intellij.ui.treeStructure.Tree` and adds the mouse
-     * handling a drag needs — a press inside a multi-row selection must not collapse the selection
-     * until the button comes back up, or dragging a whole reading pass into a bucket would drag one
-     * row. Everything else about the tree is unchanged, and the constructor taking a TreeModel is
-     * the same one this line always used.
      */
-    internal val tree = DnDAwareTree(DefaultTreeModel(DefaultMutableTreeNode("remarks")))
+    internal val tree = Tree(DefaultTreeModel(DefaultMutableTreeNode("remarks")))
 
     init {
         tree.isRootVisible = false
@@ -128,14 +122,9 @@ class RemarksPanel(
             .registerCustomShortcutSet(CommonShortcuts.getDelete(), tree, parent)
 
         // The same actions the gutter icon menu offers, acting on the tree selection instead of on
-        // one icon. This is the only reason the tree needs a right-click menu at all: buckets are
-        // set after the fact, and the tree is where a whole reading pass is triaged.
+        // one icon. This is the only reason the tree needs a right-click menu at all: it is the one
+        // place several rows can be acted on together.
         tree.addMouseListener(TreePopupHandler())
-
-        // The wiring lives in RemarksTreeDnd.kt, beside the pure bucketDropTarget it drives. The
-        // selection rule comes from here so that a drag and Publish Selected always cover the same
-        // rows.
-        installDragToBucket(tree, project, parent) { selectedIds() }
 
         // One subscription is enough. RemarkGutter's own EditorFactoryListener already calls
         // notifyRemarksChanged when an editor opens or closes, so a second listener here would
@@ -196,7 +185,7 @@ class RemarksPanel(
      * PopupHandler.installPopupMenu only shows the menu, and BasicTreeUI moves the tree selection on
      * button 1 only. So right-clicking a row that was not selected opened the menu against the
      * PREVIOUS selection, and with nothing selected the menu items would be silent no-ops:
-     * setRemarkBucket and deleteSelected both return on their own empty checks.
+     * publish() and deleteSelected() both return on their own empty checks.
      *
      * The menu is built here rather than through installPopupMenu because that helper offers no way
      * in before the menu is shown. It is the same three calls the helper makes.
@@ -269,15 +258,15 @@ class RemarksPanel(
      * The group rows that are shut right now, read before setRoot throws the rows away.
      *
      * isVisible is there because JTree reports a node inside a collapsed ancestor as not expanded,
-     * so without it every file group inside a collapsed bucket would be recorded as collapsed and
+     * so without it a group nested inside another collapsed group would be recorded as collapsed and
      * put back shut. How much that matters depends on an advanced setting:
      * `com.intellij.ui.treeStructure.Tree.collapsePath` collapses the whole visible subtree when
-     * `ide.tree.collapse.recursively` is on, which is the default — and then shutting a bucket shuts
-     * its file groups whatever this method records. With that setting off, this check is what keeps a
-     * file group open after its bucket is closed and opened again.
+     * `ide.tree.collapse.recursively` is on, which is the default — and then shutting the outer group
+     * shuts the inner one whatever this method records. With that setting off, this check is what
+     * keeps an inner group open after the outer one is closed and opened again.
      *
-     * The cost either way: a file group you shut inside a bucket you then shut is forgotten. That is
-     * the smaller surprise of the two.
+     * The cost either way: an inner group you shut inside an outer group you then shut is forgotten.
+     * That is the smaller surprise of the two.
      */
     private fun collapsedGroups(): Set<String> =
         groupNodes()
@@ -394,8 +383,8 @@ class RemarksPanel(
 
     /**
      * Deleting the rows you picked out asks nothing: you selected them and then pressed Delete,
-     * which is not silent. Selecting a group node — a file, a bucket, the General group or the
-     * Answers group — is the other case. It stands for every row under it, and on a collapsed node
+     * which is not silent. Selecting a group node — a file, the General group or the Answers group
+     * — is the other case. It stands for every row under it, and on a collapsed node
      * that is an unknown number of rows nobody has published yet. That one asks, the same way
      * Clear All does.
      *
@@ -554,7 +543,7 @@ class RemarksPanel(
         ) { publishRemarks(project, null) },
         ToolbarAction(
             "Publish Selected",
-            "Only the rows you picked. Select a bucket node to take that whole bucket",
+            "Only the rows you picked. Select a file node to take that whole file",
             AllIcons.Actions.InSelection,
             { selectedIds().isNotEmpty() },
         ) { publishRemarks(project, selectedIds()) },

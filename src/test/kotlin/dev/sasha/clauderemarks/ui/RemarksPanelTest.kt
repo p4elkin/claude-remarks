@@ -20,7 +20,6 @@ import dev.sasha.clauderemarks.store.fileUnderProjectRoot
 import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.markRemarksRead
 import dev.sasha.clauderemarks.store.recordAnswer
-import dev.sasha.clauderemarks.store.setRemarkBucket
 import dev.sasha.clauderemarks.store.settleInvocationQueue
 import java.io.File
 import javax.swing.tree.DefaultMutableTreeNode
@@ -154,58 +153,6 @@ class RemarksPanelTest : BasePlatformTestCase() {
     }
 
     /**
-     * expandAll walks by row index and grows the range as rows appear, so it opens a third level
-     * too. This pins that, and pins that a bucket node is one selection covering every row under it.
-     */
-    fun testABucketTreeIsFullyExpandedAndABucketNodeSelectsEveryRowUnderIt() {
-        val first = addRemark(project, "A.kt", LINES, 0..0, "one")
-        val second = addRemark(project, "B.kt", LINES, 0..0, "two")
-        setRemarkBucket(project, listOf(first.id!!, second.id!!), "auth refactor")
-
-        val panel = panel()
-
-        // one bucket + two file groups + two rows
-        assertEquals(5, panel.tree.rowCount)
-
-        panel.tree.setSelectionRow(0)
-        assertEquals(1, panel.tree.selectionCount)
-        assertEquals(2, panel.selectedIds().size)
-    }
-
-    /**
-     * The only test that reaches `groupNodes` and `recollapse` below the top level. The flat test
-     * above keeps every group one step from the root, so a one-level walk over the root's children
-     * would pass it; a file group inside a bucket sits one step further down, and a one-level walk
-     * never finds its key, so it springs open on the next refresh.
-     *
-     * The bucket is left open on purpose. Collapsing a bucket is not the case to test here:
-     * `com.intellij.ui.treeStructure.Tree.collapsePath` collapses the whole visible subtree by
-     * default, so its file groups come back shut whether or not this panel records them, and the
-     * assertion would pass either way.
-     */
-    fun testAFileGroupCollapsedInsideABucketStaysCollapsedAcrossARefresh() {
-        val first = addRemark(project, "A.kt", LINES, 0..0, "one")
-        val second = addRemark(project, "B.kt", LINES, 0..0, "two")
-        setRemarkBucket(project, listOf(first.id!!, second.id!!), "auth refactor")
-        val panel = panel()
-        // bucket + two file groups + two rows
-        assertEquals(5, panel.tree.rowCount)
-
-        // Row 1 is the first file group under the bucket, not the bucket itself.
-        panel.tree.collapseRow(1)
-        assertEquals(4, panel.tree.rowCount)
-
-        panel.refresh()
-        settleInvocationQueue()
-
-        assertEquals(
-            "the file group inside the bucket should still be shut",
-            4,
-            panel.tree.rowCount,
-        )
-    }
-
-    /**
      * Right-clicking a row that is not selected used to open the menu against the PREVIOUS selection,
      * because PopupHandler only shows the menu and BasicTreeUI moves the selection on button 1 only.
      * With nothing selected every item was a silent no-op.
@@ -303,8 +250,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
      *
      * The rule these follow is "say what the button TAKES, not what it is called", and a description
      * that paraphrases the button — "Send unread remarks to Claude Code" — passes the shape check
-     * above while teaching nothing. The bucket sentence on Publish Selected is the whole reason the
-     * descriptions were asked for: taking a whole bucket by selecting its node is not discoverable
+     * above while teaching nothing. The file sentence on Publish Selected is the whole reason the
+     * descriptions were asked for: taking a whole file by selecting its node is not discoverable
      * any other way.
      */
     fun testTheTwoPublishDescriptionsSayWhatTheButtonTakes() {
@@ -312,7 +259,7 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
         assertEquals("Every remark not yet read", descriptionOf(panel, "Publish Unread"))
         assertEquals(
-            "Only the rows you picked. Select a bucket node to take that whole bucket",
+            "Only the rows you picked. Select a file node to take that whole file",
             descriptionOf(panel, "Publish Selected"),
         )
     }
@@ -467,8 +414,8 @@ class RemarksPanelTest : BasePlatformTestCase() {
 
     /**
      * The other side of the same change: a group row still hides an unknown number of rows — a
-     * file group here, but the same is true of a bucket, the General group and the Answers group
-     * — so selecting one still asks. TestDialog.NO answers the dialog with no real window, and the
+     * file group here, but the same is true of the General group and the Answers group — so
+     * selecting one still asks. TestDialog.NO answers the dialog with no real window, and the
      * remark surviving is what proves the dialog was actually consulted, not skipped: if
      * deleteSelected stopped asking, the remark would already be gone by the time this checks.
      */

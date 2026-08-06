@@ -214,16 +214,16 @@ Readers first, so task 2's deletion compiles. This is the larger half of the buc
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksTreeTest.kt` (87 mentions),
   `ui/RemarksPanelTest.kt` (16), `ui/RemarkActionsTest.kt` (2)
 
-- [ ] delete `RemarksTreeDnd.kt` with `git rm`, and the `installDragToBucket` call
-- [ ] revert the tree to `Tree`, and read `RemarksToolWindowFactory.kt:107`'s KDoc first — it argues
+- [x] delete `RemarksTreeDnd.kt` with `git rm`, and the `installDragToBucket` call
+- [x] revert the tree to `Tree`, and read `RemarksToolWindowFactory.kt:107`'s KDoc first — it argues
       why `DnDAwareTree` was chosen, and that argument dies with the drag, so the comment goes rather
       than being left to describe a choice nobody made
-- [ ] delete the bucket level from `buildTreeRoot`, so a file group sits directly under the root, and
+- [x] delete the bucket level from `buildTreeRoot`, so a file group sits directly under the root, and
       drop `bucket` from `RemarkNode` and from the `order` comparator
-- [ ] delete `BucketDrop` and `bucketDropTarget`, and remove `Move to Bucket…` from
+- [x] delete `BucketDrop` and `bucketDropTarget`, and remove `Move to Bucket…` from
       `remarkChangeActions`
-- [ ] update the three test classes, keeping every non-bucket case
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest' --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest' --tests 'dev.sasha.clauderemarks.ui.RemarkActionsTest'`
+- [x] update the three test classes, keeping every non-bucket case
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest' --tests 'dev.sasha.clauderemarks.ui.RemarksPanelTest' --tests 'dev.sasha.clauderemarks.ui.RemarkActionsTest'`
       — must pass before task 2
 
 ### Task 2: Take buckets out of the store and the model

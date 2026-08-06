@@ -9,7 +9,6 @@ import dev.sasha.clauderemarks.store.ResolvedRemark
 import javax.swing.tree.DefaultMutableTreeNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -173,9 +172,8 @@ class RemarksTreeTest {
         assertEquals(2, remarkNodesUnder(listOf(file, firstRow)).size)
     }
 
-    /** Somebody who has never used a bucket must get exactly the tree they had before. */
     @Test
-    fun `with no buckets in use the tree is still root then file then remark`() {
+    fun `a remark about a file sits directly under a file group, under the root`() {
         val root = buildTreeRoot(listOf(row(path = "src/Foo.kt", id = "r-1")))
 
         assertEquals(1, root.childCount)
@@ -227,114 +225,6 @@ class RemarksTreeTest {
     }
 
     @Test
-    fun `one remark in a bucket puts every remark under a bucket level`() {
-        val root = buildTreeRoot(
-            listOf(
-                row(id = "r-1", path = "src/Foo.kt", bucket = "auth refactor"),
-                row(id = "r-2", path = "src/Foo.kt", bucket = null),
-            )
-        )
-
-        val labels = (0 until root.childCount)
-            .map { ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).label }
-        // Unbucketed first: those are the remarks just written, and they are the ones being moved.
-        assertEquals(listOf(NO_BUCKET_LABEL, "auth refactor"), labels)
-    }
-
-    /**
-     * A bucket and a file can carry the same name. The panel uses a group's key to put a selection
-     * back after a rebuild, so two groups sharing a key means restoring the wrong row.
-     */
-    @Test
-    fun `a bucket and a file with the same name have different keys`() {
-        val root = buildTreeRoot(listOf(row(id = "r-1", path = "src", bucket = "src")))
-
-        val bucket = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
-        val file = ((root.getChildAt(0) as DefaultMutableTreeNode)
-            .getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
-
-        assertEquals("src", bucket.label)
-        assertEquals("src", file.label)
-        assertNotEquals(bucket.key, file.key)
-    }
-
-    /**
-     * The same file holds remarks in two different buckets, so it is drawn as a file group twice.
-     * Those two groups are different rows and need different keys: the panel restores the selection
-     * and the collapsed groups after every rebuild by matching keys, so one shared key means the
-     * wrong one of the two is picked. The test above does not cover this — a bucket key already
-     * starts with "bucket:", so it never collides with a bare path — which is why this one exists.
-     */
-    @Test
-    fun `the same file under two buckets gives two different keys`() {
-        val root = buildTreeRoot(
-            listOf(
-                row(id = "r-1", path = "src/Foo.kt", bucket = "a"),
-                row(id = "r-2", path = "src/Foo.kt", bucket = "b"),
-            )
-        )
-
-        val fileKeys = (0 until root.childCount).map {
-            val bucket = root.getChildAt(it) as DefaultMutableTreeNode
-            ((bucket.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode).key
-        }
-
-        assertEquals(2, fileKeys.size)
-        assertNotEquals(fileKeys[0], fileKeys[1])
-    }
-
-    /**
-     * Selecting a bucket and pressing Copy Selected is what "Copy Bucket" means, and it is the only
-     * reason no Copy Bucket button is needed. The old one-level walk found file nodes under a
-     * bucket, none of which is a RemarkNode, and answered an empty list — so Copy Selected and
-     * Delete would both have done nothing at all, silently.
-     */
-    @Test
-    fun `selecting a bucket node counts as selecting every row under every file in it`() {
-        val root = buildTreeRoot(
-            listOf(
-                row(id = "r-1", path = "src/A.kt", bucket = "b"),
-                row(id = "r-2", path = "src/Z.kt", bucket = "b"),
-            )
-        )
-
-        val ids = remarkNodesUnder(listOf(root.getChildAt(0) as DefaultMutableTreeNode)).map { it.id }
-
-        assertEquals(listOf("r-1", "r-2"), ids)
-    }
-
-    /**
-     * A bucket somebody actually names "(no bucket)". Keyed on the label, that bucket and the
-     * null-bucket group both came out as "bucket:(no bucket)", so two sibling rows shared a key and
-     * the panel's restoreSelection and recollapse treated them as one row.
-     */
-    @Test
-    fun `a bucket named like the no-bucket label still gets its own key`() {
-        val root = buildTreeRoot(
-            listOf(
-                row(id = "r-1", bucket = NO_BUCKET_LABEL),
-                row(id = "r-2", bucket = null),
-            )
-        )
-
-        val keys = (0 until root.childCount)
-            .map { ((root.getChildAt(it) as DefaultMutableTreeNode).userObject as GroupNode).key }
-
-        assertEquals(2, keys.size)
-        assertNotEquals(keys[0], keys[1])
-    }
-
-    /** buildTreeRoot's own doc says "buckets in name order", and nothing checked it. */
-    @Test
-    fun `buckets are drawn in name order`() {
-        val root = buildTreeRoot(
-            listOf(row(id = "r-1", bucket = "z"), row(id = "r-2", bucket = "a"))
-        )
-
-        assertEquals(listOf("a", "z"), fileNames(root))
-    }
-
-    @Test
     fun `a general remark is in a group keyed general, placed first`() {
         val root = buildTreeRoot(
             listOf(
@@ -347,126 +237,6 @@ class RemarksTreeTest {
         assertEquals(GENERAL_KEY, group.key)
         assertEquals("General", group.label)
         assertEquals(listOf("r-2"), idsUnder(root, 0))
-    }
-
-    /**
-     * A general remark's bucket is ignored for grouping. Put one in a bucket and the bucket does
-     * not gather it: the top of the tree is where a remark about the whole change should be read,
-     * even at the cost of ignoring a field it carries.
-     */
-    @Test
-    fun `a general remark stays in the General group even when it carries a bucket`() {
-        val root = buildTreeRoot(
-            listOf(
-                row(path = "", id = "r-1", bucket = "auth refactor"),
-                row(path = "src/Foo.kt", id = "r-2", bucket = "other"),
-            )
-        )
-
-        val firstGroup = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
-        assertEquals(GENERAL_KEY, firstGroup.key)
-        assertEquals(listOf("r-1"), idsUnder(root, 0))
-    }
-
-    @Test
-    fun `a tree of general remarks only has no bucket level`() {
-        val root = buildTreeRoot(
-            listOf(
-                row(path = "", id = "r-1", bucket = "x"),
-                row(path = "", id = "r-2", bucket = "y"),
-            )
-        )
-
-        assertEquals(1, root.childCount)
-        val group = (root.getChildAt(0) as DefaultMutableTreeNode).userObject as GroupNode
-        assertEquals(GENERAL_KEY, group.key)
-        assertEquals(setOf("r-1", "r-2"), idsUnder(root, 0).toSet())
-    }
-
-    @Test
-    fun `a leaf carries its bucket`() {
-        assertEquals("b", remarkNode(row(bucket = "b")).bucket)
-    }
-
-    @Test
-    fun `a bucket group is a drop target for its own name`() {
-        val root = bucketedTree()
-
-        assertEquals(BucketDrop("auth refactor"), bucketDropTarget(child(root, 1)))
-    }
-
-    @Test
-    fun `the no-bucket group is a drop target that clears the bucket`() {
-        val root = bucketedTree()
-
-        assertEquals(BucketDrop(null), bucketDropTarget(child(root, 0)))
-    }
-
-    /**
-     * A bucket somebody actually named "(no bucket)" is a bucket like any other, and dropping on it
-     * must set that name rather than clear. Only the key tells it apart from the group for remarks
-     * in no bucket, which is why `bucketDropTarget` reads the key and not the label.
-     */
-    @Test
-    fun `a bucket named like the no-bucket label is a target for that name`() {
-        val root = buildTreeRoot(
-            listOf(
-                row(id = "r-1", bucket = NO_BUCKET_LABEL),
-                row(id = "r-2", bucket = null),
-            )
-        )
-        val targets = (0 until root.childCount).map { bucketDropTarget(child(root, it)) }
-
-        assertTrue(BucketDrop(NO_BUCKET_LABEL) in targets)
-        assertTrue(BucketDrop(null) in targets)
-    }
-
-    @Test
-    fun `a file group inside a bucket targets that bucket`() {
-        val root = bucketedTree()
-        val file = child(child(root, 1), 0)
-
-        assertEquals(BucketDrop("auth refactor"), bucketDropTarget(file))
-    }
-
-    @Test
-    fun `a file group with no bucket level above it is not a drop target`() {
-        val root = buildTreeRoot(listOf(row(id = "r-1", path = "src/Foo.kt")))
-
-        assertEquals(null, bucketDropTarget(child(root, 0)))
-    }
-
-    @Test
-    fun `the General group is not a drop target`() {
-        val root = buildTreeRoot(
-            listOf(
-                row(id = "r-1", path = ""),
-                row(id = "r-2", path = "src/Foo.kt", bucket = "auth refactor"),
-            )
-        )
-        val general = child(root, 0)
-
-        assertEquals(GENERAL_KEY, (general.userObject as GroupNode).key)
-        assertEquals(null, bucketDropTarget(general))
-        // Its rows are not targets either: a general remark has no bucket to read off it.
-        assertEquals(null, bucketDropTarget(child(general, 0)))
-    }
-
-    @Test
-    fun `a remark row targets the bucket it is in`() {
-        val root = bucketedTree()
-        val inBucket = child(child(child(root, 1), 0), 0)
-        val unbucketed = child(child(child(root, 0), 0), 0)
-
-        assertEquals(BucketDrop("auth refactor"), bucketDropTarget(inBucket))
-        assertEquals(BucketDrop(null), bucketDropTarget(unbucketed))
-    }
-
-    /** The root is invisible, but a drop can still land below the last row, which reports it. */
-    @Test
-    fun `the tree root is not a drop target`() {
-        assertEquals(null, bucketDropTarget(bucketedTree()))
-        assertEquals(null, bucketDropTarget(null))
     }
 
     // ---- an answer nested under its question ----
@@ -549,8 +319,8 @@ class RemarksTreeTest {
     }
 
     /**
-     * Above General, above the buckets, above the files — where the old Answers group sat, and with
-     * the same key, so a person who had it collapsed keeps it collapsed across the upgrade.
+     * Above General, above the files — where the old Answers group sat, and with the same key, so a
+     * person who had it collapsed keeps it collapsed across the upgrade.
      */
     @Test
     fun `the group for answers with no question is first, above General`() {
@@ -666,12 +436,9 @@ class RemarksTreeTest {
         assertEquals("5-7 (orphaned)", answerNode(answerRow(result = AnchorResult.Orphaned(4, 6))).position)
     }
 
-    /**
-     * Somebody who has never used a bucket must still get root then file then remark, with the
-     * Answers group added on top and no bucket level appearing from nowhere.
-     */
+    /** The Answers group sits above the ordinary file-then-remark structure, not nested inside it. */
     @Test
-    fun `a tree with answers and no buckets still has no bucket level`() {
+    fun `a tree with an unmatched answer still has the Answers group above the file group`() {
         val root = buildTreeRoot(
             listOf(row(id = "r-1", path = "src/Foo.kt")),
             listOf(answerRow(id = "a-1", remarkId = "r-gone")),
@@ -763,27 +530,6 @@ class RemarksTreeTest {
         assertEquals(listOf("r-1"), remarkNodesUnder(listOf(question)).map { it.id })
     }
 
-    @Test
-    fun `the Answers group is not a drop target`() {
-        val root = buildTreeRoot(
-            listOf(row(id = "r-1", path = "src/Foo.kt", bucket = "auth refactor")),
-            listOf(answerRow(id = "a-1", remarkId = "r-gone")),
-        )
-        val answers = child(root, 0)
-
-        assertEquals(ANSWERS_KEY, (answers.userObject as GroupNode).key)
-        assertEquals(null, bucketDropTarget(answers))
-        assertEquals(null, bucketDropTarget(child(answers, 0)))
-    }
-
-    /** Two top-level groups: "(no bucket)" first, then "auth refactor". */
-    private fun bucketedTree() = buildTreeRoot(
-        listOf(
-            row(id = "r-1", path = "src/Foo.kt", bucket = "auth refactor"),
-            row(id = "r-2", path = "src/Bar.kt", bucket = null),
-        )
-    )
-
     private fun child(node: DefaultMutableTreeNode, index: Int) =
         node.getChildAt(index) as DefaultMutableTreeNode
 
@@ -812,7 +558,6 @@ class RemarksTreeTest {
         text: String = "why?",
         status: RemarkStatus = RemarkStatus.PENDING,
         result: AnchorResult = AnchorResult.Exact(4, 6),
-        bucket: String? = null,
         commit: String? = null,
         startColumn: Int = 0,
         endColumn: Int = 0,
@@ -825,7 +570,6 @@ class RemarksTreeTest {
             it.endLine = 6
             it.text = text
             it.status = status
-            it.bucket = bucket
             it.commit = commit
             it.asksForAnswer = asksForAnswer
         },

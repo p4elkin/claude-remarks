@@ -12,24 +12,21 @@ import dev.sasha.clauderemarks.store.isAboutNoFile
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 
-/** The label shown for remarks that are in no bucket, once any bucket exists. */
-const val NO_BUCKET_LABEL = "(no bucket)"
-
 /**
  * The key of the group that holds every remark about no file. A file key always starts with
- * "file:" and a bucket key always starts with "bucket:", so this bare word cannot collide with
- * either, and `RemarksPanel`'s selection restore, which matches groups by key, keeps working.
+ * "file:", so this bare word cannot collide with one, and `RemarksPanel`'s selection restore,
+ * which matches groups by key, keeps working.
  */
 const val GENERAL_KEY = "general"
 
-/** The label drawn on that group, beside [NO_BUCKET_LABEL] rather than written inline at the one
- *  place the node is built. */
+/** The label drawn on that group, its own constant rather than written inline at the one place the
+ *  node is built. */
 const val GENERAL_LABEL = "General"
 
 /**
  * The key of the group that holds every answer with no question left in the tree. A file key always
- * starts with "file:" and a bucket key with "bucket:", and [GENERAL_KEY] is the bare word "general",
- * so this second bare word cannot collide with any of them — the same argument [GENERAL_KEY] makes.
+ * starts with "file:", and [GENERAL_KEY] is the bare word "general", so this second bare word cannot
+ * collide with either — the same argument [GENERAL_KEY] makes.
  *
  * The group used to hold every answer, and the key is deliberately unchanged now that it holds only
  * some of them: `RemarksPanel` records collapsed groups by key, so keeping the word means a person
@@ -47,29 +44,18 @@ const val ANSWERS_KEY = "answers"
  */
 const val ANSWERS_LABEL = "Answers with no question"
 
-/** What every bucket group's key starts with. See [buildTreeRoot] for why the key is not the label. */
-const val BUCKET_KEY_PREFIX = "bucket:"
-
 /**
- * The key of the group holding the remarks that are in no bucket. The leading space is what keeps it
- * apart from a bucket a person literally named "(no bucket)": `setRemarkBucket` trims a bucket name,
- * so no real bucket key can ever start with a space.
- */
-const val NO_BUCKET_KEY = BUCKET_KEY_PREFIX + " none"
-
-/**
- * A group row: a bucket or a file.
+ * A group row: a file, or one of the special top-level groups (General, Answers with no question).
  *
- * The key and the label are separate on purpose. A bucket can be called "src" and so can a
- * directory, and the panel puts a selection back after every rebuild by matching keys. Two groups
- * sharing a key means restoring the wrong one. The key is the whole path from the root; the label
- * is what is drawn.
+ * The key and the label are separate on purpose. Two files can share a name in different
+ * directories, and the panel puts a selection back after every rebuild by matching keys. The key is
+ * the whole path from the root; the label is what is drawn.
  *
  * [detail] is a second, optional piece of text drawn in grey after the label — a file's directory,
- * shortened by [shortDirectory]. Null for a bucket group, and for a file with no directory to show.
- * It is its own field rather than folded into [label] so the label can change (file name first,
- * directory second) without touching [key]: `RemarksPanel`'s selection restore matches on key
- * alone, and the key stays the whole path exactly as it always has.
+ * shortened by [shortDirectory]. Null for the General and Answers groups, and for a file with no
+ * directory to show. It is its own field rather than folded into [label] so the label can change
+ * (file name first, directory second) without touching [key]: `RemarksPanel`'s selection restore
+ * matches on key alone, and the key stays the whole path exactly as it always has.
  */
 data class GroupNode(val key: String, val label: String, val detail: String? = null)
 
@@ -86,7 +72,6 @@ data class RemarkNode(
     val path: String,
     val position: String,
     val text: String,
-    val bucket: String?,
     val status: RemarkStatus,
     val startLine: Int,
     val asksForAnswer: Boolean = false,
@@ -185,7 +170,6 @@ fun remarkNode(row: ResolvedRemark, hasAnswer: Boolean = false): RemarkNode {
         // text ordinary rather than exotic. The stored text keeps its newlines; only the row is
         // flattened, and the copied prompt still gets the remark as written.
         text = row.remark.text.orEmpty().replace('\n', ' '),
-        bucket = row.remark.bucket,
         status = row.remark.status,
         startLine = result.startLine,
         asksForAnswer = row.remark.asksForAnswer,
@@ -268,7 +252,7 @@ private fun writtenAt(commit: String?): String =
 
 /**
  * The remark rows a set of selected tree nodes covers, at any depth. Distinct, because selecting a
- * bucket together with a file inside it would otherwise count that file's rows twice.
+ * group together with one of its own rows would otherwise count that row twice.
  */
 fun remarkNodesUnder(selected: List<DefaultMutableTreeNode>): List<RemarkNode> =
     selected.flatMap(::leavesOf).filterIsInstance<RemarkNode>().distinct()
@@ -283,9 +267,7 @@ fun answerNodesUnder(selected: List<DefaultMutableTreeNode>): List<AnswerNode> =
     selected.flatMap(::leavesOf).filterIsInstance<AnswerNode>().distinct()
 
 /**
- * Recursive, not one level down. A bucket node's children are file nodes, and a one-level walk over
- * them finds GroupNodes and answers nothing at all — so selecting a bucket and pressing Copy
- * Selected or Delete would do nothing, with no message.
+ * Recursive, so that selecting a question also reaches the answer nested under it.
  *
  * A RemarkNode is not a leaf in the same sense any more: since an answer nests under the question
  * it answers, a RemarkNode's own children can hold one AnswerNode. Stopping there the way an
@@ -308,31 +290,22 @@ private fun childLeavesOf(node: DefaultMutableTreeNode): List<Any> =
 
 /**
  * The whole tree, rebuilt from scratch. Files in path order, rows inside a file in resolved line
- * order, and buckets in name order with the unbucketed ones first — those are the remarks just
- * written, and the ones about to be moved.
+ * order.
  *
  * A remark about no file goes into its own group first, keyed [GENERAL_KEY] and labelled "General",
- * above the bucket and file groups. Which remarks those are is asked of `isAboutNoFile` in
+ * above the file groups. Which remarks those are is asked of `isAboutNoFile` in
  * `store/RemarkResolver.kt`, the one place that decides it, rather than re-read off [RemarkNode]'s
- * flattened path here. Its own bucket is
- * ignored for this: a general remark is about the whole change, so the top of the tree is where it
- * belongs, whatever bucket it also carries. That is a real cost, not an oversight — put a general
- * remark in a bucket and the bucket does not gather it — accepted because a remark reachable from
- * two places in the tree would be worse than one field being ignored.
- *
- * The bucket level below it appears only once some remark that is about a real file is actually in
- * a bucket. Without that check, anyone who never uses buckets would get a "(no bucket)" node
- * wrapped around their whole tree for a feature they never asked for.
+ * flattened path here.
  *
  * A remark with no id is left out. Its node would draw normally and then do nothing: Delete and
  * Copy Selected both match on the id, and an empty id matches no stored remark. RemarkGutter drops
  * the same rows for the same reason.
  *
  * An answer is a **child of the question it answers**, wherever that question sits — in the General
- * group or in a file group, in a bucket or not. So it is next to the thing it is about, and it takes
- * that question's place in bucket, file and line order rather than any order of its own. Being a
- * child here is a view and nothing else: the store has two independent records, and Delete calls
- * `deleteAnswer` for the answer row in its own right.
+ * group or in a file group. So it is next to the thing it is about, and it takes that question's
+ * place in file and line order rather than any order of its own. Being a child here is a view and
+ * nothing else: the store has two independent records, and Delete calls `deleteAnswer` for the
+ * answer row in its own right.
  *
  * An answer whose question is **not** in the tree — one carrying no `remarkId`, and one naming a
  * remark that is gone or that got no node — has no parent to sit under, and goes into a flat
@@ -382,7 +355,7 @@ fun buildTreeRoot(
     // separate set of answered ids would state that fact twice, and then a change to the nesting rule
     // not copied across would leave a row with a green question mark and nothing nested under it.
     val (generalRows, fileRows) = remarkRows.partition { isAboutNoFile(it.remark) }
-    val order = compareBy<RemarkNode>({ it.bucket ?: "" }, { it.path }, { it.startLine })
+    val order = compareBy<RemarkNode>({ it.path }, { it.startLine })
     val answered = nestedByQuestion.keys
     val general = generalRows.map { remarkNode(it, it.remark.id in answered) }.sortedWith(order)
     val aboutAFile = fileRows.map { remarkNode(it, it.remark.id in answered) }.sortedWith(order)
@@ -393,22 +366,7 @@ fun buildTreeRoot(
         root.add(generalNode)
     }
 
-    if (aboutAFile.none { it.bucket != null }) {
-        addFileGroups(root, "", aboutAFile, nestedByQuestion)
-        return root
-    }
-
-    aboutAFile.groupBy { it.bucket }.forEach { (bucket, inBucket) ->
-        val label = bucket ?: NO_BUCKET_LABEL
-        // Keyed on the raw bucket, not on the label: a bucket literally named "(no bucket)" would
-        // otherwise share a key with the null-bucket group, and the panel would restore the selection
-        // and the collapsed state of the wrong one of two sibling rows. A leading space cannot occur
-        // in a real bucket name, because setRemarkBucket trims it.
-        val key = bucket?.let { BUCKET_KEY_PREFIX + it } ?: NO_BUCKET_KEY
-        val bucketNode = DefaultMutableTreeNode(GroupNode(key, label))
-        addFileGroups(bucketNode, "$key/", inBucket, nestedByQuestion)
-        root.add(bucketNode)
-    }
+    addFileGroups(root, aboutAFile, nestedByQuestion)
     return root
 }
 
@@ -433,13 +391,12 @@ fun shortDirectory(path: String): String? {
 
 private fun addFileGroups(
     parent: DefaultMutableTreeNode,
-    keyPrefix: String,
     nodes: List<RemarkNode>,
     answersByQuestion: Map<String, List<AnswerNode>>,
 ) {
     nodes.groupBy { it.path }.forEach { (path, inFile) ->
         val fileNode = DefaultMutableTreeNode(
-            GroupNode("${keyPrefix}file:$path", path.substringAfterLast('/'), shortDirectory(path))
+            GroupNode("file:$path", path.substringAfterLast('/'), shortDirectory(path))
         )
         inFile.forEach { fileNode.add(questionTreeNode(it, answersByQuestion)) }
         parent.add(fileNode)
@@ -461,66 +418,6 @@ private fun questionTreeNode(
     val questionNode = DefaultMutableTreeNode(node)
     answersByQuestion[node.id]?.forEach { questionNode.add(DefaultMutableTreeNode(it)) }
     return questionNode
-}
-
-/**
- * What a drop on some tree row would do: put the dragged remarks in [bucket], or, when [bucket] is
- * null, take them out of whatever bucket they are in.
- *
- * A wrapper rather than a bare `String?`, because "no target here" and "the target is: no bucket"
- * are two different answers and a plain null could only say one of them.
- */
-data class BucketDrop(val bucket: String?)
-
-/**
- * The bucket a drop on [node] means, or null when [node] is not a drop target at all.
- *
- * This is the whole of the drag-and-drop logic, and it is pure, because a real drag cannot be
- * driven from a unit test: the platform's own DnD machinery needs a window, a pointer and a running
- * event loop. What is left for the wiring in `RemarksToolWindowFactory` is finding the node under
- * the pointer and calling `setRemarkBucket`.
- *
- * The answers, in the order they matter: a bucket group is a target for its own name; the
- * "(no bucket)" group is a target that clears the bucket, because `setRemarkBucket` already takes
- * null and clearing is the natural inverse of setting; a file group or a remark row inside a bucket
- * gives that bucket, so dropping anywhere inside a bucket's subtree means the same thing as dropping
- * on its header; and everything else is not a target — the General group, the Answers group, a file
- * group with no bucket level above it, and the tree root.
- *
- * The bucket is read from the top-level group's **key**, not its label. A bucket a person named
- * "(no bucket)" draws the same label as the group for remarks in no bucket, and only the key tells
- * the two apart. See [buildTreeRoot] for the same argument on the other side.
- */
-fun bucketDropTarget(node: DefaultMutableTreeNode?): BucketDrop? {
-    val top = (topLevelAncestor(node)?.userObject as? GroupNode) ?: return null
-    return when {
-        top.key == NO_BUCKET_KEY -> BucketDrop(null)
-        top.key.startsWith(BUCKET_KEY_PREFIX) -> BucketDrop(top.key.removePrefix(BUCKET_KEY_PREFIX))
-        // The General group, the group for answers with no question, and a file group at the top
-        // level all land here. A general remark is about the whole change, so there is no bucket to
-        // read off it; an answer with no question is under no bucket at all; and a tree with no
-        // bucket level has nothing to drop onto. An answer nested under a question inside a bucket
-        // does resolve to that bucket, which is harmless: a drag carries `selectedIds()`, which is
-        // remark ids only, so such a row drags nothing.
-        else -> null
-    }
-}
-
-/**
- * The ancestor of [node] whose own parent is the invisible root, or [node] itself when it already
- * is one. Null for the root and for any node not attached to a tree.
- *
- * Walking to the top rather than reading [node]'s own key is what keeps this independent of the key
- * format: a bucket named with a slash builds file keys like "bucket:a/b/file:src/Foo.kt", which no
- * amount of string splitting can take apart safely.
- */
-private fun topLevelAncestor(node: DefaultMutableTreeNode?): DefaultMutableTreeNode? {
-    var current = node ?: return null
-    while (true) {
-        val parent = current.parent as? DefaultMutableTreeNode ?: return null
-        if (parent.parent == null) return current
-        current = parent
-    }
 }
 
 /**

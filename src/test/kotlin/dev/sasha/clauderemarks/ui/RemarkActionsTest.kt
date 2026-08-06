@@ -21,16 +21,16 @@ class RemarkActionsTest : BasePlatformTestCase() {
     }
 
     /**
-     * Each of the three items is the only way in the UI to reach what it does from a remark that
+     * Each of the two items is the only way in the UI to reach what it does from a remark that
      * already exists, so deleting one would leave that capability unreachable from here with
      * nothing else noticing. The order is asserted too, because it is the order the gutter menu and
      * the tree's right-click menu both draw.
      */
-    fun testTheMenuOffersAskPublishAndBucketInThatOrder() {
+    fun testTheMenuOffersAskAndPublishInThatOrder() {
         val group = remarkChangeActions(project) { emptyList() }
 
         val items = group.getChildren(null).map { it.templatePresentation.text }
-        assertEquals(listOf("Ask for an Answer", "Publish", "Move to Bucket…"), items)
+        assertEquals(listOf("Ask for an Answer", "Publish"), items)
     }
 
     /**
