@@ -41,6 +41,22 @@ private const val HIGHLIGHTS_MESSAGE_TYPE = "claude-remarks/highlights"
 private const val SCRIPT_NAME = "claude-remarks-preview.js"
 
 /**
+ * The stylesheet's name, following the exact same three-way convention [SCRIPT_NAME] documents:
+ * resource in this plugin's own jar, last path segment of the URL the preview's static server serves
+ * it from, and the name asked for in [PreviewRemarkExtension.canProvide].
+ *
+ * Served through [styles] rather than injected by the script as a `<style>` element, because
+ * `MarkdownBrowserPreviewExtension` (`~/dev/oss/intellij-community/plugins/markdown/core/src/org/
+ * intellij/plugins/markdown/extensions/MarkdownBrowserPreviewExtension.kt`) declares a `styles: List
+ * <String>` alongside `scripts`, defaulting to `emptyList()` — checked directly in the platform
+ * checkout, not assumed, since the plan itself did not know. `MarkdownJCEFHtmlPanel.buildIndexContent`
+ * turns every name in it into a `<link rel="stylesheet">` in the page's own `<head>` the same way it
+ * turns [scripts] into `<script src>` tags, through the platform's own static server and the same
+ * [resourceProvider]. So overriding [styles] here needs no JS of our own to insert anything.
+ */
+private const val CSS_NAME = "claude-remarks-preview.css"
+
+/**
  * The browser half of a remark written on the rendered markdown preview: a script injected into the
  * preview page, and the handler that receives what it posts.
  *
@@ -188,10 +204,13 @@ internal class PreviewRemarkExtension(
 
     override val scripts: List<String> = listOf(SCRIPT_NAME)
 
-    override fun canProvide(resourceName: String): Boolean = resourceName == SCRIPT_NAME
+    override val styles: List<String> = listOf(CSS_NAME)
+
+    override fun canProvide(resourceName: String): Boolean = resourceName == SCRIPT_NAME || resourceName == CSS_NAME
 
     override fun loadResource(resourceName: String): ResourceProvider.Resource? = when (resourceName) {
         SCRIPT_NAME -> ResourceProvider.loadInternalResource<PreviewRemarkExtension>(SCRIPT_NAME)
+        CSS_NAME -> ResourceProvider.loadInternalResource<PreviewRemarkExtension>(CSS_NAME)
         else -> null
     }
 

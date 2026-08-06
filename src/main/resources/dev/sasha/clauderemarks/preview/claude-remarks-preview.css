@@ -1,0 +1,28 @@
+/* The highlight classes claude-remarks-preview.js adds to the innermost element covering a remark's
+   source offset (phase 14). Reached as a stylesheet, not an injected <style> element:
+   MarkdownBrowserPreviewExtension declares a `styles` list — verified in the platform checkout, see
+   PreviewRemarkExtension.kt's CSS_NAME KDoc for where — and PreviewRemarkExtension overrides it, so
+   this file reaches the page as an ordinary <link rel="stylesheet"> the platform builds on its own.
+
+   This preview page defines no theme colour variables of its own — the platform's own default.css
+   (extensions/common/baseStyles/default.css in the markdown plugin) does not define any either, it
+   just leaves most colours to inherit. Nothing in this file can read whichever separate per-theme
+   stylesheet actually sets them. So both colours below are alpha-blended over whatever background is
+   already there instead of a pinned hex value: the same translucent overlay reads as a faint tint on
+   a light background and a faint tint on a dark one, which is what keeps this readable without
+   knowing which theme is active.
+
+   Kept deliberately subtle, per the plan: a left border and a faint background, not a strong fill. A
+   remark and an unanswered question use two different hues so they can be told apart, the same
+   distinction the tree and the gutter already draw, but neither is meant to dominate the page — a
+   heavily annotated document with loud highlights would be worse than no highlight at all. */
+
+.claude-remarks-highlight-remark {
+  background-color: rgba(88, 166, 255, 0.10);
+  border-left: 3px solid rgba(88, 166, 255, 0.55);
+}
+
+.claude-remarks-highlight-question {
+  background-color: rgba(240, 173, 0, 0.12);
+  border-left: 3px solid rgba(240, 173, 0, 0.6);
+}

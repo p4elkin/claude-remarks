@@ -250,24 +250,27 @@ No Kotlin logic. ⚠️ Nothing here is reachable by `./gradlew test`.
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/preview/PreviewRemarkExtension.kt` (`canProvide` and
   `loadResource` for the stylesheet, and `styles` if it exists)
 
-- [ ] ⚠️ **First, verify whether `MarkdownBrowserPreviewExtension` declares a `styles` list**, in
+- [x] ⚠️ **First, verify whether `MarkdownBrowserPreviewExtension` declares a `styles` list**, in
       `~/dev/oss/intellij-community/plugins/markdown/core/src/`. The plan does not know. If it does,
       serve the CSS as a second resource; if it does not, have the script insert a `<style>` element
-      and say in a comment which it was and why
-- [ ] subscribe in the page to the new message type, reusing the existing
+      and say in a comment which it was and why — confirmed it declares `styles: List<String>`
+      (defaulting to `emptyList()`), read directly in `MarkdownBrowserPreviewExtension.kt`; served the
+      CSS as a second resource through the same `ResourceProvider`, documented in `CSS_NAME`'s KDoc in
+      `PreviewRemarkExtension.kt`
+- [x] subscribe in the page to the new message type, reusing the existing
       `window.__IntelliJTools.messagePipe` the script already uses to post
-- [ ] for each pushed offset, find the **innermost** element whose position attribute range contains
+- [x] for each pushed offset, find the **innermost** element whose position attribute range contains
       it — the last match in document order, since the generator opens outer tags first — and add a
       class to it
-- [ ] use two classes, one for a plain remark and one for an unanswered question, and keep both
+- [x] use two classes, one for a plain remark and one for an unanswered question, and keep both
       subtle. A left border or a faint background, not a strong fill: a heavily annotated document with
       loud highlights is worse than no highlight at all
-- [ ] re-apply after a re-render with a `MutationObserver`, remembering the last pushed list. The
+- [x] re-apply after a re-render with a `MutationObserver`, remembering the last pushed list. The
       preview rebuilds its DOM as the source is typed, and a highlight applied once is gone on the next
       keystroke — this is the thing most likely to look broken
-- [ ] make an offset that matches no element a silent skip, not an error: the source moved, and that is
+- [x] make an offset that matches no element a silent skip, not an error: the source moved, and that is
       ordinary
-- [ ] read the whole script afterwards and confirm it still does only what its header comment claims
+- [x] read the whole script afterwards and confirm it still does only what its header comment claims
 
 ### Task 5: The watcher keeps its own seen nonce and can stream
 

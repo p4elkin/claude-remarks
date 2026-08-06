@@ -12,10 +12,21 @@
 // narrows them onto the highlighted words itself, by searching for `text` in the source slice: it
 // reads startFrom and endTo, and uses startTo and endFrom only to check that this message is in
 // order. See the PreviewSelection KDoc on the IDE side for why they are still posted.
+//
+// It also carries messages the other way (phase 14): the IDE pushes which remarks exist for this
+// file as a JSON array of {offset, kind}, and this script marks the innermost element that starts at
+// each offset. See preview/PreviewRemarkExtension.kt's HIGHLIGHTS_MESSAGE_TYPE KDoc for the exact
+// shape, and PreviewHighlights.kt for why the highlight can only ever be element-granular, never
+// character-exact: md-src-pos holds source offsets, and rendered text is not source text.
 (function () {
   "use strict";
 
-  const MESSAGE_TYPE = "claude-remarks/selection";
+  const SELECTION_MESSAGE_TYPE = "claude-remarks/selection";
+  const HIGHLIGHTS_MESSAGE_TYPE = "claude-remarks/highlights";
+
+  const REMARK_CLASS = "claude-remarks-highlight-remark";
+  const QUESTION_CLASS = "claude-remarks-highlight-question";
+  const HIGHLIGHT_CLASSES = [REMARK_CLASS, QUESTION_CLASS];
 
   // What "nothing is highlighted any more" looks like on the wire. The IDE's parser refuses an empty
   // text, and its answer to every refusal is the same: forget whatever was stored. So this needs no
@@ -36,8 +47,21 @@
   }
   const positionAttributeName = meta.content;
 
+  // Parses one element's own position attribute into {from, to}, or null when it carries none or the
+  // value is not two integers. Shared by the selection walk below and by the highlight lookup further
+  // down — both read the same attribute the same way.
+  function positionRangeOf(element) {
+    if (!element.hasAttribute(positionAttributeName)) {
+      return null;
+    }
+    const parts = element.getAttribute(positionAttributeName).split("..");
+    const from = Number.parseInt(parts[0], 10);
+    const to = Number.parseInt(parts[1], 10);
+    return Number.isInteger(from) && Number.isInteger(to) ? { from: from, to: to } : null;
+  }
+
   function post(message) {
-    window.__IntelliJTools.messagePipe.post(MESSAGE_TYPE, message);
+    window.__IntelliJTools.messagePipe.post(SELECTION_MESSAGE_TYPE, message);
   }
 
   // The nearest ancestor carrying a position range, or null when the walk reaches the body without
@@ -50,11 +74,11 @@
   function nearestPosition(node) {
     let current = node;
     while (current && current !== document.body) {
-      if (current.nodeType === Node.ELEMENT_NODE && current.hasAttribute(positionAttributeName)) {
-        const parts = current.getAttribute(positionAttributeName).split("..");
-        const from = Number.parseInt(parts[0], 10);
-        const to = Number.parseInt(parts[1], 10);
-        return Number.isInteger(from) && Number.isInteger(to) ? { from: from, to: to } : null;
+      if (current.nodeType === Node.ELEMENT_NODE) {
+        const range = positionRangeOf(current);
+        if (range) {
+          return range;
+        }
       }
       current = current.parentNode;
     }
@@ -101,5 +125,92 @@
       waiting = false;
       report();
     }, THROTTLE_MS);
+  });
+
+  // --- Highlighting annotated elements (phase 14) ---------------------------------------------
+  //
+  // Direction is the opposite of everything above: the IDE pushes, this script applies. There is no
+  // request/response here either, for the same reason the selection side has none — the IDE cannot
+  // know when a highlight should reappear except by being told, and re-render is exactly that kind of
+  // event.
+
+  // The last list the IDE pushed, in the [{offset, kind}, ...] shape PreviewHighlights.kt's toJson
+  // writes. Kept so a re-render can re-apply it: the preview rebuilds its DOM as the source is typed
+  // (IncrementalDOM.patch, on the platform side), and a class added by hand is gone the moment that
+  // patch next touches the element, whether or not the element's own content actually changed.
+  let lastHighlights = null;
+
+  // The innermost element whose position range contains offset, or null when none does — an ordinary
+  // outcome, not an error, since the source moves as a person edits and an offset from an older
+  // resolve can simply no longer land on anything.
+  //
+  // querySelectorAll returns elements in document order, and the generator that writes the position
+  // attribute opens outer tags before inner ones. So among the elements whose range contains offset,
+  // the LAST one in that order is the deepest — no recursion and no DOM walk of our own, one query and
+  // one pass, keeping the last match standing.
+  function elementForOffset(offset) {
+    const candidates = document.querySelectorAll("[" + positionAttributeName + "]");
+    let innermost = null;
+    for (let i = 0; i < candidates.length; i++) {
+      const range = positionRangeOf(candidates[i]);
+      if (range && offset >= range.from && offset < range.to) {
+        innermost = candidates[i];
+      }
+    }
+    return innermost;
+  }
+
+  function clearHighlightClasses() {
+    HIGHLIGHT_CLASSES.forEach(function (cls) {
+      const marked = document.querySelectorAll("." + cls);
+      for (let i = 0; i < marked.length; i++) {
+        marked[i].classList.remove(cls);
+      }
+    });
+  }
+
+  function applyHighlights(highlights) {
+    clearHighlightClasses();
+    highlights.forEach(function (highlight) {
+      const element = elementForOffset(highlight.offset);
+      if (!element) {
+        return; // the source moved since this offset was resolved; silent, not an error
+      }
+      element.classList.add(highlight.kind === "question" ? QUESTION_CLASS : REMARK_CLASS);
+    });
+  }
+
+  // Re-applies the last list on every DOM rebuild.
+  //
+  // Watches childList and characterData, deliberately never attributes: adding our own class through
+  // classList.add is itself an attribute mutation, and an observer that also watched attributes would
+  // see its own write and loop forever re-applying itself. childList/characterData already catch
+  // every real re-render, because typing changes either the text of a node in place or the structure
+  // around it, and neither of those is something this script ever writes.
+  //
+  // Watches document.documentElement, not document.body: this script runs from a <script> tag inside
+  // <head>, before the parser has reached </head>, so document.body does not exist yet at this point
+  // and observing it here would fail. document.documentElement (<html>) exists as soon as its own
+  // opening tag is parsed, which is before <head>'s own children, and observing it with subtree:true
+  // still covers every mutation inside body once body exists.
+  const observer = new MutationObserver(function () {
+    if (lastHighlights) {
+      applyHighlights(lastHighlights);
+    }
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+
+  window.__IntelliJTools.messagePipe.subscribe(HIGHLIGHTS_MESSAGE_TYPE, function (data) {
+    let highlights;
+    try {
+      highlights = JSON.parse(data);
+    } catch (error) {
+      return;
+    }
+    if (!Array.isArray(highlights)) {
+      return;
+    }
+    lastHighlights = highlights;
+    applyHighlights(highlights);
   });
 })();
