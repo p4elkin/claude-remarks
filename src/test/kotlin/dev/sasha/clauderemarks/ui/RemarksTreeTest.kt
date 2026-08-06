@@ -9,7 +9,6 @@ import dev.sasha.clauderemarks.store.ResolvedRemark
 import javax.swing.tree.DefaultMutableTreeNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -736,30 +735,6 @@ class RemarksTreeTest {
         assertEquals(ANSWERS_KEY, (answers.userObject as GroupNode).key)
         assertEquals(null, bucketDropTarget(answers))
         assertEquals(null, bucketDropTarget(child(answers, 0)))
-    }
-
-    // ---- the asks / answered word on a remark row ----
-
-    @Test
-    fun `a marked remark's row says asks with no answer and answered with one`() {
-        val root = buildTreeRoot(
-            listOf(row(id = "r-1", asksForAnswer = true), row(id = "r-2", asksForAnswer = true)),
-            listOf(answerRow(id = "a-1", remarkId = "r-2")),
-        )
-        val rows = (0 until root.childCount).flatMap { group ->
-            val node = child(root, group)
-            (0 until node.childCount).mapNotNull { (node.getChildAt(it) as DefaultMutableTreeNode).userObject as? RemarkNode }
-        }.associateBy { it.id }
-
-        assertEquals("asks", asksLabel(rows.getValue("r-1")))
-        assertEquals("answered", asksLabel(rows.getValue("r-2")))
-    }
-
-    /** An unmarked remark says nothing, whether or not something answered it anyway. */
-    @Test
-    fun `an unmarked remark's row says neither word`() {
-        assertNull(asksLabel(remarkNode(row(asksForAnswer = false))))
-        assertNull(asksLabel(remarkNode(row(asksForAnswer = false), hasAnswer = true)))
     }
 
     /** Two top-level groups: "(no bucket)" first, then "auth refactor". */

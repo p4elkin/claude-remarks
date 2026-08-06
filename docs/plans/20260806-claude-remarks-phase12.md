@@ -518,14 +518,14 @@ Spec section 16.
   call inside `RemarkTreeRenderer`'s `RemarkNode` branch)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksTreeTest.kt` (the `asksLabel` tests)
 
-- [ ] delete `asksLabel` and the `append` that drew its result
-- [ ] keep `RemarkNode.hasAnswer` — the icon needs it now — and update its KDoc, which currently says
+- [x] delete `asksLabel` and the `append` that drew its result
+- [x] keep `RemarkNode.hasAnswer` — the icon needs it now — and update its KDoc, which currently says
       the field is for deciding that grey word
-- [ ] leave `answerTooltipFor` and the `(asks for an answer)` line in `editor/RemarkGutterIcon.kt`
+- [x] leave `answerTooltipFor` and the `(asks for an answer)` line in `editor/RemarkGutterIcon.kt`
       alone: the gutter has no nesting and no colour legend on hover, so there the words are the only
       thing carrying it
-- [ ] delete the `asksLabel` tests
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'` — must pass before
+- [x] delete the `asksLabel` tests
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'` — must pass before
       task 13
 
 ### Task 13: Rename the skill and delete the review flow
@@ -638,6 +638,16 @@ Spec section 18. Checked by hand in the scratchpad, never against the real `~/.c
 - [ ] update the project-structure block: two files gone, `ui/RemarkIcons.kt` and the icons directory
       added, and the changed descriptions of `RemarksTree.kt`, `RemarkStatusLook.kt` and
       `ReviewRestService.kt`
+- [ ] ⚠️ add a paragraph to `CLAUDE.md`'s Testing section recording a trap this run walked into: **a
+      Gradle `--tests` filter that names a file rather than a class matches nothing, and Gradle does
+      not fail for it when another filter in the same command matches** — it reports BUILD SUCCESSFUL
+      while the tests you meant to run never ran. This plan told task 11 to run
+      `--tests 'dev.sasha.clauderemarks.editor.RemarkGutterIconTest'`, and that file declares
+      `RemarkTooltipTest`, `AnswerTooltipTest`, `RemarkGutterRendererTest` and
+      `AnswerGutterRendererTest` — no class of that name exists. The renderer-equality tests guarding
+      this phase's one real trap were the ones silently skipped. List the files whose class names
+      differ from their filename, so the next plan author does not repeat it:
+      `editor/RemarkGutterIconTest.kt`, `review/OpenReviewFilesTest.kt`, `ui/RemarkIconsTest.kt`
 - [ ] in `docs/claude/design.md`, delete the shared-review-session section and add the two icon tracks
       and the answer nesting, in enough detail that a future session does not have to re-derive either
       from the code

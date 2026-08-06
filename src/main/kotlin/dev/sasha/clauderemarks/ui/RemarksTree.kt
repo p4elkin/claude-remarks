@@ -76,9 +76,10 @@ data class GroupNode(val key: String, val label: String, val detail: String? = n
 /**
  * One leaf. Everything a row needs to draw itself and to navigate.
  *
- * [asksForAnswer] and [hasAnswer] together decide the grey word at the end of the row; see
- * [asksLabel], which is where that decision lives. [hasAnswer] is not a field on the stored remark:
- * it is looked up while the tree is built, from the answers the same rebuild already resolved.
+ * [asksForAnswer] and [hasAnswer] together decide the icon `RemarkStatusLook.icon` draws — the
+ * question track first branches on [asksForAnswer], then on [hasAnswer] for its colour. [hasAnswer]
+ * is not a field on the stored remark: it is looked up while the tree is built, from the answers the
+ * same rebuild already resolved.
  */
 data class RemarkNode(
     val id: String,
@@ -218,19 +219,6 @@ fun answerNode(row: ResolvedAnswer, nested: Boolean = false): AnswerNode {
         markdown = answer.markdown.orEmpty(),
         answeredAt = answer.answeredAt,
     )
-}
-
-/**
- * The grey word a remark row ends with about asking, or null when the remark asks nothing at all.
- *
- * A pure function rather than three lines inside the cell renderer, so the two words can be checked
- * without a JTree: the renderer needs a real tree and a painted component, and the rule — which of
- * the two words applies — is the part worth pinning.
- */
-fun asksLabel(node: RemarkNode): String? = when {
-    !node.asksForAnswer -> null
-    node.hasAnswer -> "answered"
-    else -> "asks"
 }
 
 /** The " (moved)"/" (orphaned…)" suffix, shared by a remark row and an answer row. */
@@ -564,9 +552,6 @@ class RemarkTreeRenderer : ColoredTreeCellRenderer() {
                     RemarkStatus.READ -> append("  read", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     RemarkStatus.PENDING -> {}
                 }
-                // Text and not a second icon: RemarkStatusLook's own KDoc argues the icon axis
-                // already answers "which of the three states is it", and asking is a third fact.
-                asksLabel(user)?.let { append("  $it", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
             }
 
             is AnswerNode -> {
