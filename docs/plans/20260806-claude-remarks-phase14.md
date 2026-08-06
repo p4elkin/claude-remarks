@@ -372,18 +372,33 @@ watcher should not need a session to keep it alive", before starting.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] run the full suite with **no** `--tests` filter: `./gradlew test`
-- [ ] run `./gradlew build`, `verifyPluginProjectConfiguration`, and `verifyPlugin`
-- [ ] run all seven guards from `CLAUDE.md` individually and confirm every one is empty
-- [ ] confirm `preview/PreviewHighlights.kt` has no `com.intellij` import, or record why it needed one
-- [ ] ⚠️ confirm nothing from this phase was registered in `plugin.xml` — every preview id belongs in
-      `claude-remarks-markdown.xml`
-- [ ] run `sh -n docs/skill/claude-remarks/watch-remarks.sh` and confirm it parses, and confirm the
+- [x] run the full suite with **no** `--tests` filter: `./gradlew test` — BUILD SUCCESSFUL. XML
+      reports under `build/test-results/test/` (55 files) sum to **656 tests, 0 failures, 0 errors, 0
+      skipped**, up from phase 13's 643 (+13), including `preview/PreviewHighlightsTest.kt` and
+      `preview/PreviewRemarkExtensionTest.kt`
+- [x] run `./gradlew build`, `verifyPluginProjectConfiguration`, and `verifyPlugin` — all three BUILD
+      SUCCESSFUL. `verifyPlugin`: "Compatible. 12 usages of experimental API" against IC-252.28539.97,
+      no internal API usages reported
+- [x] run all seven guards from `CLAUDE.md` individually and confirm every one is empty — all seven
+      empty (guard 1's anchor/ grep, guard 1's `render/PromptRenderer.kt` grep, guard 3's
+      `RemarkEdits.kt` grep, guard 4's write-to-source grep, guard 5's `ReviewRestService.kt` threading
+      grep, guard 6's `markRemarksRead` grep, guard 7's `recordAnswer` grep)
+- [x] confirm `preview/PreviewHighlights.kt` has no `com.intellij` import, or record why it needed one
+      — confirmed no `import` line; the only occurrence of the string `com.intellij` is inside the
+      file's own doc comment explaining that fact
+- [x] ⚠️ confirm nothing from this phase was registered in `plugin.xml` — every preview id belongs in
+      `claude-remarks-markdown.xml` — confirmed: `AskClaudePreview`, `PreviewHighlights` and
+      `claude-remarks-preview` appear nowhere in `plugin.xml`; `ClaudeRemarks.AskClaudePreview` /
+      `AskClaudePreviewAction` is registered only in `claude-remarks-markdown.xml`
+- [x] run `sh -n docs/skill/claude-remarks/watch-remarks.sh` and confirm it parses, and confirm the
       script still exits 0 on one batch when `--stream` is absent — the fallback path every non-Claude
-      Code agent still uses
-- [ ] ⚠️ confirm no command anywhere in this phase puts the IDE token in argv:
+      Code agent still uses — `sh -n` parsed clean; a fake `HOME` and a hand-written 5-line published
+      file in the scratchpad, run through `--file <path> --deadline 5 --poll 1` with no `--stream`,
+      printed the batch body to stdout and exited 0
+- [x] ⚠️ confirm no command anywhere in this phase puts the IDE token in argv:
       `grep -n 'X-Claude-Remarks-Token' docs/skill/claude-remarks/*.sh docs/skill/claude-remarks/SKILL.md`
-      should show only the `printf … | curl --config -` shape
+      should show only the `printf … | curl --config -` shape — confirmed: all 8 matches (2 in
+      `watch-remarks.sh`, 6 in `SKILL.md`) use the `printf 'header = "X-Claude-Remarks-Token: %s"\n' … | curl --config -` shape
 
 ### Task 9: Update the documentation and the version
 
