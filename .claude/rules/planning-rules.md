@@ -66,6 +66,19 @@ so the only thing standing between that check and somebody's real batch being ma
 token check. Point every fake handshake at a port nothing is listening on, or at a fake endpoint you
 started yourself — `8999` is what that task used afterwards.
 
+## Never write into the real `~/.claude/skills`
+
+Phase 15 adds code that installs the skill into `~/.claude/skills/claude-remarks`. ⚠️ On this machine
+that path is a **symlink into the checkout**, and it is what Sasha's live agent sessions load. Running
+the install path with the real `HOME` replaces the symlink with a copied directory and silently breaks
+the development setup; a half-written copy breaks every listen session running at that moment.
+
+So every test and every hand check of the install code runs with `HOME` pointed at a temporary
+directory under the scratchpad. Never call the install code against the real home directory — not
+once, not to "just see whether it works", not even when the code looks obviously correct. The one
+person who may point it at a real harness is Sasha, by clicking the button in a running IDE, and that
+is a hand check in the plan rather than anything an agent does.
+
 ## Never put the IDE token in a command argument
 
 An argument sits in `curl`'s argv, which every process on the machine can read out of `ps`, and the
