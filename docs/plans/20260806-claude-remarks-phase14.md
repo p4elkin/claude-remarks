@@ -345,22 +345,30 @@ watcher should not need a session to keep it alive", before starting.
 - Modify: `docs/skill/claude-remarks/SKILL.md` (the `## Listen for the next batch` mode: its starting
   block, its "when the watcher exits" list, and the re-arm step inside that list)
 
-- [ ] split the mode into two branches and say in one line at the top which applies: a harness with a
+- [x] split the mode into two branches and say in one line at the top which applies: a harness with a
       `Monitor` tool arms **one persistent monitor** and never re-arms; every other agent keeps
-      today's exit-per-batch loop, unchanged
-- [ ] in the Monitor branch, delete the re-arm step and every mention of passing `--seen`. Say plainly
+      today's exit-per-batch loop, unchanged — the branch is one variable, `listen_monitor`, on the
+      first line of the setup block, which is otherwise one block for both
+- [x] in the Monitor branch, delete the re-arm step and every mention of passing `--seen`. Say plainly
       that the watcher owns that state now, and why: it is what stops a session re-reading a batch it
-      already dealt with
-- [ ] in the Monitor branch the claim is the watcher's too — the line the monitor prints already
+      already dealt with — the Monitor branch also passes no `--owner`, since the watcher is the
+      monitor's own child and a wrong pid could only end the watch early
+- [x] in the Monitor branch the claim is the watcher's too — the line the monitor prints already
       carries `ok` / `already-read` / `unknown-batch`, so the session acts on that word instead of
       making a `published-read` call of its own. The three meanings do not change; only who sends the
-      request does
-- [ ] ⚠️ keep the summarise step exactly as phase 13's task 9 wrote it, in **both** branches, and keep
-      the wait for go
-- [ ] say what the two branches share and where they differ in one place, so a reader does not have to
-      compare them line by line
-- [ ] read the whole mode top to bottom afterwards and confirm no sentence still tells a session to
-      re-arm a watcher it never armed
+      request does — ⚠️ there are **five** outcome words, not three: `claim-failed <status>` and
+      `claim-failed http <code>` join them, and both mean "act on the batch and acknowledge it
+      yourself". The launch line also passes `--project` in `--file` mode, which `--claim` requires
+- [x] ⚠️ keep the summarise step exactly as phase 13's task 9 wrote it, in **both** branches, and keep
+      the wait for go — it is written once, in a shared "summarise, answer, wait for go" step both
+      branches end in, so there is one copy rather than two that can drift
+- [x] say what the two branches share and where they differ in one place, so a reader does not have to
+      compare them line by line — one paragraph plus a three-row table, before either branch
+- [x] read the whole mode top to bottom afterwards and confirm no sentence still tells a session to
+      re-arm a watcher it never armed — done, and it also caught three contradictions elsewhere in
+      the file: the frontmatter description, the mode list at the top, and the flag reference under
+      "The watcher script", which still said `--session` was refused with exit 2 and named neither
+      `--stream` nor `--claim`
 
 ### Task 8: Verify acceptance criteria
 

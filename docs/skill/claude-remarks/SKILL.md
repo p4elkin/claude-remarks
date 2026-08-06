@@ -14,7 +14,7 @@ description: >
   this only when a person asks, in words, to watch or listen for remarks — never on your own
   initiative, never because a published file was noticed. It claims whatever batch is already
   waiting when it starts, then watches the same published file and reports each new batch as it
-  arrives, re-arming itself after every one until the person says to stop. The IDE and this skill
+  arrives, and keeps itself listening after every one until the person says to stop. The IDE and this skill
   running on the same machine is the normal case for all three. When the IDE is on another machine,
   reached over SSH, the one-shot read and listen mode both need a tunnel the person sets up by hand
   and four connection values from them, which this skill can also store so they are not retyped
@@ -33,7 +33,8 @@ Three things this skill does with the Claude Remarks tool window, and they do no
   acknowledge the batch, summarise it, act on it, done. That is
   `## Read remarks the person already published`.
 - **Listen for the next batch.** Claim whatever batch is already waiting, then watch the published
-  file and report each new batch as it comes in, arming a fresh watcher after every one. Opt-in
+  file and report each new batch as it comes in — with one watcher that keeps running where the
+  harness has a `Monitor` tool, and with a fresh watcher after every batch everywhere else. Opt-in
   only: start this because a person asked, in words, to watch or listen, never because a published
   file was noticed. That is `## Listen for the next batch`.
 
@@ -364,21 +365,71 @@ Never started on this skill's own initiative — only when a person asks, in wor
 listen for the next batch of remarks. Noticing a published file sitting there is not asking. Unlike
 the two modes above, this one runs open-ended in the background instead of answering once.
 
-**It claims whatever is already waiting, and it re-arms itself after every batch.** Both of those
-reverse what this section used to promise, so read them as reversals rather than as details. A batch
-already sitting in the published file when listening starts is claimed exactly like one that arrives
-later, so a person who publishes and then asks for a listener is not met with silence. And the loop
-does not stop at one batch: after each one it arms a new watcher on its own, without being asked and
-without saying "shall I", and keeps going until one of the three endings below.
+**Two branches, and one question picks between them: does this harness have a `Monitor` tool?**
+
+- **Yes — Claude Code.** Arm **one** watcher, as a persistent monitor, and never arm another. The
+  watcher streams one line per batch, keeps its own seen nonce, and claims each batch itself.
+- **No — every other agent.** Keep the exit-per-batch loop this skill has always used: one watcher
+  per batch, read what it printed when it exits, then arm a fresh one. Nothing about that path
+  changes, and it must keep working.
+
+**What the two branches share is almost everything.** The setup below is one block for both. Both
+watch the same published file, both claim a batch before acting on it, both summarise a batch into
+the same two groups before touching anything, both answer the remarks that ask to be answered, both
+wait for the person to say go before doing the work, and both stop for the same three endings.
+
+**Where they differ is three things, and only three.**
+
+| | monitor branch | exit-per-batch branch |
+|---|---|---|
+| how many watchers | one, for the whole session | one per batch |
+| the seen nonce | the watcher's own, never passed in | `--seen`, typed into every launch line |
+| who claims a batch | the watcher, with `--claim` | the session, after the watcher exits |
+
+⚠️ **`--claim` and `--stream` go together, and the script refuses one without the other.** That is
+not tidiness. Without `--stream` the batch itself goes to the watcher's stdout and the session that
+reads it sends `published-read` for itself; a watcher claiming there would be answered `ok`, that
+session's own claim would then be answered `already-read`, and it would walk away from a batch
+nobody handled.
+
+**It claims whatever is already waiting.** A batch already sitting in the published file when
+listening starts is claimed exactly like one that arrives later, so a person who publishes and then
+asks for a listener is not met with silence. In the monitor branch the watcher does that on its
+first poll; in the exit-per-batch branch the setup block does it by hand before arming anything.
 
 **What it sends.** `published-read`, the same acknowledgement the one-shot mode above sends, keyed
 to a batch's own nonce; `answer`, for the remarks a batch marks; and, when the IDE is on another
-machine, a `fetch` to read the pending batch it cannot read off a local disk. That is all of it.
+machine, a `fetch` to read a batch it cannot read off a local disk. That is all of it in both
+branches. Only who sends the first one changes.
 
-**Starting it.** Run this as one Bash call, self-contained the same way the one-shot mode above is
-— every name in it starts with `listen_` so it cannot collide with that mode or with the open mode.
+**`--deadline 43200` is passed explicitly, always — twelve hours, not `watch-remarks.sh`'s own
+1800-second default.** That default is sized for a single wait, not for a person asking to be
+watched over a working session. Leaving it off would silently reuse 1800 seconds, and listening
+would stop after half an hour with no explanation. In stream mode every batch restarts that clock,
+so a person who keeps publishing keeps their watcher. Say plainly, when listening starts, what is
+being watched, that it stops after twelve hours with nothing new, and how to stop it — the stopping
+rules are at the end of this section.
+
+**One rule covers every request listen mode makes when the IDE is on another machine: it goes to
+`$listen_base_url`, with the token on stdin through `curl --config -`.** That is the claim wherever
+it is made, the acknowledgement after a batch, and the answer POST. They already use that exact
+shape; the only thing the remote case changes is the host and port they are pointed at, and where
+the token comes from — the stored `remote-<hash>.env` rather than a handshake file this machine does
+not have. In the remote case the `project` field carries `$listen_project`, the path **the IDE
+machine** uses, not this machine's own root.
+
+### The setup, run first in both branches
+
+Run this as one Bash call, self-contained the same way the one-shot mode above is — every name in it
+starts with `listen_` so it cannot collide with that mode or with the open mode. The first line is
+the branch, and it is the only line in the block that differs between them.
 
 ```sh
+# yes in a harness that has a Monitor tool — Claude Code — and empty in every other agent. It
+# decides two things below: whether the pending batch is claimed here by hand, and which launch line
+# is printed at the end.
+listen_monitor=yes
+
 listen_root=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -z "$listen_root" ]; then
   echo "this directory is not in a git repository, so the published file's name cannot be computed"
@@ -433,6 +484,7 @@ fi
 # The connection values. Remote when the stored file gave a port, local otherwise.
 if [ -n "$listen_port" ]; then
   listen_remote=yes
+  listen_handshake=
 else
   listen_remote=
   listen_handshake="$HOME/.claude-remarks/$listen_name.json"
@@ -443,102 +495,218 @@ else
 fi
 listen_base_url="http://$listen_host:$listen_port/api/claude-remarks"
 
-# The pending batch's nonce, taken OUT OF THE FILE (or off the wire) on every run, never from a
-# value remembered from an earlier one. Arming with a stale nonce makes the watcher exit 0 within a
-# second on a batch that was already handled, and nothing is listening afterwards. That has happened
-# twice in one day.
+# Everything from here to the printed launch line belongs to the exit-per-batch branch alone. In the
+# monitor branch the watcher claims every batch itself, the one already waiting included, so there is
+# no nonce to read here and no --seen to work out.
 listen_seen=
-if [ -n "$listen_remote" ]; then
-  # No local file to read over a tunnel, so a fetch is what carries the pending batch's nonce back.
-  # A fetch takes whatever batch is in the file, which is what a listener wants.
-  listen_fetch_resp=$(mktemp)
-  listen_fetch_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$listen_token" \
-    | curl -s --config - -o "$listen_fetch_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
-        -X POST "$listen_base_url/fetch" -H "Content-Type: application/json" \
-        -d "$(jq -n --arg project "$listen_project" '{project:$project}')")
-  listen_fetch_status=$(jq -r '.status // empty' "$listen_fetch_resp" 2>/dev/null)
-  case "$listen_fetch_status" in
-    ready)
-      listen_seen=$(jq -r '.nonce // empty' "$listen_fetch_resp")
-      ;;
-    # `no-review` means nothing has been published for this project. It kept that name from when a
-    # review was the only thing that published; there are no reviews any more, and renaming the
-    # status would break every deployed copy of this skill and the watcher at once.
-    no-review)
-      echo "nothing has ever been published for $listen_project — arming with no --seen"
-      ;;
-    *)
-      echo "fetch: http $listen_fetch_code, status ${listen_fetch_status:-unknown}"
-      cat "$listen_fetch_resp" ; echo
-      echo "report this and stop — too-large, failed and bad-request are not fixed by polling, and"
-      echo "http 000 with no status at all is a missing tunnel; see 'Over SSH' below"
-      rm -f "$listen_fetch_resp"
-      exit 2
-      ;;
-  esac
-  rm -f "$listen_fetch_resp"
-elif [ -f "$listen_file" ]; then
-  listen_line=$(sed -n '2p' "$listen_file")
-  case "$listen_line" in "nonce: "*) listen_seen=${listen_line#"nonce: "} ;; esac
-fi
+if [ -z "$listen_monitor" ]; then
+  # The pending batch's nonce, taken OUT OF THE FILE (or off the wire) on every run, never from a
+  # value remembered from an earlier one. Arming with a stale nonce makes the watcher exit 0 within a
+  # second on a batch that was already handled, and nothing is listening afterwards. That has happened
+  # twice in one day.
+  if [ -n "$listen_remote" ]; then
+    # No local file to read over a tunnel, so a fetch is what carries the pending batch's nonce back.
+    # A fetch takes whatever batch is in the file, which is what a listener wants.
+    listen_fetch_resp=$(mktemp)
+    listen_fetch_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$listen_token" \
+      | curl -s --config - -o "$listen_fetch_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+          -X POST "$listen_base_url/fetch" -H "Content-Type: application/json" \
+          -d "$(jq -n --arg project "$listen_project" '{project:$project}')")
+    listen_fetch_status=$(jq -r '.status // empty' "$listen_fetch_resp" 2>/dev/null)
+    case "$listen_fetch_status" in
+      ready)
+        listen_seen=$(jq -r '.nonce // empty' "$listen_fetch_resp")
+        ;;
+      # `no-review` means nothing has been published for this project. It kept that name from when a
+      # review was the only thing that published; there are no reviews any more, and renaming the
+      # status would break every deployed copy of this skill and the watcher at once.
+      no-review)
+        echo "nothing has ever been published for $listen_project — arming with no --seen"
+        ;;
+      *)
+        echo "fetch: http $listen_fetch_code, status ${listen_fetch_status:-unknown}"
+        cat "$listen_fetch_resp" ; echo
+        echo "report this and stop — too-large, failed and bad-request are not fixed by polling, and"
+        echo "http 000 with no status at all is a missing tunnel; see 'Over SSH' below"
+        rm -f "$listen_fetch_resp"
+        exit 2
+        ;;
+    esac
+    rm -f "$listen_fetch_resp"
+  elif [ -f "$listen_file" ]; then
+    listen_line=$(sed -n '2p' "$listen_file")
+    case "$listen_line" in "nonce: "*) listen_seen=${listen_line#"nonce: "} ;; esac
+  fi
 
-# The startup claim. `published-read` is the claim: it is atomic in the IDE, so exactly one of the
-# sessions listening to this repository is answered ok and that one is the one that acts. There is
-# nothing else in the header to check first — a batch is a batch now, and line 2's nonce says which.
-if [ -n "$listen_seen" ] && [ -n "$listen_token" ]; then
-  listen_claim_resp=$(mktemp)
-  listen_claim_body=$(jq -n --arg session "$listen_session" --arg project "$listen_project" \
-    --arg nonce "$listen_seen" '{session:$session, project:$project, nonce:$nonce}')
-  # The token on stdin through a curl config file, never as an argument — see the one-shot mode's
-  # copy of this block above for why.
-  listen_claim_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$listen_token" \
-    | curl -s --config - -o "$listen_claim_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
-        -X POST "$listen_base_url/published-read" \
-        -H "Content-Type: application/json" -d "$listen_claim_body")
-  listen_claim_answer=$(jq -r '.status // empty' "$listen_claim_resp" 2>/dev/null)
-  listen_claim_session=$(jq -r '.session // empty' "$listen_claim_resp" 2>/dev/null)
-  echo "startup claim on nonce $listen_seen: http $listen_claim_code, status ${listen_claim_answer:-unknown}${listen_claim_session:+, held by $listen_claim_session}"
-  rm -f "$listen_claim_resp"
-  # A claim that never reached the IDE — a stale token answered 403, a dead tunnel, an http 000 with
-  # no status at all — tells us nothing about whether the batch was handled. Arming with --seen set
-  # to its nonce would then skip it for good, silently. Arming with an empty --seen instead makes the
-  # watcher report it on its first poll, which is the honest answer: nobody knows, so look at it.
-  case "$listen_claim_code" in
-    2??) ;;
-    *)
-      echo "the claim did not reach the IDE (http $listen_claim_code). Nobody can say whether that"
-      echo "batch was handled, so it is NOT being skipped: arming with an empty --seen, which makes"
-      echo "the watcher report it on its first poll. Say so, and say the token or the tunnel may be"
-      echo "the reason."
-      listen_seen=
-      ;;
-  esac
-elif [ -n "$listen_seen" ]; then
-  echo "a batch is pending (nonce $listen_seen) and there is no token to claim it with — no IDE has"
-  echo "this project open. Say that plainly, do not act on the batch, and arm the watcher anyway."
+  # The startup claim. `published-read` is the claim: it is atomic in the IDE, so exactly one of the
+  # sessions listening to this repository is answered ok and that one is the one that acts. There is
+  # nothing else in the header to check first — a batch is a batch now, and line 2's nonce says which.
+  if [ -n "$listen_seen" ] && [ -n "$listen_token" ]; then
+    listen_claim_resp=$(mktemp)
+    listen_claim_body=$(jq -n --arg session "$listen_session" --arg project "$listen_project" \
+      --arg nonce "$listen_seen" '{session:$session, project:$project, nonce:$nonce}')
+    # The token on stdin through a curl config file, never as an argument — see the one-shot mode's
+    # copy of this block above for why.
+    listen_claim_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$listen_token" \
+      | curl -s --config - -o "$listen_claim_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+          -X POST "$listen_base_url/published-read" \
+          -H "Content-Type: application/json" -d "$listen_claim_body")
+    listen_claim_answer=$(jq -r '.status // empty' "$listen_claim_resp" 2>/dev/null)
+    listen_claim_session=$(jq -r '.session // empty' "$listen_claim_resp" 2>/dev/null)
+    echo "startup claim on nonce $listen_seen: http $listen_claim_code, status ${listen_claim_answer:-unknown}${listen_claim_session:+, held by $listen_claim_session}"
+    rm -f "$listen_claim_resp"
+    # A claim that never reached the IDE — a stale token answered 403, a dead tunnel, an http 000 with
+    # no status at all — tells us nothing about whether the batch was handled. Arming with --seen set
+    # to its nonce would then skip it for good, silently. Arming with an empty --seen instead makes the
+    # watcher report it on its first poll, which is the honest answer: nobody knows, so look at it.
+    case "$listen_claim_code" in
+      2??) ;;
+      *)
+        echo "the claim did not reach the IDE (http $listen_claim_code). Nobody can say whether that"
+        echo "batch was handled, so it is NOT being skipped: arming with an empty --seen, which makes"
+        echo "the watcher report it on its first poll. Say so, and say the token or the tunnel may be"
+        echo "the reason."
+        listen_seen=
+        ;;
+    esac
+  elif [ -n "$listen_seen" ]; then
+    echo "a batch is pending (nonce $listen_seen) and there is no token to claim it with — no IDE has"
+    echo "this project open. Say that plainly, do not act on the batch, and arm the watcher anyway."
+  fi
 fi
 
 echo "listen_session=$listen_session"
 echo "listen_project=$listen_project"
-echo "listen_seen=$listen_seen"
 [ -n "$listen_remote" ] || echo "listen_file=$listen_file"
-# The owner pid, and why it is $PPID and not $$. $$ is this Bash call's own shell, and that shell
-# exits the moment this block finishes printing — a watcher owned by it would exit on its first poll.
-# $PPID is the Claude Code process this session runs as: it is the same number in every Bash call of
-# this session (measured: $$ moved from 70289 to 71025 between two calls while $PPID stayed 75461),
-# and it is gone exactly when the session is gone. So it is what "the session that started this
-# watcher" means. The number is baked into the printed line rather than left as $PPID, the same way
-# every other value in this block is.
-echo "run this next, as its own Bash call, marked background:"
-if [ -n "$listen_remote" ]; then
-  echo "with CLAUDE_REMARKS_TOKEN set in its environment to the stored token — never echo the token"
-  printf "  perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '%s/watch-remarks.sh' --fetch '%s' --project '%s' --seen '%s' --owner %s --deadline 43200\n" \
-    "$listen_skill_dir" "$listen_base_url" "$listen_project" "$listen_seen" "$PPID"
+
+if [ -n "$listen_monitor" ]; then
+  # The token is not in the printed line and is not printed anywhere else either. The command reads
+  # it out of the file it already lives in, into its own environment, at the moment the monitor runs
+  # it — so it reaches no argv, no transcript and no `ps` listing.
+  if [ -n "$listen_remote" ]; then
+    listen_token_prefix="CLAUDE_REMARKS_TOKEN=\$(sed -n 's/^ide_token=//p' '$listen_conf') "
+    listen_claim_flags=" --claim '$listen_base_url' --session '$listen_session'"
+  elif [ -n "$listen_token" ]; then
+    listen_token_prefix="CLAUDE_REMARKS_TOKEN=\$(jq -r .token '$listen_handshake') "
+    listen_claim_flags=" --claim '$listen_base_url' --session '$listen_session' --project '$listen_project'"
+  else
+    listen_token_prefix=
+    listen_claim_flags=
+    echo "no IDE has $listen_root open (no handshake file at $listen_handshake), so there is no token"
+    echo "and the watcher cannot claim anything. Arming without --claim: batches still arrive, each"
+    echo "line carries the nonce and no outcome word, and nothing is acknowledged. Say that plainly."
+  fi
+  echo "arm ONE persistent monitor with the command below, and never arm a second one:"
+  if [ -n "$listen_remote" ]; then
+    printf "  %s'%s/watch-remarks.sh' --fetch '%s' --project '%s' --stream%s --deadline 43200\n" \
+      "$listen_token_prefix" "$listen_skill_dir" "$listen_base_url" "$listen_project" \
+      "$listen_claim_flags"
+  else
+    printf "  %s'%s/watch-remarks.sh' --file '%s' --stream%s --deadline 43200\n" \
+      "$listen_token_prefix" "$listen_skill_dir" "$listen_file" "$listen_claim_flags"
+  fi
 else
-  printf "  perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '%s/watch-remarks.sh' --file '%s' --seen '%s' --owner %s --deadline 43200\n" \
-    "$listen_skill_dir" "$listen_file" "$listen_seen" "$PPID"
+  echo "listen_seen=$listen_seen"
+  # The owner pid, and why it is $PPID and not $$. $$ is this Bash call's own shell, and that shell
+  # exits the moment this block finishes printing — a watcher owned by it would exit on its first poll.
+  # $PPID is the Claude Code process this session runs as: it is the same number in every Bash call of
+  # this session (measured: $$ moved from 70289 to 71025 between two calls while $PPID stayed 75461),
+  # and it is gone exactly when the session is gone. So it is what "the session that started this
+  # watcher" means. The number is baked into the printed line rather than left as $PPID, the same way
+  # every other value in this block is.
+  echo "run this next, as its own Bash call, marked background:"
+  if [ -n "$listen_remote" ]; then
+    echo "with CLAUDE_REMARKS_TOKEN set in its environment to the stored token — never echo the token"
+    printf "  perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '%s/watch-remarks.sh' --fetch '%s' --project '%s' --seen '%s' --owner %s --deadline 43200\n" \
+      "$listen_skill_dir" "$listen_base_url" "$listen_project" "$listen_seen" "$PPID"
+  else
+    printf "  perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '%s/watch-remarks.sh' --file '%s' --seen '%s' --owner %s --deadline 43200\n" \
+      "$listen_skill_dir" "$listen_file" "$listen_seen" "$PPID"
+  fi
 fi
 ```
+
+### The monitor branch: one watcher, armed once
+
+**Arm the printed command with the `Monitor` tool, `persistent: true`.** Not a background Bash call,
+and not the `perl … setsid` wrapper the other branch uses: the monitor owns this process, and both of
+those put it out of the monitor's reach. `persistent: true` rather than a `timeout_ms`, because that
+field caps at one hour and this watch is measured in a working day. Give the monitor a description
+naming the repository — it appears in every notification.
+
+**Armed once, and never again. There is no re-arm step in this branch.** There is no `--seen` either,
+not in the launch line and not anywhere else: the watcher keeps its own seen nonce, so nothing has to
+be passed back in and there is no value left for a session to get wrong. ⚠️ That is what this branch
+is for. Arming with a stale nonce made a watcher exit within a second on a batch that had already
+been handled — twice in one day — and this branch cannot make that mistake, because it never arms a
+second watcher at all.
+
+**No `--owner` either.** The watcher is the monitor's own child and stops when the monitor stops, so
+there is no orphan for `--owner` to catch. A wrong pid there would end the watch on its first poll,
+which is the only thing passing it could still do.
+
+**Each batch arrives as one line, and field 1 is always the nonce.**
+
+```
+<nonce> <path> <outcome>     in --file mode
+<nonce> <outcome>            in --fetch mode
+```
+
+No prefix and no label. The path is there because the session has to read the batch from somewhere,
+and in `--file` mode it opens that file itself. In `--fetch` mode there is no local file, so the
+batch is read with one `fetch` over the tunnel — POST `<base url>/fetch` with `{project}` and the
+token on stdin through `curl --config -`, and the response's `content` is the batch.
+
+**The outcome word is the claim the watcher already made.** Five words are possible, not three:
+
+| outcome | what it means | what to do |
+|---|---|---|
+| `ok` | nobody had claimed that batch, and now this watcher has | genuine unhandled work. Act on it, through every step below |
+| `already-read <session>` | another session got there first, and the word after it names that session | name the session that holds it, act on nothing, and keep listening. Do not read the batch and do not answer its marked remarks |
+| `unknown-batch` | the IDE does not remember this batch — it fell off the remembered sixteen, or the IDE restarted since it was published | act on it, and **say plainly that it may already have been done** rather than presenting it as fresh |
+| `claim-failed <status>` | the IDE answered and disagreed about the request itself: `unknown-project`, `bad-request`, or no status field at all | act on the batch, and say the claim was refused for that reason |
+| `claim-failed http <code>` | the claim never reached the IDE. `403` is a stale token; `000` is a connection never made — the IDE is not running, or the tunnel is down | act on the batch, and say the token or the tunnel is the likely reason |
+
+**The rule under that table is one line: `ok` is this session's batch to act on, `already-read` is
+somebody else's, and anything else means nobody confirmed anything — so act on it.** A batch claimed
+twice is recoverable, because the second claimer is told `already-read` and can see it. A batch
+nobody handles is not recoverable at all, and it is the failure this whole design exists to remove.
+
+**Then, in this order, for every line except an `already-read` one.**
+
+- **Read the batch**, from the path on the line or through the `fetch` above. ⚠️ **Check line 2's
+  nonce against field 1 of the line that woke this session.** The published file is overwritten by
+  the next publish and by nothing else, so a batch published while this session was busy has already
+  replaced the one it was told about. If the two differ, act on what the file holds now and say so —
+  and when the monitor's line for that newer batch arrives, say it was already handled.
+- **Acknowledge the batch yourself when the outcome word was not `ok`.** Use the `published-read`
+  block the exit-per-batch branch spells out below, with field 1's nonce in place of
+  `$listen_nonce` and the session id the setup block printed in place of `$listen_session`. For
+  `unknown-batch` that call answers `unknown-batch` again and marks nothing read — send it anyway,
+  rather than keeping a second rule for the one case where it is only a wasted request.
+- Then the three steps both branches share: **summarise, answer, wait for go.**
+- **Arm nothing.** The monitor armed at the start is still running and the next batch is already
+  covered. ⚠️ Arming a second watcher here is the mistake this branch exists to prevent: two watchers
+  on one file report every batch twice, and the second one has a seen nonce of its own that nobody is
+  tracking.
+
+**When the monitor ends, it ends because the watcher exited, and the code says which ending.**
+
+- **Exit 0 never happens here.** In stream mode the watcher does not exit on a batch; that exit
+  belongs to the other branch.
+- **Exit 1.** The twelve-hour deadline passed with nothing new. Report it and stop. There is nothing
+  to acknowledge — `published-read` is never sent for a batch that never arrived.
+- **Exit 2.** Something the watcher could not get past: a malformed header, a file it cannot read, or
+  a `fetch` answer no amount of polling fixes. Report what it printed verbatim and stop.
+- **Any exit code above 128, 143 in particular.** The watcher was killed. 143 is `128 + SIGTERM`,
+  which any kill produces — a harness restart, a machine going to sleep, a stray `kill`. Nothing
+  arrived and nothing is owed, so acknowledge nothing. Say in one line that the watcher was killed,
+  then arm **one** fresh monitor, exactly as at the start, and go on listening.
+- **Exit 3 cannot arrive**, because this branch passes no `--owner`.
+
+### The exit-per-batch branch: one watcher per batch
+
+This is the path every agent without a `Monitor` tool takes, and it is unchanged.
 
 **The `perl` wrapper in front of the script is not decoration, and must not be simplified away.** It
 puts the watcher in a session and a process group of its own, so that a signal aimed at this
@@ -559,21 +727,6 @@ and the reason the obvious alternatives do not work.
 **A batch landing between the read and the arming is not lost.** The watcher is armed with `--seen`
 set to the nonce just read, so a newer batch carries a different nonce and the watcher reports it on
 its very first poll.
-
-**`--deadline 43200` is passed explicitly, always — twelve hours, not `watch-remarks.sh`'s own
-1800-second default.** That default is sized for a single wait, not for a person asking to be
-watched over a working session. Leaving it off would silently reuse 1800 seconds, and listening
-would stop after half an hour with no explanation. Say plainly, when listening starts, what is
-being watched, that it stops after twelve hours with nothing new, and how to stop it — the stopping
-rules are further down this section.
-
-**One rule covers every request listen mode makes when the IDE is on another machine: it goes to
-`$listen_base_url`, with the token on stdin through `curl --config -`.** That is the startup claim
-above, the acknowledgement after each batch, and the answer POST, all three. They already use that
-exact shape; the only thing the remote case changes is the host and port they are pointed at, and
-where the token comes from — the stored `remote-<hash>.env` rather than a handshake file this
-machine does not have. In the remote case the `project` field carries `$listen_project`, the path
-**the IDE machine** uses, not this machine's own root.
 
 **When the watcher exits, act on what it printed — built with `$listen_session`, `$listen_root`
 and `$listen_name` typed again, since nothing carries a shell across two Bash calls:**
@@ -620,17 +773,18 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
     paragraphs of prose behind. It would also add a third thing that has to be found by absolute
     path, which is the failure "Where the two scripts are" exists to stop. The two blocks are kept
     identical line for line in the part that matters, the `printf | curl --config -` shape: change
-    one and change the other.
+    one and change the other. The monitor branch above sends the same call, when its outcome word
+    says the watcher's own claim did not land, and it reuses this block rather than adding a third.
 
     `already-read` naming a session other than `$listen_session` means another session got to this
     batch first: say so at the top, name that session, and do not act. `already-read` naming
     `$listen_session` itself is a retry after a lost response, not an anomaly — proceed as normal.
   - **Then re-arm, immediately — before summarising anything and before answering anything.** Run
     the same launch line again as its own new Bash call, marked background, by the same absolute
-    path the startup block resolved and printed and never by the bare name, keeping the `perl`
+    path the setup block resolved and printed and never by the bare name, keeping the `perl`
     wrapper and the same `--owner` value, with `--seen` set to
     this batch's nonce and a fresh `--deadline 43200`. `$PPID` in the new Bash call is the same
-    number the startup block printed, so a re-arm can read it again rather than remembering it.
+    number the setup block printed, so a re-arm can read it again rather than remembering it.
     Re-arming is not a choice put to the person
     and not something to ask about: listening carries on by itself until one of the three endings
     below.
@@ -641,37 +795,7 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
 
     Each re-arm gets its own `--deadline 43200`, so any batch resets the clock and listening
     continues for as long as the person keeps working.
-  - **Then summarise the batch, before answering anything and before any work.** The same bullet
-    list the one-shot mode above writes, **split into two groups**: **things to change**, every
-    remark asking for something to be different, and **questions to answer**, every remark whose
-    heading carries `asks for an answer`. Keep both groups even when one of them is empty and write
-    `none` under that one. Each bullet names the file and the line range from the remark's own
-    heading, then says the remark **in the person's own words** rather than in a paraphrase — a
-    paraphrase drops a condition quietly, and a condition dropped here is dropped for the whole of
-    the work that follows.
-
-    **This is the second copy of the summarise step, and it stays a copy on purpose**, for the same
-    reason the `published-read` block above is one: the two modes agree on the part that matters —
-    the two groups and the person's own words — and differ in everything around it. Change one and
-    change the other.
-
-    The summary is the person's one chance to see that a remark was misread before any of it turns
-    into work, and here that is a real gate rather than something to interrupt: the wait for go two
-    steps below is what stops the work starting on a misreading.
-
-    A session told `already-read` by the call above writes no summary either. It lost the claim on
-    the whole batch, and summarising a batch another session holds would read as work about to
-    start on it. Name the winner and go on listening, as the acknowledgement step above says.
-  - **Then answer whatever asks to be answered:**
-    `## Answer the remarks that ask for an answer` below, with line 2's nonce and the remark ids off
-    the `id:` lines. Answering needs no go-ahead — it writes nothing to the working tree — and the
-    wait for go below is about the work, not about the questions. A session told `already-read` by
-    the call above skips this too: it lost the claim on the whole batch, marked remarks included.
-  - Then say what is planned, and **wait for the person to say go.** The batch itself was summarised
-    two steps up, so this is the plan and nothing else. Do not act unattended, unlike the one-shot
-    read above — a listener runs unattended for hours, and nobody chose this exact moment for the
-    work to start. Waiting for go stops nothing: the watcher armed three steps ago is already
-    running while the summary is being read.
+  - Then the three steps both branches share: **summarise, answer, wait for go.**
 - **Exit 1.** The twelve-hour deadline passed with nothing new. Report it and stop. There is
   nothing to acknowledge — `published-read` is never sent for a batch that never arrived.
 - **Exit 2.** Something the watcher could not get past. Report what it printed verbatim and stop.
@@ -686,16 +810,53 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
   a watcher that displaced this one: nothing takes over from anything any more, so there is nothing
   for such a check to find.
 
+### Then, in both branches: summarise, answer, wait for go
+
+- **Summarise the batch, before answering anything and before any work.** The same bullet
+  list the one-shot mode above writes, **split into two groups**: **things to change**, every
+  remark asking for something to be different, and **questions to answer**, every remark whose
+  heading carries `asks for an answer`. Keep both groups even when one of them is empty and write
+  `none` under that one. Each bullet names the file and the line range from the remark's own
+  heading, then says the remark **in the person's own words** rather than in a paraphrase — a
+  paraphrase drops a condition quietly, and a condition dropped here is dropped for the whole of
+  the work that follows.
+
+  **This is the second copy of the summarise step, and it stays a copy on purpose**, for the same
+  reason the `published-read` block above is one: the two modes agree on the part that matters —
+  the two groups and the person's own words — and differ in everything around it. Change one and
+  change the other.
+
+  The summary is the person's one chance to see that a remark was misread before any of it turns
+  into work, and here that is a real gate rather than something to interrupt: the wait for go two
+  steps below is what stops the work starting on a misreading.
+
+  A session told `already-read` writes no summary either. It lost the claim on
+  the whole batch, and summarising a batch another session holds would read as work about to
+  start on it. Name the winner and go on listening, as the acknowledgement step above says.
+- **Then answer whatever asks to be answered:**
+  `## Answer the remarks that ask for an answer` below, with line 2's nonce and the remark ids off
+  the `id:` lines. Answering needs no go-ahead — it writes nothing to the working tree — and the
+  wait for go below is about the work, not about the questions. A session told `already-read` skips
+  this too: it lost the claim on the whole batch, marked remarks included.
+- Then say what is planned, and **wait for the person to say go.** The batch itself was summarised
+  two steps up, so this is the plan and nothing else. Do not act unattended, unlike the one-shot
+  read above — a listener runs unattended for hours, and nobody chose this exact moment for the
+  work to start. Waiting for go stops nothing: the watcher is still running while the summary is
+  being read.
+
+### Stopping, and what ends the loop
+
 **Several sessions may listen to one repository at once, and nothing kills a watcher.** Starting a
 listener never takes over from a listener already running for the same repository. That used to be
 the rule and it was the wrong rule — the exclusion it was trying to provide already exists one layer
 up, in the batch claim, which is the only place that can do it correctly.
 
 **The batch claim is what decides who acts.** All the listening sessions wake on the same batch and
-all post `published-read` for it. Exactly one is answered `ok`, and that one acts on it. A session
-answered `already-read` names the session that got there first, does not act on the batch, does not
-answer its marked remarks, and **keeps listening**. Losing a claim is an ordinary outcome of two
-sessions doing their job, not a reason to stop.
+all post `published-read` for it — from the session in one branch, from the watcher in the other,
+and the IDE cannot tell the two apart. Exactly one is answered `ok`, and that one acts on it. A
+session answered `already-read` names the session that got there first, does not act on the batch,
+does not answer its marked remarks, and **keeps listening**. Losing a claim is an ordinary outcome of
+two sessions doing their job, not a reason to stop.
 
 ⚠️ **Never stop a watcher by matching on the program's name.** No `pkill`, no `killall`, no
 `ps | grep | kill` on `watch-remarks.sh`. Every repository's watcher on this machine runs a program
@@ -708,6 +869,11 @@ line names.
 
 That is what the pid file is for now. It is not a claim of ownership and it excludes nobody. It
 identifies one specific watcher, and that is exactly what makes a blunt match unnecessary.
+
+**In the monitor branch there is a simpler way, and it is the one to use: `TaskStop` on the
+monitor.** The watcher is the monitor's own child, so stopping the monitor stops it, and neither the
+pid file nor a signal comes into it. The pid-file rule above is still what applies to any watcher
+started the other way.
 
 **Repository isolation is a guarantee here, not something to work out from the script.** Two things
 hold it up and both already exist: the pid file is named from the project's own 16 hex characters,
@@ -726,7 +892,8 @@ program name alone.
 - The person asks the session to stop listening.
 
 **Nothing else ends it.** Another session listening to the same repository does not. Losing a batch
-claim does not. A watcher killed by something in the environment does not.
+claim does not. A watcher killed by something in the environment does not — that one is answered by
+arming a fresh watcher, in either branch.
 
 ⚠️ **A session that stops listening says so, and says why. It never goes quiet.** Whichever of the
 three ended it gets one line at the moment it happens. This is the failure the whole section exists
@@ -1056,10 +1223,12 @@ synopsis of the flags; every line actually run names the script by absolute path
 section above gives.
 
 ```
-watch-remarks.sh --file <path> [--seen <nonce>]
+watch-remarks.sh --file <path> [--seen <nonce>] [--stream]
+                  [--claim <base_url> --session <id> --project <path>]
                   [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]
 watch-remarks.sh --fetch <base_url> --project <path>
-                  [--seen <nonce>] [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]
+                  [--seen <nonce>] [--stream] [--claim <base_url> --session <id>]
+                  [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]
 ```
 
 - `--file <path>` is the local branch: poll the published file directly. Default poll interval 2
@@ -1070,12 +1239,27 @@ watch-remarks.sh --fetch <base_url> --project <path>
   and nothing else, and the endpoint hands back whatever batch was last published for that project.
 - `--seen <nonce>` is the nonce already known. Omit it, or pass an empty string, to mean "any batch
   is new."
+- `--stream` keeps the watcher polling instead of exiting on a batch. It then prints **one short
+  line per batch** — the nonce, plus the watched path in `--file` mode — never the batch body, and
+  it keeps its own seen nonce, so nothing has to be passed back in on a next launch. Listen mode's
+  monitor branch passes it and nothing else does. Without it the script behaves exactly as it always
+  has: one batch to stdout whole, then exit 0.
+- `--claim <base_url> --session <id>` makes the watcher send the `published-read` acknowledgement
+  itself, before it prints a batch's line, and put the answer on the end of that same line: `ok`,
+  `already-read <session>`, `unknown-batch`, `claim-failed <status>` or `claim-failed http <code>`.
+  ⚠️ The nonce is printed whatever the answer is — claiming twice is recoverable, a batch nobody
+  hears about is not. It needs `--stream`, it needs `--project` in `--file` mode too, and it needs
+  the IDE token in `CLAUDE_REMARKS_TOKEN`. Without it the script sends nothing at all, exactly as
+  before. `--session` is the name the caller invents for itself, and it is what the endpoint reports
+  back to whoever claims the same batch second.
 - `--deadline <seconds>` defaults to 1800. Listen mode passes 43200 (twelve hours). Zero is refused,
   as is `--poll 0`: `sleep 0` returns at once, which would turn either loop into a busy poll for the
   whole deadline, and in fetch mode into a curl flood.
-- ⚠️ **`--require-review` and `--session` are gone**, and the script refuses either with exit `2`
-  rather than ignoring it. Both belonged to review mode. A launch line copied from an older version
-  of this file, or from an older session's notes, fails loudly for that reason — which is wanted.
+- ⚠️ **`--require-review` is gone**, and the script refuses it with exit `2` rather than ignoring it.
+  It belonged to review mode. `--session` was refused the same way and now means something else
+  entirely — the caller's own name, for the claim above — but it is still refused on its own, without
+  `--claim`, so a launch line copied from an older version of this file, or from an older session's
+  notes, still fails loudly. Which is wanted.
 - `--poll <seconds>` is for hand runs and the by-hand checks only. Nothing in this file passes it;
   both defaults above are chosen inside the script. It is kept because a deadline check that had to
   wait the real 2 or 5 seconds per poll would take too long to run by hand.
@@ -1093,7 +1277,8 @@ watch-remarks.sh --fetch <base_url> --project <path>
   own argv, where `ps` reads it. Every `curl` in this file does the same.
 
 **Exit codes.** `0`, with the whole published file on stdout (header included), when a new batch
-arrived. `1`, with one sentence on stderr, when the deadline passed with nothing new. `2`, with a
+arrived — ⚠️ with `--stream` there is no exit `0` at all, because a batch is a printed line there and
+the loop goes on. `1`, with one sentence on stderr, when the deadline passed with nothing new. `2`, with a
 reason on stderr, for anything wrong: an argument it does not accept, a file it cannot read, a header
 whose first line is not the marker, or whose second line does not start with `nonce: ` (either of
 those two means something other than this plugin wrote the file),
