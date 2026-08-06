@@ -209,17 +209,17 @@ Pure Kotlin, fixture-free, test-first. This is the arithmetic half.
 - Create: `src/main/kotlin/dev/sasha/clauderemarks/preview/PreviewHighlights.kt`
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/preview/PreviewHighlightsTest.kt`
 
-- [ ] write the failing tests first: a data type carrying what the page needs per remark — the source
+- [x] write the failing tests first: a data type carrying what the page needs per remark — the source
       start offset and whether it is an unanswered question — and a pure function turning resolved
       remarks into a list of them
-- [ ] decide and pin what is excluded: an orphaned remark (its code could not be found, so its offsets
+- [x] decide and pin what is excluded: an orphaned remark (its code could not be found, so its offsets
       mean nothing), a remark about no file, and a remark for a different file than the one previewed
-- [ ] keep it free of `com.intellij` imports if at all possible, taking whatever it needs as plain
+- [x] keep it free of `com.intellij` imports if at all possible, taking whatever it needs as plain
       parameters — the same argument `preview/PreviewSelection.kt` and `anchor/` already make, and the
       reason their tests run in milliseconds
-- [ ] serialize to JSON by hand or with the platform's Gson, whichever keeps the file
+- [x] serialize to JSON by hand or with the platform's Gson, whichever keeps the file
       platform-free; a list of `{offset, kind}` is small enough that hand-writing it is reasonable
-- [ ] run the narrow test command
+- [x] run the narrow test command
 
 ### Task 3: Push the highlights down the pipe
 
