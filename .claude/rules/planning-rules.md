@@ -58,6 +58,14 @@ That directory holds a person's actual remarks and their published files. Any sh
 or writes it runs in the scratchpad with `HOME` pointed at a temporary directory. This includes every
 check of `docs/skill/claude-remarks*/watch-remarks.sh` and `remote-config.sh`.
 
+⚠️ **Faking `HOME` is not enough on its own. Fake the port too.** A handshake file names a port, and
+the ordinary port is `63342`, which is the IDE the person is actually working in. Phase 14's task 7
+wrote a fake handshake under a fake `HOME`, left the port at `63342`, and its startup claim posted
+`published-read` to the live IDE with a made-up token and nonce. It answered 403 and marked nothing,
+so the only thing standing between that check and somebody's real batch being marked read was the
+token check. Point every fake handshake at a port nothing is listening on, or at a fake endpoint you
+started yourself — `8999` is what that task used afterwards.
+
 ## Never put the IDE token in a command argument
 
 An argument sits in `curl`'s argv, which every process on the machine can read out of `ps`, and the
