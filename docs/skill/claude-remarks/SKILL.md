@@ -30,7 +30,8 @@ Three things this skill does with the Claude Remarks tool window, and they do no
   nothing to acknowledge. That is the next section.
 - **They already published.** The person pressed Publish Unread or Publish Selected, which
   wrote the remarks to a file. Nothing was started and nothing is waiting. Read the file,
-  acknowledge the batch, act on it, done. That is `## Read remarks the person already published`.
+  acknowledge the batch, summarise it, act on it, done. That is
+  `## Read remarks the person already published`.
 - **Listen for the next batch.** Claim whatever batch is already waiting, then watch the published
   file and report each new batch as it comes in, arming a fresh watcher after every one. Opt-in
   only: start this because a person asked, in words, to watch or listen, never because a published
@@ -309,10 +310,45 @@ printed and then not reported.
 - **Nothing here has to be told that this session walked away.** No wait is open in the IDE, so
   there is nothing to abandon and nothing to acknowledge beyond the batch itself. Set no trap.
 
-**Answer whatever asks to be answered first.** If any heading in the file carries
-`asks for an answer`, work through `## Answer the remarks that ask for an answer` below before
-acting on anything else. It needs the nonce this block already read into `$pub_nonce`, and the
-remark ids off the `id:` lines under those headings.
+**Summarise the batch before doing anything with it.** The acknowledgement above has gone out, and
+the next thing is not the work. Write out what the batch says, as a bullet list **split into two
+groups**:
+
+- **Things to change** — every remark asking for something to be different.
+- **Questions to answer** — every remark whose heading carries `asks for an answer`.
+
+Keep both groups even when one of them is empty, and write `none` under that one. The split is read
+off the headings rather than guessed at: the published prompt marks a question in its own heading
+and marks nothing else. One flat list makes the person hunt for the questions.
+
+**Each bullet names the file and the line range from the remark's own heading, then says the remark
+in the person's own words.** Quote the remark text, do not paraphrase it. A paraphrase drops a
+condition quietly, and a condition dropped here is dropped for the whole of the work that follows.
+
+The shape, on a batch of three remarks:
+
+```
+Things to change:
+- ui/RemarksTree.kt 41-47 — "this comparator sorts by path, so a row written just now lands in the
+  middle of the file group"
+- README.md 12 — "the icon legend still names the upload mark"
+
+Questions to answer:
+- action/PublishRemarks.kt 88-95 — "why does this publish every open question and not just the new
+  one?"
+```
+
+**What the summary is for.** It is the person's one chance to see that a remark was misread, before
+any of it turns into work. It is not ceremony and it is not a status line — the person wrote these
+remarks and does not need them read back for their own sake. What they cannot see any other way is
+whether this session understood them. In this mode nothing waits for a go-ahead, so the summary is
+what a person reading along can interrupt on. Listen mode below turns the same list into a real
+gate: it waits for go after it.
+
+**Then answer whatever asks to be answered, before acting on anything else.** If any heading in the
+file carries `asks for an answer`, work through `## Answer the remarks that ask for an answer`
+below. It needs the nonce this block already read into `$pub_nonce`, and the remark ids off the
+`id:` lines under those headings.
 
 Then act on the rest: it is one markdown prompt, remarks grouped by file, each with the code it
 points at. Act on it, then say plainly what was done.
@@ -514,7 +550,7 @@ and the reason the obvious alternatives do not work.
 
 | answer | what it means | what to do |
 |---|---|---|
-| `ok` | nobody had claimed that batch | genuine unhandled work. Surface it exactly as if the watcher had just caught it: read the file, answer what asks to be answered, summarise, wait for go |
+| `ok` | nobody had claimed that batch | genuine unhandled work. Surface it exactly as if the watcher had just caught it: read the file, summarise it, answer what asks to be answered, wait for go |
 | `already-read` | another session got there first, and the answer names it | skip the batch and name the session that holds it. Do not read it, do not answer its marked remarks. Then go on listening |
 | `unknown-batch` | it fell off the IDE's remembered sixteen, or the IDE restarted since it was published | nobody can confirm whether it was handled. Surface it, and **say plainly that it may already have been done** rather than presenting it as fresh |
 | no nonce at all | nothing has ever been published for this project | nothing to claim. Arm the watcher with an empty `--seen` and wait |
@@ -589,7 +625,7 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
     `already-read` naming a session other than `$listen_session` means another session got to this
     batch first: say so at the top, name that session, and do not act. `already-read` naming
     `$listen_session` itself is a retry after a lost response, not an anomaly — proceed as normal.
-  - **Then re-arm, immediately — before answering anything and before summarising anything.** Run
+  - **Then re-arm, immediately — before summarising anything and before answering anything.** Run
     the same launch line again as its own new Bash call, marked background, by the same absolute
     path the startup block resolved and printed and never by the bare name, keeping the `perl`
     wrapper and the same `--owner` value, with `--seen` set to
@@ -605,15 +641,37 @@ and `$listen_name` typed again, since nothing carries a shell across two Bash ca
 
     Each re-arm gets its own `--deadline 43200`, so any batch resets the clock and listening
     continues for as long as the person keeps working.
-  - **Then answer whatever asks to be answered**, before summarising anything:
+  - **Then summarise the batch, before answering anything and before any work.** The same bullet
+    list the one-shot mode above writes, **split into two groups**: **things to change**, every
+    remark asking for something to be different, and **questions to answer**, every remark whose
+    heading carries `asks for an answer`. Keep both groups even when one of them is empty and write
+    `none` under that one. Each bullet names the file and the line range from the remark's own
+    heading, then says the remark **in the person's own words** rather than in a paraphrase — a
+    paraphrase drops a condition quietly, and a condition dropped here is dropped for the whole of
+    the work that follows.
+
+    **This is the second copy of the summarise step, and it stays a copy on purpose**, for the same
+    reason the `published-read` block above is one: the two modes agree on the part that matters —
+    the two groups and the person's own words — and differ in everything around it. Change one and
+    change the other.
+
+    The summary is the person's one chance to see that a remark was misread before any of it turns
+    into work, and here that is a real gate rather than something to interrupt: the wait for go two
+    steps below is what stops the work starting on a misreading.
+
+    A session told `already-read` by the call above writes no summary either. It lost the claim on
+    the whole batch, and summarising a batch another session holds would read as work about to
+    start on it. Name the winner and go on listening, as the acknowledgement step above says.
+  - **Then answer whatever asks to be answered:**
     `## Answer the remarks that ask for an answer` below, with line 2's nonce and the remark ids off
     the `id:` lines. Answering needs no go-ahead — it writes nothing to the working tree — and the
     wait for go below is about the work, not about the questions. A session told `already-read` by
     the call above skips this too: it lost the claim on the whole batch, marked remarks included.
-  - Then summarise the batch and what is planned, and **wait for the person to say go.** Do not
-    act unattended, unlike the one-shot read above — a listener runs unattended for
-    hours, and nobody chose this exact moment for the work to start. Waiting for go stops nothing:
-    the watcher armed two steps ago is already running while the summary is being read.
+  - Then say what is planned, and **wait for the person to say go.** The batch itself was summarised
+    two steps up, so this is the plan and nothing else. Do not act unattended, unlike the one-shot
+    read above — a listener runs unattended for hours, and nobody chose this exact moment for the
+    work to start. Waiting for go stops nothing: the watcher armed three steps ago is already
+    running while the summary is being read.
 - **Exit 1.** The twelve-hour deadline passed with nothing new. Report it and stop. There is
   nothing to acknowledge — `published-read` is never sent for a batch that never arrived.
 - **Exit 2.** Something the watcher could not get past. Report what it printed verbatim and stop.

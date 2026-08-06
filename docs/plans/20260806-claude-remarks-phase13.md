@@ -422,18 +422,33 @@ No Kotlin. `./gradlew test` covers none of this.
   mode, after the acknowledgement and before the act step; and the `## Listen for the next batch`
   mode, which reports each batch as it arrives)
 
-- [ ] add the summarise step **after** the acknowledgement POST and before any work. Acknowledging
+- [x] add the summarise step **after** the acknowledgement POST and before any work. Acknowledging
       first is the existing rule and it stays: a lost response should cost one retry, not a batch
-- [ ] specify the shape — a bullet list **split into two groups**, things to change and questions to
+- [x] specify the shape — a bullet list **split into two groups**, things to change and questions to
       answer, because the published prompt already marks a question `— asks for an answer` and phase 11
       made that distinction real. One flat list makes the reader hunt for the questions
-- [ ] each bullet names the file and line range and says the remark in the person's own words, not a
+      — ➕ both groups are kept even when one is empty, with `none` written under it, so a session
+      cannot silently drop the questions group and leave the person unsure whether there were none
+      or whether they were missed
+- [x] each bullet names the file and line range and says the remark in the person's own words, not a
       paraphrase that could quietly drop a condition
-- [ ] say what the summary is **for**, so a session does not treat it as ceremony: it is the person's
+- [x] say what the summary is **for**, so a session does not treat it as ceremony: it is the person's
       chance to catch a misread before work happens
-- [ ] make the same change in listen mode's per-batch report, so both modes behave the same
-- [ ] read the file top to bottom afterwards and confirm no mode still says to act immediately after
+- [x] make the same change in listen mode's per-batch report, so both modes behave the same
+      — ➕ the summarise step slots **between** re-arm and answer, so the order is acknowledge,
+      re-arm, summarise, answer, wait for go. Answering is work the plan's Overview names ("today it
+      reads and dives straight into answering"), so the summary has to come before it. The existing
+      last bullet keeps the wait for go and now says the plan alone, since the batch was summarised
+      two steps up
+      — ➕ a session told `already-read` writes no summary either, said in one line beside the
+      summarise step: it lost the claim on the whole batch, and the answer step already had that
+      carve-out while the summary would otherwise have read as work about to start
+- [x] read the file top to bottom afterwards and confirm no mode still says to act immediately after
       reading
+      — three places did and all three are fixed: the mode list at the top of the file ("read the
+      file, acknowledge the batch, act on it, done"), the `ok` row of listen mode's startup-claim
+      table (which had answer before summarise), and read mode's own "Answer whatever asks to be
+      answered first"
 
 ### Task 10: Verify acceptance criteria
 
@@ -524,6 +539,23 @@ a test.*
     file name is long, could be wide enough to overflow the row rather than wrap or elide. Check a
     long orphaned position and a long file name together before deciding whether the metadata line
     needs `wrapToLines` too.
+
+*Added while task 9 was built. All three are about a session following `SKILL.md`, and nothing in
+this repository can check any of them: the document is prose an agent reads, and `./gradlew test`
+runs no session. Check 12 above is the headline one; these three are the parts of the same step that
+a session is most likely to get wrong.*
+
+19. A batch with no questions in it still gets **both** group headings, with `none` written under
+    "Questions to answer", rather than the group being dropped. Dropping it leaves the person unable
+    to tell "there were no questions" from "the questions were missed".
+20. Each bullet **quotes** the remark's own text. A session paraphrasing instead is the failure this
+    step exists to catch, and it is the one that will look fine — a paraphrase reads well and drops
+    the condition silently. Publish a remark carrying a condition ("rename this, but only in the
+    tests") and check the condition is still in the summary word for word.
+21. In listen mode the watcher is re-armed **before** the summary is written, not after. The summary
+    takes a while and the person is often still publishing while they read it. Check the re-arm Bash
+    call really goes out first, since a session may find writing the summary the more interesting of
+    the two.
 
 ## Post-Completion
 
