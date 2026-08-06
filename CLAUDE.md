@@ -499,16 +499,20 @@ that does not resolve, a source that moved since the page reported the selection
 half, with no `com.intellij` import: it takes plain values, drops an orphan, a remark about no file
 and a remark about another file, turns what is left into a character offset in the `.md` source, and
 writes a small JSON array of `{offset, kind}`. `preview/PreviewRemarkExtension.kt` pushes that array
-down the same pipe the page already posts selections up — once when the extension is created, so a
-preview opened on an annotated file highlights with no edit, and again on every `REMARKS_CHANGED`,
-with that subscription disconnected in `dispose` beside the pipe's own `removeSubscription`. The page
-marks the innermost element whose position range covers the offset, in one of two classes, a plain
-remark or a question still waiting, styled by `claude-remarks-preview.css`. The platform serves that
-file as an ordinary stylesheet because `MarkdownBrowserPreviewExtension` declares a `styles` list
-beside `scripts`. ⚠️ **The highlight can only ever be a whole element, never the exact words**, and a
-`MutationObserver` is what keeps it alive through a re-render. Both are argued in
-`docs/claude/design.md`, section "A Remark on the Rendered Preview", subsection "Highlighting what a
-remark points at, and why it is a whole element" — read it before changing either.
+down the same pipe the page already posts selections up, from three places: the page saying it is
+ready, every `REMARKS_CHANGED`, and a debounced source edit to the previewed file. Every one of those
+subscriptions is torn down in `dispose` beside the pipe's own `removeSubscription`. The page marks the
+innermost element whose position range covers the offset — walked up to the nearest block — in one of
+two classes, a plain remark or a question still waiting, styled by `claude-remarks-preview.css`. The
+platform serves that file as an ordinary stylesheet because `MarkdownBrowserPreviewExtension` declares
+a `styles` list beside `scripts`. ⚠️ **The first push must wait for the page's own `documentReady`
+message and must not be sent from `init`**: the extension is built before the browser starts loading
+the page, and `BrowserPipe.send` queues nothing, so an `init` push is lost every time. ⚠️ **The
+highlight can only ever be a whole element, never the exact words**, a `MutationObserver` is what keeps
+it alive through a re-render, and the re-push on a source edit is what keeps it *correct* through one —
+the observer can only re-apply offsets it was already given, and typing moves them. All of it is argued
+in `docs/claude/design.md`, section "A Remark on the Rendered Preview", subsection "Highlighting what a
+remark points at, and why it is a whole element" — read it before changing any of it.
 
 *The watcher can stream, it owns its seen nonce, and it can claim.* `watch-remarks.sh` has two shapes
 now and `--stream` picks between them. Without it the script behaves exactly as it always has: one
@@ -1115,7 +1119,8 @@ matches), and `PreviewHighlightsTest` (phase 14, the pure `highlightsFor` and `t
 becoming an offset, an unanswered question becoming the question kind, an answered question falling
 back to the plain kind, the three exclusions one test each — orphaned, about no file, about another
 file — several remarks each keeping their own offset, a start line past the end of the source being
-excluded rather than throwing, and the two `toJson` shapes) are plain JUnit tests with
+excluded rather than throwing, three tests on the column being clamped to its own line, and the two
+`toJson` shapes) are plain JUnit tests with
 no fixture, so they run in milliseconds. The rest
 need a light IDE fixture
 (`BasePlatformTestCase`, which needs `testFramework(TestFrameworkType.Platform)` in
@@ -1195,10 +1200,15 @@ diff-or-editor decision, since a light fixture project has no VCS root and every
 plain-editor branch), `PreviewSelectionServiceTest` (since phase 9, fixture-backed for the same
 reason: `remember`, `forget` and `current` on the project-level service that holds the preview's last
 selection), `PreviewRemarkExtensionTest` (phase 14, fixture-backed because the push resolves remarks
-against a real `Document`: an already-annotated file is highlighted as soon as the extension is
-created, a remark added afterwards pushes again, and `dispose` stops both. ⚠️ It fakes
-`MarkdownHtmlPanel` and `BrowserPipe` as plain Kotlin objects rather than treating the push as
-untestable, which is what makes the `REMARKS_CHANGED` leak testable at all), and
+against a real `Document`: nothing is pushed from the constructor, an already-annotated file is
+highlighted as soon as the page posts `documentReady`, that handler answers `true` so later
+subscribers still run, a remark added afterwards pushes again, typing in the source pushes again, an
+unanswered question pushes as a question and an answered one as a plain remark, and `dispose` stops
+all of it. ⚠️ It fakes `MarkdownHtmlPanel` and `BrowserPipe` as plain Kotlin objects rather than
+treating the push as untestable, which is what makes the `REMARKS_CHANGED` leak testable at all),
+`PreviewStoreTest` (phase 14, fixture-backed: what each preview entry point does with the typed text,
+which is the only place the two differ — Add Claude Remark stores a plain pending remark, Ask Claude
+marks it as asking and publishes it, and a second ask carries every question still waiting), and
 `RemarkStatusLookTest` (fixture-backed, because loading an icon
 needs the platform: the six rows of the two icon tracks as a decision table, plus one test on its own
 for a question that is `READ` with no answer getting the **yellow** icon. A seventh test asserting that

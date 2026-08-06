@@ -2035,20 +2035,64 @@ and the generator opens outer tags before inner ones, so among the elements whos
 offset the last one is the deepest. One query, one pass, keep the last match. No recursion and no DOM
 walk of our own.
 
+⚠️ **One query per push, not one per remark.** The page collects every positioned element and parses
+every range once per `applyHighlights` call, then resolves all the offsets against that one
+collection. `applyHighlights` runs from the `MutationObserver` on every DOM rebuild, which is every
+keystroke in the source, so a fresh `querySelectorAll` and a fresh attribute parse per remark would put
+work proportional to remarks times elements on the browser's UI thread for every character typed.
+`ScrollSync.js` caches its own collection the same way and for the same reason.
+
+⚠️ **The class goes on the nearest block, not on the element that matched.** Inside a paragraph the
+deepest match is not the `<p>`: `ParagraphGeneratingProvider` writes one `<span>` per **source line**
+inside a paragraph, each with its own range, so that span is what the offset lands in. The arithmetic
+is right, but a 3px left border on an inline box draws a vertical bar in the middle of running text
+instead of down the left edge of a block. So the page walks up from the match to the first ancestor
+whose computed `display` is not inline, which is the paragraph, the list item or the heading this
+document and `README.md` both promise. The walk stops at `document.body`, and falls back to the element
+it started from if it finds nothing — a highlight drawn slightly wrong beats none.
+
+⚠️ **The whole-document element is never marked.** The generator writes a range on the document's own
+root element too, spanning the entire file — `ScrollSync.js` reads exactly that element's second offset
+as the maximum offset in the page — and `IncrementalDOMBuilder` renders the generator's `<body>` as a
+plain `div`, so the root is an ordinary element *inside* `document.body` and the selection side's
+"stop at `document.body`" guard never sees it. Left alone it would win whenever nothing deeper matched:
+an offset on a blank line, in the gap between two blocks, or stale after the source moved, would put a
+background and a left border on the entire rendered document. The page discards any candidate whose
+range covers the whole source, so "matches nothing" stays a silent skip. That discard is skipped when
+nothing narrower exists on the page at all — a one-paragraph, one-line file has no root to tell apart,
+and dropping the match there would lose the only highlight it can draw.
+
 **An offset that matches nothing is a silent skip.** The source moves while a person types, and an
 offset from an older resolve can simply stop landing on anything. That is ordinary here, not a failure,
 so nothing is logged and nothing is reported.
+
+**The column is clamped to its own line.** `preview/PreviewHighlights.kt` turns a stored line and
+column into an offset by adding them, and a sub-line remark keeps the column it was written with while
+the line it sits on can get shorter. Bounded only against the whole source, that offset walks off the
+end of its line into the next block or into a blank gap and highlights something the remark has nothing
+to do with — which reads as a broken highlighter rather than as a remark whose words are gone. Clamped,
+the worst case is a highlight on the right block.
 
 **The re-render problem, and why the `MutationObserver` is not redundant.** The markdown plugin rebuilds
 the preview's DOM as the source is typed, through `IncrementalDOM.patch`. A class added by hand is gone
 the moment that patch next touches the element. So a highlight applied once would disappear on the next
 keystroke, and the feature would look broken while every push was correct.
 
-Two ways to fix that, and the choice was between them: the plugin re-pushes on every document change,
-or the page re-applies what it was last given. The page won. It keeps the state where it is used, it
-needs no extra listener on the plugin side, and it does not put a document listener on the EDT path for
-something cosmetic. The plugin still pushes when the extension is created and on every
-`REMARKS_CHANGED`; the observer only re-applies the last list it was handed.
+⚠️ **Both halves are needed, and they fix different things.** The observer re-applies the list the page
+already holds, which is what survives the DOM being rebuilt under a highlight that has not moved. It
+cannot fix a highlight whose offset is now wrong: typing above an annotated block shifts every position
+attribute after the insertion point, while the list the page holds was measured against the old text.
+A whole-line remark stores column 0, so its offset is exactly the block's own start — insert one
+character above it and the stale offset points at the newline between two blocks, which no element
+covers, and the highlight silently disappears. So the plugin re-pushes on a source edit as well, and
+the observer keeps doing what only it can do.
+
+The plugin therefore pushes from three places: the page saying it is ready, every `REMARKS_CHANGED`,
+and a source edit to the previewed file. The edit path is debounced, and that is not decoration:
+resolving every remark can cost a SHA-256 over every candidate position inside the 200-line search
+radius, which is the cost `editor/RemarkGutter.kt` avoids by never syncing on a keystroke at all. The
+debounce is a one-shot `javax.swing.Timer` restarted per event, the same shape the tool window's
+`rewrapTimer` uses for a resize.
 
 Two details of that observer are non-obvious, and both would break quietly if changed.
 
@@ -2066,11 +2110,33 @@ Two details of that observer are non-obvious, and both would break quietly if ch
 page posts selections up, under a second message type — `BrowserPipe.send` is the direction phase 14
 added, beside the `subscribe` phase 9 already used. It resolves the remarks inside a
 `ReadAction.nonBlocking`, because resolving reads a `Document`, and sends when that read finishes on the
-UI thread. It pushes once from `init`, so a preview opened on a file that is already annotated is
-highlighted with no edit at all, and again on every `REMARKS_CHANGED`. ⚠️ That subscription is
-disconnected in `dispose`, beside the pipe's own `removeSubscription`. A preview is created and
-destroyed as often as a person opens and closes one, and a listener left behind would push into a page
-that is gone, once more per reload, for the rest of the session.
+UI thread.
+
+⚠️ **The first push waits for the page to say it is ready, and pushing from `init` does not work.**
+This is the one a future session will be tempted to "simplify" back. `MarkdownJCEFHtmlPanel`'s
+`loadIndexContent` is `reloadExtensions()` and then `waitForPageLoad(pageUrl)`, and `waitForPageLoad`
+is what actually navigates the browser. So this extension — and anything its constructor does — runs
+strictly before the page carrying the script starts loading. `BrowserPipe.send` queues nothing: it runs
+`executeJavaScript` against whatever document is current, which at that moment has no subscriber for
+the highlights message and often no `__IntelliJTools` at all. A push from `init` is lost every time,
+and nothing recovers it, because the observer can only re-apply a list it was already given — so a
+preview opened on an annotated file showed nothing until some unrelated `REMARKS_CHANGED` fired.
+
+What it waits for instead is the pipe's own ready message. `JcefBrowserPipeImpl.WINDOW_READY_EVENT` is
+the literal string `documentReady`, and `BrowserPipe.js` posts it from a listener on the `IdeReady`
+event that class dispatches at the end of its own injection, which is after the page has loaded. The
+constant is not visible from here — it is a module-private member of the markdown plugin — so the
+string is written out with the file it came from named beside it. ⚠️ That handler returns **true**,
+unlike the selection handler: `JcefBrowserPipeImpl.callSubscribers` walks its subscribers with
+`takeWhile`, and this message type belongs to the platform, so swallowing it would stop every later
+subscriber.
+
+⚠️ Three subscriptions are torn down in `dispose`: the pipe's two `removeSubscription` calls, the
+message bus connection, and the document listener with its timer. A preview is created and destroyed as
+often as a person opens and closes one. A pipe or bus listener left behind would push into a page that
+is gone, once more per reload, for the rest of the session; the document listener is worse, because it
+sits on `EditorFactory`'s application-wide multicaster and would keep firing for every edit of that
+file in every later preview of it.
 
 **The pure half is a file of its own.** `preview/PreviewHighlights.kt` decides which remarks belong on
 the page and where each one starts, and it has no `com.intellij` import — it takes plain values through

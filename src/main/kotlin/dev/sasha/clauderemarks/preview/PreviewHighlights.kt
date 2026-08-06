@@ -56,10 +56,11 @@ data class HighlightCandidate(
  * What survives is turned into a raw character offset in [source] by summing line lengths up to
  * [HighlightCandidate.startLine] and adding [HighlightCandidate.startColumn] — the same offset
  * `md-src-pos` is written in, which is why the page can search for it directly with no further
- * translation. A [HighlightCandidate.startLine] or resulting offset outside [source] is dropped
- * rather than thrown: the source may have moved since the remark was resolved, and a highlight
- * pointing nowhere is the ordinary case here, not a bug — the caller does not need to tell it apart
- * from any other exclusion.
+ * translation. The column is clamped to the end of its own line, so a remark whose line got shorter
+ * points at the end of that line rather than somewhere in the next block. A
+ * [HighlightCandidate.startLine] or resulting offset outside [source] is dropped rather than thrown:
+ * the source may have moved since the remark was resolved, and a highlight pointing nowhere is the
+ * ordinary case here, not a bug — the caller does not need to tell it apart from any other exclusion.
  */
 fun highlightsFor(
     candidates: List<HighlightCandidate>,
@@ -80,12 +81,28 @@ private fun highlightFor(
     if (candidate.path.isNullOrEmpty()) return null
     if (candidate.path != previewedPath) return null
     if (candidate.startLine !in lineStarts.indices) return null
+    if (candidate.startColumn < 0) return null
 
-    val offset = lineStarts[candidate.startLine] + candidate.startColumn
+    // Clamped to the end of its OWN line, not only to the end of the source. A sub-line remark keeps
+    // the column it was written with, and the line it sits on may have got shorter since. Without the
+    // clamp the offset walks off the end of that line into the next block, or into a blank gap, and
+    // highlights an element the remark has nothing to do with — which looks like a bug in the
+    // highlighting rather than like a remark whose words are gone.
+    val lineStart = lineStarts[candidate.startLine]
+    val lineEnd = lineEndOffset(candidate.startLine, lineStarts, sourceLength)
+    val offset = minOf(lineStart + candidate.startColumn, lineEnd)
     if (offset !in 0..sourceLength) return null
 
     return PreviewHighlight(offset, candidate.asksForAnswer && !candidate.hasAnswer)
 }
+
+/**
+ * Where [line] ends, not counting its own newline: the next line's start minus one, or the end of the
+ * source for the last line. Equal to the line's start for an empty line, which is what keeps a
+ * whole-line remark on a blank line pointing at the blank line rather than at the line below it.
+ */
+private fun lineEndOffset(line: Int, lineStarts: List<Int>, sourceLength: Int): Int =
+    if (line + 1 < lineStarts.size) lineStarts[line + 1] - 1 else sourceLength
 
 /** The character offset each line of [source] starts at, index 0 first. Always at least one entry. */
 private fun lineStartOffsets(source: String): List<Int> {

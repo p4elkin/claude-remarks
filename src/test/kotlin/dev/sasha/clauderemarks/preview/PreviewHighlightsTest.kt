@@ -111,6 +111,41 @@ class PreviewHighlightsTest {
         assertTrue(highlights.isEmpty())
     }
 
+    /**
+     * A sub-line remark keeps the column it was written with, and the line it sits on can get
+     * shorter. Bounded only against the whole source, the offset would run past the end of its own
+     * line into the next block and highlight an element the remark has nothing to do with.
+     */
+    @Test
+    fun `a column past the end of its own line is clamped to that line, not carried into the next`() {
+        val source = "ab\nsecond line\n"
+
+        val highlights = highlightsFor(listOf(candidate(startLine = 0, startColumn = 9)), previewedPath, source)
+
+        // Offset 2 is the end of line 0. Unclamped it would have been 9, inside "second line".
+        assertEquals(listOf(PreviewHighlight(sourceStartOffset = 2, isUnansweredQuestion = false)), highlights)
+    }
+
+    /** The last line has no newline after it, so its end is the end of the source. */
+    @Test
+    fun `a column past the end of the last line is clamped to the end of the source`() {
+        val source = "one\ntwo"
+
+        val highlights = highlightsFor(listOf(candidate(startLine = 1, startColumn = 40)), previewedPath, source)
+
+        assertEquals(listOf(PreviewHighlight(sourceStartOffset = 7, isUnansweredQuestion = false)), highlights)
+    }
+
+    /** A blank line clamps to itself, not to the first character of the line below it. */
+    @Test
+    fun `a column on a blank line stays on the blank line`() {
+        val source = "one\n\nthree\n"
+
+        val highlights = highlightsFor(listOf(candidate(startLine = 1, startColumn = 4)), previewedPath, source)
+
+        assertEquals(listOf(PreviewHighlight(sourceStartOffset = 4, isUnansweredQuestion = false)), highlights)
+    }
+
     @Test
     fun `toJson writes offset and kind for each highlight, in order`() {
         val json = toJson(

@@ -14,10 +14,11 @@
 // order. See the PreviewSelection KDoc on the IDE side for why they are still posted.
 //
 // It also carries messages the other way (phase 14): the IDE pushes which remarks exist for this
-// file as a JSON array of {offset, kind}, and this script marks the innermost element that starts at
-// each offset. See preview/PreviewRemarkExtension.kt's HIGHLIGHTS_MESSAGE_TYPE KDoc for the exact
-// shape, and PreviewHighlights.kt for why the highlight can only ever be element-granular, never
-// character-exact: md-src-pos holds source offsets, and rendered text is not source text.
+// file as a JSON array of {offset, kind}, and this script marks the innermost element covering each
+// offset — walked up to the nearest block, because inside a paragraph the innermost element is a
+// per-source-line span. See preview/PreviewRemarkExtension.kt's HIGHLIGHTS_MESSAGE_TYPE KDoc for the
+// exact shape, and PreviewHighlights.kt for why the highlight can only ever be element-granular,
+// never character-exact: md-src-pos holds source offsets, and rendered text is not source text.
 (function () {
   "use strict";
 
@@ -140,24 +141,98 @@
   // patch next touches the element, whether or not the element's own content actually changed.
   let lastHighlights = null;
 
+  // Every element on the page that carries a position range, with its range already parsed, plus
+  // whether the page holds anything narrower than the whole source.
+  //
+  // Collected ONCE per applyHighlights call, not once per highlight. applyHighlights runs from the
+  // MutationObserver on every DOM rebuild, which is every keystroke in the source, so a fresh
+  // querySelectorAll and a fresh attribute parse per remark would be O(remarks x elements) of string
+  // work on the browser's UI thread per keystroke. ui/preview/jcef/ScrollSync.js caches its own
+  // collection the same way and for the same reason.
+  function positionedElements() {
+    const found = document.querySelectorAll("[" + positionAttributeName + "]");
+    const entries = [];
+    let widestFrom = null;
+    let widestTo = null;
+    for (let i = 0; i < found.length; i++) {
+      const range = positionRangeOf(found[i]);
+      if (!range) {
+        continue;
+      }
+      entries.push({ element: found[i], from: range.from, to: range.to });
+      if (widestFrom === null || range.from < widestFrom) {
+        widestFrom = range.from;
+      }
+      if (widestTo === null || range.to > widestTo) {
+        widestTo = range.to;
+      }
+    }
+    // Whether anything on the page is narrower than the whole source. See coversWholeSource below.
+    const hasNarrower = entries.some(function (entry) {
+      return entry.from > widestFrom || entry.to < widestTo;
+    });
+    return { entries: entries, from: widestFrom, to: widestTo, hasNarrower: hasNarrower };
+  }
+
+  // Whether this element's range covers the whole rendered source.
+  //
+  // The markdown generator writes a range on the document's own root element too, spanning the entire
+  // file — ScrollSync.js reads exactly that element's second offset as the maximum offset in the page,
+  // and IncrementalDOMBuilder renders the generator's <body> as a plain div, so the root is an
+  // ordinary element INSIDE document.body and the selection side's "stop at document.body" guard never
+  // sees it. Marking it puts a background and a left border on the entire rendered document, which is
+  // what happened whenever an offset landed where no block covers it: a blank line, the gap between two
+  // blocks, or a stale offset after the source moved.
+  //
+  // Only discarded when the page has something narrower to offer. A document whose every element spans
+  // the whole file — one paragraph, one line, no trailing newline — has no root to tell apart, and
+  // dropping the match there would lose the only highlight it can draw.
+  function coversWholeSource(entry, positioned) {
+    return positioned.hasNarrower && entry.from <= positioned.from && entry.to >= positioned.to;
+  }
+
   // The innermost element whose position range contains offset, or null when none does — an ordinary
   // outcome, not an error, since the source moves as a person edits and an offset from an older
   // resolve can simply no longer land on anything.
   //
   // querySelectorAll returns elements in document order, and the generator that writes the position
   // attribute opens outer tags before inner ones. So among the elements whose range contains offset,
-  // the LAST one in that order is the deepest — no recursion and no DOM walk of our own, one query and
-  // one pass, keeping the last match standing.
-  function elementForOffset(offset) {
-    const candidates = document.querySelectorAll("[" + positionAttributeName + "]");
+  // the LAST one in that order is the deepest — no recursion and no DOM walk of our own, one pass over
+  // the collection above, keeping the last match standing.
+  function elementForOffset(offset, positioned) {
     let innermost = null;
-    for (let i = 0; i < candidates.length; i++) {
-      const range = positionRangeOf(candidates[i]);
-      if (range && offset >= range.from && offset < range.to) {
-        innermost = candidates[i];
+    for (let i = 0; i < positioned.entries.length; i++) {
+      const entry = positioned.entries[i];
+      if (offset >= entry.from && offset < entry.to && !coversWholeSource(entry, positioned)) {
+        innermost = entry.element;
       }
     }
     return innermost;
+  }
+
+  // The nearest block-level element at or above the given one.
+  //
+  // The innermost match inside a paragraph is NOT the <p>. The markdown plugin's
+  // ParagraphGeneratingProvider writes one <span> per SOURCE LINE inside a paragraph, each carrying its
+  // own position range, so the deepest element covering a remark's offset is usually that inline span.
+  // The offset arithmetic still lands on the right words, but a 3px left border on an inline box draws
+  // a vertical bar in the middle of running text instead of down the left edge of a block, and both
+  // README.md and docs/claude/design.md describe the unit as the paragraph, the list item or the
+  // heading. So the class goes on the nearest ancestor that is actually a block.
+  //
+  // The walk stops at document.body for the same reason the selection walk does, and falls back to the
+  // element it started from when it finds nothing — a highlight drawn slightly wrong is better than
+  // none at all.
+  function nearestBlock(element) {
+    let current = element;
+    while (current && current !== document.body) {
+      const display = window.getComputedStyle(current).display;
+      if (display && !display.startsWith("inline") && display !== "contents") {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return element;
   }
 
   function clearHighlightClasses() {
@@ -171,12 +246,16 @@
 
   function applyHighlights(highlights) {
     clearHighlightClasses();
+    if (highlights.length === 0) {
+      return;
+    }
+    const positioned = positionedElements();
     highlights.forEach(function (highlight) {
-      const element = elementForOffset(highlight.offset);
+      const element = elementForOffset(highlight.offset, positioned);
       if (!element) {
         return; // the source moved since this offset was resolved; silent, not an error
       }
-      element.classList.add(highlight.kind === "question" ? QUESTION_CLASS : REMARK_CLASS);
+      nearestBlock(element).classList.add(highlight.kind === "question" ? QUESTION_CLASS : REMARK_CLASS);
     });
   }
 

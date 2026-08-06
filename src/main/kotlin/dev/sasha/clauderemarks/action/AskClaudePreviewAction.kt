@@ -3,6 +3,7 @@ package dev.sasha.clauderemarks.action
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.project.Project
 
 private const val ASK_PREVIEW_HINT =
     "Ask Claude about the words selected in the rendered preview and get the answer back on the line"
@@ -35,7 +36,31 @@ class AskClaudePreviewAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         openPreviewRemarkInput(project, e, "Ask Claude About These Words") { p, path, lines, range, columns, typed ->
-            askClaude(p, path, lines, range, columns, typed)
+            askClaudeFromPreview(p, path, lines, range, columns, typed)
         }
     }
+}
+
+/**
+ * What this action does with the typed text, and the whole of what it does differently from
+ * [AddPreviewRemarkAction]: the remark goes through [askClaude], which stores it marked as asking for
+ * an answer and then publishes every question still waiting for one, this new one included.
+ *
+ * A named function rather than a lambda inside [AskClaudePreviewAction.actionPerformed], and with the
+ * publish as a parameter, for exactly the reasons [askClaude]'s own KDoc gives: the input popup needs
+ * a window, so a lambda on the far side of it is unreachable from a test, and the real publish
+ * pipeline is deliberately not driven from one. What a test can then pin is that this entry point
+ * calls [askClaude] at all — which is the single behaviour that makes it Ask Claude and not Add Claude
+ * Remark.
+ */
+internal fun askClaudeFromPreview(
+    project: Project,
+    path: String,
+    lines: List<String>,
+    range: IntRange,
+    columns: Pair<Int, Int>,
+    typed: String,
+    publish: (Project, Collection<String>) -> Unit = ::publishRemarks,
+) {
+    askClaude(project, path, lines, range, columns, typed, publish)
 }

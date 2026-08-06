@@ -662,7 +662,7 @@ token on stdin through `curl --config -`, and the response's `content` is the ba
 | outcome | what it means | what to do |
 |---|---|---|
 | `ok` | nobody had claimed that batch, and now this watcher has | genuine unhandled work. Act on it, through every step below |
-| `already-read <session>` | another session got there first, and the word after it names that session | name the session that holds it, act on nothing, and keep listening. Do not read the batch and do not answer its marked remarks |
+| `already-read <session>` | another session got there first, and the word after it names that session | name the session that holds it, act on nothing, and keep listening. Do not read the batch and do not answer its marked remarks. ⚠️ Unless the name is a session id **this** session used earlier — see the exit-143 bullet below, where that is unhandled work |
 | `unknown-batch` | the IDE does not remember this batch — it fell off the remembered sixteen, or the IDE restarted since it was published | act on it, and **say plainly that it may already have been done** rather than presenting it as fresh |
 | `claim-failed <status>` | the IDE answered and disagreed about the request itself: `unknown-project`, `bad-request`, or no status field at all | act on the batch, and say the claim was refused for that reason |
 | `claim-failed http <code>` | the claim never reached the IDE. `403` is a stale token; `000` is a connection never made — the IDE is not running, or the tunnel is down | act on the batch, and say the token or the tunnel is the likely reason |
@@ -672,7 +672,9 @@ somebody else's, and anything else means nobody confirmed anything — so act on
 twice is recoverable, because the second claimer is told `already-read` and can see it. A batch
 nobody handles is not recoverable at all, and it is the failure this whole design exists to remove.
 
-**Then, in this order, for every line except an `already-read` one.**
+**Then, in this order, for every line except an `already-read` one that names another session.** An
+`already-read` naming an id this session used earlier is handled as if it said `ok` — see the
+exit-143 bullet below.
 
 - **Read the batch**, from the path on the line or through the `fetch` above. ⚠️ **Check line 2's
   nonce against field 1 of the line that woke this session.** The published file is overwritten by
@@ -702,6 +704,17 @@ nobody handles is not recoverable at all, and it is the failure this whole desig
   which any kill produces — a harness restart, a machine going to sleep, a stray `kill`. Nothing
   arrived and nothing is owed, so acknowledge nothing. Say in one line that the watcher was killed,
   then arm **one** fresh monitor, exactly as at the start, and go on listening.
+
+  ⚠️ **Keep the session id the old setup block printed, and write it down in the reply.** The fresh
+  setup block mints a new one. The kill can land in the gap between the old watcher's claim reaching
+  the IDE and its line reaching this session: the batch is then marked read in the IDE under the old
+  session id while nobody has seen a word of it. The fresh watcher finds that same batch still
+  pending in the file, claims it, and is answered `already-read <the old session id>`.
+
+  **An `already-read` naming an id this session used earlier is unhandled work, not somebody
+  else's.** Act on that batch exactly as if the word had been `ok`, and say plainly that the claim
+  came back naming this session's own earlier id. `already-read` means "act on nothing" only when the
+  id it names belongs to a different session.
 - **Exit 3 cannot arrive**, because this branch passes no `--owner`.
 
 ### The exit-per-batch branch: one watcher per batch
@@ -1158,16 +1171,33 @@ read either as the watcher's wherever it sees it.
 ## The watcher script
 
 `watch-remarks.sh`, beside this file, is what listen mode waits with instead of polling inline.
-The reason is the mechanic every long wait in this skill runs into: a foreground Bash call is
-capped at ten minutes, but a **background** command has no such cap, keeps running across turns,
-and re-invokes this session when it **exits**. So the watcher has to exit on its own event and must
-never loop forever — a background command that never exits never notifies, and the session waits
-for a signal that cannot arrive. Launch it with a background Bash call, never a foreground one, and
-read what it printed once it exits.
+
+⚠️ **Everything in this section describes the exit-per-batch branch of listen mode. The monitor
+branch does the opposite of most of it**, on purpose, and says so at its own place above. Read the
+branch you are in, not this section, when the two disagree. In one table:
+
+| | exit-per-batch branch | monitor branch |
+|---|---|---|
+| how it is launched | a background Bash call | the `Monitor` tool, `persistent: true` |
+| the `perl … setsid` wrapper | required | must not be used |
+| `--owner` | required, set to `$PPID` | not passed at all |
+| how a batch arrives | the script exits and this session reads its stdout | the script prints one line and keeps running |
+
+**In the exit-per-batch branch the watcher has to exit on its own event and must never loop
+forever.** The reason is the mechanic every long wait in this skill runs into: a foreground Bash call
+is capped at ten minutes, but a **background** command has no such cap, keeps running across turns,
+and re-invokes this session when it **exits**. A background command that never exits never notifies,
+and the session waits for a signal that cannot arrive. So launch it with a background Bash call,
+never a foreground one, and read what it printed once it exits. The monitor branch is not bound by
+any of that: a `Monitor` reports every line the process prints while it is still running, so there
+the watcher runs with `--stream` and deliberately does not exit.
 
 ### Launching it, and why the `perl` line is there
 
-Every launch line in this file has this shape, and the `perl` in front of the script is load-bearing:
+**This applies to the exit-per-batch branch only.** Every launch line in that branch has this shape,
+and the `perl` in front of the script is load-bearing. ⚠️ The monitor branch's launch line has no
+`perl` and no `setsid`: the monitor owns the process, and `setsid` would put the watcher out of the
+monitor's reach, so the wrapper would cost exactly the thing it is meant to protect.
 
 ```
 perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '<skill dir>/watch-remarks.sh' <flags…>
@@ -1209,7 +1239,9 @@ it first looks: it catches a batch, writes it to a file nobody reads and exits, 
 read, because the *session* claims a batch and the watcher never does. What it does cost is the pid
 file. The orphan holds it, so a person stopping "the watcher" for that repository stops the orphan
 and leaves the live one running, and something looks like it is listening when nothing is. So every
-launch line passes `--owner`, and the watcher stops on its own when its session is gone.
+exit-per-batch launch line passes `--owner`, and the watcher stops on its own when its session is
+gone. ⚠️ The monitor branch passes none, and needs none: nothing detached it in the first place, so
+the watcher is the monitor's own child and stops when the monitor stops.
 
 **`--owner` is passed `$PPID`, never `$$`.** `$$` is the Bash call's own shell, and that shell exits
 as soon as the block printing the launch line finishes — a watcher owning it would exit on its first
@@ -1263,9 +1295,11 @@ watch-remarks.sh --fetch <base_url> --project <path>
 - `--poll <seconds>` is for hand runs and the by-hand checks only. Nothing in this file passes it;
   both defaults above are chosen inside the script. It is kept because a deadline check that had to
   wait the real 2 or 5 seconds per poll would take too long to run by hand.
-- `--owner <pid>` names the process the watcher belongs to. Every launch line in this file passes it,
-  set to `$PPID` — see "Launching it, and why the `perl` line is there" just above for what that is
-  and why the watcher would otherwise outlive the session. The loop tests it with `kill -0` once per
+- `--owner <pid>` names the process the watcher belongs to. Every exit-per-batch launch line passes
+  it, set to `$PPID` — see "Launching it, and why the `perl` line is there" just above for what that
+  is and why the watcher would otherwise outlive the session. ⚠️ The monitor branch passes no
+  `--owner` at all; a wrong pid there would end the watch on its first poll, which is the only thing
+  passing it could still do. The loop tests it with `kill -0` once per
   poll, beside the deadline check, and exits `3` when it is gone. Optional: with no `--owner` the
   script behaves exactly as it did before this flag existed. Validated the way `--deadline` is —
   a non-numeric value, an empty one and zero are all refused with exit `2`. Zero has a reason of its

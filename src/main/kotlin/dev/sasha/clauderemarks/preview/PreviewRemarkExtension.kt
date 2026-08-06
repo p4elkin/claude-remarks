@@ -3,8 +3,12 @@ package dev.sasha.clauderemarks.preview
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.invokeLater
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.event.DocumentEvent
+import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.messages.MessageBusConnection
@@ -18,6 +22,7 @@ import org.intellij.plugins.markdown.extensions.MarkdownBrowserPreviewExtension
 import org.intellij.plugins.markdown.ui.preview.BrowserPipe
 import org.intellij.plugins.markdown.ui.preview.MarkdownHtmlPanel
 import org.intellij.plugins.markdown.ui.preview.ResourceProvider
+import javax.swing.Timer
 
 /** The message type both halves agree on. The script posts it, this file subscribes to it. This
  *  one travels UP: the page's own selectionchange listener posts it. */
@@ -29,6 +34,40 @@ private const val SELECTION_MESSAGE_TYPE = "claude-remarks/selection"
  * file might have changed. The page's own subscribe side lives in `claude-remarks-preview.js`.
  */
 private const val HIGHLIGHTS_MESSAGE_TYPE = "claude-remarks/highlights"
+
+/**
+ * The message the **page itself** posts once it is ready to receive anything, and the only safe
+ * moment to send the first [HIGHLIGHTS_MESSAGE_TYPE] push.
+ *
+ * The literal is the platform's own, checked in the checkout rather than recalled: it is the value of
+ * `JcefBrowserPipeImpl.WINDOW_READY_EVENT` (`~/dev/oss/intellij-community/plugins/markdown/core/src/
+ * org/intellij/plugins/markdown/ui/preview/jcef/impl/JcefBrowserPipeImpl.kt`), and
+ * `ui/preview/jcef/BrowserPipe.js` posts it from a listener on the `IdeReady` event the same class
+ * dispatches at the end of its own injection. The constant itself is not visible from here — it is a
+ * `private`-module member of the markdown plugin — so the string is written out.
+ *
+ * **Why this exists at all.** `MarkdownJCEFHtmlPanel.loadIndexContent` is `reloadExtensions()` and
+ * then `waitForPageLoad(pageUrl)`, and `waitForPageLoad` is what actually navigates the browser. So
+ * this class — and anything its constructor does — runs strictly *before* the page carrying
+ * `claude-remarks-preview.js` starts loading. `BrowserPipe.send` queues nothing: it runs
+ * `executeJavaScript` against whatever document is current, which at that moment has no subscriber
+ * for [HIGHLIGHTS_MESSAGE_TYPE], and often no `__IntelliJTools` at all. A push from `init` is
+ * therefore lost every time, and nothing recovers it — the page's own `MutationObserver` can only
+ * re-apply a list it was already given. Waiting for this message is what makes a preview opened on an
+ * already-annotated file highlight at all.
+ */
+private const val PAGE_READY_MESSAGE_TYPE = "documentReady"
+
+/**
+ * How long typing has to stop before the highlights are computed and pushed again.
+ *
+ * A re-push per keystroke would resolve every remark in the project on every character, and resolving
+ * can cost a SHA-256 over every candidate position inside the 200-line search radius — the very cost
+ * `editor/RemarkGutter.kt` avoids by never syncing on a keystroke at all. A quarter of a second of
+ * quiet is far below what a person notices on a highlight and far above the gap between two
+ * keystrokes.
+ */
+private const val REPUSH_DELAY_MS = 250
 
 /**
  * The script's name, which is three things at once: the resource loaded from this plugin's own jar,
@@ -82,9 +121,23 @@ private const val CSS_NAME = "claude-remarks-preview.css"
  * script by name, and serves the bytes from its own `ResourceProvider`.
  */
 internal class PreviewRemarkExtension(
-    private val panel: MarkdownHtmlPanel,
+    panel: MarkdownHtmlPanel,
     private val browserPipe: BrowserPipe,
 ) : MarkdownBrowserPreviewExtension, ResourceProvider {
+
+    /**
+     * The project and the file this preview is showing, read once instead of on every use.
+     *
+     * `MarkdownJCEFHtmlPanel` takes both in its own constructor and holds them for its whole life, so
+     * neither can change under this extension. Reading them once also keeps the number of calls into
+     * `MarkdownHtmlPanel`'s three `@ApiStatus.Experimental` getters down to one each, which is what
+     * `build.gradle.kts` subtracts `EXPERIMENTAL_API_USAGES` for.
+     *
+     * Both are null in the Compose preview renderer, whose panel carries neither. There is then
+     * nothing to push and nothing to listen to.
+     */
+    private val previewedProject: Project? = panel.project
+    private val previewedFile: VirtualFile? = panel.virtualFile
 
     private val handler = object : BrowserPipe.Handler {
         override fun processMessageReceived(data: String): Boolean {
@@ -92,6 +145,21 @@ internal class PreviewRemarkExtension(
             // False stops the pipe from offering this message to any later subscriber. Nothing else
             // subscribes to this type — it names this plugin — so the value only says "handled".
             return false
+        }
+    }
+
+    /**
+     * Pushes the first list of highlights the moment the page says it can receive one. See
+     * [PAGE_READY_MESSAGE_TYPE] for why nothing sent before this point ever arrives.
+     */
+    private val pageReadyHandler = object : BrowserPipe.Handler {
+        override fun processMessageReceived(data: String): Boolean {
+            pushHighlights()
+            // True, unlike [handler] above, and the difference matters.
+            // `JcefBrowserPipeImpl.callSubscribers` walks its subscribers with `takeWhile`, so a
+            // false here would stop every later subscriber for this type. This type belongs to the
+            // platform, not to this plugin, so it is not this plugin's to swallow.
+            return true
         }
     }
 
@@ -105,15 +173,54 @@ internal class PreviewRemarkExtension(
      */
     private var messageBusConnection: MessageBusConnection? = null
 
+    /**
+     * The debounce in front of [pushHighlights] for a source edit, the same one-shot
+     * `javax.swing.Timer` restarted per event that `ui/RemarksToolWindowFactory.kt`'s `rewrapTimer`
+     * uses for a resize. Typing produces a burst of events and only the last one is worth acting on.
+     */
+    private val repushTimer = Timer(REPUSH_DELAY_MS) { pushHighlights() }.apply { isRepeats = false }
+
+    /**
+     * Owns the document listener below, so [dispose] can drop it with one call. Unparented, and
+     * disposed by hand, for the same reason [messageBusConnection] is: this class tears every
+     * subscription down itself rather than resting on a `Disposer` parent it does not control.
+     *
+     * The listener is registered on `EditorFactory`'s multicaster rather than on the previewed
+     * file's own `Document`, because getting that `Document` needs a read action and this
+     * constructor has no guarantee of one. The multicaster's disposable-taking overload is the only
+     * one that is not deprecated.
+     */
+    private val documentListenerOwner = Disposer.newDisposable("claude-remarks preview highlights")
+
+    /**
+     * Re-pushes the highlights after an edit to the previewed source, debounced by [repushTimer].
+     *
+     * Without this the highlights are silently wrong the moment a person types above an annotated
+     * block. The preview regenerates its HTML from the new source on every keystroke, so every
+     * `md-src-pos` after the insertion point shifts, while the offsets the page was last given were
+     * measured against the old text. A whole-line remark stores column 0, so its offset is exactly
+     * the block's own start: insert one character above it and the stale offset points at the
+     * newline between two blocks, which no element covers, and the highlight disappears until some
+     * unrelated `REMARKS_CHANGED` fires.
+     */
+    private val documentListener = object : DocumentListener {
+        override fun documentChanged(event: DocumentEvent) {
+            if (previewedFile == null) return
+            if (FileDocumentManager.getInstance().getFile(event.document) != previewedFile) return
+            repushTimer.restart()
+        }
+    }
+
     init {
         browserPipe.subscribe(SELECTION_MESSAGE_TYPE, handler)
-        messageBusConnection = panel.project?.messageBus?.connect()?.also {
+        browserPipe.subscribe(PAGE_READY_MESSAGE_TYPE, pageReadyHandler)
+        messageBusConnection = previewedProject?.messageBus?.connect()?.also {
             it.subscribe(REMARKS_CHANGED, RemarksListener { pushHighlights() })
         }
-        // Pushed once here too, not only from the REMARKS_CHANGED subscription above: a preview
-        // opened on a file that already carries remarks must highlight them immediately, without
-        // waiting for an edit that would fire the topic.
-        pushHighlights()
+        EditorFactory.getInstance().eventMulticaster
+            .addDocumentListener(documentListener, documentListenerOwner)
+        // Nothing is pushed from here. The page does not exist yet — see PAGE_READY_MESSAGE_TYPE —
+        // so a push here would be sent into a document with no subscriber and simply vanish.
     }
 
     /**
@@ -135,8 +242,8 @@ internal class PreviewRemarkExtension(
      * catches a source edited between the page reporting a selection and the person right-clicking.
      */
     private fun receive(data: String) {
-        val project = panel.project ?: return
-        val file = panel.virtualFile ?: return
+        val project = previewedProject ?: return
+        val file = previewedFile ?: return
         val selection = parseSelectionMessage(data)
         invokeLater {
             if (project.isDisposed) return@invokeLater
@@ -156,13 +263,14 @@ internal class PreviewRemarkExtension(
      * [computeHighlights] resolves remarks against a real `Document`, which
      * `store/RemarkResolver.kt` requires a read action for.
      *
-     * Called once from [init] and again every time [REMARKS_CHANGED] fires. A project already
+     * Called from three places: the page saying it is ready ([PAGE_READY_MESSAGE_TYPE]), every
+     * [REMARKS_CHANGED], and [repushTimer] after the source stopped changing. A project already
      * disposed by the time the read action finishes sends nothing, rather than pushing into a
      * pipe whose panel may already be gone.
      */
     private fun pushHighlights() {
-        val project = panel.project ?: return
-        val file = panel.virtualFile ?: return
+        val project = previewedProject ?: return
+        val file = previewedFile ?: return
         ReadAction.nonBlocking<List<PreviewHighlight>> { computeHighlights(project, file) }
             .expireWith(this)
             .coalesceBy(this, file)
@@ -234,14 +342,20 @@ internal class PreviewRemarkExtension(
      */
     override fun dispose() {
         browserPipe.removeSubscription(SELECTION_MESSAGE_TYPE, handler)
+        browserPipe.removeSubscription(PAGE_READY_MESSAGE_TYPE, pageReadyHandler)
         // Beside the removeSubscription above, on purpose: this extension is created and
         // destroyed as often as a preview is, and a subscription left behind here would
         // accumulate one dead REMARKS_CHANGED listener per reload, each still trying to push into
-        // a pipe whose page may already be gone — the leak this checkbox exists to close.
+        // a pipe whose page may already be gone — the leak this checkbox exists to close. The
+        // document listener and its timer are the same leak in a second shape: the multicaster is
+        // application-wide, so one left behind would keep firing for every edit of the file in
+        // every later preview of it.
         messageBusConnection?.disconnect()
-        val project = panel.project ?: return
+        repushTimer.stop()
+        Disposer.dispose(documentListenerOwner)
+        val project = previewedProject ?: return
         if (project.isDisposed) return
-        val file = panel.virtualFile ?: return
+        val file = previewedFile ?: return
         PreviewSelectionService.getInstance(project).forgetSelectionIn(file.url)
     }
 

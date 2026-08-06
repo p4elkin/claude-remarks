@@ -114,12 +114,33 @@ class AddPreviewRemarkAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         openPreviewRemarkInput(project, e, "Add Claude Remark") { p, path, lines, range, columns, typed ->
-            addRemark(
-                p, path, lines, range, typed,
-                startColumn = columns.first, endColumn = columns.second,
-            )
+            addRemarkFromPreview(p, path, lines, range, columns, typed)
         }
     }
+}
+
+/**
+ * What this action does with the typed text: store an ordinary remark and stop there. It is one half
+ * of the only difference between the two preview entry points — the other half is
+ * `action/AskClaudePreviewAction.kt`'s `askClaudeFromPreview`, which stores a question and publishes.
+ *
+ * A named function rather than a lambda inside [AddPreviewRemarkAction.actionPerformed], for the same
+ * reason [askClaude] is one in the editor: showing the input popup needs a window, so a test can
+ * never reach a lambda that lives on the far side of it. Everything before this point —
+ * the refusals, the line and column arithmetic — is [openPreviewRemarkInput]'s and is shared.
+ */
+internal fun addRemarkFromPreview(
+    project: Project,
+    path: String,
+    lines: List<String>,
+    range: IntRange,
+    columns: Pair<Int, Int>,
+    typed: String,
+) {
+    addRemark(
+        project, path, lines, range, typed,
+        startColumn = columns.first, endColumn = columns.second,
+    )
 }
 
 /**
