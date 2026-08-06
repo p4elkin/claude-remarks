@@ -3,16 +3,16 @@
 This project builds a plugin for IntelliJ that lets you mark up code with remarks while reading,
 then turn them all into one prompt for a Claude Code session.
 
-Phases 1-12 are implemented and covered by unit tests. Phase 12 (review mode is retired whole; the one
-useful piece of it becomes its own endpoint action, `open`; an answer nests under the question it
-answers instead of sitting in a flat group at the top; and the icon column carries two facts instead of
-one, so a question draws a coloured question mark while a plain remark draws a note and then two ticks)
-is complete, including the version bump to `0.9.0` and this final documentation sweep.
+Phases 1-13 are implemented and covered by unit tests. Phase 13 (the tool window is rebuilt: buckets
+are deleted whole, the tree splits into Open and Done, rows wrap to three lines instead of being
+cropped, the position moves below the text as one grey line, and the trailing `read`/`published` words
+go) is complete, including the version bump to `0.10.0` and this final documentation sweep.
 
 ⚠️ **Read the phase paragraphs below as history, not as a feature list.** Phases 6, 7, 8 and 10 each
-built part of a waiting review, and phase 12 deleted it. Each of those paragraphs now says what its
-phase built and what became of it. What the plugin does *today* is in "What the plugin does" below and
-in the phase 12 paragraph.
+built part of a waiting review, and phase 12 deleted it. Phase 5 built buckets and phase 9 built the
+drag onto them, and phase 13 deleted both. Each of those paragraphs now says what its phase built and
+what became of it. What the plugin does *today* is in "What the plugin does" below and in the phase 13
+paragraph.
 
 **The plugin has been seen running in a real IDE exactly once, on version `0.6.0`.** That run
 exercised review mode, which phase 12 has since deleted: a review was started over the endpoint, the
@@ -28,17 +28,21 @@ file is found from another machine, the endpoint accepts a token and works acros
 renders sub-line markers correctly, and an acknowledgement really does mark remarks read. What it
 proved about `start`, `ack`, the banner and the deadline is history and nothing more.
 
-**Still unchecked by hand:** the markdown preview entry point, dragging a remark onto a bucket, and
-everything phases 10, 11 and 12 themselves built. The one build ever installed on either machine
-predates all three. Phase 10's own list is section 8 of
+**Still unchecked by hand:** the markdown preview entry point, and everything phases 10, 11, 12 and 13
+themselves built. The one build ever installed on either machine
+predates all four. Phase 10's own list is section 8 of
 `docs/plans/completed/20260805-claude-remarks-phase10.md`; phase 11's twenty-four are under "Hand
 checks" in `docs/plans/20260805-claude-remarks-phase11.md`; phase 12's twelve are under "Hand checks"
-in `docs/plans/20260806-claude-remarks-phase12.md`. ⚠️ Those two plans are still in `docs/plans/`, not
+in `docs/plans/20260806-claude-remarks-phase12.md`; phase 13's twenty-one are under "Hand checks" in
+`docs/plans/20260806-claude-remarks-phase13.md`. ⚠️ Those three plans are still in `docs/plans/`, not
 in `docs/plans/completed/`: each leaves the move to the harness, and when they move these paths move
-with them. ⚠️ **Phase 12's list supersedes phase 11's wherever the two overlap** — the answer's tree
-row, the gutter icon and the answer round trip are all rewritten by it — and phase 12's is the list
-that matters most right now, because the three question-mark icons, the answer nesting and the `open`
-action are all in it and none of them is reachable by `./gradlew test`.
+with them. ⚠️ **Phase 13's list supersedes phase 12's wherever the two overlap**, and phase 12's
+supersedes phase 11's the same way — every one of the three rewrote the same tree rows. Phase 13's is
+the list that matters most right now, because the wrapping, the Open/Done split, the grey metadata
+line and the two-group batch summary are all in it and none of them is reachable by `./gradlew test`.
+⚠️ Phase 12's own thirteenth check is carried forward inside phase 13's list, as its check 13: the
+three question-mark colours in a light theme and in a dark one, and an answer turning its question
+green on the gutter, are still unrun.
 
 What has and has not been in front of a real IDE otherwise, per phase: **phase 6's seven security hand
 checks were run in a real IDE before 0.3.0 was released**, and phase 5's commit stamp was checked in a
@@ -65,13 +69,19 @@ intention through Alt+Enter), type a note, and press Enter. Press `Ctrl+Alt+Shif
 question rather than leave a note: that remark is stored marked as asking for an answer, published on
 the spot, and answered back onto the line. A gutter icon appears on the marked lines and follows the
 code as you keep editing. `Cmd+Ctrl+Shift+Space` in the box (`Ctrl+Alt+Shift+Space` off macOS) inserts
-a class name from the project. The tool window lists every remark as a tree grouped by file, with a
-General group at the top for a remark about the whole change and a bucket level above the files once
-any remark is put in one; right-click a row for the shared menu — Ask for an Answer, Publish, and Move
-to Bucket…. An answer nests under the question it answers, as a child row; a group called "Answers
-with no question" appears above General only when some answer's question is gone. Press Add General
+a class name from the project. The tool window lists every remark as a tree split into two top-level
+groups, **Open** and **Done**: a row is Done once it is `READ` or once an answer has come back for it,
+and Open until then. Done starts collapsed, and stays open across a refresh once a person opens it.
+Inside each side the rows are grouped by file, with a General group above the files for a remark about
+the whole change; inside a file, Open is oldest first and Done is newest-processed first. Right-click
+a row for the shared menu — Ask for an Answer, and Publish. An answer nests under the question it
+answers, as a child row, so an answered question moves to Done and takes its answer with it; a group
+called "Answers with no question" sits above Open only when some answer's question is gone. A row
+draws up to three lines of wrapped text, keeping any line breaks the person typed, with one grey line
+under it carrying the position and any `(moved)`/`(orphaned…)` note. Nothing in the tree can be
+dragged. Press Add General
 Remark in the toolbar to write a remark that is not about any one file; it always shows up in the
-General group, whatever bucket it also carries. A remark can also be written from the rendered
+General group of whichever side it is on. A remark can also be written from the rendered
 markdown preview instead of from the source: select words there, right-click, and pick Add Claude
 Remark, and it points at the same characters behind the selection. This needs the Markdown plugin,
 which every JetBrains IDE bundles by default; with it turned off, only this one entry point is missing
@@ -90,17 +100,18 @@ configuration directory before it removes anything. Nothing sits above the tree 
 ever waits for an agent: a session reads the published file when it is asked to, and the IDE learns
 about it only when the acknowledgement arrives.
 
-For the design — how anchoring, the gutter, the change notification, buckets, the
+For the design — how anchoring, the gutter, the change notification, the
 commit stamp, the history file, the publish pipeline, the published file, the phrase a remark points
-at, a remark about no file, the endpoint a skill talks to, the Ask Claude gesture and what an answer is
-all work. See `docs/claude/design.md`.
+at, a remark about no file, the endpoint a skill talks to, the Ask Claude gesture, what an answer is,
+and the Open/Done split with its wrapped rows all work. See `docs/claude/design.md`.
 
 **Phase 5 is built.** It added a severity level and named buckets to a remark, tag chips with Alt
 keys in place of the old tag drop-down, a commit stamp read straight out of `.git`, a history file
 that cleared remarks are archived to instead of deleted, and a keystroke that inserts a class name
-into the remark text. ⚠️ **Two of those are gone again since phase 11**: the severity level and the
-tag, field, chips, menu and all. Buckets, the commit stamp, the history file and the class-name
-keystroke all stay. One specific automated-dispatch idea was dropped before it was built: a
+into the remark text. ⚠️ **Three of those are gone again**: phase 11 deleted the severity level and
+the tag — field, chips, menu and all — and phase 13 deleted buckets the same way, the field, the
+mutator, the tree level and the `Move to Bucket…` entry that was the only way to make one. The commit
+stamp, the history file and the class-name keystroke all stay. One specific automated-dispatch idea was dropped before it was built: a
 pluggable `Dispatcher` interface, a tmux pane, a file inside `.idea/`. See `docs/claude/design.md`,
 section "The Publish Pipeline" (called "The Copy Pipeline" until phase 9 renamed it), for why. That
 idea stays dropped. Phase 6 below does not revive it.
@@ -195,21 +206,24 @@ thought about the whole change gets written. Such a remark carries no path, no l
 code snippet. The prompt renderer gives it its own `## General` section at the very top, with no
 code block at all, the same shape the renderer used to reserve for an orphan, the remark whose code
 could not be found; splitting it out before that branch runs is what keeps a deliberate remark from
-reading as a broken one. The tree groups it under its own General group at the very top too, above
-the buckets, and it stays there even when it also carries a bucket: a general remark is about the
-whole change, so the top of the tree is where it should be read, worth the cost of ignoring its
-bucket for grouping. The resolver's `isAboutNoFile` is the one thing that changed there: such a
+reading as a broken one. The tree groups it under its own General group too, above the file groups —
+above the buckets as well, until phase 13 deleted those, and a general remark's own bucket was
+deliberately ignored so that it stayed at the top rather than being gathered into one. Since phase 13
+the General group sits inside whichever side the remark is on, Open or Done. The resolver's
+`isAboutNoFile` is the one thing that changed there: such a
 remark used to be refused as an orphan with no code, and now resolves as itself instead. See
 `docs/claude/design.md`, section "A Remark About No File", for the whole design.
 
 **Phase 9's group four is built too.** A file row in the tree now shows the file name in bold first,
 with the shortened directory in grey after it, instead of the whole path. A deep directory is
 shortened to its last two segments with a leading ellipsis rather than being cropped from the right,
-which used to lose the file name itself. A remark, several selected remarks, or a whole file or
-bucket group can also be dragged onto a bucket row to move them there, or onto `(no bucket)` to clear
-it; nothing changed in how a bucket gets created, `Move to Bucket…` in the right-click menu still
-does that by name. A `Published` group above the buckets was designed and deliberately left unbuilt;
-see `docs/ideas.md` for the condition that would make it worth building.
+which used to lose the file name itself. That half still stands. ⚠️ **The other half is gone.** Rows
+could also be dragged onto a bucket row to move them there, or onto `(no bucket)` to clear it, and
+phase 13 deleted that with the buckets themselves — `ui/RemarksTreeDnd.kt` whole, `bucketDropTarget`,
+and the tree's `DnDAwareTree` superclass, which is a plain `Tree` again. Dragging onto a bucket was
+the only drag anywhere in the plugin, so nothing drags in the tool window now. A `Published` group
+above the buckets was designed in this same pass and deliberately left unbuilt; phase 13's Open/Done
+split supersedes that idea and `docs/ideas.md` now says so.
 
 **Phase 9's group five is built too.** A remark can now be written from IntelliJ's rendered markdown
 preview: select words there, right-click, pick Claude Remarks, and the remark points at the exact
@@ -279,16 +293,17 @@ is use: severity was never changed from its default and a tag was never picked, 
 published shipped as an untagged `should` while the prompt spent a paragraph teaching a scale it
 then used one value of. An old element carrying `<option name="severity" value="MUST"/>` and
 `<option name="tag" value="BUG"/>` still deserializes — the deserializer skips an `<option>` it has
-no property for — and the two options are dropped on the next save. `RemarkStoreStateTest` pins that.
+no property for — and the two options are dropped on the next save. `RemarkStoreStateTest` pins that,
+and phase 13 added the same pin for `<option name="bucket" value="x"/>` when it deleted that field.
 ⚠️ `BaseState` stores every property as an `<option name= value=/>` child element, never as an XML
 attribute, so a migration test must be written in `<option>` form. Attribute form parses into a
 `RemarkState` with every property at its default, which makes such a test pass against any
 `RemarkState` at all — that is what four tests in that class did until phase 11's review rewrote them.
 
 *Publish is in the shared menu, and the toolbar buttons say what they take.* `remarkChangeActions`
-offers Ask for an Answer, Publish and Move to Bucket…, in that order, from both the gutter icon's
+offered Ask for an Answer, Publish and Move to Bucket…, in that order, from both the gutter icon's
 click menu and the tree's right-click menu — so publishing one remark is one right-click instead of
-five steps. `ToolbarAction` gained a `description` parameter, and all six buttons carry one that
+five steps. (Two entries since phase 13 took Move to Bucket… out.) `ToolbarAction` gained a `description` parameter, and all six buttons carry one that
 says what the button takes rather than repeating its own name.
 
 *The Ask Claude gesture.* `Ctrl+Alt+Shift+A`, the `AskClaudeIntention` under `Alt+Enter`, and an
@@ -384,6 +399,53 @@ facts"; the nesting is under "Reading an answer: three places". **The skill dire
 `docs/skill/claude-remarks-review/` to `docs/skill/claude-remarks/`, so the deployed symlink under
 `~/.claude/skills/` has to be recreated by hand.
 
+**Phase 13 is built.** Six changes to the tool window and one to the skill.
+
+*Buckets are deleted whole.* The `bucket` field, `setRemarkBucket`, `RemarkStore.setBucket`, the
+bucket level in the tree, the `Move to Bucket…` menu entry and all of the drag and drop went in one
+pass — `ui/RemarksTreeDnd.kt` was deleted with the file, and the tree reverted from `DnDAwareTree` to
+plain `Tree`. Dragging onto a bucket was the only drag in the plugin, so nothing drags now. An element
+carrying `<option name="bucket" value="x"/>` still deserializes and drops the option on the next save,
+the same migration phase 11 pinned for `tag` and `severity`. The history file's heading loses its
+`— bucket <name>` part, and ⚠️ every entry archived before this phase still carries one on disk,
+because that file is append-only.
+
+*The tree splits into Open and Done.* A row is Done once it is `READ` **or** it has an answer, Open
+until then. Done starts collapsed. ⚠️ An answered question moves to Done at once, even when nothing
+acknowledged it — decided knowing the cost, and paid for by the answer staying nested under its
+question and by Done ordering newest-processed first. "Answers with no question" stays as its own
+top-level group above Open, not folded into Done: an answer with no question is a loose end, not
+finished work. ⚠️ Every group *inside* a side carries its side's key as a prefix (`open/general`,
+`done/file:src/Foo.kt`), because one file can hold rows on both sides and `RemarksPanel` matches
+groups by key alone. ⚠️ `expandAll` takes a `keepDoneOpen` flag read **before** the rebuild, because
+`collapsedGroups` records what is shut and "not shut" also covers "no such group yet".
+
+*`RemarkState` gains `readAt`.* Stamped in `RemarkStore.markRead`, which `RemarkEdits.markRemarksRead`
+is the only route to, and guard 6 gates that function to two callers — so it is a single-writer field
+by construction. It is 0 for every remark read before this phase, and `processedAt` falls back to
+`createdAt` when it is, so the old backlog orders by when it was written instead of collapsing to the
+epoch. Inside a file, Open sorts by `createdAt` oldest first and Done by `processedAt` newest first.
+
+*Rows wrap, and the position moves below the text.* `RemarkTreeRenderer` is a `JPanel` on a
+`GridBagLayout` stacking `SimpleColoredComponent` lines, not a `ColoredTreeCellRenderer`, which paints
+one line by construction. ⚠️ `tree.setRowHeight(0)` is the entire variable-height mechanism —
+`platform/todo/.../TodoPanel.java:251` does exactly that and nothing else. `ui/WrapText.kt`'s
+`wrapToLines` is the word-break, and it is **ours**: the platform's `MultiLineTodoRenderer` receives
+lines that are already split and never wraps anything. It takes a `widthOf: (String) -> Int` rather
+than a `FontMetrics`, which is why that file has no `import` line at all and its tests run in
+milliseconds. The three-line cap counts lines **of text**; a fourth grey row carries the position, the
+`(moved)`/`(orphaned…)` suffix and an orphan-group answer's file name, and is hidden when there is
+nothing to put in it. The trailing `read` and `published` words are deleted — the icon, the colour and
+the Done group already say it three times over.
+
+*A session summarises a batch before acting on it.* `SKILL.md`'s read mode and listen mode both write
+a two-group bullet list — things to change, questions to answer — after acknowledging and before any
+work, with `none` written under an empty group so a dropped question group cannot be mistaken for no
+questions.
+
+See `docs/claude/design.md`, section "Open, Done, and Rows That Wrap", for the whole design, and its
+"Buckets" subsection for what was deleted and why.
+
 ## Rules that must not break
 
 1. **The anchoring module stays free of the platform.** `anchor/` is pure Kotlin, which is what
@@ -446,10 +508,10 @@ facts"; the nesting is under "Reading an answer: three places". **The skill dire
    not see either of these:
 
    ```kotlin
-   val store = RemarkStore.getInstance(project)   // no dot after the call
-   store.setBucket(setOf(id), "x")                // this line never says RemarkStore
+   val store = RemarkStore.getInstance(project)      // no dot after the call
+   store.setAsksForAnswer(setOf(id), true)           // this line never says RemarkStore
 
-   project.service<RemarkStore>().setBucket(...)  // never says getInstance either
+   project.service<RemarkStore>().setAsksForAnswer(…) // never says getInstance either
    ```
 
    A wrapped chain hides the same way, and any line that also contains `.all()` is dropped whole by
@@ -590,16 +652,19 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    by the tree row and by the history heading. Pure Kotlin, so the
                                    renderer can import it without breaking rule 2 below
   model/RemarkState.kt             the persisted record, RemarkStatus, phrase (the sub-line text
-                                   between startColumn and endColumn, phase 9), and asksForAnswer
-                                   (phase 11). RemarkTag and RemarkSeverity were deleted in phase 11
+                                   between startColumn and endColumn, phase 9), asksForAnswer
+                                   (phase 11) and readAt (phase 13, 0 for a remark never read and for
+                                   every remark stored before it). RemarkTag and RemarkSeverity were
+                                   deleted in phase 11, bucket in phase 13
   model/AnswerState.kt             the answer record (phase 11): remarkId, the question copied at
                                    answer time, the markdown, answeredAt, and its own nine anchor
                                    fields. Its KDoc argues why it does not share a superclass with
                                    RemarkState
   store/RemarkStore.kt             @Service project component, state in workspace.xml. Two lists
                                    since phase 11, remarks and answers, both @get:XCollection
-  store/RemarkEdits.kt             the twelve mutation functions plus notifyRemarksChanged (thirteen
-                                   in all), the REMARKS_CHANGED topic
+  store/RemarkEdits.kt             the eleven mutation functions plus notifyRemarksChanged (twelve
+                                   in all), the REMARKS_CHANGED topic. markRemarksRead is what
+                                   reaches RemarkStore.markRead, which stamps readAt
   store/RemarkResolver.kt          projectRoot, resolveAll, anchorOf, and isAboutNoFile, which
                                    resolveOne checks before treating a remark with no path as
                                    itself rather than as an orphan. Since phase 11 also the pure
@@ -622,9 +687,9 @@ src/main/kotlin/dev/sasha/clauderemarks/
   ui/RemarkInputPanel.kt           the popup's panel, the Enter/Shift+Enter keys, CLASS_NAME_STROKE
                                    to insert a class name. The tag chips and their Alt keys were
                                    deleted in phase 11, and the panel now returns a plain String
-  ui/RemarkActions.kt              remarkChangeActions: the Ask for an Answer toggle, Publish and
-                                   Move to Bucket…, shared by the gutter icon and the tree. The
-                                   Severity submenu was deleted in phase 11
+  ui/RemarkActions.kt              remarkChangeActions: the Ask for an Answer toggle and Publish,
+                                   shared by the gutter icon and the tree. The Severity submenu was
+                                   deleted in phase 11, Move to Bucket… in phase 13
   ui/RemarkStatusLook.kt           RemarkStatusLook: the icon and the text attributes for a row,
                                    shared by the gutter icon and the tree the same way RemarkActions.kt
                                    is, since a status's look used to be decided twice and, after phase
@@ -640,17 +705,30 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    off macOS — NOT Ctrl+Space, see CLASS_NAME_STROKE for why)
   ui/RemarksTree.kt                node building: an "Answers with no question" group at the very top
                                    when any answer's question is gone (phase 11's flat Answers group,
-                                   narrowed by phase 12), then a General group for a remark about no
-                                   file, then buckets, then files, with an answer nested under its own
-                                   question; and the tree cell renderer. leavesOf recurses into a
-                                   RemarkNode, which is what makes Delete on a question take its
-                                   answer too. asksLabel was deleted in phase 12, when the icon took
-                                   over saying that a remark asks
-  ui/RemarksTreeDnd.kt             the drag wiring beside that node building: the private drag bean,
-                                   installDragToBucket, and the node lookup under the pointer. The
-                                   decision a drop makes is bucketDropTarget, in RemarksTree.kt
+                                   narrowed by phase 12), then the two sides, OPEN_KEY and DONE_KEY
+                                   (phase 13), each holding a General group for a remark about no file
+                                   and then files, with an answer nested under its own question.
+                                   RemarkNode.processedAt is what Done orders by, readAt falling back
+                                   to createdAt. Every group inside a side is keyed with its side's
+                                   prefix. Also RemarkTreeRenderer, the stacked-line cell renderer:
+                                   MAX_TEXT_LINES text rows plus a grey metadataLine below them.
+                                   leavesOf recurses into a RemarkNode, which is what makes Delete on
+                                   a question take its answer too. asksLabel was deleted in phase 12,
+                                   when the icon took over saying that a remark asks; the bucket
+                                   level, bucketDropTarget and the trailing read/published words went
+                                   in phase 13
+  ui/WrapText.kt                   wrapToLines (phase 13): the pure word-break the renderer wraps a
+                                   row with. NO imports at all — it takes a widthOf measurer instead
+                                   of a FontMetrics, which is what keeps it free of java.awt and
+                                   com.intellij and its tests running in milliseconds. The platform's
+                                   own MultiLineTodoRenderer never wraps, so there is nothing to fall
+                                   back on here
   ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar (six buttons, each with its
                                    own description since phase 11), self-refresh on REMARKS_CHANGED.
+                                   setRowHeight(0) since phase 13 — the whole variable-row-height
+                                   mechanism, cited from TodoPanel.java:251 — and expandAll takes a
+                                   keepDoneOpen flag read before the rebuild, since collapsedGroups
+                                   cannot tell "the person opened Done" from "Done is new".
                                    The waiting-review banner above the tree was deleted in phase 12,
                                    and deleteSelected now asks selectionHidesRows whether the
                                    selection stands for a row that is off screen, rather than
@@ -864,7 +942,13 @@ storage round-trips, the resolver helpers (including `isAboutNoFile`), the tree'
 question's child, an answer naming nothing is in the top-level "Answers with no question" group, that
 group is absent when every answer has a question, a nested row carries no file name and a top-level one
 does, and an answer naming a remark that produced no node lands in the top-level group rather than
-disappearing), the markdown renderer (including the General section, rendered
+disappearing; and since phase 13 the Open/Done split: a `READ` remark is under Done, an answered
+question is under Done with its answer still nested, `PENDING` and `PUBLISHED` are under Open, Done
+orders by `readAt`, a remark with `readAt == 0` falls back to `createdAt`, and an empty side produces
+no group at all), `WrapTextTest` (phase 13's word-break, with a fixed width per character so the
+arithmetic is exact: a short text staying on one line, a break on a space, a run of spaces collapsing,
+a single word longer than the width breaking mid-word, a `\n` starting a new line, more lines than the
+cap truncating with an ellipsis, and empty text giving one empty line), the markdown renderer (including the General section, rendered
 first with no code block), the settings round trip, `GitHeadTest` (reads real `.git` directories built on disk for
 the test, including a worktree, a detached HEAD and packed refs, plus `gitTopLevel` for a directory
 below the repository root, for a worktree, and with no repository at all), `RemarkHistoryTest` (the
@@ -891,14 +975,16 @@ need a light IDE fixture
 resolved against real files, including a path that tries to climb out of the project, and, since
 phase 9, that a resolved row carries the phrase's refreshed columns),
 `SelectedLinesTest` (the selection line math against a real `Document`), `RemarkEditsTest` (the
-twelve mutation functions publish `REMARKS_CHANGED`; since phase 11 also that `recordAnswer` upserts
+eleven mutation functions publish `REMARKS_CHANGED`; since phase 11 also that `recordAnswer` upserts
 on the remark id rather than appending, that `deleteAnswer` is keyed on the answer's own id, and that
 `clearAllRemarks` archives and clears both lists while `clearHandedOverRemarks` leaves answers
-alone), the key-binding half of
+alone; since phase 13 that `markRemarksRead` stamps `readAt` and that a second mark leaves an
+already-set stamp alone, so re-publishing and re-acknowledging cannot make a row jump to the top of
+Done), the key-binding half of
 `RemarkInputPanelTest`, `AddRemarkActionTest`, `ActionIdsTest` (pins the two action ids and the
 tool window's derived activation id, so a rename is caught rather than silently breaking every
-`.ideavimrc`), `RemarkActionsTest` (the shared menu offers Ask for an Answer, Publish and Move to
-Bucket… in that order, and acts on the ids it is given at press time, not at build time; the toggle
+`.ideavimrc`), `RemarkActionsTest` (the shared menu offers Ask for an Answer and Publish in that
+order, and acts on the ids it is given at press time, not at build time; the toggle
 is off when there is nothing to act on and flips across several ids at once), `ClassNameInsertTest`
 (inserting a class name at the caret, and over a selection; its two extension-point tests assert
 that the contributed names are present, that a repeated name comes back once and that the list is
@@ -908,8 +994,16 @@ change), `DiffRemarkTargetTest` (adding a remark from a diff pane: a real
 `DiffContentFactory` content standing in for a VCS revision, since a light fixture cannot build a
 diff viewer), the renderer-equality half of `RemarkGutterIconTest`, `RemarkGutterTest` (the gutter
 service, including that a general remark produces no placement anywhere), `RemarksPanelTest` (the
-tool window panel: every file and bucket group ends up expanded, the selection survives a rebuild,
-and the Add General Remark button is offered and enabled with no selection and no editor open),
+tool window panel: every group ends up expanded, the selection survives a rebuild,
+and the Add General Remark button is offered and enabled with no selection and no editor open; since
+phase 13 also that Done starts collapsed while Open is expanded, and that a Done a person opened by
+hand is still open after a refresh. ⚠️ Three refresh-based tests go through a `refreshAndSettle`
+helper that asserts the tree root object actually changed: "the tree looks the same after a refresh"
+passes just as happily when the async `ReadAction` never finished, and that vacuity would hide the
+whole `keepDoneOpen` path), `RemarkTreeRendererTest` (phase 13, fixture-backed because every
+assertion needs a real `SimpleColoredComponent`, a real `Tree` and `UIUtil`'s theme colours: how many
+line components a row drew, what each carries, and whether the grey metadata row was drawn at all —
+a general remark draws none and a positioned remark does),
 `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
 0-based line argument), the collector half of `PromptPayloadTest`, `PublishRemarksTest` (renamed
 from `CopyRemarksTest` in phase 9; since phase 10, that a publish with no ids takes every remark that
@@ -1015,6 +1109,12 @@ The files here whose class names differ from the filename:
 - `review/OpenReviewFilesTest.kt` — holds `OpenReviewFilesTest` and `OpenReviewFilesFixtureTest`.
 - `ui/RemarkIconsTest.kt` — holds `RemarkIconsTest` and `RemarkIconsFixtureTest`.
 
+Phase 13's renderer tests went into a file of their own, `ui/RemarkTreeRendererTest.kt`, with a class
+of the same name, rather than being added as a second class inside `ui/RemarksTreeTest.kt`. That was
+this trap avoided on purpose: `RemarksTreeTest` is plain JUnit with no fixture, the renderer
+assertions need one, and a second class added to that file would never run under a filter naming
+`RemarksTreeTest` while the build stayed green.
+
 Two more files are checked by hand, not by `./gradlew test`, because this repository's suite is
 Kotlin and runs no shell: `docs/skill/claude-remarks/watch-remarks.sh` (added in phase 10; each
 check is its own run, in the scratchpad directory, covering a deadline timeout, a nonce that has
@@ -1055,3 +1155,9 @@ as literal markdown, and — since phase 12 — whether the three question-mark 
 distinguishable at gutter size in a light theme and in a dark one, are all checked by hand in a sandbox
 IDE, not automated. A test can say an icon loaded and reports a width of 16; nothing automated can say
 it reads as yellow rather than as green.
+
+⚠️ **Phase 13 widened that gap.** A test can say a row produced three visible line components and
+that the fourth, grey one was drawn; nothing automated can say the fourth line of text was elided
+rather than clipped, that the grey line reads as subordinate to the text above it, that selection
+paints across every line of a tall row, or that the icon sitting inside the first line reads as a
+hanging indent rather than as ragged. All of those are in phase 13's hand-check list.

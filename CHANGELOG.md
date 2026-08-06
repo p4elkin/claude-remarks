@@ -1,6 +1,6 @@
 # Changelog
 
-This project was built in twelve phases over five days, each one planned in a file under
+This project was built in thirteen phases over five days, each one planned in a file under
 `docs/plans/` before any code was written. The entries below are the record of those phases,
 newest first.
 
@@ -11,6 +11,59 @@ when that phase finished". Every version and date below is read out of the git h
 
 The design that came out of all this lives in `docs/claude/design.md`, which is kept current with
 the code. These entries are how the work happened; that document is what the system now is.
+
+---
+
+## 0.10.0 — 2026-08-06 — phase 13: the tool window rebuilt
+
+Six changes to the tool window and one to the skill. The tree stops grouping by subject and starts
+grouping by state, and a row stops being one cropped line.
+
+- **Buckets are deleted whole.** The `bucket` field, `setRemarkBucket`, `RemarkStore.setBucket`, the
+  bucket level in the tree, the `Move to Bucket…` menu entry and every piece of the drag and drop go
+  together — `ui/RemarksTreeDnd.kt` is deleted with the file, and the tree reverts from `DnDAwareTree`
+  to plain `Tree`. Dragging onto a bucket was the only drag anywhere in the plugin, so nothing drags
+  now. They went because a reading pass was never sorted by subject in real use, and because the split
+  people did want is by state — and the tree has room for one top-level split before a row costs two
+  expansions to reach. An element carrying `<option name="bucket" value="x"/>` still deserializes and
+  drops the option on the next save, the same migration phase 11 pinned for `tag` and `severity`. The
+  history file's heading loses its `— bucket <name>` part, and every entry archived before this phase
+  still carries one, because that file is append-only.
+- **The tree splits into Open and Done.** A row is Done once it is `READ` **or** it has an answer, Open
+  until then. Done starts collapsed, and stays open across a refresh once a person opens it. An
+  answered question moves to Done at once, even when nothing acknowledged it — decided knowing the
+  cost, and paid for by the answer staying nested under its question and by Done ordering
+  newest-processed first. "Answers with no question" stays as its own group above Open, because an
+  answer with no question is a loose end and not finished work. Every group inside a side carries its
+  side's key as a prefix, since one file can hold rows on both sides and the panel matches groups by
+  key alone. `expandAll` takes a `keepDoneOpen` flag read before the rebuild: `collapsedGroups` records
+  what is shut, and "not shut" also covers "no such group yet".
+- **`RemarkState` gains `readAt`**, stamped in `RemarkStore.markRead` and nowhere else, so Done can be
+  ordered by when a row was processed rather than when it was written. Inside a file, Open is oldest
+  first by `createdAt` and Done is newest first by `processedAt`, which falls back to `createdAt` when
+  `readAt` is 0 — every remark read before this phase carries 0, and without the fallback the whole
+  backlog would sort as one lump at the epoch.
+- **Rows wrap, to at most three lines of text, with the rest elided.** `RemarkTreeRenderer` becomes a
+  `JPanel` on a `GridBagLayout` stacking `SimpleColoredComponent` lines, because
+  `ColoredTreeCellRenderer` is one of those and paints a single line by construction.
+  `tree.setRowHeight(0)` is the entire variable-height mechanism, copied from the platform's own
+  `TodoPanel.java:251`. The word-break is this plugin's own: the platform's `MultiLineTodoRenderer`
+  receives lines that are already split and never wraps anything. `ui/WrapText.kt`'s `wrapToLines`
+  takes a `widthOf` measurer rather than a `FontMetrics`, so that file has no import statement at all
+  and its tests run in milliseconds. Line breaks typed with Shift+Enter are kept instead of flattened.
+- **The position moves below the text.** The line range, its `(moved)`/`(orphaned…)` suffix and an
+  orphan-group answer's file name are one grey line under the wrapped text instead of a prefix in
+  front of it, hidden outright when there is nothing to put in it. The three-line cap counts lines of
+  text, not lines of row. The body wraps to the row's full width now, because the position no longer
+  takes width off all three lines whether or not they draw it.
+- **The trailing `read` and `published` words are gone.** The icon, the colour and the Done group each
+  say it already; the same argument phase 12 used to delete `asks` and `answered`.
+- **A session summarises a batch before acting on it.** `SKILL.md`'s read mode and listen mode both
+  write a two-group bullet list — things to change, questions to answer — after acknowledging and
+  before any work, quoting each remark rather than paraphrasing it, with `none` written under an empty
+  group so a dropped group cannot be mistaken for nothing to report.
+
+Plan: `docs/plans/20260806-claude-remarks-phase13.md`.
 
 ---
 

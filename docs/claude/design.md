@@ -16,14 +16,15 @@
 12. [The Publish Pipeline](#the-publish-pipeline)
 13. [A Remark About No File](#a-remark-about-no-file)
 14. [One Pass Over The Tree](#one-pass-over-the-tree)
-15. [A Remark on the Rendered Preview](#a-remark-on-the-rendered-preview)
-16. [The Endpoint the Skill Talks To](#the-endpoint-the-skill-talks-to)
-17. [The Ask Claude Gesture](#the-ask-claude-gesture)
-18. [What an Answer Is](#what-an-answer-is)
-19. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
-20. [Build Choices Worth Remembering](#build-choices-worth-remembering)
-21. [Performance Tuning Knobs](#performance-tuning-knobs)
-22. [Known Issues](#known-issues)
+15. [Open, Done, and Rows That Wrap](#open-done-and-rows-that-wrap)
+16. [A Remark on the Rendered Preview](#a-remark-on-the-rendered-preview)
+17. [The Endpoint the Skill Talks To](#the-endpoint-the-skill-talks-to)
+18. [The Ask Claude Gesture](#the-ask-claude-gesture)
+19. [What an Answer Is](#what-an-answer-is)
+20. [Two Positions On Screen, And When They Differ](#two-positions-on-screen-and-when-they-differ)
+21. [Build Choices Worth Remembering](#build-choices-worth-remembering)
+22. [Performance Tuning Knobs](#performance-tuning-knobs)
+23. [Known Issues](#known-issues)
 
 ## Overview
 
@@ -52,11 +53,14 @@ A remark has these fields:
   three states, and why published is not read" below. Published and read remarks both stay in the
   list, drawn gray, until Clear Handed Over.
 - `createdAt`: Timestamp when the remark was created.
+- `readAt`: Timestamp of the moment an agent's acknowledgement marked this remark `READ`, and 0 when
+  nothing ever did — which includes every remark stored before phase 13 added the field. Stamped in
+  `RemarkStore.markRead`, and only there, so a second acknowledgement of the same remark leaves the
+  first stamp alone. Guard 6 in `CLAUDE.md` allows exactly two files to reach `markRemarksRead`,
+  which is what makes this a single-writer field by construction. Done orders by it; see "Open and
+  Done" below.
 - `textHash`: The first 16 hex characters of a SHA-256 hash of the lines at creation time.
 - `contextBefore`, `contextAfter`: A few lines of context from above and below the remark, joined with newlines in a single string. Stored this way instead of as a list because the serializer handles single strings more predictably.
-- `bucket`: An optional name the user picks, like "auth refactor", or null for no bucket. Set only
-  from the gutter icon menu or the tree's right-click menu, never in the input popup — see
-  "Buckets" below.
 - `commit`: The repository HEAD read straight out of `.git` when the remark was written, or null
   when there was no readable git repository. Never refreshed. See "The commit stamp" below.
 
@@ -82,6 +86,12 @@ before that, carrying `<option name="severity" value="MUST"/>` and `<option name
 still loads: the deserializer skips an `<option>` it has no property for, and the two options are
 dropped on the next save. `RemarkStoreStateTest` pins that, and it is the reason nothing had to
 migrate.
+
+**A third field went the same way in phase 13: `bucket`.** The tree level it fed is gone, and so is
+the whole drag and drop that existed to fill it. See "Buckets" below for what it was and why it went.
+The migration story is the one above, word for word: an element carrying
+`<option name="bucket" value="auth refactor"/>` still loads and drops that option on the next save,
+and `RemarkStoreStateTest` pins it in `<option>` form for the reason the warning below gives.
 
 ⚠️ **A migration test has to be written in that `<option>` form.** Attribute form —
 `<RemarkState id="r-1" severity="MUST"/>` — is not a shape any `workspace.xml` has ever held, and it
@@ -629,47 +639,49 @@ read and wrote them. Nothing about how a remark is stored changed: they were pla
 properties, and the function-count rule in "The Change Notification" above covered the new mutators
 the same way it covered the older ones.
 
-⚠️ **Two of the three are gone again since phase 11, and this section is kept as history.** The
-`severity` field and the whole tag mechanism were deleted, because neither was ever used: see "What
-a Remark Contains" above for the argument and for why nothing had to migrate. What phase 5 built that
-is still live is buckets, the commit stamp, the history file and the class-name keystroke. The two
-subsections describing severity and the tag chips were deleted with the code rather than left
-describing something that no longer exists; the paragraph that argued severity belonged in the
-renderer rather than in the editable header is not lost, because the same argument now carries
-`PROMPT_NOTES`, described under "The Ask Claude Gesture" below.
+⚠️ **All three fields are gone again, and this section is kept as history.** Phase 11 deleted
+`severity` together with the whole tag mechanism, because neither was ever used: see "What a Remark
+Contains" above for the argument and for why nothing had to migrate. Phase 13 deleted `bucket`, for a
+different reason — see the subsection right below. What phase 5 built that is still live is the
+commit stamp, the history file and the class-name keystroke. The subsections describing severity and
+the tag chips were deleted with the code rather than left describing something that no longer exists;
+the paragraph that argued severity belonged in the renderer rather than in the editable header is not
+lost, because the same argument now carries `PROMPT_NOTES`, described under "The Ask Claude Gesture"
+below.
 
 ### Buckets
 
-`RemarkState.bucket` is a nullable string, a name the user picks, like "auth refactor". Unlike
-severity there is no default and no current bucket: a remark starts in no bucket, and a whole
-reading pass is moved into one at once, by selecting several rows and choosing Move to Bucket —
-buckets are assigned to a selection, not to one remark at a time, so there is nothing to default.
-`setRemarkBucket` (`store/RemarkEdits.kt`) trims the name and turns a blank string into null, so
-"auth refactor" typed with trailing whitespace cannot become a second bucket that looks identical to
-the first one in the tree.
+⚠️ **Buckets were deleted whole in phase 13.** The `bucket` field, `setRemarkBucket`,
+`RemarkStore.setBucket`, the bucket level in the tree, the `Move to Bucket…` menu entry and all of
+the drag and drop went in one pass. This subsection says what they were and why they went, so nobody
+rebuilds them by accident.
 
-The tree (`ui/RemarksTree.kt`) grows a third level, but only when it is used: `buildTreeRoot` checks
-whether any remark actually has a bucket before adding the level at all, so someone who never touches
-buckets keeps exactly the tree they had before — root, then file, then remark. Once any bucket
-exists, buckets sort by name with the unbucketed ones first, under the `(no bucket)` label
-(`NO_BUCKET_LABEL`), because those are the remarks just written and the ones most likely to be
-moved next.
+**What they were.** `RemarkState.bucket` was a nullable string, a name the person picked, like "auth
+refactor". A whole reading pass was moved into one at once, by selecting several rows and choosing
+Move to Bucket…, so there was no default and no current bucket. The tree grew a third level above the
+files, but only once some remark actually carried a name, with the unbucketed remarks under a
+`(no bucket)` label first. Dragging rows onto a bucket row was the second way to set one.
 
-A group row — a bucket or a file — is `GroupNode(key, label)`, not a bare string the way a file
-group used to be. A bucket named "src" and a directory named "src" can coexist, and the panel
-restores a selection after every rebuild by matching a key, so two groups sharing a key would
-restore the wrong one after a refresh. The key is the whole path from the root down to that node;
-the label is only what gets drawn. A bucket's own key is built from the raw bucket name, not from its
-label, so that a bucket somebody actually calls "(no bucket)" does not collide with the null-bucket
-group — the null one is keyed `"bucket: none"`, and a leading space cannot occur in a real name
-because `setRemarkBucket` trims it.
+**Why they went.** Two reasons, and the second is the one that decided it. Buckets sorted a reading
+pass by *subject*, which nothing ever asked of the tree in real use — the same fate `tag` and
+`severity` met in phase 11. And the split people did want is by *state*: what is still the work
+against what has been dealt with. Phase 13 built that as Open and Done, and the tree only has room
+for one top-level split before a person has to expand two levels to reach a row. So the level went to
+the split that earns it. See "Open and Done" below.
 
-`remarkNodesUnder` (also `RemarksTree.kt`) walks the whole subtree under a selected node, not one
-level down the way it used to. That is what makes Publish Selected on a bucket node mean "publish
-this bucket," and it is the entire reason there is no separate Publish Bucket button: select the
-bucket row and press Publish Selected. The one-level walk this replaced would have found file nodes
-under a bucket rather than `RemarkNode`s, and silently answered an empty list, so Publish Selected and
-Delete on a bucket node would have done nothing at all, with no message saying why.
+**What the deletion cost, stated rather than smoothed over.** There is no way to group remarks by
+subject at all now. Nothing replaces it, and if a large reading pass ever needs it again, the honest
+place to start is a filter rather than a fourth tree level.
+
+**Two things buckets left behind that are still load-bearing.** A group row is
+`GroupNode(key, label, detail)`, not a bare string: two files can share a name in different
+directories, and `RemarksPanel` puts a selection back after every rebuild by matching keys, so two
+groups sharing one key would restore the wrong one. Phase 13 needed that argument again immediately —
+one file can hold an open remark and a processed one, so it gets a group on each side, and every
+group inside a side is keyed with its side's prefix. And `remarkNodesUnder` walks the whole subtree
+under a selected node rather than one level down. That was written so Publish Selected on a bucket
+node meant "publish this bucket"; it is now what makes Publish Selected on a file group, or on Open
+itself, mean everything under it.
 
 ### Inserting a class name from the keyboard
 
@@ -740,9 +752,11 @@ up is the chooser.
 places: the gutter icon's click menu, which acts on the one remark under the icon, and the tree's
 right-click menu, which acts on whatever is selected.
 
-It had two children until phase 11 — a Severity submenu and "Move to Bucket…" — and has three now:
-**Ask for an Answer**, **Publish**, then **Move to Bucket…**, in that order. The Severity submenu
-went with the field. Publish is the addition that mattered: publishing one remark used to exist only
+It had two children until phase 11 — a Severity submenu and "Move to Bucket…" — three after it, and
+two since phase 13: **Ask for an Answer**, then **Publish**, in that order. The Severity submenu went
+with the field in phase 11 and Move to Bucket… went with buckets in phase 13; that entry was the only
+way to create a bucket by name, so deleting it is what actually ended them. Publish is the addition
+that mattered: publishing one remark used to exist only
 as a toolbar button, so asking one question took five steps, and every toolbar tooltip repeated the
 button's own name, which is why a selected-only publish looked as if it did not exist. From the
 gutter, Publish now takes exactly the remark under the icon; from the tree, exactly the rows picked.
@@ -753,8 +767,8 @@ that.
 Ask for an Answer is a `ToggleAction`. Its `isSelected` is true when every remark in `ids()` carries
 `asksForAnswer` — and false for an empty selection, which the literal reading would have got wrong,
 since `all {}` over an empty list is true and would have drawn a checked item beside nothing. Its
-`setSelected` writes the flag across every id at once, the same shape Move to Bucket… uses, because
-a reading pass is triaged in groups. It declares `ActionUpdateThread.EDT`, not BGT: `isSelected`
+`setSelected` writes the flag across every id at once, the shape Move to Bucket… used before it,
+because a reading pass is triaged in groups. It declares `ActionUpdateThread.EDT`, not BGT: `isSelected`
 calls `ids()`, which in the tool window is `selectedIds()`, and that reads the `JTree` selection.
 
 On the tree side, "whatever is selected" needs one thing the platform does not give for free.
@@ -763,13 +777,10 @@ button 1 only — so right-clicking a row that was not selected opened the menu 
 selection, and with nothing selected every item was a silent no-op. `RemarksPanel`'s own
 `PopupHandler` subclass therefore calls `selectRowForPopup` before it shows the menu. It ADDS the
 clicked path rather than replacing the selection, so a right-click inside a selection of several rows
-does not collapse it to one — moving a whole reading pass into a bucket is exactly what that selection
+does not collapse it to one — publishing a whole reading pass at once is exactly what that selection
 is for.
 `ids` is a lambda, not a list, because the tree rebuilds itself on every remark change, so a list
-captured at the moment the menu was built would be stale by the time anything in it is pressed. The
-bucket chooser is `Messages.showEditableChooseDialog`, offering every bucket name already in use
-rather than a plain text prompt, because typing the name freehand each time is exactly how "auth
-refactor" and "auth-refactor" become two buckets that look like one from across the tree.
+captured at the moment the menu was built would be stale by the time anything in it is pressed.
 
 ### The commit stamp
 
@@ -862,12 +873,18 @@ handed over" and "the archive failed", the handed-over count is already known no
 can only mean failure. "Removed 0 handed-over remarks." beside a red error balloon was therefore the
 wrong half of the truth.
 
-`appendToHistory` writes what was STORED about each remark — its stored line numbers, text, bucket
-and commit — not a fresh resolve against the file as it stands now: by the time
+`appendToHistory` writes what was STORED about each remark — its stored line numbers, text and
+commit — not a fresh resolve against the file as it stands now: by the time
 anyone reads the archive the code has likely moved on, and the file it once lived in may not even
 exist any more. Each entry is indented under its heading, the same defence the prompt renderer uses
 against backtick fences and stray headings in a remark's own text, so a remark whose text happens to
 contain a markdown heading cannot restructure the archive around it.
+
+⚠️ **The heading carried a fourth part, `— bucket <name>`, until phase 13, and every entry archived
+before then still has it on disk.** The file is append-only, so the old text stays exactly as it was
+written; only new entries drop the bucket. `RemarkHistory.kt`'s own KDoc says the same thing, because
+somebody reading an old archive needs to know the word describes a feature that no longer exists
+rather than one they have not found yet.
 
 **Answers are archived too, since phase 11.** `appendToHistory` takes a second, defaulted list, and
 `renderHistory` gives it an `### answers` subsection under the same `## cleared <time>` heading. An
@@ -1012,28 +1029,29 @@ the manual escape for the gutter as well as for the tree.
 ## The Change Notification
 
 `REMARKS_CHANGED` (a `Topic<RemarksListener>`, project-level, `BroadcastDirection.NONE`) lives in
-`store/RemarkEdits.kt`, beside the twelve functions that publish it, not inside `RemarkStore`. Two
+`store/RemarkEdits.kt`, beside the eleven functions that publish it, not inside `RemarkStore`. Two
 things need to hear about a change: the gutter service and the tool window tree. Keeping the topic
 out of the store is about cost, not purity: adding a `Project` constructor parameter to
 `RemarkStore` would touch fourteen call sites that build it directly, and keeping the store free
 of the message bus is what lets `RemarkStoreStateTest` stay a plain JUnit test with no IDE fixture.
 
-`store/RemarkEdits.kt` holds the only twelve functions production code uses to change stored data:
+`store/RemarkEdits.kt` holds the only eleven functions production code uses to change stored data:
 `addRemark`, `addGeneralRemark`, `editRemark`, `deleteRemark`, `markRemarksPublished`,
-`markRemarksRead`, `setRemarkBucket`, `setRemarkAsksForAnswer`, `recordAnswer`, `deleteAnswer`,
+`markRemarksRead`, `setRemarkAsksForAnswer`, `recordAnswer`, `deleteAnswer`,
 `clearHandedOverRemarks` and `clearAllRemarks`. Phase 9 grew this list from eight in two steps: group
 one split `markRemarksSent` into `markRemarksPublished` and the new `markRemarksRead`, and renamed
 `clearSentRemarks` to `clearHandedOverRemarks`. See "The three states, and why published is not
 read" below. Group three added `addGeneralRemark`, the one entry point for a remark about no file.
 See "A Remark About No File" below. Phase 11 deleted `setRemarkSeverity` and added the last three:
 `setRemarkAsksForAnswer`, and `recordAnswer`/`deleteAnswer`, which are the only route to the answers
-list. The file's thirteenth public function, `notifyRemarksChanged`, is
-what every one of the twelve calls to publish the topic; it counts too, because `CLAUDE.md` rule 3
+list. Phase 13 deleted `setRemarkBucket` along with the field it set, taking the count from twelve
+back to eleven. The file's twelfth public function, `notifyRemarksChanged`, is
+what every one of the eleven calls to publish the topic; it counts too, because `CLAUDE.md` rule 3
 checks the file by counting every public function it finds there, not by naming the mutators by
 hand. Each one mutates through `RemarkStore` and then
 publishes. That pairing is the whole mechanism. There is no separate listener list or observer
-class. `RemarkStore`'s own `add`/`remove`/`edit`/`setBucket`/`putAnswer`/... stay public, and
-nothing in the language stops a caller from reaching past the twelve functions and calling them
+class. `RemarkStore`'s own `add`/`remove`/`edit`/`markRead`/`putAnswer`/... stay public, and
+nothing in the language stops a caller from reaching past the eleven functions and calling them
 directly, so the rule is checked rather than assumed. The check used to list the mutator names by
 hand, which is exactly what let phase 5 add `setSeverity`/`setBucket` to `RemarkStore` without the
 old grep noticing: a hand-picked list has to be edited every time a mutator is added, and forgetting
@@ -1114,8 +1132,12 @@ left `PENDING` and `PUBLISHED` indistinguishable at the start of a row, which is
 row carries an icon. No opacity is used any more, so `IconLoader.getTransparentIcon` is gone from this
 path.
 
-The word at the end of the
-row, "published" or "read", still marks the same distinction a second way, in text.
+The row used to end with the word "published" or "read", marking the same distinction a second way,
+in text. ⚠️ **Phase 13 deleted both words.** The icon already says how far a row got, and once the
+tree split into Open and Done the word "read" was the third copy of one fact — the row's grey text,
+its green icon, and the Done group it now sits in all say it. That is the same argument phase 12 used
+to delete the grey `asks` and `answered` words. The gutter tooltip keeps its words, because there is
+no icon legend on hover and nothing else there carries the state.
 `ui/RemarkStatusLook.kt` is the one place that
 decides the icon and the text attributes for a status; `editor/RemarkGutterIcon.kt`'s
 `RemarkGutterIconRenderer.getIcon` and `ui/RemarksTree.kt`'s `RemarkTreeRenderer` both read it,
@@ -1499,17 +1521,21 @@ reason. The gutter needed no change at all: `RemarkGutter.placementsFor` already
 `it.path == path` against a real document's relative path, which is never empty, so a general remark
 was already skipped there before this task, and a test now pins that it stays skipped.
 
-**`ui/RemarksTree.kt`'s General group.** `buildTreeRoot` partitions the sorted rows on
-`path.isEmpty()` before the existing bucket logic ever runs, and puts every general remark under one
-group first, keyed `GENERAL_KEY` ("general") and labelled "General". The key is a bare word: a file
-key always starts with `file:` and a bucket key always starts with `bucket:`, so `"general"` cannot
-collide with either, and `RemarksPanel`'s selection restore, which matches groups by key, keeps
-working. A general remark's own bucket is ignored for this grouping, and that is a real cost, not an
-oversight. Put a general remark in a bucket and the bucket does not gather it. The reason it is still
-the right shape: a general remark is about the whole change, so the top of the tree is where it
-should be read, and a tree with the same remark reachable from two places is worse than one that
-ignores a field on it. `docs/ideas.md` already names this the layered-ordering question the tree
-answered once before, for buckets above files.
+**`ui/RemarksTree.kt`'s General group.** Inside each side of the tree, `addSide` partitions the rows
+on `isAboutNoFile` and puts every general remark under one group first, above the file groups,
+labelled "General". The key is a bare word, `GENERAL_KEY` ("general"): a file key always starts with
+`file:`, so `"general"` cannot collide with one, and `RemarksPanel`'s selection restore, which matches
+groups by key, keeps working.
+
+⚠️ Since phase 13 that key is prefixed with the side it sits in — `open/general`, `done/general` —
+because a general remark can be open while another is done, and then there are two General groups in
+one tree. The bare word is still what makes the prefixed key safe. The original argument for the bare
+word also named bucket keys, which started with `bucket:`; buckets are gone, and the argument holds
+on file keys alone.
+
+Before phase 13 this partition also had to run ahead of the bucket grouping, and a general remark's
+own bucket was deliberately ignored, so a general remark stayed at the top of the tree rather than
+being gathered into a bucket. Both are moot now.
 
 **`store/RemarkHistory.kt`'s heading.** A general remark's archived heading reads `**(general)**`
 and prints no `lines` part at all, since `positionLabel` has nothing to describe for a remark with no
@@ -1518,9 +1544,10 @@ line range. This reuses the same word the renderer's `## General` heading and th
 
 ## One Pass Over The Tree
 
-Phase 9's group four is two changes, both in `ui/RemarksTree.kt` and `ui/RemarksToolWindowFactory.kt`
-and nowhere else: a file row shows its file name first, and a remark, several remarks, or a whole
-file or bucket group can be dragged onto a bucket row to move them there.
+Phase 9's group four was two changes, both in `ui/RemarksTree.kt` and `ui/RemarksToolWindowFactory.kt`
+and nowhere else: a file row shows its file name first, and rows could be dragged onto a bucket row to
+move them there. The first is still how a file row draws. ⚠️ The second was deleted whole in phase 13,
+and the subsection about it is kept only as the record of why.
 
 ### The file row shows the file name first
 
@@ -1550,77 +1577,205 @@ row, and that is real logic with its own tests, not a one-line change to what a 
 worth trying only if the file-name-first row, once seen in a real IDE, still reads badly on a
 project with deep paths.
 
-### Dragging a remark onto a bucket
+### Dragging a remark onto a bucket, and why it is gone
 
-A remark, several selected remarks, or a whole file or bucket group can be dragged onto a bucket row
-to move them there, or onto the `(no bucket)` row to clear their bucket. The move itself is nothing
-new: `setRemarkBucket`, one of the mutation functions in `store/RemarkEdits.kt`, already does it and
-already publishes `REMARKS_CHANGED`, so the tree redraws itself once the drop lands. What phase 9
-adds is the drag and drop machinery around that existing call, and one new pure function that
-decides what a drop means.
+Phase 9 let a remark, several selected remarks, or a whole file or bucket group be dragged onto a
+bucket row to move them there, or onto the `(no bucket)` row to clear their bucket. `ui/RemarksTreeDnd.kt`
+held the drag wiring and a private drag bean; `bucketDropTarget` in `ui/RemarksTree.kt` was the pure
+function that decided what a drop on a given node meant, and it returned a `BucketDrop` wrapper rather
+than a bare `String?` so that "not a target" and "target: clear the bucket" could not both be null.
 
-**`bucketDropTarget(node)` is pure, and it answers what a drop on a given node means.** Given the
-tree node under the pointer, it decides: a bucket group is a target for its own name; the
-`(no bucket)` group is a target that clears the bucket; a file group or a remark row inside a bucket
-targets that bucket; the General group, the tree root, and a file group with no bucket level above
-it are not drop targets at all.
+⚠️ **Phase 13 deleted all of it, and the file with it.** Dragging onto a bucket was the only drag
+anywhere in the plugin, so removing buckets removed the whole subject: the drag bean, the drop target
+decision, `installDragToBucket`, and the tree's `DnDAwareTree` superclass, which reverted to plain
+`com.intellij.ui.treeStructure.Tree`. Nothing drags in the tool window now, and nothing is meant to
+look as though it might.
 
-It returns a wrapper type, `BucketDrop(bucket: String?)`, rather than a bare nullable string. A
-nullable string can only give one of two answers a null value: "this row is not a drop target," or
-"the target is: clear the bucket." Those are two different answers, and a plain `String?` cannot
-tell them apart. `bucketDropTarget` itself returns null for "not a target," and a `BucketDrop`
-wrapping either a bucket name or a null bucket for "this is a target, and here is what it means."
+**One thing worth keeping from that design.** A drop target that *creates* something needs an
+on-screen tip explaining it, and phase 9 cut its own "New bucket…" target partly for that reason. The
+same rule applies to anything a future phase adds to this tree: a gesture nobody can guess is a
+gesture nobody will use.
 
-**It walks up to the top-level ancestor and reads that node's key, rather than parsing the key of
-the node under the pointer, because a bucket name containing a slash makes file keys
-unparseable.** A file group's key is built by joining the bucket's own key in front of the file's
-path, so a bucket named `a/b` produces a file key like `bucket:a/b/file:src/Foo.kt`. No string split
-on that key can tell where the bucket name ends and the file path begins. Reading the key of the
-node at the very top of the tree instead sidesteps the whole problem: that node's own key already
-names the bucket in full, whatever characters the bucket name contains. `bucketDropTarget` also
-reads that top node's key, never its label, which is what makes a bucket a person actually named
-`(no bucket)` set that literal name rather than being read as a request to clear the bucket.
+## Open, Done, and Rows That Wrap
 
-**The drag bean is a private type.** `ui/RemarksTreeDnd.kt` defines a private data class,
-`DraggedRemarks(ids: List<String>)`, and both the drag's target checker and its drop handler refuse
-anything that is not exactly that type. A drag started in the project view, the commit tool window,
-or anywhere else in the IDE is refused rather than misread as a list of remark ids that happened to
-arrive at the right component.
+Phase 13 rebuilt the tool window around two ideas. The tree splits by state instead of by subject,
+and a row is a stack of lines instead of one cropped line.
 
-**Three small decisions, settled rather than left open.** Dropping on the `(no bucket)` row clears
-the bucket, because `setRemarkBucket` already accepts null and clearing is its natural opposite.
-Dragging a file group or a bucket group moves every remark under it, the same subtree walk Publish
-Selected already uses on those groups. The drag image stays the platform default: showing a count of
-remarks being dragged is feedback for a problem nobody has run into yet.
+### Open and Done
 
-**The "New bucket…" drop target was considered and cut.** Buckets in this plugin are derived, not
-declared: a bucket exists because some remark carries its name, and an empty one vanishes on the
-next tree rebuild. A "New bucket…" row that a person could drop onto would have to be a permanent
-fake row in the node building, sitting there for a gesture nobody has tried yet. `Move to Bucket…`
-in the right-click menu already creates a bucket by typing its name, and that path is unchanged. Not
-building the new-bucket drop target also removes an obligation `docs/ideas.md` names for it: a drop
-target that creates something needs an on-screen tip explaining that, and the tip is not needed once
-the part it would have explained is not there to explain.
+Two top-level groups carry every remark. **Open** holds the rows still waiting. **Done** holds the
+rows already processed. A side with no rows is not drawn at all, so a project where nothing has been
+handed over yet has an Open group and no Done group.
 
-**The wiring lives beside the decision, not in the panel.** `installDragToBucket` and the node lookup
-under the pointer sit in `ui/RemarksTreeDnd.kt`, next to `ui/RemarksTree.kt`'s pure
-`bucketDropTarget`. `RemarksToolWindowFactory.kt` already owns the tree, the toolbar, the
-right-click menu, selection and collapse restore, navigation and the delete confirmations, and the
-drag is a separate subject with its own platform dependency on `com.intellij.ide.dnd`. The panel
-passes its own selection rule in as a lambda rather than letting the drag read the tree itself, so a
-drag and Publish Selected can never disagree about what a selected group covers.
+**Processed means `READ`, or carrying an answer.** Either one alone is enough. So an answered question
+leaves Open the moment its answer lands, even when nothing ever acknowledged the batch. That was
+decided knowing the cost: the question moves out of the list a person is working through while its
+answer is still worth reading. Two things make it acceptable. The answer stays nested under its
+question wherever that question sits, so nothing is hidden. And Done is ordered newest-processed
+first, so whatever just arrived is the top row of Done rather than buried in it. ⚠️ Do not soften this
+to "`READ` only" because it reads as friendlier. It was decided against.
 
-**What no test covers, and what is tested instead.** Nothing in the test suite performs a drag: a
-press-and-move gesture, a real drop landing on a real row, and the tree redrawing after it are not
-things `RemarksTreeTest` or `RemarksPanelTest` can drive, and they are an owed hand check instead.
-What is tested is `bucketDropTarget` itself, the pure decision about what a drop on a given node
-means, covering every kind of node the tree can hold, and that `RemarksPanel` still builds with the
-drag-and-drop support installed, since the light test fixture registers a headless `DnDManager`
-whose `registerSource`/`registerTarget` do nothing.
+**Rows inside a file are ordered by the time they last changed hands**, not by the line they point
+at:
 
-**A `Published` group above the buckets was designed for this same pass and deliberately left
-unbuilt.** See `docs/ideas.md`, "Where published remarks live in the tree," for the condition that
-would make it worth building.
+- Open sorts by `createdAt`, oldest first. A newly written remark lands at the bottom of its file
+  group and nothing above it moves, so the tree does not jump under the person's hand while they read.
+- Done sorts by `processedAt`, newest first. `processedAt` is `readAt` when that is set, and
+  `createdAt` when it is 0.
+
+**That fallback is what keeps old data readable.** Every remark read before phase 13 added `readAt`
+carries 0, so without the fallback the whole backlog would sort as one lump at the epoch, in whatever
+order the store happened to hand it over. A question that was answered but never acknowledged falls
+back the same way. That is rare — a session acknowledges a batch before it answers anything in it, so
+the stamp is already there when the answer arrives — and the plain two-field rule is worth more than a
+third case almost nothing would exercise.
+
+Both comparators keep the file path as the first key, so file groups stay in path order and only the
+rows inside a file are time-ordered. The resolved line is the last tie-break, which is what keeps a
+store full of `createdAt == 0` rows in a steady order.
+
+**"Answers with no question" stays above Open, and is not folded into Done.** An answer whose
+question is gone is a loose end, not finished work. It keeps the top-level group phase 12 gave it,
+with its own key and its own newest-first order.
+
+⚠️ **Every group inside a side carries its side's key as a prefix** — `open/general`,
+`done/file:src/Foo.kt`. One file can hold an open remark and a processed one at the same time, and
+then it gets a group on each side. `RemarksPanel` matches groups by key alone, both to put a selection
+back after a rebuild and to shut again what was shut, so two groups sharing one key would collapse
+together and select together — and a selected group is what Delete acts on, after one dialog, for
+every row under it. The keys are never persisted, so changing them cost no migration. `ANSWERS_KEY`
+keeps its bare value, because that group sits outside both sides.
+
+**Done starts collapsed, and opening it survives a refresh.** That needed more than skipping Done in
+`expandAll`. `collapsedGroups` records which groups are *shut*, and "not in that set" also covers "no
+such group in the tree at all", which is exactly what the first build looks like — so the collapse
+restore alone cannot tell "the person opened Done" from "Done is new". `expandAll` therefore takes a
+`keepDoneOpen` flag, read from `groupIsExpanded(DONE_KEY)` **before** `setRoot` throws the old rows
+away.
+
+The other shape was rejected: expand everything, then collapse Done at the end. `Tree.collapsePath`
+collapses the whole visible subtree when `ide.tree.collapse.recursively` is on, which is the default,
+so every rebuild would throw away whatever the person had open inside Done.
+
+### A row is a stack of lines
+
+`ColoredTreeCellRenderer`, what the tree used until phase 13, is a `SimpleColoredComponent`, and one
+of those paints a single line by construction. A long remark was cropped on the right, which is the
+one part of the row worth reading. So the renderer is now a `JPanel` on a `GridBagLayout` holding
+pre-built `SimpleColoredComponent` rows, each with `weightx = 1` and `fill = HORIZONTAL`.
+
+**Variable-height tree rows are one call: `tree.setRowHeight(0)`.** That is the whole mechanism. JTree
+then asks each rendered component for its preferred height instead of using one fixed number. The
+platform's own TODO tool window does exactly this and nothing else —
+`platform/todo/src/com/intellij/ide/todo/TodoPanel.java:251`, `myTree.setRowHeight(0); // enable
+variable-height rows`. `platform/dvcs-impl/.../PushLog.java` is the second user. Nobody should go
+looking for a layout manager or a preferred-size override; there is not one.
+
+**The stacked-line structure is copied from `MultiLineTodoRenderer`**
+(`platform/todo/src/com/intellij/ide/todo/MultiLineTodoRenderer.java`), including the detail that a
+line this row does not need is hidden with `isVisible = false` rather than removed. `GridBagLayout`
+skips a hidden child when it measures, so a one-line row really is one line tall, and the components
+survive to be reused by the next row.
+
+Two deliberate differences from the platform's version:
+
+- It stacks `HighlightableCellRenderer`, which takes highlights as `TextAttributes`. This plugin
+  stacks `SimpleColoredComponent`, which takes `append(text, SimpleTextAttributes)` — the exact call
+  the old renderer already made. So the three existing styles carry over untouched and cannot drift.
+- ⚠️ **It never wraps.** It receives lines that are already split, because a TODO comment is
+  multi-line in the source. There is no platform word-break to fall back on. The line breaking here is
+  this plugin's own.
+
+**Each line is set `isOpaque = false`.** `SimpleColoredComponent`'s own constructor makes itself
+opaque, and left that way every line would paint the plain tree background over the selection band the
+panel draws.
+
+**Selection is painted by hand, and that is the one thing `ColoredTreeCellRenderer` gave for free.** A
+plain `JPanel` paints nothing, so a selected row would look unselected while still being selected —
+and the selection is what Publish Selected, Delete and the whole right-click menu act on. The panel
+takes `UIUtil.getTreeSelectionBackground(focused)` and each line takes
+`UIUtil.getTreeForeground(selected, focused)`. ⚠️ That method's argument is whether the **tree** has
+focus, not whether the row is selected, so the call is
+`if (selected) UIUtil.getTreeSelectionBackground(tree.hasFocus()) else UIUtil.getTreeBackground()`.
+Verified with `javap` and against the checkout, not recalled.
+
+**The wrap width is worked out from the node's own depth**, times
+`UIUtil.getTreeLeftChildIndent() + getTreeRightChildIndent()`, taken off the tree's visible width. It
+is deliberately **not** read back from `tree.getRowBounds(row)`: those bounds are produced by JTree
+asking this very renderer for its preferred size, so reading them inside the renderer would be a
+question only the renderer can answer. A floor, `MIN_WRAP_WIDTH`, covers a tree that has not been laid
+out yet and reports a width of 0 — without it every row would come back as three one-character lines.
+
+⚠️ **Widening the tool window does not re-wrap rows already on screen.** The width is read once per
+render, and `setRowHeight(0)` makes JTree cache each row's height, so nothing asks the renderer again
+until the tree is rebuilt. Pressing Refresh, or writing any remark, rebuilds it. The fix, if this ever
+reads badly, is a resize listener calling `TreeUtil.invalidateCacheAndRepaint(tree.ui)` — left out on
+purpose, because that method is `@ApiStatus.Experimental` and adding a third reason for
+`build.gradle.kts` to subtract `EXPERIMENTAL_API_USAGES` is not a decision to take on the way past.
+
+### `wrapToLines` is pure, and that is the point
+
+`ui/WrapText.kt` holds one public function:
+
+```kotlin
+fun wrapToLines(text: String, maxWidth: Int, maxLines: Int, widthOf: (String) -> Int): List<String>
+```
+
+**It takes a `widthOf` measurer rather than a `FontMetrics`.** That is what keeps the file free of
+`java.awt` and of `com.intellij` — it has no `import` statement at all — which is the same argument
+`anchor/` and `render/PromptRenderer.kt` make, for the same reason: no fixture, tests in
+milliseconds. The renderer passes `metrics::stringWidth`. Every test passes a fixed width per
+character instead, so the arithmetic in the test is exact and readable.
+
+The rules it follows:
+
+- A `\n` in the text always starts a new line, because a remark can be written with Shift+Enter and
+  the tree no longer flattens those breaks away.
+- Words break on runs of whitespace, which collapse to nothing at a wrap point rather than opening the
+  next line with a leading space.
+- A single word wider than `maxWidth` is broken mid-word rather than left to overflow.
+- Past `maxLines`, only the first `maxLines` are kept and the last of those is trimmed until it plus
+  an ellipsis fits, so the row shows that more text follows.
+- Empty text gives one empty line, never an empty list, so a caller building one renderer row per line
+  always has a row to build.
+
+### The metadata line sits below the text
+
+The position, its `(moved)` / `(orphaned…)` suffix, and an orphan-group answer's file name used to sit
+in grey **in front of** the remark text, on the first line. They are now one grey line **below** the
+text, on a fourth `GridBagLayout` row in `SimpleTextAttributes.GRAYED_ATTRIBUTES`.
+
+Three things follow, and each is worth knowing before touching that renderer:
+
+- **The three-line cap counts lines of text, not lines of row.** A row with metadata draws up to
+  four lines. `MAX_TEXT_LINES` caps the wrapped body only.
+- **The text got wider.** While the position sat in front, its width had to come off all three wrapped
+  lines, whether or not a given line drew it, because `wrapToLines` takes one width for the whole row.
+  With the position on its own row, the body wraps to the row's full width.
+- **The row is hidden outright when there is nothing to put in it.** A general remark has no position,
+  and a nested answer usually has no move or orphan to report. `GridBagLayout` skips a hidden child, so
+  such a row is exactly as tall as its text and not one blank line taller. ⚠️ This needed a fix in
+  `remarkNode()` as well: a real general remark's stored line numbers are both 0, which used to resolve
+  through `rowPosition` to the string "1-1" — a line nobody selected, pointing at nothing. It now asks
+  `isAboutNoFile` and returns an empty position, the way `answerNode()` already did.
+
+⚠️ **The metadata line is appended as one fragment and never run through `wrapToLines`.** A position
+combining a sub-line range, an "(orphaned, written at …)" suffix and a long file name could in
+principle be wide enough to overflow the row rather than wrap or elide. Nothing has hit it yet.
+
+### What tests can and cannot say about all this
+
+`WrapTextTest` is plain JUnit with no fixture and covers the breaking rules exhaustively.
+`RemarkTreeRendererTest` is fixture-backed — a real `SimpleColoredComponent`, a real `Tree`, real
+theme colours — and asks what a row actually drew: how many line components came back visible, what
+text and attributes each carries, and whether the metadata row was drawn at all.
+
+Nothing automated can say whether a wrapped row *looks* right. Whether the fourth line is elided
+rather than clipped, whether the grey line reads as subordinate to the text above it, whether
+selection paints across all the lines of a tall row, and whether the icon sitting inside the first
+line reads as a hanging indent or as ragged, are all hand checks. The platform's own
+`MultiLineTodoRenderer` puts the icon in a separate `gridx = 0` component instead, which aligns every
+line; that is the change to make if the ragged left edge reads badly.
 
 ## A Remark on the Rendered Preview
 
@@ -2565,14 +2720,16 @@ for it.
 added expanded. That is phase 12's shape. Before it, every answer sat in a flat Answers group at the
 very top of the tree, above General, above the buckets, above the files — so an answer and its question
 were as far apart on screen as two rows can be, and the row had to carry a file name to say where it
-belonged. Nesting says it by position instead. A row carries the resolved position in grey and then the
-answer's first line; the first line inline is what makes the answer readable without opening anything.
+belonged. Nesting says it by position instead. A row draws the answer's first line, wrapped, with the
+resolved position in grey below it since phase 13; the first line inline is what makes the answer
+readable without opening anything.
 
 **The flat group survives, narrowed to hold only what nesting cannot, and relabelled
 "Answers with no question".** `ANSWERS_LABEL` is that string. `ANSWERS_KEY` is still the bare word
 `answers`, deliberately unchanged, so a group collapsed before the upgrade still matches itself
-afterwards; the key also cannot collide with a `file:` or `bucket:` key, the same argument `GENERAL_KEY`
-already makes. The label avoids the word "orphaned" on purpose: this tree already uses that word for a
+afterwards; the key also cannot collide with a `file:` key, the same argument `GENERAL_KEY`
+already makes. ⚠️ It is also the one group key phase 13 left unprefixed, because this group sits
+outside Open and Done rather than inside either. The label avoids the word "orphaned" on purpose: this tree already uses that word for a
 remark whose *code* could not be found, and an answer whose *question* is gone is a different thing —
 the code may be sitting right there. The group appears only when at least one such answer exists, sits
 above General, and is still sorted **newest first**, a different order from every other group in the

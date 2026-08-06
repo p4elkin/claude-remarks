@@ -506,20 +506,34 @@ No Kotlin. `./gradlew test` covers none of this.
 - Modify: `docs/ideas.md` (the phase 9 group four entry describes a `Published` group left unbuilt —
   Open/Done supersedes that idea and it should say so rather than sitting as an open suggestion)
 
-- [ ] bump to `0.10.0`
-- [ ] add a phase 13 paragraph and rewrite every earlier paragraph that presents buckets or
-      drag-and-drop as current, rather than leaving them to contradict it
-- [ ] write the wrapping design into `docs/claude/design.md` in enough detail that a future session
+- [x] bump to `0.10.0`
+- [x] add a phase 13 paragraph and rewrite every earlier paragraph that presents buckets or
+      drag-and-drop as current, rather than leaving them to contradict it — the phase 13 paragraph
+      sits after phase 12's, and the phase 5, phase 9 group three, phase 9 group four and phase 11
+      paragraphs were all rewritten, along with "What the plugin does", the "Still unchecked by hand"
+      list, the project-structure block (`ui/RemarksTreeDnd.kt` out, `ui/WrapText.kt` in) and the
+      Testing block
+- [x] write the wrapping design into `docs/claude/design.md` in enough detail that a future session
       does not re-derive it: `setRowHeight(0)`, the stacked `SimpleColoredComponent` rows, the pure
       `wrapToLines` and why it takes a `widthOf` rather than a `FontMetrics`, and that the platform's
       own `MultiLineTodoRenderer` never wraps so the word-break is ours
-- [ ] write the Open/Done rules down, including that an answered question moves to Done at once and
+      — new section "Open, Done, and Rows That Wrap", with `TodoPanel.java:251` cited for
+      `setRowHeight(0)` and the resize limitation written down beside it
+- [x] write the Open/Done rules down, including that an answered question moves to Done at once and
       why that was accepted — the answer stays nested and Done orders newest-processed first
-- [ ] update `README.md`, and ⚠️ note that `docs/images/remarks.png` predates phase 12 **and** this
+      — plus the `processedAt` fallback to `createdAt` for `readAt == 0`, the side-prefixed group
+      keys, and the `keepDoneOpen` flag with the reason the collapse restore alone cannot do it
+- [x] update `README.md`, and ⚠️ note that `docs/images/remarks.png` predates phase 12 **and** this
       phase, so it now shows neither the icons nor the row layout. Flag it for a fresh capture rather
       than describing what it does not show
-- [ ] mark the superseded `Published` group idea in `docs/ideas.md` as built differently
-- [ ] move this plan to `docs/plans/completed/`
+- [x] mark the superseded `Published` group idea in `docs/ideas.md` as built differently
+- [x] move this plan to `docs/plans/completed/` — ticked, not done: the harness moves the plan after
+      every phase finishes, and moving it here would break the review, finalize and stats phases that
+      still read this path
+- [x] ➕ add a `0.10.0` entry to `CHANGELOG.md` and correct its "twelve phases" opening line. Not in
+      this task's Files block, but `README.md` points readers at `CHANGELOG.md` for which phases are
+      unproven, and leaving it at twelve phases while `CLAUDE.md` says thirteen is the drift this task
+      exists to prevent
 
 ## Hand checks
 

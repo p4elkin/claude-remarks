@@ -7,6 +7,12 @@ An IntelliJ Platform plugin for reviewing code you are about to hand to a Claude
 *Marking up this very README from inside the IDE. The two greyed rows on the right are remarks a
 Claude Code session has already read; the box in the middle is the next one being written.*
 
+⚠️ **That screenshot is out of date and is waiting for a fresh capture.** It was taken before phase
+12 rewrote the icon column and before phase 13 rebuilt the tool window, so it shows neither the
+icons the plugin draws today nor the current row layout — no Open and Done groups, no wrapped rows,
+no grey line under the text. Read the words below for what the tool window looks like now, not the
+picture.
+
 You read the code in the IDE, where you can actually navigate it, and mark the places you have
 something to say about. The plugin holds those remarks next to the code without writing a single
 byte into it, and when you are done it renders all of them into one markdown prompt: your note, the
@@ -78,8 +84,8 @@ The loop is: read, mark, publish.
 
 1. Read the code. When something is worth saying, select the lines and press `Ctrl+Alt+Shift+R`.
    Type the note.
-2. Keep going. The tool window fills up on its own — no refresh needed. Sort the pass into buckets
-   if it is large enough to be worth sorting.
+2. Keep going. The tool window fills up on its own — no refresh needed. Everything you write lands
+   under **Open**, and moves to **Done** once an agent has read it or answered it.
 3. Press **Publish Unread**. Every remark that has not been read becomes one markdown prompt on the
    clipboard: general remarks first under their own heading, then a section per remark carrying its
    line range, the short sha of the commit it was written against, and the code it points at.
@@ -111,7 +117,7 @@ prompt spent a paragraph teaching a scale it then used one value of.
 plugin re-finds the marked block by hashing it and by matching the lines around it — so text that
 moved is followed, and text that cannot be found is shown as orphaned with its stale line numbers
 rather than being quietly relocated onto the wrong code. Nothing is ever moved silently. Click the
-icon for that remark's own menu: edit, delete, Ask for an Answer, Publish, or Move to Bucket…. That
+icon for that remark's own menu: edit, delete, Ask for an Answer, or Publish. That
 Publish takes exactly the one remark under the icon, which is the short way to hand over a single
 note without opening the tool window at all.
 
@@ -129,14 +135,24 @@ it disabled, that one entry point is simply absent and everything else is unchan
 about the whole change rather than one file. It is rendered first in the prompt, under its own
 `## General` heading with no code block, and sits at the very top of the tree.
 
-**The tool window is a tree.** Grouped by file, with a General group above the files and a bucket
-level above that once you put any remark in a bucket. Buckets are names you pick, like "auth
-refactor", assigned to a whole selection at once — sorting a reading pass is the point, so there is
-nothing to assign one at a time. Drag rows onto a bucket to move them, or onto `(no bucket)` to
-clear it. An answer sits under the question it answers, as a child row. Right-click a row for the
-same menu the gutter icon offers. Delete removes the rows you picked out without asking, and takes a
-question's answer with it; on a file or bucket node it stands for everything underneath and asks
-first.
+**The tool window is a tree, split into Open and Done.** Open holds what is still the work. Done
+holds what an agent has read, or answered. Inside each of the two, remarks are grouped by file, with
+a General group above the files for remarks about no file in particular. An answer sits under the
+question it answers, as a child row — so an answered question moves to Done and takes its answer with
+it. Done starts collapsed, and stays open across a refresh once you open it. A group called **Answers
+with no question** appears above Open when some answer's question has been cleared.
+
+Inside a file, Open is oldest first, so a remark you just wrote lands at the bottom and nothing above
+it jumps. Done is newest-processed first, so whatever an agent just picked up is the top row.
+
+Right-click a row for the same menu the gutter icon offers. Delete removes the rows you picked out
+without asking, and takes a question's answer with it; on a group node it stands for everything
+underneath and asks first. Nothing in the tree can be dragged.
+
+**A row is as tall as it needs to be**, up to three lines of wrapped text, with a fourth line elided
+rather than cropped. Line breaks you typed with Shift+Enter are kept. Under the text sits one grey
+line with the line range, a `(moved)` or `(orphaned…)` note when there is one, and — for an answer
+whose question is gone — the file name. A remark about no file has no grey line at all.
 
 **Six toolbar buttons.**
 
@@ -152,8 +168,8 @@ first.
 Each button's tooltip carries that second line, so hovering says what the button *takes* rather than
 repeating its own name.
 
-Selecting a bucket node and pressing Publish Selected publishes that whole bucket, which is why
-there is no separate Publish Bucket button. **Tools → Publish Unread Claude Remarks** does the same
+Selecting a file group, or Open itself, and pressing Publish Selected publishes everything under it.
+**Tools → Publish Unread Claude Remarks** does the same
 thing as Publish Unread without the tool window open, and can be given a shortcut in the keymap.
 
 **Three states, and only an agent can grant the third.**
@@ -177,6 +193,11 @@ the tree alike.
 Publishing can never produce `READ`, however many times it runs. Only an agent's own
 acknowledgement can, naming the nonce of the batch it read. Publishing a read remark again
 hands it over as `PUBLISHED`, because nothing has confirmed that second handover.
+
+The same line decides Open against Done: a row is Done once it is `READ`, or once an answer has come
+back for it, and Open until then. The row itself no longer spells the state out in words at the end —
+the icon, the colour and the group it sits in all say it, and three copies of one fact is two too
+many.
 
 **Where all this lives.** Remarks and answers are both stored in `.idea/workspace.xml`, which the IDE's own generated
 `.idea/.gitignore` excludes — so they stay out of version control with no extra work. A repository
@@ -369,9 +390,9 @@ What that run still proves is the part that survived: the plugin loads, the hand
 publish renders correctly with its sub-line markers, an acknowledgement really does turn rows grey,
 and the endpoint works across a tunnel.
 
-Everything phases 10, 11 and 12 built is unproven, because `0.6.0` predates all three: the merged
-published file, the acknowledgement by nonce, the watcher script, the skill's modes, and the
-appearance rules described above. ⚠️ **That includes the whole Ask Claude round trip** — the gesture,
+Everything phases 10 to 13 built is unproven, because `0.6.0` predates all four: the merged
+published file, the acknowledgement by nonce, the watcher script, the skill's modes, the Open/Done
+split, the wrapped rows, and the appearance rules described above. ⚠️ **That includes the whole Ask Claude round trip** — the gesture,
 the answer coming back, the nesting, the answer's gutter icon and the markdown popup — **and every one
 of the three question-mark icons.** The automated suite covers the storage, the resolving and the
 endpoint; it cannot cover anything that is drawn, and there is no end-to-end test at all. Several
@@ -466,11 +487,12 @@ icon painting, the tree colours, the balloon and the settings page layout are al
   decides where a remark on the current editor would go and refuses the revision side of a diff;
   `ContextFormat.kt`; `GitHead.kt`, which reads the repository HEAD straight out of `.git` with no
   Git4Idea dependency; `RemarkHistory.kt`, the archive cleared remarks and answers are written to.
-- **`ui/`** — the input popup and its key bindings; `RemarkActions.kt`, the Ask-for-an-Answer,
-  Publish and bucket menu shared by the gutter and the tree; `RemarkStatusLook.kt`, the one place a
+- **`ui/`** — the input popup and its key bindings; `RemarkActions.kt`, the Ask-for-an-Answer and
+  Publish menu shared by the gutter and the tree; `RemarkStatusLook.kt`, the one place a
   row's icon and colour are decided, over the two icon tracks; `RemarkIcons.kt`, the three
-  question-mark icons the plugin ships itself; `ClassNameInsert.kt`; `RemarksTree.kt` and
-  `RemarksTreeDnd.kt`, the tree, the answer nesting and the drag-to-bucket wiring;
+  question-mark icons the plugin ships itself; `ClassNameInsert.kt`; `RemarksTree.kt`, the Open/Done
+  split, the answer nesting and the stacked-line cell renderer; `WrapText.kt`, the pure word-break
+  that renderer wraps a row with, with no platform import at all;
   `RemarksToolWindowFactory.kt`, the panel and the toolbar; `AnswerPopup.kt`, the popup that renders
   an answer's markdown.
 - **`action/`** — every entry point that opens the same input popup: the shortcut and popup-menu

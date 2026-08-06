@@ -1595,7 +1595,23 @@ The first is the most likely right answer, and it is worth checking against the 
 than designed on its own: a remark can be in a bucket and published at the same time, so two grouping
 axes have to agree on which one wins at the top.
 
-### Decided in phase 9: planned, not built
+### Decided in phase 9: planned, not built — and superseded in phase 13
+
+⚠️ **This idea is closed. Phase 13 built the split, in a different shape, and a Published group is
+not wanted any more.** The tree now has two top-level groups, Open and Done. A row is Done once an
+agent has acknowledged it (`READ`) or once an answer has come back for it; everything else is Open,
+and Done starts collapsed. That is the same "keep the working list short" property this idea asked
+for, and it draws the line at a better place: Published sits on the *handover*, which Publish Unread
+carries again, so a Published group would have collected rows that are still the work. Done sits on
+the *agent's own acknowledgement*, which is the point where a row really is finished.
+
+The cost this idea named — one bucket appearing twice, once inside Published and once outside it —
+was paid in a smaller currency instead. Buckets were deleted in the same phase, but a *file* can now
+show up on both sides at once, which is why every group inside a side carries its side's key as a
+prefix (`open/file:src/Foo.kt`, `done/file:src/Foo.kt`). See `docs/claude/design.md`, section
+"Open and Done", for the whole shape.
+
+What follows is the phase 9 reasoning, kept as the record of why it waited.
 
 The phase 9 plan wrote this idea up as an optional task, a Published group at the top of the tree.
 The task was built to be dropped: nothing else in the plan depends on it. It was dropped.
