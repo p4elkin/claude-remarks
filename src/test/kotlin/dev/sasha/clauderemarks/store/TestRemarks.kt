@@ -32,6 +32,7 @@ internal fun remark(
     asksForAnswer: Boolean = false,
     status: RemarkStatus = RemarkStatus.PENDING,
     createdAt: Long = 0L,
+    readAt: Long = 0L,
     textHash: String = "0000000000000000",
     contextBefore: String? = "",
     contextAfter: String? = "",
@@ -48,6 +49,7 @@ internal fun remark(
     it.asksForAnswer = asksForAnswer
     it.status = status
     it.createdAt = createdAt
+    it.readAt = readAt
     it.textHash = textHash
     it.contextBefore = contextBefore
     it.contextAfter = contextAfter

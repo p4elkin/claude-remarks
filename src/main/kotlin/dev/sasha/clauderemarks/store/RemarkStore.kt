@@ -119,13 +119,25 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
             return changed.size
         }
 
-        /** Returns how many actually changed, the same shape as markPublished. Only an agent's own
-         *  acknowledgement produces READ — either of the two routes, never a publish; see
-         *  CLAUDE.md's guard 6 on this. */
+        /**
+         * Returns how many actually changed, the same shape as markPublished. Only an agent's own
+         * acknowledgement produces READ — either of the two routes, never a publish; see
+         * CLAUDE.md's guard 6 on this.
+         *
+         * Also stamps [RemarkState.readAt], the first time and only the first time: a remark
+         * whose `readAt` is already non-zero keeps that value even though its status is moving to
+         * READ again. That is what makes re-publishing and re-acknowledging the same remark safe —
+         * Publish Unread takes everything not yet READ, so a remark can pass through here more
+         * than once, and only the first pass should decide where it lands in Done's order.
+         */
         @Synchronized
         fun markRead(ids: Set<String>): Int {
             val changed = remarks.filter { it.id in ids && it.status != RemarkStatus.READ }
-            changed.forEach { it.status = RemarkStatus.READ }
+            val now = System.currentTimeMillis()
+            changed.forEach {
+                it.status = RemarkStatus.READ
+                if (it.readAt == 0L) it.readAt = now
+            }
             if (changed.isNotEmpty()) incrementModificationCount()
             return changed.size
         }

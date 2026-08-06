@@ -42,6 +42,7 @@ class RemarkStoreStateTest {
             asksForAnswer = true,
             status = RemarkStatus.PUBLISHED,
             createdAt = 1_700_000_000_000L,
+            readAt = 1_700_000_500_000L,
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",
             contextAfter = "line c\nline d",
@@ -424,6 +425,22 @@ class RemarkStoreStateTest {
     }
 
     /**
+     * Every remark stored before this field existed has no `readAt` attribute in its XML element
+     * at all: BaseState omits a property still at its default when it serializes. 0 must come
+     * back — "never read" — the same no-migration shape [phrase] and the columns above already
+     * use, and it is what lets Done fall back to `createdAt` for a remark read before this phase.
+     */
+    @Test
+    fun `a remark stored before readAt existed loads with it at 0`() {
+        val restored = deserializeOne(
+            """<option name="id" value="r-1" /><option name="path" value="src/Foo.kt" />"""
+        )
+
+        assertEquals("r-1", restored.id)
+        assertEquals(0L, restored.readAt)
+    }
+
+    /**
      * The migration half of the asks-for-an-answer flag, in the opposite direction to the severity
      * one above: this field is arriving rather than leaving. False is the default, so BaseState omits
      * it from the XML altogether, which is what makes every remark stored before the field existed
@@ -460,6 +477,16 @@ class RemarkStoreStateTest {
         state.addRemark(remark(id = "r-1", asksForAnswer = true))
 
         assertTrue(roundTrip(state).remarks.single().asksForAnswer)
+    }
+
+    /** The storage half of "readAt is stamped once and stays put": once it is non-zero it has to
+     *  reach workspace.xml and come back, the same as every other timestamp on this class. */
+    @Test
+    fun `readAt survives the round trip when it is set`() {
+        val state = RemarkStore.RemarksState()
+        state.addRemark(remark(id = "r-1", readAt = 1_700_000_500_000L))
+
+        assertEquals(1_700_000_500_000L, roundTrip(state).remarks.single().readAt)
     }
 
     @Test
@@ -570,6 +597,7 @@ class RemarkStoreStateTest {
             asksForAnswer = true,
             status = RemarkStatus.PUBLISHED,
             createdAt = 1_700_000_000_000L,
+            readAt = 1_700_000_500_000L,
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",
             contextAfter = "line c\nline d",

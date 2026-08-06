@@ -127,6 +127,10 @@ fun markRemarksPublished(project: Project, ids: Collection<String>) {
  * published batch's nonce, in `review/PublishedAck.kt`'s `reportPublishedRead`. A publish is not
  * that, however many times it runs. So two files may call this — that one and this one — and
  * CLAUDE.md's guard 6 keeps every other call site out.
+ *
+ * Guard 6 restricting this function to two callers is also what makes [RemarkState.readAt] a
+ * single-writer field: `RemarkStore.markRead`, underneath this call, is the only place that
+ * stamps it, and this function is the only way anything reaches `RemarkStore.markRead` at all.
  */
 fun markRemarksRead(project: Project, ids: Collection<String>) {
     if (RemarkStore.getInstance(project).markRead(ids.toSet()) > 0) notifyRemarksChanged(project)

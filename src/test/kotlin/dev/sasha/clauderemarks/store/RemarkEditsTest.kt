@@ -184,6 +184,37 @@ class RemarkEditsTest : BasePlatformTestCase() {
         assertEquals(before, heard)
     }
 
+    fun testMarkingReadStampsReadAt() {
+        val stored = addOne()
+
+        markRemarksRead(project, listOf(stored.id!!))
+
+        assertTrue(RemarkStore.getInstance(project).all().single().readAt > 0)
+    }
+
+    /**
+     * The behaviour that matters, not a nicety. Re-publishing and re-acknowledging the same
+     * remark is ordinary in this plugin — Publish Unread takes everything not yet READ, and a
+     * person may hand the same remark over twice. If the second acknowledgement moved `readAt`,
+     * the remark would jump to the top of Done for no reason the person can see.
+     *
+     * The sleep is what gives the assertion teeth: without it, a buggy implementation that always
+     * re-stamps with `System.currentTimeMillis()` could still land on the same millisecond and
+     * pass by luck. Sleeping first guarantees the two stamps would differ if the second mark ever
+     * wrote one.
+     */
+    fun testMarkingReadASecondTimeDoesNotMoveAnAlreadySetReadAt() {
+        val stored = addOne()
+        markRemarksRead(project, listOf(stored.id!!))
+        val firstReadAt = RemarkStore.getInstance(project).all().single().readAt
+        Thread.sleep(5)
+
+        markRemarksPublished(project, listOf(stored.id!!))
+        markRemarksRead(project, listOf(stored.id!!))
+
+        assertEquals(firstReadAt, RemarkStore.getInstance(project).all().single().readAt)
+    }
+
     fun testSettingAsksForAnswerPublishes() {
         val stored = addOne()
 

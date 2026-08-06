@@ -66,6 +66,24 @@ class RemarkState : BaseState() {
     var asksForAnswer by property(false)
     var status by enum(RemarkStatus.PENDING)
     var createdAt by property(0L)
+
+    /**
+     * When this remark was marked read, or 0 when it never has been — including every remark
+     * stored before this field existed, which has no `readAt` attribute in its XML at all and
+     * loads at the property's default, the same no-migration shape [startColumn]/[endColumn]/
+     * [phrase] already use.
+     *
+     * Stamped in exactly one place: `RemarkStore.RemarksState.markRead`, reached only through
+     * `store/RemarkEdits.kt`'s `markRemarksRead`. CLAUDE.md's guard 6 already restricts who may
+     * call that function to two files, so this field has exactly one writer by construction —
+     * there is no second path into the store that could stamp it early or move it once set. That
+     * write also only ever happens once: a remark re-published and re-acknowledged keeps the
+     * stamp from the first time it was marked read, since re-publishing and re-acknowledging the
+     * same remark is ordinary in this plugin, and a second acknowledgement must not jump the row
+     * to the top of Done for a reason the person handed it over twice, not because it was handled
+     * twice.
+     */
+    var readAt by property(0L)
     var textHash by string()
     var contextBefore by string()
     var contextAfter by string()

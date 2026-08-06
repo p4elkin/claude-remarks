@@ -264,15 +264,15 @@ Readers first, so task 2's deletion compiles. This is the larger half of the buc
 - Modify: `src/main/kotlin/dev/sasha/clauderemarks/store/RemarkEdits.kt` (`markRemarksRead`)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/store/RemarkEditsTest.kt`
 
-- [ ] add `var readAt by property(0L)` with a KDoc saying it is 0 for a remark never read, and for
+- [x] add `var readAt by property(0L)` with a KDoc saying it is 0 for a remark never read, and for
       every remark stored before this phase
-- [ ] stamp it in `markRemarksRead`, and say in the KDoc that guard 6 restricting that function to two
+- [x] stamp it in `markRemarksRead`, and say in the KDoc that guard 6 restricting that function to two
       callers is what makes this a single-writer field
-- [ ] write a test that marking read sets `readAt` non-zero, and that a second mark does not move an
+- [x] write a test that marking read sets `readAt` non-zero, and that a second mark does not move an
       already-set value — re-publishing and re-acknowledging is ordinary, and Done's order should not
       jump because of it
-- [ ] write a test that a remark deserialized without the option has `readAt == 0`
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.RemarkEditsTest' --tests 'dev.sasha.clauderemarks.store.RemarkStoreStateTest'`
+- [x] write a test that a remark deserialized without the option has `readAt == 0`
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.store.RemarkEditsTest' --tests 'dev.sasha.clauderemarks.store.RemarkStoreStateTest'`
       — must pass before task 4
 
 ### Task 4: Drop the trailing `read` and `published` words
