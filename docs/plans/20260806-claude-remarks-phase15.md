@@ -331,48 +331,48 @@ Test-first. Plain `java.nio` and plain strings, no `com.intellij` import if it c
 - Create: `src/main/kotlin/dev/sasha/clauderemarks/skill/SkillInstall.kt`
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/skill/SkillInstallTest.kt`
 
-- [ ] write the failing tests first, into a temporary directory the test makes itself. ⚠️ Never touch
+- [x] write the failing tests first, into a temporary directory the test makes itself. ⚠️ Never touch
       the real `~/.claude` — the rule in `.claude/rules/planning-rules.md` applies to this task more
       than to any other in the repository
-- [ ] `SKILL_FILES`: the three names in one constant, with a KDoc saying that nothing enumerates the
+- [x] `SKILL_FILES`: the three names in one constant, with a KDoc saying that nothing enumerates the
       directory and that a fourth file added later has to be added here or it is silently not
       installed
-- [ ] `stampVersion(text, version)`: inserts `# claude-remarks-plugin-version: <version>` after the
+- [x] `stampVersion(text, version)`: inserts `# claude-remarks-plugin-version: <version>` after the
       first line when the first line is `---`, and as a new first line otherwise. Pin both branches
-- [ ] ⚠️ pin the reason for line 2 in a test: stamping must not put the line after `description:`,
+- [x] ⚠️ pin the reason for line 2 in a test: stamping must not put the line after `description:`,
       because `description:` is a `>` block scalar and a `#` line inside one is content rather than a
       comment. A test that reads the stamped file's `description` back and finds no version string in
       it is what stops somebody "tidying" the insertion point later
-- [ ] `stampedVersionOf(text)`: scans at most the first five lines, returns the version or null.
+- [x] `stampedVersionOf(text)`: scans at most the first five lines, returns the version or null.
       Cover three cases — a stamped file, an unstamped file, and a file whose stamp line is malformed.
       All three must return an answer; none may throw
-- [ ] `detectHarnesses(home)`: returns one record per existing directory, each carrying its display
+- [x] `detectHarnesses(home)`: returns one record per existing directory, each carrying its display
       name, whether it is installable, and where the skill would go. ⚠️ Never create a harness
       directory. Test with a fake home holding each combination of the three
-- [ ] `skillPresence(dir)`: three answers — missing, a symlink, or present with an optional version.
+- [x] `skillPresence(dir)`: three answers — missing, a symlink, or present with an optional version.
       The symlink answer is its own case and not folded into "present", because the two lead to
       opposite behaviour
-- [ ] `installSkill(targetDir, version, readResource)`: returns null on success or a sentence
+- [x] `installSkill(targetDir, version, readResource)`: returns null on success or a sentence
       describing the problem. Same shape and same naming as `remarkTargetProblem` and
       `fileTargetProblem` in `store/RemarkTarget.kt`, which already return a sentence or null
-- [ ] the resource reader is a **parameter**, not a call inside this file. That is what keeps the file
+- [x] the resource reader is a **parameter**, not a call inside this file. That is what keeps the file
       free of the classloader and lets a test feed fake contents. The one real call site passes
       `SkillInstall::class.java.getResourceAsStream("/dev/sasha/clauderemarks/skill/$name")`
-- [ ] reuse `atomicWriteString` from `review/AtomicWrite.kt` for all three writes rather than writing a
+- [x] reuse `atomicWriteString` from `review/AtomicWrite.kt` for all three writes rather than writing a
       second write helper. It creates the parent directory and renames a temp file from the same
       directory, so a reader never sees a half-written `SKILL.md`
-- [ ] ⚠️ after the write, `File.setExecutable(true, true)` on both scripts, and turn a false return
+- [x] ⚠️ after the write, `File.setExecutable(true, true)` on both scripts, and turn a false return
       into a failure sentence. Not `Files.setPosixFilePermissions`, which throws on a filesystem with
       no POSIX view. Pin this with a test that reads the permission back
-- [ ] ⚠️ refuse when the target directory or any of the three target files is a symlink, with a
+- [x] ⚠️ refuse when the target directory or any of the three target files is a symlink, with a
       sentence naming the development symlink. Pin it with a test that makes a symlink and asserts
       that nothing at the far end changed. **This is the check that stops the plugin overwriting its
       own source files in a checkout**
-- [ ] write the copy-never-symlink argument into the install function's KDoc: an installed plugin
+- [x] write the copy-never-symlink argument into the install function's KDoc: an installed plugin
       lives under a versioned path, so a symlink into it dies on the next update and leaves a skill
       entry pointing at nothing, while the development symlink is right for a checkout — the two are
       opposite on purpose
-- [ ] narrow test: `./gradlew test --tests 'dev.sasha.clauderemarks.skill.SkillInstallTest'`
+- [x] narrow test: `./gradlew test --tests 'dev.sasha.clauderemarks.skill.SkillInstallTest'`
 
 ### Task 3: The settings row
 
