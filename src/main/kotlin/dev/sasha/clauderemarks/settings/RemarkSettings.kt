@@ -52,6 +52,20 @@ class RemarkSettings : SimplePersistentStateComponent<RemarkSettings.SettingsSta
 
     class SettingsState : BaseState() {
         var promptHeader by string(DEFAULT_PROMPT_HEADER)
+
+        /**
+         * Set by the skill-install notification's "Don't ask again" action
+         * (`skill/SkillInstallNotification.kt`). True keeps that notification from firing again,
+         * even when Claude Code's installed skill is still missing, unstamped or out of date.
+         *
+         * ⚠️ **This roams through JetBrains Settings Sync**, the same as every property on this
+         * class — see the class KDoc above. So dismissing the prompt on one machine dismisses it on
+         * the other machine too, where the skill may well not be installed at all. That is accepted
+         * on purpose, not a bug: the settings page's own skill row still shows the real state on
+         * each machine and still installs there regardless of this flag. It is written down here so
+         * it does not read as an oversight later.
+         */
+        var skillInstallPromptDismissed by property(false)
     }
 
     /**
@@ -67,6 +81,13 @@ class RemarkSettings : SimplePersistentStateComponent<RemarkSettings.SettingsSta
         get() = state.promptHeader?.takeIf { it.isNotBlank() } ?: DEFAULT_PROMPT_HEADER
         set(value) {
             state.promptHeader = value
+        }
+
+    /** Read/write pair beside [promptHeader], for [SettingsState.skillInstallPromptDismissed]. */
+    var skillInstallPromptDismissed: Boolean
+        get() = state.skillInstallPromptDismissed
+        set(value) {
+            state.skillInstallPromptDismissed = value
         }
 
     companion object {

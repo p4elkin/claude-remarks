@@ -418,32 +418,32 @@ Test-first. Plain `java.nio` and plain strings, no `com.intellij` import if it c
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/settings/RemarkSettingsTest.kt` (a round-trip case
   for the new flag)
 
-- [ ] add the persisted flag with `by property(false)`, the same form every other boolean in this
+- [x] add the persisted flag with `by property(false)`, the same form every other boolean in this
       repository uses. ⚠️ `BaseState` stores it as an `<option name= value=/>` child element, so the
       round-trip test has to be written in `<option>` form — `CLAUDE.md`'s phase 11 paragraph explains
       why attribute form makes such a test pass against anything
-- [ ] ⚠️ write into the property's KDoc that `RemarkSettings` roams through Settings Sync, so
+- [x] ⚠️ write into the property's KDoc that `RemarkSettings` roams through Settings Sync, so
       dismissing on one machine also dismisses on the other, and that the settings row is still the
       way to install there. This is a real cost, accepted deliberately, and it must not read later as
       an oversight
-- [ ] decide when to fire, and put the decision in a pure function so it is testable: fire only when
+- [x] decide when to fire, and put the decision in a pure function so it is testable: fire only when
       Claude Code is detected, **and** the installed copy is missing or unstamped or a different
       version, **and** the flag is false, **and** nothing was shown yet in this IDE run
-- [ ] ⚠️ **never fire when the target is a symlink.** A development checkout is not a broken install,
+- [x] ⚠️ **never fire when the target is a symlink.** A development checkout is not a broken install,
       and the install would be refused anyway. This is the single rule most likely to be dropped in a
       later rewrite, so give it its own line in the KDoc
-- [ ] an in-memory application-level flag makes it at most one balloon per IDE run. Without it,
+- [x] an in-memory application-level flag makes it at most one balloon per IDE run. Without it,
       opening three projects shows three balloons
-- [ ] three actions: **Install**, **Settings**, **Don't ask again**. Install runs the same copy on the
+- [x] three actions: **Install**, **Settings**, **Don't ask again**. Install runs the same copy on the
       pooled executor and reports through `notifyRemarks`. Settings opens this plugin's page through
       `ShowSettingsUtil` — verified present in `lib/app.jar` with both a `Class<T>` overload and a
       name overload; pick one and confirm it lands on the Claude Remarks page rather than the Tools
       root. Don't ask again sets the persisted flag and expires the notification
-- [ ] hook it into `RemarkGutterStartup.execute`, which is already the plugin's one `ProjectActivity`.
+- [x] hook it into `RemarkGutterStartup.execute`, which is already the plugin's one `ProjectActivity`.
       It is a suspend function running off the EDT, so the filesystem check runs inline with no hop
-- [ ] test the pure "should it fire" function across every combination: not detected, dismissed,
+- [x] test the pure "should it fire" function across every combination: not detected, dismissed,
       symlink, up to date, out of date, unstamped, missing
-- [ ] narrow test:
+- [x] narrow test:
       `./gradlew test --tests 'dev.sasha.clauderemarks.settings.RemarkSettingsTest' --tests 'dev.sasha.clauderemarks.skill.*'`
 
 ### Task 5: Verify acceptance criteria

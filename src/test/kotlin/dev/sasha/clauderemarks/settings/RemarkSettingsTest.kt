@@ -33,6 +33,29 @@ class RemarkSettingsTest {
     }
 
     @Test
+    fun `a dismissed skill-install prompt survives a write and read cycle`() {
+        val original = RemarkSettings.SettingsState()
+        original.skillInstallPromptDismissed = true
+
+        val restored = XmlSerializer.deserialize(
+            JDOMUtil.load(JDOMUtil.write(XmlSerializer.serialize(original))),
+            RemarkSettings.SettingsState::class.java,
+        )
+
+        assertTrue(restored.skillInstallPromptDismissed)
+    }
+
+    @Test
+    fun `an untouched settings object reads back with the skill-install prompt not dismissed`() {
+        val restored = XmlSerializer.deserialize(
+            JDOMUtil.load(JDOMUtil.write(XmlSerializer.serialize(RemarkSettings.SettingsState()))),
+            RemarkSettings.SettingsState::class.java,
+        )
+
+        assertFalse(restored.skillInstallPromptDismissed)
+    }
+
+    @Test
     fun `a blank header falls back to the default rather than sending nothing`() {
         val settings = RemarkSettings()
 

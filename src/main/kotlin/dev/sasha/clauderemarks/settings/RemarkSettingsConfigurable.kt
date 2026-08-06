@@ -1,6 +1,5 @@
 package dev.sasha.clauderemarks.settings
 
-import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.ui.DialogPanel
@@ -14,6 +13,7 @@ import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.builder.rows
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.sasha.clauderemarks.skill.SkillInstall
+import dev.sasha.clauderemarks.skill.bundledPluginVersion
 import dev.sasha.clauderemarks.skill.skillRowText
 import java.nio.file.Path
 import javax.swing.JButton
@@ -72,14 +72,6 @@ class RemarkSettingsConfigurable : BoundConfigurable("Claude Remarks") {
  */
 private fun claudeCodeTargetDir(home: Path): Path =
     home.resolve(".claude").resolve("skills").resolve("claude-remarks")
-
-/**
- * The version this build of the plugin carries, or null when it cannot be resolved — which is the
- * ordinary case inside a unit-test fixture, per [SkillInstall.installSkill]'s own KDoc on why that
- * function takes its version as a parameter rather than looking it up itself.
- */
-private fun bundledPluginVersion(): String? =
-    PluginManager.getPluginByClass(SkillInstall::class.java)?.version
 
 /**
  * The skill-installation group: one row per detected harness, filled in asynchronously.
