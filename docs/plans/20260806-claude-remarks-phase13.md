@@ -330,18 +330,18 @@ Readers first, so task 2's deletion compiles. This is the larger half of the buc
 - Create: `src/main/kotlin/dev/sasha/clauderemarks/ui/WrapText.kt`
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/ui/WrapTextTest.kt`
 
-- [ ] write the failing tests first, with a `widthOf` that returns a fixed width per character so the
+- [x] write the failing tests first, with a `widthOf` that returns a fixed width per character so the
       arithmetic is exact and readable: text shorter than one line stays one line; text breaking on a
       space; a run of spaces collapsing rather than starting a line; a single word longer than
       `maxWidth` breaking mid-word; text needing more than `maxLines` truncating with an ellipsis on
       the last line; empty text giving one empty line rather than none
-- [ ] run them and watch them fail for the right reason
-- [ ] implement `wrapToLines(text, maxWidth, maxLines, widthOf): List<String>`, with **no AWT import**
+- [x] run them and watch them fail for the right reason
+- [x] implement `wrapToLines(text, maxWidth, maxLines, widthOf): List<String>`, with **no AWT import**
       — the `widthOf` parameter is what keeps this file testable in milliseconds, and its KDoc should
       say so, the way `anchor/` and `render/` do
-- [ ] write a test that a newline inside the text starts a new line, since a remark can be multi-line
+- [x] write a test that a newline inside the text starts a new line, since a remark can be multi-line
       and the tree stops flattening it in task 7
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.WrapTextTest'` — must pass before task 7
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.WrapTextTest'` — must pass before task 7
 
 ### Task 7: Replace the cell renderer with a stacked-line panel
 
