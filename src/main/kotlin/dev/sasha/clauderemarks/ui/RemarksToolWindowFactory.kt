@@ -186,6 +186,30 @@ class RemarksPanel(
     }
 
     /**
+     * What [refresh] and [rewrapRows] both have to save before their rebuild and put back after it:
+     * what is selected, which groups are shut, and whether Done is open. The two callers differ only
+     * in how they rebuild the model in between — `setRoot` in one, `nodeStructureChanged` in the
+     * other — so [captureTreeState] and [restoreTreeState] hold exactly the trio around that
+     * difference, not the rebuild itself.
+     */
+    private data class TreeState(
+        val selected: Set<String>,
+        val collapsed: Set<String>,
+        val doneWasOpen: Boolean,
+    )
+
+    /** Read before a rebuild throws the rows away; see [TreeState]. */
+    private fun captureTreeState(): TreeState =
+        TreeState(selectionKeys(), collapsedGroups(), groupIsExpanded(DONE_KEY))
+
+    /** Put back after a rebuild, in the order [expandAll] needs: expand, then recollapse, then reselect. */
+    private fun restoreTreeState(state: TreeState) {
+        expandAll(keepDoneOpen = state.doneWasOpen)
+        recollapse(state.collapsed)
+        restoreSelection(state.selected)
+    }
+
+    /**
      * Wraps every row again for the width the tree has now, and puts the tree back the way the person
      * left it.
      *
@@ -194,7 +218,8 @@ class RemarksPanel(
      * nothing else asks the renderer again, so a resize alone left every row wrapped for the old
      * width — narrower rows cropped, wider ones elided at three short lines. Telling the model its
      * structure changed drops that cache. It also throws away the expansion state and the selection,
-     * which is why the three restores that follow a rebuild in [refresh] are repeated here.
+     * which is why [restoreTreeState] is called here too, the same as it is after a rebuild in
+     * [refresh].
      *
      * `TreeUtil.invalidateCacheAndRepaint` does the same job in one call and is deliberately not used:
      * it is `@ApiStatus.Experimental`, and `build.gradle.kts` already subtracts
@@ -208,13 +233,9 @@ class RemarksPanel(
         val model = tree.model as? DefaultTreeModel ?: return
         val root = model.root as? DefaultMutableTreeNode ?: return
 
-        val wasSelected = selectionKeys()
-        val wasCollapsed = collapsedGroups()
-        val doneWasOpen = groupIsExpanded(DONE_KEY)
+        val state = captureTreeState()
         model.nodeStructureChanged(root)
-        expandAll(keepDoneOpen = doneWasOpen)
-        recollapse(wasCollapsed)
-        restoreSelection(wasSelected)
+        restoreTreeState(state)
     }
 
     fun refresh() {
@@ -227,17 +248,13 @@ class RemarksPanel(
             .coalesceBy(this)
             .finishOnUiThread(ModalityState.defaultModalityState()) { rows ->
                 // setRoot throws away both what was selected and which groups were shut, and the
-                // tree is rebuilt on every remark change and on every editor opening. Without this
-                // a row you selected stops being selected the moment you use it, Publish Selected
-                // greys itself out, and a file group you closed springs open again as soon as you
-                // open any file that holds a remark.
-                val wasSelected = selectionKeys()
-                val wasCollapsed = collapsedGroups()
-                val doneWasOpen = groupIsExpanded(DONE_KEY)
+                // tree is rebuilt on every remark change and on every editor opening. Without
+                // captureTreeState/restoreTreeState a row you selected stops being selected the
+                // moment you use it, Publish Selected greys itself out, and a file group you closed
+                // springs open again as soon as you open any file that holds a remark.
+                val state = captureTreeState()
                 (tree.model as DefaultTreeModel).setRoot(buildTreeRoot(rows.remarks, rows.answers))
-                expandAll(keepDoneOpen = doneWasOpen)
-                recollapse(wasCollapsed)
-                restoreSelection(wasSelected)
+                restoreTreeState(state)
             }
             .submit(AppExecutorUtil.getAppExecutorService())
     }

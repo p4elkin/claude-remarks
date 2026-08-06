@@ -1,7 +1,7 @@
 package dev.sasha.clauderemarks.ui
 
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
@@ -621,7 +621,7 @@ internal val ROW_MARGIN get() = JBUI.scale(36)
 internal val MIN_WRAP_WIDTH get() = JBUI.scale(120)
 
 /** Logged from a renderer, so it is a top-level `val` rather than a field on a reused component. */
-private val RENDERER_LOG = logger<RemarkTreeRenderer>()
+private val LOG = Logger.getInstance("dev.sasha.clauderemarks.ui.RemarkTreeRenderer")
 
 /**
  * One line of a row.
@@ -779,7 +779,7 @@ class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
             // The platform guards its own logging call the same way: a logger that throws while a
             // row is painting would put the tree back exactly where this catch block took it from.
             try {
-                RENDERER_LOG.error(failed)
+                LOG.error(failed)
             } catch (ignored: Exception) {
                 // Nothing left to do with it.
             }
