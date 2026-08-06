@@ -382,29 +382,29 @@ Test-first. Plain `java.nio` and plain strings, no `com.intellij` import if it c
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/skill/SkillRowTextTest.kt` (only for whatever pure
   text-building comes out of it)
 
-- [ ] one row per detected harness: its name, what is installed, and — for Claude Code only — a
+- [x] one row per detected harness: its name, what is installed, and — for Claude Code only — a
       button. The row's text carries the version comparison, so it reads as
       "0.11.0 installed, 0.12.0 bundled", "up to date", "not installed", or "installed, version
       unknown"
-- [ ] the button says **Install** when nothing is there and **Reinstall** otherwise. Two labels, not
+- [x] the button says **Install** when nothing is there and **Reinstall** otherwise. Two labels, not
       three: the row's own text already says whether it is out of date, so a third label would repeat
       it. Reinstall stays enabled when the copy is up to date, because a person who edited the
       installed copy needs a way back
-- [ ] Codex and Gemini get a row saying found, and a sentence saying the plugin cannot install into
+- [x] Codex and Gemini get a row saying found, and a sentence saying the plugin cannot install into
       them yet because their layouts have not been read from their own documentation. ⚠️ No button and
       no guessed path
-- [ ] when no harness is found at all, one line saying so rather than an empty area
-- [ ] build the row text with a pure function so it can be tested, and put the test in
+- [x] when no harness is found at all, one line saying so rather than an empty area
+- [x] build the row text with a pure function so it can be tested, and put the test in
       `SkillRowTextTest`. If nothing pure comes out of it, say so in the progress log rather than
       adding a test that asserts nothing
-- [ ] ⚠️ detection reads the filesystem and `createPanel` runs on the EDT. Run it on
+- [x] ⚠️ detection reads the filesystem and `createPanel` runs on the EDT. Run it on
       `AppExecutorUtil.getAppExecutorService()` and fill the labels back with `invokeLater`. **No
       `ReadAction`** — nothing here touches PSI, a `Document` or the VFS
-- [ ] the button click runs the copy on the pooled executor too, then updates the row's status label
+- [x] the button click runs the copy on the pooled executor too, then updates the row's status label
       on the EDT. No dialog and no balloon: this configurable is application level and has no project
-- [ ] one comment line under the rows saying the button only reaches this machine, and that a Claude
+- [x] one comment line under the rows saying the button only reaches this machine, and that a Claude
       Code session on the other side of an SSH tunnel needs the skill installed over there as well
-- [ ] narrow test: `./gradlew test --tests 'dev.sasha.clauderemarks.skill.SkillRowTextTest'`
+- [x] narrow test: `./gradlew test --tests 'dev.sasha.clauderemarks.skill.SkillRowTextTest'`
 
 ### Task 4: The notification on project open
 
