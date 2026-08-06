@@ -103,8 +103,12 @@ internal class PublishedBatchService {
     /**
      * The batch to act on travels back only on [PublishedAckOutcome.OK]: [PublishedAckOutcome.ALREADY_READ]
      * and [PublishedAckOutcome.UNKNOWN_BATCH] both carry null, so a caller cannot mark a batch read
-     * twice by accident. The whole batch rather than its ids alone, because the caller also needs the
-     * review it answered.
+     * twice by accident.
+     *
+     * The whole [PublishedBatch] rather than its ids alone, which is all `reportPublishedRead` reads
+     * today. It carried a review session as well until phase 12 deleted the review, and returning the
+     * record itself rather than one field off it is what let that change be a deletion in one file
+     * instead of a signature change here.
      */
     @Synchronized
     internal fun acknowledge(nonce: String, session: String): Pair<PublishedAckAnswer, PublishedBatch?> {

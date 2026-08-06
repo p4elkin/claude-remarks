@@ -255,7 +255,14 @@ class RemarkGutter(private val project: Project) : Disposable {
         // that have an answer, which is half of what decides a question's icon, and the answer
         // placements further down.
         //
-        // The set comes off the WHOLE list, before the per-path filter the placements use. An
+        // An answer with no id is dropped here, once, for both of them. Such an answer draws no icon
+        // of its own — the same rule the remarks below follow — so it must not turn its question's
+        // icon green either: a green question mark with nothing to click is worse than a yellow one.
+        // `ui/RemarksTree.kt` filters its own answers list the same way, at the top of buildTreeRoot,
+        // and the two views have to agree about which questions are answered — that agreement is the
+        // whole point of sharing `RemarkStatusLook`.
+        //
+        // The set still comes off the whole list, before the per-path filter the placements use. An
         // answer's path is normally its question's path, so filtering would usually change nothing —
         // but the question this set answers is which remarks have an answer at all, and the document
         // being synced has no business narrowing that.
@@ -263,7 +270,7 @@ class RemarkGutter(private val project: Project) : Disposable {
         // Guard 3 lets the line through by name, the way it already lets a bare all() through. The
         // two calls written out in full in hasRemarksOrAnswers above are a different line shape and
         // stay as they are.
-        val storedAnswers = RemarkStore.getInstance(project).allAnswers()
+        val storedAnswers = RemarkStore.getInstance(project).allAnswers().filter { it.id != null }
         val answeredIds = storedAnswers.mapNotNull { it.remarkId }.toSet()
 
         val placements = RemarkStore.getInstance(project).all()
@@ -288,8 +295,10 @@ class RemarkGutter(private val project: Project) : Disposable {
         // The same filter, against the answer's own stored anchor. An answer to a general remark
         // carries an empty path, so it never matches a real document's relative path and produces
         // no placement anywhere — the same way a general remark already does not.
+        // No `it.id != null` here: storedAnswers is already filtered on it above, which is what lets
+        // the `answer.id!!` below stay a bang.
         val answers = storedAnswers
-            .filter { it.path == path && it.id != null }
+            .filter { it.path == path }
             .map { answer ->
                 val stored = storedAnchorOf(answer)
                 // resolveWithPhrase, which is the resolve resolveStored runs for the tool window,

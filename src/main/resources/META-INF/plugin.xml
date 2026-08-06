@@ -8,7 +8,7 @@
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
-    <!-- Needed for ShowDiffAction, which opens the real diff for the files a review names.
+    <!-- Needed for ShowDiffAction, which opens the real diff for the files the `open` action names.
          A hard dependency, not optional: every JetBrains IDE ships VCS. -->
     <depends>com.intellij.modules.vcs</depends>
     <!-- The markdown preview: a remark written on the rendered page instead of on the source.

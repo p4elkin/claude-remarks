@@ -7,11 +7,11 @@ import com.intellij.openapi.components.BaseState
  *
  * PENDING is written, handed nowhere. PUBLISHED means handed to a channel that cannot confirm a
  * read: the clipboard is one, the published file is another. READ means an agent said it read them,
- * over one of the two acknowledgement routes: POST /api/claude-remarks/ack, keyed to a review's own
- * session, or POST /api/claude-remarks/published-read, keyed to a published batch's nonce. Only an
- * agent's own acknowledgement produces READ — a publish, however many times it runs, only ever
- * produces PUBLISHED. That is the whole reason there are two words for "handed over" rather than
- * one.
+ * over the one acknowledgement route there is: POST /api/claude-remarks/published-read, keyed to a
+ * published batch's nonce. Only an agent's own acknowledgement produces READ — a publish, however
+ * many times it runs, only ever produces PUBLISHED. That is the whole reason there are two words for
+ * "handed over" rather than one. Guard 6 in CLAUDE.md is what keeps the route single, and
+ * `store/RemarkEdits.kt` makes the same argument beside `markRemarksRead` itself.
  *
  * PENDING stays the first value and the default, so BaseState keeps omitting it and nothing has to
  * migrate. A remark stored by an older build as "SENT" does not parse and loads as PENDING. That is

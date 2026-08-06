@@ -416,9 +416,8 @@ class ReviewRestService : RestService() {
      *
      * **`opened` counts paths accepted, not editors opened.** The file that owns the VFS and the
      * editor writes back through its own `invokeLater`, on purpose, so this response is written and
-     * sent before a single editor has appeared. The count is exactly what the string-only filter let
-     * through and nothing more, which is why it is computed a second time here rather than threaded
-     * back from that call.
+     * sent before a single editor has appeared. The count is the one that call returns, so the number
+     * in the response and the work that produced it cannot come apart.
      *
      * Like [handlePublishedRead] above, this parses, calls [matchProject] and one function in
      * another file, and writes two fields. The file-opening call lives in review/OpenReviewFiles.kt,
@@ -435,9 +434,9 @@ class ReviewRestService : RestService() {
             return
         }
         val project = matchProject(wanted, writer) ?: return
-        openReviewFiles(project, parsed.files)
+        val opened = openReviewFiles(project, parsed.files)
         writer.name("status").value("ok")
-        writer.name("opened").value(filterReviewPaths(parsed.files).size)
+        writer.name("opened").value(opened)
     }
 
     /**

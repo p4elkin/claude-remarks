@@ -346,10 +346,12 @@ fun buildTreeRoot(
 ): DefaultMutableTreeNode {
     val root = DefaultMutableTreeNode("remarks")
 
-    // Filtered once, then used three times. An answer with no id draws no row — the same rule a
-    // remark with no id follows below — so it must not flip its remark's suffix from "asks" to
-    // "answered" either: a row saying the question was answered, with no answer anywhere to open, is
-    // worse than the row saying nothing.
+    // Filtered once, then used twice: to work out which answers nest and under which question, and
+    // for the top-level group of the rest. An answer with no id draws no row — the same rule a remark
+    // with no id follows below — so it must not turn its question's icon green either: a green
+    // question mark with no answer anywhere to open is worse than the yellow one it replaces.
+    // `editor/RemarkGutter.kt` filters its own answers list the same way, so the gutter icon and the
+    // tree row cannot disagree about which questions have been answered.
     val withIds = answers.filter { it.answer.id != null }
 
     // The remarks that will really get a node, and so the ids an answer can attach to. Taken from
@@ -371,16 +373,17 @@ fun buildTreeRoot(
         root.add(answersNode)
     }
 
-    // Which remarks already have an answer, so a marked row can say "answered" rather than "asks".
-    // Read off the answers this same rebuild resolved, not from the store again: the two views must
-    // agree, and the answer's own remarkId is the only link between them.
-    val answered = withIds.mapNotNull { it.answer.remarkId }.toSet()
-
     // Split on the stored remark, then map and sort each side, rather than mapping first and asking
     // the node. Same rows in the same order either way — partition keeps order and the sort is
     // stable — but this way the question "is this about no file" is asked of isAboutNoFile once.
+    //
+    // hasAnswer is read straight off nestedByQuestion, which is the same map that attaches the child
+    // rows: a question shows the green question mark exactly when an answer nested under it. A
+    // separate set of answered ids would state that fact twice, and then a change to the nesting rule
+    // not copied across would leave a row with a green question mark and nothing nested under it.
     val (generalRows, fileRows) = remarkRows.partition { isAboutNoFile(it.remark) }
     val order = compareBy<RemarkNode>({ it.bucket ?: "" }, { it.path }, { it.startLine })
+    val answered = nestedByQuestion.keys
     val general = generalRows.map { remarkNode(it, it.remark.id in answered) }.sortedWith(order)
     val aboutAFile = fileRows.map { remarkNode(it, it.remark.id in answered) }.sortedWith(order)
 

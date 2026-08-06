@@ -24,8 +24,9 @@ the published file and the watcher.
   the deadline and its scheduled expiry, the review phases, the rejection and the acknowledgement keyed
   to a session id are all deleted, with `review/WaitingReview.kt`, `review/ReviewLifecycle.kt` and
   three test classes. A publish no longer looks for a review to answer. The published file's header
-  goes from eight lines to five — `review:`, `label:` and `rejected:` go, `sanitizeLabel` with them,
-  and `sanitizeControls` now runs on `commit` instead. `FetchRequest` loses its `session` field, so a
+  goes from eight lines to five — `review:`, `label:` and `rejected:` go, and both `sanitizeLabel` and
+  `sanitizeControls` with them, so a control character in `commit` shifts the header and the fetch
+  answers `failed` rather than reporting a commit nobody has. `FetchRequest` loses its `session` field, so a
   readable published file is always `ready`. The skill's `## Steps` review flow, 531 lines, is deleted
   too. It went because it was a second protocol for something that already had one: the published
   file's nonce already answers "which batch is this", and every piece the review needed on top — a
@@ -42,9 +43,10 @@ the published file and the watcher.
   file group that question already sits in, added expanded, instead of sitting in a flat group at the
   top of the tree. That flat group narrows to hold only answers whose question is gone, and is
   relabelled "Answers with no question"; its key is unchanged, so a collapsed state survives the
-  upgrade. Delete on a question now takes its answer with it, in one action and with no dialog, and the
-  confirmation rule becomes "ask when the selection holds a group" — which is what the old arithmetic
-  was a proxy for, and which nesting broke.
+  upgrade. Delete on an expanded question now takes its answer with it, in one action and with no
+  dialog, and the confirmation rule becomes "ask when the selection stands for a row that is not on
+  screen" — a group row always, and a question row that has an answer under it and is itself collapsed.
+  That is what the old arithmetic was a proxy for, and which nesting broke.
 - **The icon column carries two facts instead of one.** A question draws a question mark coloured by
   how far it got: neutral pending, yellow published, green once an answer is back. A plain remark draws
   a note, then a neutral tick, then a green tick, replacing the upload mark. The three question marks

@@ -15,17 +15,30 @@ import javax.swing.Icon
  * that suffix without being told.
  *
  * ⚠️ **A wrong resource path fails only at runtime, and nothing in the build catches it.**
- * `IconLoader.getIcon` returns a placeholder icon and logs a warning rather than throwing, and
- * `verifyPlugin` never looks at a resource path string. A unit test that only calls
- * [RemarkStatusLook.icon] still gets a non-null `Icon` back even if the path underneath it is
- * wrong. `RemarkIconsTest` is what actually catches that: it asks for each resource by path
- * directly, the same way a typo or a resource left out of the jar would surface.
+ * `IconLoader.getIcon` hands back a `CachedImageIcon` that has not looked at the path yet, so it
+ * neither throws nor logs anything at this line; the load happens the first time something asks the
+ * icon for a size or paints it, and a load that fails falls back to the platform's 1×1 `EMPTY_ICON`.
+ * `verifyPlugin` never looks at a resource path string either, and a unit test that only calls
+ * [RemarkStatusLook.icon] gets a non-null `Icon` back whatever the path says. `RemarkIconsTest` is
+ * what actually catches it, from both sides: it asks the classpath for each resource by the path
+ * [resourcePath] builds, and it reads each loaded icon's width, which is 16 for an SVG that parsed
+ * and 1 for anything that did not.
  */
 object RemarkIcons {
     val QuestionPending: Icon = load("questionPending")
     val QuestionPublished: Icon = load("questionPublished")
     val QuestionAnswered: Icon = load("questionAnswered")
 
+    /**
+     * The absolute resource path for an icon of ours, leading slash and all.
+     *
+     * Internal rather than private so `RemarkIconsTest` can ask the classpath for the very same
+     * string this file hands `IconLoader`. Spelling the path out a second time in the test would
+     * leave a typo *here* invisible: all six files would still be present under the path the test
+     * checked, and the test would pass while every icon at runtime resolved to nothing.
+     */
+    internal fun resourcePath(name: String): String = "/dev/sasha/clauderemarks/icons/$name.svg"
+
     private fun load(name: String): Icon =
-        IconLoader.getIcon("/dev/sasha/clauderemarks/icons/$name.svg", RemarkIcons::class.java)
+        IconLoader.getIcon(resourcePath(name), RemarkIcons::class.java)
 }

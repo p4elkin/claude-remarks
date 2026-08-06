@@ -17,9 +17,9 @@ import javax.swing.Icon
  * not the old PENDING/everything-else line, which greyed a published remark as though it were
  * finished when the next publish would carry it again.
  *
- * **The icon answers two questions now, with five answers between them: is this row a question, and
+ * **The icon answers two questions now, with six answers between them: is this row a question, and
  * how far did it get.** [asksForAnswer] picks the track, and [hasAnswer] or [status] then picks the
- * colour inside it.
+ * colour inside it. Three icons per track, six in all.
  *
  * The plain track has three steps in order — written, sent, confirmed — one icon each: a note, a
  * neutral tick, a green tick. The two ticks are `AllIcons.Actions.Checked` and
@@ -51,7 +51,10 @@ import javax.swing.Icon
  */
 object RemarkStatusLook {
 
-    /** Written, and handed nowhere yet. Shared by both tracks. */
+    /**
+     * Plain track, written and handed nowhere yet. The question track has its own icon for this step,
+     * [RemarkIcons.QuestionPending], so this one is not shared between the two.
+     */
     private val PENDING_ICON: Icon = AllIcons.General.Note
 
     /** Plain track, handed to a channel that cannot confirm a read. */
@@ -63,20 +66,27 @@ object RemarkStatusLook {
     /**
      * The icon for a row, the same instance the gutter and the tree row both draw.
      *
-     * Written as one flat `when` over five conditions, in the order the class KDoc argues for:
-     * [asksForAnswer] decides the track first, checked through its negation in the first three
-     * branches so the rest of the `when` is the question track with no further check needed: inside
-     * it, [hasAnswer] is checked before [status], because a read-but-unanswered question must not
-     * fall through to whatever branch answers a plain `READ`.
+     * The track split is stated once, by [asksForAnswer] in the `if`, in the order the class KDoc
+     * argues for. Inside the question track [hasAnswer] is checked before [status], because a
+     * read-but-unanswered question must not fall through to whatever branch answers a plain `READ`;
+     * that ordering is why the question half stays a conditional `when` rather than becoming a second
+     * `when (status)`.
+     *
+     * The plain half is `when (status)` with no `else`, so it is exhaustive over [RemarkStatus] and a
+     * fourth status stops the build here. Written as one flat `when` over conditions instead, a plain
+     * remark that matched no branch fell into the question track's `else` and silently drew a yellow
+     * question mark on a remark that asks nothing.
      */
-    fun icon(status: RemarkStatus, asksForAnswer: Boolean, hasAnswer: Boolean): Icon = when {
-        !asksForAnswer && status == RemarkStatus.PENDING -> PENDING_ICON
-        !asksForAnswer && status == RemarkStatus.PUBLISHED -> PUBLISHED_ICON
-        !asksForAnswer && status == RemarkStatus.READ -> READ_ICON
-        hasAnswer -> RemarkIcons.QuestionAnswered
-        status == RemarkStatus.PENDING -> RemarkIcons.QuestionPending
-        else -> RemarkIcons.QuestionPublished
-    }
+    fun icon(status: RemarkStatus, asksForAnswer: Boolean, hasAnswer: Boolean): Icon =
+        if (asksForAnswer) when {
+            hasAnswer -> RemarkIcons.QuestionAnswered
+            status == RemarkStatus.PENDING -> RemarkIcons.QuestionPending
+            else -> RemarkIcons.QuestionPublished
+        } else when (status) {
+            RemarkStatus.PENDING -> PENDING_ICON
+            RemarkStatus.PUBLISHED -> PUBLISHED_ICON
+            RemarkStatus.READ -> READ_ICON
+        }
 
     /** The text attributes a tree row's body draws with for [status]. */
     fun textAttributes(status: RemarkStatus): SimpleTextAttributes = when (status) {

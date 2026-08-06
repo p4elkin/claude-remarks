@@ -26,8 +26,8 @@ import java.nio.file.Path
  *
  * The paths arrive over HTTP, so `Path.of` can throw: a NUL byte in a name is enough, and on Windows
  * so is `?` or `*`. An unparseable path is dropped exactly like an absolute one. Letting it throw
- * would leave the netty thread's own catch turning it into a 500 with a stack trace for a body,
- * after the review had already been accepted and the answer written.
+ * would leave the netty thread's own catch turning it into a 500 with a stack trace for a body, when
+ * the honest answer is `ok` with that one path simply not counted.
  */
 internal fun filterReviewPaths(paths: List<String>?): List<String> =
     (paths ?: emptyList())
@@ -43,10 +43,16 @@ internal fun filterReviewPaths(paths: List<String>?): List<String> =
  *
  * invokeLater, never invokeAndWait: this is called from `ReviewRestService.execute`, which runs on
  * a netty IO thread, and the HTTP response must not wait for the editors to open.
+ *
+ * Returns **how many paths [filterReviewPaths] accepted**, which is what the endpoint reports as
+ * `opened`. It is deliberately not a count of editors that appeared: everything below this line
+ * happens after the hop to the EDT, long after the HTTP response has been written. The count comes
+ * back from here rather than being computed a second time at the call site, so a caller cannot report
+ * a number while forgetting to make the call that goes with it.
  */
-fun openReviewFiles(project: Project, paths: List<String>?) {
+fun openReviewFiles(project: Project, paths: List<String>?): Int {
     val filtered = filterReviewPaths(paths)
-    if (filtered.isEmpty()) return
+    if (filtered.isEmpty()) return 0
     ApplicationManager.getApplication().invokeLater {
         // The project can close between the HTTP request and this hop to the EDT, and every call
         // below throws AlreadyDisposedException on a disposed project.
@@ -68,4 +74,5 @@ fun openReviewFiles(project: Project, paths: List<String>?) {
         // navigation inside it instead of a window per file.
         if (changes.isNotEmpty()) ShowDiffAction.showDiffForChange(project, changes)
     }
+    return filtered.size
 }

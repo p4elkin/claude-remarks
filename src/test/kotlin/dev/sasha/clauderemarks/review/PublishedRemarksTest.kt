@@ -63,25 +63,28 @@ class PublishedRemarksTest {
     }
 
     /**
-     * sanitizeControls stays even though nothing reaches this header over HTTP any more: the reader
-     * on the other side still finds every field by line number, and a corrupt or hand-edited ref file
-     * could put a control character into the first eight characters of a commit. Without this, a
-     * commit holding "01234\n67" would move every line after it, the same way a stray newline in the
-     * old label field once could.
+     * A commit carrying a newline is a **loud** failure, on purpose, and this pins that it stays one.
+     *
+     * The reader finds every field by line number, so such a commit pushes `remarks:` off line 5 and
+     * `publishedHeaderOf` reads back null — which `handleFetch` turns into `failed` with a detail.
+     * `render()` used to replace control characters with spaces instead, and that produced a header
+     * that parsed cleanly while reporting a commit nobody has: a silent wrong value in place of an
+     * error. `headCommit` only ever returns a string that matched its 40-hex pattern, so this shape
+     * needs a corrupt or hand-edited ref file to arise at all, and then saying so is the right answer.
      */
     @Test
-    fun `a commit with a control character comes back with it replaced, not with the header shifted`() {
+    fun `a commit with a newline shifts the header, so it reads back as null rather than as a lie`() {
         val header = PublishedHeader(
             nonce = "n-3",
             publishedAt = FIXED_PUBLISHED_AT,
             commit = "01234\n67" + "x".repeat(40),
             remarks = 2,
         )
-        val lines = header.render().trimEnd('\n').split("\n")
+        val rendered = header.render()
+        val lines = rendered.trimEnd('\n').split("\n")
 
-        assertEquals(lines.toString(), 5, lines.size)
-        assertEquals("commit: 01234 67", lines[3])
-        assertEquals("remarks: 2", lines[4])
+        assertEquals(lines.toString(), 6, lines.size)
+        assertNull(publishedHeaderOf(rendered))
     }
 
     /**

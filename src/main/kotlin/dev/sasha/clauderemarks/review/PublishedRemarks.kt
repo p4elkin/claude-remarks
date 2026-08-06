@@ -27,19 +27,6 @@ private val PUBLISHED_WHEN =
 fun publishedName(realPath: String): String = projectHash(realPath) + ".md"
 
 /**
- * Every character below U+0020 becomes a space. Nothing that reaches this function arrives over
- * HTTP any more — the only field it runs on, `commit`, comes from reading `.git` directly. But the
- * reader on the other side still finds every field by line number, so a shifted header is still
- * not a cosmetic problem: a corrupt or hand-edited ref file could put a control character into the
- * first eight characters of a commit, and one call here is cheaper than reasoning about whether
- * that can happen.
- */
-private fun sanitizeControls(value: String): String =
-    buildString(value.length) {
-        for (c in value) append(if (c < ' ') ' ' else c)
-    }
-
-/**
  * What sits above the prompt in the published file: what batch it is (the nonce, for an
  * acknowledgement to name back), how old it is and what revision it was about. A published
  * file can be read hours later, or twice, and nothing confirms a read on this path except the
@@ -55,12 +42,23 @@ internal data class PublishedHeader(
     val commit: String?,
     val remarks: Int,
 ) {
-    /** The five lines, in order, ending with a newline. The caller adds the blank line. */
+    /**
+     * The five lines, in order, ending with a newline. The caller adds the blank line.
+     *
+     * Nothing here is sanitised, deliberately. [commit] used to be run through a control-character
+     * replacement, and that turned the one failure this file cares about into a quiet wrong answer: a
+     * newline inside a commit pushes `remarks:` off line 5, [publishedHeaderOf] then reads back null,
+     * and `handleFetch` answers `failed` with a detail — this file's own stated policy that a lie is
+     * not a better answer than an error. Replacing the newline instead produced a header that parsed
+     * cleanly and reported a commit nobody has. Nothing reaching this class arrives over HTTP any
+     * more; [commit] comes from reading `.git` directly, through `headCommit`, which only ever returns
+     * a string that matched its 40-hex pattern.
+     */
     fun render(): String = buildString {
         appendLine(PUBLISHED_MARKER)
         appendLine("nonce: $nonce")
         appendLine("published: ${PUBLISHED_WHEN.format(Instant.ofEpochMilli(publishedAt))}")
-        appendLine("commit: ${commit?.take(8)?.let(::sanitizeControls) ?: "none"}")
+        appendLine("commit: ${commit?.take(8) ?: "none"}")
         appendLine("remarks: $remarks")
     }
 }

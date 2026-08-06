@@ -8,6 +8,7 @@ import dev.sasha.clauderemarks.store.ResolvedAnswer
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import javax.swing.tree.DefaultMutableTreeNode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -710,6 +711,44 @@ class RemarksTreeTest {
         val question = child(child(root, 0), 0)
 
         assertEquals(listOf("a-1"), answerNodesUnder(listOf(question)).map { it.id })
+    }
+
+    /**
+     * `hasAnswer` on a `RemarkNode` is the second of the two facts `RemarkStatusLook.icon` reads, and
+     * it is the one `buildTreeRoot` computes rather than reads off the stored remark. Nothing else in
+     * the suite pushes a **true** `hasAnswer` through this function: the two tests that once did were
+     * the `asksLabel` pair, deleted when the grey word went. So derive the answered ids from the wrong
+     * list — the loose answers rather than the nested ones — and every question row keeps the yellow
+     * question mark for ever with the whole suite still green.
+     */
+    @Test
+    fun `a question with an answer nested under it carries hasAnswer`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt", asksForAnswer = true)),
+            listOf(answerRow(id = "a-1", remarkId = "r-1")),
+        )
+
+        val question = child(child(root, 0), 0).userObject as RemarkNode
+
+        assertTrue(question.hasAnswer)
+    }
+
+    /**
+     * The other direction, so a set that is always full fails as loudly as one that is always empty.
+     * The stored answer here names a remark that is not in the tree, so it draws its own top-level
+     * row and must leave this question's icon alone.
+     */
+    @Test
+    fun `a question whose answer belongs to another remark carries hasAnswer false`() {
+        val root = buildTreeRoot(
+            listOf(row(id = "r-1", path = "src/Foo.kt", asksForAnswer = true)),
+            listOf(answerRow(id = "a-1", remarkId = "r-other")),
+        )
+
+        // Row 0 is the group for answers with no question; the file group is below it.
+        val question = child(child(root, 1), 0).userObject as RemarkNode
+
+        assertFalse(question.hasAnswer)
     }
 
     /** The other half: selecting the question still gives exactly its own remark, not two copies. */

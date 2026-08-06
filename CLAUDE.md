@@ -339,8 +339,9 @@ three test classes. The published file's header shrinks from eight lines to five
 and `rejected:` go — and `FetchRequest` loses its `session` field, so a readable published file is
 always `ready`. In one sentence each, what went with it: `publishRemarks` no longer looks for a review
 to answer, so `publishMessage` has one parameter fewer; `PublishedBatch` no longer carries a review
-session and `record` takes only the ids; `sanitizeLabel` is deleted while `sanitizeControls` stays and
-now runs on `commit`; the watcher script's `--require-review` and `--session` flags are refused with
+session and `record` takes only the ids; `sanitizeLabel` and `sanitizeControls` are both deleted, so a
+control character in `commit` shifts the header and the fetch answers `failed` rather than reporting a
+commit nobody has; the watcher script's `--require-review` and `--session` flags are refused with
 exit 2 rather than ignored; and the skill's whole `## Steps` review flow, 531 lines, is deleted. It
 went because it was a second protocol for something that already had one — a session id, a deadline, a
 phase machine, a scheduled expiry, a banner and its own acknowledgement route, and every one of those
@@ -358,10 +359,12 @@ opening hops to the EDT and the response is written before any of it happens.
 tree, an answer is a child row of its own question, inside the file group that question already sits in,
 added expanded. The flat group narrows to hold only answers whose question is gone and is relabelled
 "Answers with no question"; `ANSWERS_KEY` keeps its value, so a group collapsed before the upgrade
-still matches itself afterwards. Delete on a question now takes its answer with it, in one action and
-with no dialog, because `leavesOf` recurses into a `RemarkNode` instead of stopping at it — and
-`deleteSelected` asks about a `GroupNode` in the selection rather than comparing two counts, which was a
-proxy for the same thing that nesting broke.
+still matches itself afterwards. Delete on an **expanded** question now takes its answer with it, in one
+action and with no dialog, because `leavesOf` recurses into a `RemarkNode` instead of stopping at it —
+and `deleteSelected` asks `selectionHidesRows` whether the selection stands for a row that is off
+screen, rather than comparing two counts, which was a proxy for the same thing that nesting broke. ⚠️ A
+question the person has **collapsed** by hand asks first, exactly like a group row: its answer is off
+screen, and `deleteAnswer` archives nothing to the history file.
 
 *The icon column carries two facts instead of one.* A question draws a question mark coloured by how
 far it got — neutral pending, yellow published, green once an answer is back — and a plain remark draws
@@ -649,8 +652,10 @@ src/main/kotlin/dev/sasha/clauderemarks/
   ui/RemarksToolWindowFactory.kt   RemarksPanel: the tree, the toolbar (six buttons, each with its
                                    own description since phase 11), self-refresh on REMARKS_CHANGED.
                                    The waiting-review banner above the tree was deleted in phase 12,
-                                   and deleteSelected now asks about a GroupNode in the selection
-                                   rather than comparing two counts.
+                                   and deleteSelected now asks selectionHidesRows whether the
+                                   selection stands for a row that is off screen, rather than
+                                   comparing two counts. A group row always does; a question row does
+                                   when it has an answer under it and is itself collapsed.
                                    Since phase 11 it also resolves answers, deletes answer rows, and
                                    on an answer row navigates to the code AND then opens the popup.
                                    navigateTo is the one place that opens a file at a line, shared by
@@ -708,9 +713,11 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    PROJECT, Disposable) — the file a skill reads to find this IDE
   review/AtomicWrite.kt            atomicWriteString: temp file beside the target, then rename
   review/PublishedRemarks.kt       PublishedHeader (nonce, publishedAt, commit, remarks) with
-                                   render()/publishedHeaderOf(), the private control-character
-                                   sanitizer, now applied to commit, PUBLISHED_MARKER, publishedName,
+                                   render()/publishedHeaderOf(), PUBLISHED_MARKER, publishedName,
                                    writePublished: the one file a publish writes under handshakeDir().
+                                   Nothing is sanitised on the way out any more: a control character
+                                   in commit shifts the header, publishedHeaderOf reads back null and
+                                   the fetch answers failed, which is the loud answer this file wants
                                    Added in phase 9 as a three-field header; restructured into an
                                    eight-line PublishedHeader in phase 10, when the review's own
                                    handoff file merged into this one; back to five lines in phase 12,
@@ -909,8 +916,8 @@ from `CopyRemarksTest` in phase 9; since phase 10, that a publish with no ids ta
 is not `READ`, not only `PENDING` ones), `PublishedRemarksTest` (the published file's name and write,
 added in phase 9; since phase 12, `PublishedHeader`'s **five**-line `render()`/`publishedHeaderOf()`
 round trip, that a four-line text reads back null, that a missing prefix on any of lines 2 to 5 or a
-non-integer `remarks:` reads back null, and that a `commit` carrying a control character comes back with
-it replaced so the header cannot shift),
+non-integer `remarks:` reads back null, and that a `commit` carrying a newline shifts the header so
+`publishedHeaderOf` reads back null rather than reporting a commit nobody has),
 `PublishedAckTest` (added in phase 10, fixture-backed: an acknowledgement of a recorded batch marks
 its remarks read and answers `ok`; a second session, or the same session twice, gets `already-read`
 naming who got there first; an unknown nonce answers `unknown-batch`; only the last sixteen batches
@@ -925,7 +932,11 @@ naming who got there first, `unknown-batch`, `unknown-project`, `bad-request`; `
 for the same remark and an answer for a remark that was never marked as asking, which is deliberately
 accepted and pinned so that decision cannot be quietly reversed; and `open`'s three — `ok` with the
 accepted count, `ok` with `opened: 0` for an empty list, `unknown-project`, and `bad-request` with a
-detail for a missing project. Also the unknown-action refusal. Phase 12 deleted every `start` and `ack`
+detail for a missing project, plus ⚠️ one test that a real file created with `fileUnderProjectRoot`
+actually appears in `FileEditorManager.openFiles` after the EDT queue drains. That last one is the only
+test in the class that says the action *does* anything: the other three read the response, and the
+`opened` count is computed by the path filter whatever else happens, so all three passed with the
+`openReviewFiles` call deleted outright. Also the unknown-action refusal. Phase 12 deleted every `start` and `ack`
 case and the three fetch cases about a session, and task 15 of that phase went through the four
 handlers' own `writer.name("status")` call sites to confirm nothing lost coverage on the way),
 `OpenReviewFilesTest` (the string-only half of the path
@@ -934,9 +945,12 @@ diff-or-editor decision, since a light fixture project has no VCS root and every
 plain-editor branch), `PreviewSelectionServiceTest` (since phase 9, fixture-backed for the same
 reason: `remember`, `forget` and `current` on the project-level service that holds the preview's last
 selection), and `RemarkStatusLookTest` (fixture-backed, because loading an icon
-needs the platform: the six rows of the two icon tracks as a decision table, one test on its own for a
-question that is `READ` with no answer getting the **yellow** icon, and that the same input returns the
-same icon instance). Phase 12 deleted `WaitingReviewTest`, `WaitingReviewServiceTest` and
+needs the platform: the six rows of the two icon tracks as a decision table, plus one test on its own
+for a question that is `READ` with no answer getting the **yellow** icon. A seventh test asserting that
+the same input returns the same icon instance was deleted in the phase 12 review: `icon` returns an
+object's `val`, so identity is a Kotlin language guarantee, and nothing depends on it —
+`RemarkGutterIconRenderer.equals` keys on the five facts, never on the `Icon`).
+Phase 12 deleted `WaitingReviewTest`, `WaitingReviewServiceTest` and
 `ReviewLifecycleTest` outright, along with `AnswerReceiptTest`'s one review-contrast test and every
 review case in `ReviewEndpointSmokeTest`.
 
@@ -959,12 +973,20 @@ renders, and it is what would catch that class changing shape on a platform bump
 `@ApiStatus` annotation at all.
 
 **Phase 12 added two test classes and changed several more.** `RemarkIconsTest` is a plain JUnit class
-asserting all six icon resources resolve through
-`RemarkIcons::class.java.getResource("/dev/sasha/clauderemarks/icons/<name>.svg")`, and
-`RemarkIconsFixtureTest`, in the same file, asserts each of the three icons reports a width of 16,
-which is what catches an SVG that does not parse — the same plain-plus-fixture split
+asserting all six icon resources resolve, and it asks for each of them through
+`RemarkIcons.resourcePath(name)` — the same expression production hands `IconLoader`, never a copy of
+it, because a copy would leave a typo in the production template invisible while all six files sat
+under the path the test checked. `RemarkIconsFixtureTest`, in the same file, asserts each of the three
+icons reports a width of 16, and that the three are three distinct icons. ⚠️ The width of 16 is a real
+assertion, not a tautology: a `CachedImageIcon` resolves on the first call that needs a size, and
+`ScaledIconCache` falls back to the platform's **1×1** `EMPTY_ICON` when the image cannot be loaded at
+all, so a path that resolves to nothing and an SVG that does not parse both report 1. Checked by
+breaking one path by hand and watching the class fail. Same plain-plus-fixture split
 `review/OpenReviewFilesTest.kt` already uses. `RemarkStatusLookTest` is the decision table described
-above. `RemarkGutterTest` gained three tests: a remark with an answer produces a placement carrying
+above. `RemarksTreeTest` pins `hasAnswer` from both sides — a question with an answer nested under it
+carries true, one whose only answer names another remark carries false — which nothing asserted until
+the phase 12 review: the two `asksLabel` tests were the only ones that ever pushed a true `hasAnswer`
+through `buildTreeRoot`, and they went with the grey word. `RemarkGutterTest` gained three tests: a remark with an answer produces a placement carrying
 `hasAnswer = true` and one without produces `false`, both asserted through the icon the renderer draws
 since `placementsFor` is private, and a third pinning that the answered-id set is derived from the
 **unfiltered** answers list, with an answer stored against another file naming a question in this one.
@@ -973,9 +995,11 @@ renderers differing only in `hasAnswer` are not equal, and the same for `asksFor
 the whole assertion standing between the feature and a gutter icon that never updates.
 `RemarksPanelTest` gained the delete confirmation, and with it the first use of
 `TestDialog`/`TestDialogManager` in this repository: `TestDialog.DEFAULT` throws on `show()`, so a test
-with no dialog registered fails loudly if a dialog ever appears, which is what proves deleting a
-question with an answer asks nothing, while `TestDialogManager.setTestDialog(TestDialog.NO, testRootDisposable)`
-proves a selected file group still asks.
+with no dialog registered fails loudly if a dialog ever appears, which is what proves deleting an
+expanded question with an answer asks nothing, and the same for an answer row on its own, while
+`TestDialogManager.setTestDialog(TestDialog.NO, testRootDisposable)` proves the three cases that do ask:
+a selected file group, ⚠️ a question the person has **collapsed** by hand, and a question selected
+together with a group.
 
 ⚠️ **A Gradle `--tests` filter that names a file rather than a class matches nothing, and Gradle does
 not fail for it when another filter in the same command matches.** It reports BUILD SUCCESSFUL while

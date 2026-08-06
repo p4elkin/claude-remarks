@@ -1,10 +1,12 @@
 package dev.sasha.clauderemarks.review
 
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
+import dev.sasha.clauderemarks.store.fileUnderProjectRoot
 import dev.sasha.clauderemarks.store.settleInvocationQueue
 import io.netty.buffer.ByteBufHolder
 import io.netty.buffer.Unpooled
@@ -36,6 +38,10 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         RemarkStore.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
         deletePublishedFile()
+        // The `open` test below asserts an editor is open. An editor another class left open on the
+        // same path would make it pass with nothing having been opened, so both ends are closed —
+        // the same reason OpenReviewFilesFixtureTest closes them in both places.
+        closeAllEditors()
     }
 
     override fun tearDown() {
@@ -43,7 +49,16 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         PublishedBatchService.getInstance(project).clear()
         deletePublishedFile()
         UIUtil.dispatchAllInvocationEvents()
-        super.tearDown()
+        try {
+            closeAllEditors()
+        } finally {
+            super.tearDown()
+        }
+    }
+
+    private fun closeAllEditors() {
+        val manager = FileEditorManager.getInstance(project)
+        manager.openFiles.forEach { manager.closeFile(it) }
     }
 
     /**
@@ -466,6 +481,30 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
 
         assertTrue(sent, sent.contains("\"bad-request\""))
         assertTrue(sent, sent.contains("\"detail\""))
+    }
+
+    /**
+     * ⚠️ The one test that says the `open` action **opens something**. The three above only read the
+     * response, and the count in it comes from the same string-only filter whatever else happens, so
+     * every one of them passed with the `openReviewFiles` call deleted from `handleOpen` outright.
+     *
+     * A real file, because the paths in those tests do not exist in the light fixture: `fileForStoredPath`
+     * answers null for them and nothing would open even with the call in place. `openReviewFiles` hops
+     * to the EDT with invokeLater, so the queue has to drain before the editor is there to see.
+     *
+     * A light fixture project has no VCS root, so `ChangeListManager.getChange` answers null and this
+     * takes the plain-editor branch. The diff branch still has no automated guard; it is hand check 10
+     * in the plan.
+     */
+    fun testAnOpenForARealFileActuallyOpensIt() {
+        val file = fileUnderProjectRoot(project, "Opened.kt", "alpha\nbeta\n")
+        assertFalse(FileEditorManager.getInstance(project).openFiles.any { it == file })
+
+        val sent = post("/api/claude-remarks/open", """{"project":"${projectPath()}","files":["Opened.kt"]}""")
+        UIUtil.dispatchAllInvocationEvents()
+
+        assertTrue(sent, sent.filterNot { it.isWhitespace() }.contains("\"opened\":1"))
+        assertTrue(FileEditorManager.getInstance(project).openFiles.any { it == file })
     }
 
     /** The five fields the `answer` action takes, so each test above spells out only what it varies. */

@@ -72,9 +72,9 @@ internal fun selectRowForPopup(tree: JTree, x: Int, y: Int) {
 /**
  * Everything one refresh resolved, carried back from the read action as one value.
  *
- * A pair of lists rather than two read actions, because the two views have to agree: a remark row
- * says "answered" exactly when the Answers group holds an answer naming it, and two separate
- * resolves could land either side of a store change and disagree for one frame.
+ * A pair of lists rather than two read actions, because the two views have to agree: a question row
+ * draws the green question mark exactly when this same rebuild resolved an answer naming it, and two
+ * separate resolves could land either side of a store change and disagree for one frame.
  */
 private data class ResolvedRows(
     val remarks: List<ResolvedRemark>,
@@ -403,17 +403,13 @@ class RemarksPanel(
      * hold both. Without the answer half, Delete on an answer row would do nothing at all, with no
      * message — remarkNodesUnder returns remark rows only.
      *
-     * The confirmation rule is "does the selection contain a GroupNode", not the arithmetic this
-     * replaced (how many selected paths were themselves a leaf, against how many rows the
-     * selection covered once every group was expanded). That count was a proxy for "is there
-     * anything in the selection not actually on screen", which is exactly what a GroupNode means:
-     * it hides an unknown number of rows until it is expanded. Before an answer could nest under
-     * its question, a RemarkNode had no children, so a selected leaf always covered exactly one
-     * row and the two rules never disagreed. Nesting broke only the arithmetic, not the intent
-     * behind it: selecting one question row now covers two rows — itself and its answer — while
-     * only the question was pointed at, so the old count would have popped a dialog for a plain
-     * single-row delete. Both rows are already on screen the moment the question is clicked, so
-     * there is nothing hidden to warn about, and the new rule says so correctly.
+     * The confirmation rule is "does the selection stand for a row that is not on screen", not the
+     * arithmetic this replaced (how many selected paths were themselves a leaf, against how many
+     * rows the selection covered once every group was expanded). That count was a proxy for the
+     * same question, and it stopped being one when an answer started nesting under its question:
+     * selecting one question row now covers two rows — itself and its answer — while only the
+     * question was pointed at, so the old count would have popped a dialog for a plain single-row
+     * delete. [selectionHidesRows] asks the question directly instead.
      *
      * Internal, not private, so RemarksPanelTest can press Delete without a keystroke.
      */
@@ -422,13 +418,37 @@ class RemarksPanel(
         val answers = selectedAnswerNodes()
         val total = nodes.size + answers.size
         if (total == 0) return
-        val selectionHasGroup = tree.selectionPaths.orEmpty().any {
-            (it.lastPathComponent as? DefaultMutableTreeNode)?.userObject is GroupNode
-        }
-        if (selectionHasGroup && !confirmDelete(total)) return
+        if (selectionHidesRows() && !confirmDelete(total)) return
         nodes.forEach { deleteRemark(project, it.id) }
         answers.forEach { deleteAnswer(project, it.id) }
     }
+
+    /**
+     * Whether the selection stands for a row that is not on screen right now.
+     *
+     * Two node shapes count. A `GroupNode` always does: it stands for every row under it, and on a
+     * shut group that is an unknown number of rows nobody has looked at.
+     *
+     * A `RemarkNode` counts when it has a child — the answer nested under it — **and** is itself
+     * collapsed. A question with an answer draws its own expand handle, so a person can shut it by
+     * hand, and then its answer is hidden exactly the way a group's rows are. [collapsedGroups]
+     * records `GroupNode` keys only, so a question shut by hand springs open again on the next
+     * refresh — but between refreshes Delete would take an answer nobody could see, and
+     * `deleteAnswer` writes nothing to the history file, unlike Clear All and Clear Handed Over. So
+     * that answer would be gone for good, unarchived and unmentioned.
+     *
+     * `JTree.isExpanded` also answers false for a node inside a collapsed ancestor. That is the same
+     * answer for the same reason — the row is not on screen — so it needs no special case.
+     */
+    private fun selectionHidesRows(): Boolean =
+        tree.selectionPaths.orEmpty().any { path ->
+            val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return@any false
+            when (node.userObject) {
+                is GroupNode -> true
+                is RemarkNode -> node.childCount > 0 && !tree.isExpanded(path)
+                else -> false
+            }
+        }
 
     /**
      * "row", not "remark": the selection can cover answer rows as well now, and a dialog that

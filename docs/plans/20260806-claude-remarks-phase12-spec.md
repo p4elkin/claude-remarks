@@ -345,11 +345,18 @@ Two changes, and the second is a simplification the first makes obvious:
   alone. So a selected question would keep its answer, and that answer would jump into the
   no-question group — deleting a row and having a different row appear elsewhere. Recursing means
   Delete on a question takes its answer too.
-- **The confirmation rule becomes "ask when the selection contains a group row".** That is what the
-  old arithmetic was a proxy for: the dialog exists because a collapsed group stands for an unknown
-  number of rows nobody can see. A question row and its one visible answer are both on screen at the
-  moment of the click, so there is nothing hidden to warn about. The new rule is exactly equivalent
-  to the old one for every selection that was possible before nesting, and it is correct after it.
+- **The confirmation rule becomes "ask when the selection stands for a row that is not on screen".**
+  That is what the old arithmetic was a proxy for: the dialog exists because a shut group stands for
+  an unknown number of rows nobody can see. Two node shapes stand for a hidden row now. A group row
+  always does. A question row does too when it has an answer under it **and** is itself collapsed —
+  a question with a child draws its own expand handle, so a person can shut it by hand, and then the
+  answer is hidden exactly the way a group's rows are. An expanded question and its visible answer
+  are both on screen at the moment of the click, so that case asks nothing.
+
+  ⚠️ Do not reduce this to "ask when the selection contains a group row". That was the first version
+  of this section and it is wrong: `deleteAnswer` writes nothing to the history file, unlike Clear
+  All and Clear Handed Over, so Delete on a collapsed question would take an answer the person
+  cannot see and cannot get back.
 
 The store is untouched. `deleteAnswer` is still its own function, called explicitly for each answer
 row the selection covered. The child node is a view, not containment.

@@ -423,6 +423,11 @@ class RemarksPanelTest : BasePlatformTestCase() {
     /**
      * Delete on an answer row went through remarkNodesUnder, which returns remark rows only, so it
      * did nothing at all and said nothing. Exactly the failure that function's own KDoc warns about.
+     *
+     * **This is also the no-dialog boundary for an answer row on its own.** An AnswerNode is neither a
+     * group nor a node with children, so `selectionHidesRows` answers false and nothing is asked. No
+     * TestDialog is registered here, and `TestDialog.DEFAULT` throws on `show()`, so a dialog
+     * appearing fails this test rather than being answered silently.
      */
     fun testDeletingASelectedAnswerRowRemovesTheAnswer() {
         recordAnswer(project, answer(id = "a-1", remarkId = "r-1", path = "A.kt"))
@@ -471,6 +476,53 @@ class RemarksPanelTest : BasePlatformTestCase() {
         addRemark(project, "A.kt", LINES, 0..0, "a note")
         val panel = panel()
         panel.tree.setSelectionRow(0)
+
+        TestDialogManager.setTestDialog(TestDialog.NO, testRootDisposable)
+        panel.deleteSelected()
+
+        assertEquals(1, RemarkStore.getInstance(project).all().size)
+    }
+
+    /**
+     * ⚠️ The case the confirmation rule was originally written wrong for, and the reason it is not
+     * simply "does the selection contain a group row".
+     *
+     * A question with an answer under it draws its own expand handle, so a person can shut it by
+     * hand. Then Delete on that question takes an answer that is not on screen — and `deleteAnswer`
+     * archives nothing to the history file, unlike Clear All and Clear Handed Over, so it is gone for
+     * good. `collapsedGroups` records group keys only, so this state does not even survive the next
+     * refresh, which makes it a window rather than a mode; the answer is no less unrecoverable inside
+     * that window.
+     *
+     * Both rows surviving is what proves the dialog was consulted: TestDialog.NO answers no.
+     */
+    fun testDeletingACollapsedQuestionAsksFirst() {
+        val remark = addRemark(project, "A.kt", LINES, 0..0, "why is this synchronized?")
+        recordAnswer(project, answer(id = "a-1", remarkId = remark.id!!, path = "A.kt"))
+        val panel = panel()
+
+        // Row 0 is the file group, row 1 the question, row 2 the answer nested under it.
+        panel.tree.setSelectionRow(1)
+        panel.tree.collapsePath(panel.tree.getPathForRow(1))
+        assertFalse(panel.tree.isExpanded(panel.tree.getPathForRow(1)))
+
+        TestDialogManager.setTestDialog(TestDialog.NO, testRootDisposable)
+        panel.deleteSelected()
+
+        assertEquals(1, RemarkStore.getInstance(project).all().size)
+        assertEquals(1, RemarkStore.getInstance(project).allAnswers().size)
+    }
+
+    /**
+     * The boundary between the two rules above: a selection holding both a question row and a group
+     * row still asks. The group is enough on its own, and one leaf beside it does not buy it out.
+     */
+    fun testAQuestionSelectedTogetherWithAGroupStillAsks() {
+        addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val panel = panel()
+
+        // Row 0 is the file group, row 1 the remark.
+        panel.tree.setSelectionRows(intArrayOf(0, 1))
 
         TestDialogManager.setTestDialog(TestDialog.NO, testRootDisposable)
         panel.deleteSelected()

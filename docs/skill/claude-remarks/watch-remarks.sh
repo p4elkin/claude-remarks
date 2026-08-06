@@ -330,13 +330,14 @@ if [ "$mode" = file ]; then
   done
 fi
 
-# mode = fetch: POST /fetch and read the answer's status. The endpoint documents seven for this
-# action: waiting (nothing published yet), ready (a new or repeated batch), no-review (nothing has
-# been published for this project — the status kept its name from when a review was the only thing
-# that published), too-large, failed (an IOException, an unparseable header, or a project directory
-# that no longer resolves), plus bad-request and unknown-project, which mean this script and the
-# plugin disagree about the request itself. Only waiting and no-review are worth another poll;
-# every other one ends the run.
+# mode = fetch: POST /fetch and read the answer's status. The endpoint documents six for this
+# action: ready (a new or repeated batch), no-review (nothing has been published for this project —
+# the status kept its name from when a review was the only thing that published), too-large, failed
+# (an IOException, an unparseable header, or a project directory that no longer resolves), plus
+# bad-request and unknown-project, which mean this script and the plugin disagree about the request
+# itself. There is no waiting any more: it belonged to a review being held open, and reviews are
+# gone, so a readable published file is always ready. Only no-review is worth another poll; every
+# other one ends the run.
 resp=
 while :; do
   now=$(date +%s)
@@ -401,8 +402,8 @@ while :; do
       rm -f "$resp"
       exit 2
       ;;
-    waiting | no-review)
-      : # nothing new yet — keep polling
+    no-review)
+      : # nothing published yet — keep polling
       ;;
     *)
       echo "watch-remarks.sh: fetch answered a status this script does not know: ${status:-<none>}" >&2

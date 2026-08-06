@@ -1304,6 +1304,12 @@ sit in a different file from its question's — it is captured fresh at answer t
 would lose exactly those, and the question would keep drawing as unanswered. A test stores an answer
 against `Bar.kt` naming a question in `Foo.kt` and asserts the question still draws the green mark.
 
+The one filter it does apply first is `id != null`, and `ui/RemarksTree.kt` applies the same one at the
+top of `buildTreeRoot`. An answer with no id draws no row and no gutter icon, so it must not turn its
+question green in either view: a green question mark with nothing to click is worse than the yellow one
+it replaces. The two views have to agree here — sharing `RemarkStatusLook` is the whole point — and only
+a hand-edited `workspace.xml` can produce such an answer, since `AnswerReceipt` always mints a uuid.
+
 ### The published file
 
 Publishing writes to a second destination besides the clipboard: one file a Claude Code skill can
@@ -1358,14 +1364,17 @@ the fetch and the published-read handler both turn that into a `failed` answer w
 than serving a header that might be lying.
 
 Phase 10's header had three more lines — `review:`, `label:` and `rejected:` — and phase 12 deleted
-them along with review mode. `sanitizeLabel` went with them: it cut the label to 120 characters and
-replaced every character below U+0020 with a space, because the label arrived over HTTP from the skill
-and a stray newline in it would have split the header and moved every line after it.
-`sanitizeControls` stayed and now runs on `commit` instead. Nothing in the header arrives over HTTP any
-more, but the reader still finds fields by line number, and `commit` is read straight out of `.git`, so
-a control character in it could still shift every line below. It is applied after the eight-character
-cut rather than before, which produces the same output — the function replaces characters in place and
-never changes length — over eight characters instead of however many the file held.
+them along with review mode. Both sanitizers went with them. `sanitizeLabel` cut the label to 120
+characters and replaced every character below U+0020 with a space, because the label arrived over HTTP
+from the skill and a stray newline in it would have split the header and moved every line after it.
+`sanitizeControls` did the replacement half, and phase 12 first pointed it at `commit` instead — then
+took it out again, because on this field it turns the right answer into the wrong one. **Nothing here is
+sanitised now.** A newline inside a commit pushes `remarks:` off line 5, `publishedHeaderOf` reads back
+null, and the fetch answers `failed` with a detail: the loud failure this file's whole policy asks for.
+Replacing that newline with a space instead produced a header that parsed cleanly and reported a commit
+nobody has — a silent wrong value where an error belongs. It is also a shape that needs a corrupt or
+hand-edited ref file to arise at all: `headCommit` only ever returns a string that matched its 40-hex
+pattern.
 
 ⚠️ **A file written by `0.8.0` still reads correctly, and phase 12's own plan predicted the opposite.**
 Lines 1 to 5 are byte for byte the same in both versions, and `publishedHeaderOf` checks nothing at
@@ -2604,15 +2613,32 @@ would silently do nothing. `navigateToSelected`, which runs on double click, nav
 code the answer points at **and then** shows the popup. And `leavesOf`, since phase 12, returns a
 `RemarkNode` **and** its children's leaves rather than stopping at it, which is what makes
 `answerNodesUnder` find a selected question's nested answer — so deleting a question takes its answer
-with it, in one action and with no dialog. Its `RemarkNode` branch and its group branch share one
-private `childLeavesOf` helper rather than each walking the children itself.
+with it, in one action, and with no dialog as long as that answer is on screen (see the rule below).
+Its `RemarkNode` branch and its group branch share one private `childLeavesOf` helper rather than each
+walking the children itself.
 
-**Delete asks when the selection contains a group, and that is now the whole rule.** It used to compare
-two counts — the rows picked out against the leaves sitting under the selection — and ask whenever the
-second was larger. That was a proxy for "a group is selected", and it was exact for every selection
-that was possible before nesting. Nesting broke the proxy: a selected question now has a leaf under it
-too, so the arithmetic started asking before deleting a single remark row. `deleteSelected` asks about
-a `GroupNode` in the selection directly, which is what the count always stood for.
+**Delete asks when the selection stands for a row that is not on screen.** It used to compare two
+counts — the rows picked out against the leaves sitting under the selection — and ask whenever the
+second was larger. That was a proxy for the rule above, and it was exact for every selection that was
+possible before nesting. Nesting broke the proxy: a selected question now has a leaf under it too, so
+the arithmetic started asking before deleting a single remark row. `selectionHidesRows` asks the
+question the count always stood for, and two node shapes answer yes:
+
+- a `GroupNode`, always. It stands for every row beneath it, and on a shut group that is an unknown
+  number of rows nobody has looked at.
+- a `RemarkNode` **with a child and itself collapsed**. A question with an answer draws its own expand
+  handle, so a person can shut it by hand, and then that answer is hidden exactly the way a group's
+  rows are.
+
+⚠️ The second bullet is not decoration, and "ask when the selection holds a group" — the first version
+of this rule, and what phase 12's own spec said — is wrong without it. `deleteAnswer` writes nothing to
+the history file, unlike Clear All and Clear Handed Over, so Delete on a collapsed question would take
+an answer the person cannot see and cannot get back. `collapsedGroups` records group keys only, so a
+question shut by hand springs open again on the next refresh; that makes the window narrow, not the
+loss recoverable.
+
+`JTree.isExpanded` also answers false for a node inside a collapsed ancestor, and that needs no special
+case: it is the same answer for the same reason, the row is not on screen.
 
 The double click was one-sided at first: it only opened the popup and left
 the editor wherever it was. The first real IDE session found it at once — an answer is about a piece
@@ -2642,7 +2668,10 @@ the literal words were pinned by a plain JUnit test rather than needing a painte
 beside that call arguing text was right *because* the icon axis only carried status. The icon axis
 carries asking now, and the nesting carries answered, so three things were saying it. `RemarkNode.hasAnswer`
 stays, because the icon needs it, and it is still looked up from the answers the *same* rebuild
-resolved rather than from the store again, so a row and its own nested child can never disagree. The
+resolved rather than from the store again, so a row and its own nested child can never disagree. It is
+read off the keys of `nestedByQuestion`, the very map that attaches the child rows, rather than from a
+second set of answered ids built beside it: a question shows the green mark exactly when an answer
+nested under it, and two collections that must agree are a place they can stop agreeing. The
 gutter keeps its words: `answerTooltipFor` and the `(asks for an answer)` line in
 `editor/RemarkGutterIcon.kt` are untouched, because the gutter has no nesting and no colour legend on
 hover, so there the words are the only thing carrying it.

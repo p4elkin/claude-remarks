@@ -1,5 +1,6 @@
 package dev.sasha.clauderemarks.ui
 
+import com.intellij.icons.AllIcons
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.model.RemarkStatus
 
@@ -16,19 +17,19 @@ class RemarkStatusLookTest : BasePlatformTestCase() {
     fun testPlainPendingIsTheNoteIcon() {
         val icon = RemarkStatusLook.icon(RemarkStatus.PENDING, asksForAnswer = false, hasAnswer = false)
 
-        assertSame(com.intellij.icons.AllIcons.General.Note, icon)
+        assertSame(AllIcons.General.Note, icon)
     }
 
     fun testPlainPublishedIsTheNeutralTick() {
         val icon = RemarkStatusLook.icon(RemarkStatus.PUBLISHED, asksForAnswer = false, hasAnswer = false)
 
-        assertSame(com.intellij.icons.AllIcons.Actions.Checked, icon)
+        assertSame(AllIcons.Actions.Checked, icon)
     }
 
     fun testPlainReadIsTheGreenTick() {
         val icon = RemarkStatusLook.icon(RemarkStatus.READ, asksForAnswer = false, hasAnswer = false)
 
-        assertSame(com.intellij.icons.AllIcons.General.InspectionsOK, icon)
+        assertSame(AllIcons.General.InspectionsOK, icon)
     }
 
     fun testAQuestionWithAnAnswerIsTheGreenQuestionMark() {
@@ -58,12 +59,5 @@ class RemarkStatusLookTest : BasePlatformTestCase() {
         val icon = RemarkStatusLook.icon(RemarkStatus.READ, asksForAnswer = true, hasAnswer = false)
 
         assertSame(RemarkIcons.QuestionPublished, icon)
-    }
-
-    fun testTheSameInputReturnsTheSameIconInstance() {
-        val first = RemarkStatusLook.icon(RemarkStatus.PENDING, asksForAnswer = true, hasAnswer = false)
-        val second = RemarkStatusLook.icon(RemarkStatus.PENDING, asksForAnswer = true, hasAnswer = false)
-
-        assertSame(first, second)
     }
 }
