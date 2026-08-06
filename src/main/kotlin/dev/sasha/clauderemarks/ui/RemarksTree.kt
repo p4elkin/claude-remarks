@@ -1,16 +1,25 @@
 package dev.sasha.clauderemarks.ui
 
 import com.intellij.icons.AllIcons
-import com.intellij.ui.ColoredTreeCellRenderer
+import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
+import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import dev.sasha.clauderemarks.anchor.AnchorResult
 import dev.sasha.clauderemarks.anchor.positionLabel
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.ResolvedAnswer
 import dev.sasha.clauderemarks.store.ResolvedRemark
 import dev.sasha.clauderemarks.store.isAboutNoFile
+import java.awt.Component
+import java.awt.FontMetrics
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import javax.swing.Icon
+import javax.swing.JPanel
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
+import javax.swing.tree.TreeCellRenderer
 
 /**
  * The key of the group that holds every remark about no file. A file key always starts with
@@ -219,11 +228,11 @@ fun remarkNode(row: ResolvedRemark, hasAnswer: Boolean = false): RemarkNode {
         id = row.remark.id.orEmpty(),
         path = row.remark.path.orEmpty(),
         position = rowPosition(result, row.startColumn, row.endColumn) + label,
-        // On one line, whatever was typed. The row is drawn by SimpleColoredComponent, which has no
-        // idea what to do with a newline, and Shift+Enter in the input popup makes multi-line remark
-        // text ordinary rather than exotic. The stored text keeps its newlines; only the row is
-        // flattened, and the copied prompt still gets the remark as written.
-        text = row.remark.text.orEmpty().replace('\n', ' '),
+        // Whatever was typed, newlines and all. A row used to be flattened onto one line, because one
+        // SimpleColoredComponent cannot draw a newline; since phase 13 a row is a stack of them and
+        // `wrapToLines` splits on '\n' itself, so a remark written with Shift+Enter keeps the breaks
+        // the person put in it.
+        text = row.remark.text.orEmpty(),
         status = row.remark.status,
         startLine = result.startLine,
         asksForAnswer = row.remark.asksForAnswer,
@@ -529,13 +538,84 @@ private fun questionTreeNode(
 }
 
 /**
- * ColoredTreeCellRenderer, not NodeRenderer: NodeRenderer is wired to ItemPresentation and
- * NodeDescriptor, and these nodes carry plain user objects.
- *
- * Two colours in one row means two append calls; there is no way to colour part of one string.
+ * How many lines of text one row may draw. A fourth line of remark text is elided with an ellipsis
+ * rather than drawn, so one long remark cannot push the whole tree off screen.
  */
-class RemarkTreeRenderer : ColoredTreeCellRenderer() {
-    override fun customizeCellRenderer(
+const val MAX_TEXT_LINES = 3
+
+/**
+ * Room taken off the tree's own width before the text is wrapped: the icon, the gap after it, and
+ * enough slack that a vertical scroll bar appearing does not push the last word of every row onto a
+ * line of its own.
+ */
+private val ROW_MARGIN get() = JBUI.scale(36)
+
+/**
+ * The narrowest the text may ever be wrapped to. A tree that has not been laid out yet reports a
+ * width of zero, and without a floor every row would come back as three one-character lines and stay
+ * that way until something invalidated the row heights.
+ */
+private val MIN_WRAP_WIDTH get() = JBUI.scale(120)
+
+/**
+ * A row is a **stack of lines**, not one line, so a remark long enough to be worth writing is worth
+ * reading in the tree.
+ *
+ * `ColoredTreeCellRenderer`, what this was until phase 13, is a `SimpleColoredComponent`, and one of
+ * those paints a single line by construction. So the renderer is a `JPanel` on a `GridBagLayout`
+ * holding [MAX_TEXT_LINES] pre-built `SimpleColoredComponent` rows at `gridy = 0..2`, each with
+ * `weightx = 1` and `fill = HORIZONTAL`. That structure is copied from the platform's own
+ * `MultiLineTodoRenderer` (`platform/todo/src/com/intellij/ide/todo/MultiLineTodoRenderer.java`),
+ * including the detail that a line not needed by this row is hidden with `isVisible = false` rather
+ * than removed: `GridBagLayout` skips a hidden child when it measures, so a one-line row really is
+ * one line tall, and the components survive to be reused by the next row.
+ *
+ * ⚠️ **Stacking `SimpleColoredComponent` rather than the `HighlightableCellRenderer` the TODO tree
+ * stacks is deliberate.** That one takes highlights as `TextAttributes`, which would mean translating
+ * every style in this file. `SimpleColoredComponent` takes `append(text, SimpleTextAttributes)` — the
+ * exact call the old renderer already made — so the three existing styles carry over untouched and
+ * cannot drift.
+ *
+ * ⚠️ **The platform's renderer never wraps.** It is handed already-separate lines, because a TODO
+ * comment is multi-line in the source. The line breaking here is this plugin's own: [wrapToLines] in
+ * `ui/WrapText.kt`, measured through the line component's own `FontMetrics`.
+ *
+ * **Selection is painted by hand, and that is the one thing `ColoredTreeCellRenderer` gave for
+ * free.** A plain `JPanel` paints nothing, so a selected row would look unselected while still being
+ * selected — and the selection is what Publish Selected, Delete and the whole right-click menu act
+ * on. So the panel takes the tree's selection background and each line takes the matching foreground.
+ *
+ * Two colours in one line still means two `append` calls; there is no way to colour part of one
+ * string.
+ */
+class RemarkTreeRenderer : JPanel(GridBagLayout()), TreeCellRenderer {
+
+    /**
+     * The stacked line components, built once and reused on every row.
+     *
+     * Internal rather than private so `RemarkTreeRendererTest` can ask what a row actually drew.
+     * Painting is not testable without a screen; which lines came back visible, and what text and
+     * attributes each of them carries, is.
+     */
+    internal val lines: List<SimpleColoredComponent> = List(MAX_TEXT_LINES) { SimpleColoredComponent() }
+
+    init {
+        val constraints = GridBagConstraints().apply {
+            gridx = 0
+            weightx = 1.0
+            fill = GridBagConstraints.HORIZONTAL
+            anchor = GridBagConstraints.WEST
+        }
+        lines.forEachIndexed { index, line ->
+            // SimpleColoredComponent's own constructor makes itself opaque. Left that way, every line
+            // would paint the plain tree background over the selection band this panel draws.
+            line.isOpaque = false
+            constraints.gridy = index
+            add(line, constraints)
+        }
+    }
+
+    override fun getTreeCellRendererComponent(
         tree: JTree,
         value: Any?,
         selected: Boolean,
@@ -543,34 +623,127 @@ class RemarkTreeRenderer : ColoredTreeCellRenderer() {
         leaf: Boolean,
         row: Int,
         hasFocus: Boolean,
-    ) {
-        when (val user = (value as? DefaultMutableTreeNode)?.userObject) {
-            is RemarkNode -> {
+    ): Component {
+        // tree.hasFocus(), not the hasFocus parameter: that one says the ROW has focus, while
+        // UIUtil's argument is whether the TREE does — an unfocused tree draws a paler selection.
+        val focused = tree.hasFocus()
+        background = if (selected) UIUtil.getTreeSelectionBackground(focused) else UIUtil.getTreeBackground()
+        isOpaque = selected
+        val rowForeground = UIUtil.getTreeForeground(selected, focused)
+
+        lines.forEach {
+            it.clear()
+            it.icon = null
+            it.foreground = rowForeground
+            it.isVisible = false
+        }
+
+        val node = value as? DefaultMutableTreeNode
+        when (val user = node?.userObject) {
+            is RemarkNode -> drawWrappedRow(
                 icon = RemarkStatusLook.icon(
                     status = user.status,
                     asksForAnswer = user.asksForAnswer,
                     hasAnswer = user.hasAnswer,
-                )
-                val body = RemarkStatusLook.textAttributes(user.status)
-                append("${user.position}  ", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                append(user.text, body)
-            }
+                ),
+                prefix = user.position,
+                body = user.text,
+                bodyAttributes = RemarkStatusLook.textAttributes(user.status),
+                suffix = "",
+                width = wrapWidth(tree, node),
+            )
 
-            is AnswerNode -> {
-                icon = AllIcons.General.Balloon
-                if (user.position.isNotEmpty()) {
-                    append("${user.position}  ", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                }
-                append(user.firstLine, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                if (user.fileName.isNotEmpty()) {
-                    append("  ${user.fileName}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                }
-            }
+            is AnswerNode -> drawWrappedRow(
+                icon = AllIcons.General.Balloon,
+                prefix = user.position,
+                body = user.firstLine,
+                bodyAttributes = SimpleTextAttributes.REGULAR_ATTRIBUTES,
+                suffix = user.fileName,
+                width = wrapWidth(tree, node),
+            )
 
-            is GroupNode -> {
-                append(user.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-                user.detail?.let { append("  $it", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
+            // Not wrapped, and drawn on one line whatever its width. A group's label is a file name
+            // or one of four fixed words, so there is nothing here a second line would rescue, and a
+            // heading that grew taller than the rows under it would read as the more important thing.
+            is GroupNode -> lines[0].let { line ->
+                line.isVisible = true
+                line.append(user.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+                user.detail?.let { line.append("  $it", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
             }
         }
+        return this
+    }
+
+    /**
+     * One remark or answer row: [icon] and the grey [prefix] on the first line, [body] wrapped across
+     * as many of the [MAX_TEXT_LINES] as it needs, and the grey [suffix] after the last of them.
+     *
+     * The icon goes on the first line only, so the lines under it start at the panel's left edge
+     * rather than under a second copy of it.
+     *
+     * [prefix] and [suffix] are measured and taken off [width] for **every** line, not just the ones
+     * they are drawn on. Wrapping the body a few characters early on the lines that carry neither is
+     * the cheap half of the trade; the expensive half would be a per-line width, which [wrapToLines]
+     * deliberately does not take.
+     */
+    private fun drawWrappedRow(
+        icon: Icon,
+        prefix: String,
+        body: String,
+        bodyAttributes: SimpleTextAttributes,
+        suffix: String,
+        width: Int,
+    ) {
+        val metrics = textMetrics()
+        val prefixText = if (prefix.isEmpty()) "" else "$prefix  "
+        val suffixText = if (suffix.isEmpty()) "" else "  $suffix"
+        val room = (width - metrics.stringWidth(prefixText) - metrics.stringWidth(suffixText))
+            .coerceAtLeast(MIN_WRAP_WIDTH)
+        val wrapped = wrapToLines(body, room, MAX_TEXT_LINES) { metrics.stringWidth(it) }
+
+        wrapped.forEachIndexed { index, text ->
+            val line = lines[index]
+            line.isVisible = true
+            if (index == 0) {
+                line.icon = icon
+                if (prefixText.isNotEmpty()) {
+                    line.append(prefixText, SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                }
+            }
+            line.append(text, bodyAttributes)
+            if (index == wrapped.lastIndex && suffixText.isNotEmpty()) {
+                line.append(suffixText, SimpleTextAttributes.GRAYED_ATTRIBUTES)
+            }
+        }
+    }
+
+    /**
+     * The metrics the text is measured with, taken from the line component that will draw it.
+     *
+     * The fallback matters: `SimpleColoredComponent`'s constructor never sets a font, and a component
+     * with no font and no parent answers `getFont()` with null, which `getFontMetrics` will not take.
+     * That is the ordinary state of a renderer, which lives outside the tree's own hierarchy.
+     */
+    private fun textMetrics(): FontMetrics {
+        val line = lines[0]
+        return line.getFontMetrics(line.font ?: UIUtil.getLabelFont())
+    }
+
+    /**
+     * How wide the text on this row may be.
+     *
+     * The tree's visible width is the starting point rather than its own width: inside a scroll pane
+     * the tree is as wide as its widest row, which is the thing being computed here.
+     *
+     * ⚠️ The indent is worked out from the node's depth times the platform's own per-level indent,
+     * **not** read back from `tree.getRowBounds`. Those bounds are produced by asking this very
+     * renderer for its preferred size, so reading them here would be a renderer asking the layout
+     * cache a question only the renderer can answer.
+     */
+    private fun wrapWidth(tree: JTree, node: DefaultMutableTreeNode?): Int {
+        val available = tree.visibleRect.width.takeIf { it > 0 } ?: tree.width
+        val perLevel = UIUtil.getTreeLeftChildIndent() + UIUtil.getTreeRightChildIndent()
+        val indent = (node?.level ?: 0) * perLevel
+        return (available - indent - ROW_MARGIN).coerceAtLeast(MIN_WRAP_WIDTH)
     }
 }

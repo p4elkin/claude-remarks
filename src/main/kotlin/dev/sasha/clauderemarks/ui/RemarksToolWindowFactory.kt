@@ -110,6 +110,15 @@ class RemarksPanel(
         tree.isRootVisible = false
         tree.showsRootHandles = true
         tree.cellRenderer = RemarkTreeRenderer()
+
+        // Variable-height rows, which is the whole mechanism behind a wrapped row: with a row height
+        // of 0 JTree stops imposing one and asks each rendered component for its own preferred
+        // height instead. The platform does exactly this at
+        // platform/todo/src/com/intellij/ide/todo/TodoPanel.java:251, whose comment reads
+        // "enable variable-height rows"; platform/dvcs-impl/.../PushLog.java is the second user.
+        // Without it RemarkTreeRenderer would stack three lines and the tree would clip two of them.
+        tree.setRowHeight(0)
+
         tree.emptyText.text = "No remarks yet. Select some lines and press Ctrl+Alt+Shift+R."
 
         // com.intellij.util, NOT com.intellij.ui: the class file is

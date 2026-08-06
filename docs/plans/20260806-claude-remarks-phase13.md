@@ -356,24 +356,37 @@ Read the Technical Details section before starting; the platform pattern is
   beside the other tree setup, and stop flattening newlines in `remarkNode` if that is where it lives)
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarksTreeTest.kt`
 
-- [ ] build the renderer as `JPanel(GridBagLayout()) implements TreeCellRenderer`, holding **three**
+- [x] build the renderer as `JPanel(GridBagLayout()) implements TreeCellRenderer`, holding **three**
       pre-built `SimpleColoredComponent` line rows at `gridy = 0..2`, each `weightx = 1` and
       `fill = HORIZONTAL`, hiding unused rows with `setVisible(false)` rather than removing them
-- [ ] keep the icon on the first line only, and keep all three existing text styles through
+- [x] keep the icon on the first line only, and keep all three existing text styles through
       `append(text, SimpleTextAttributes)` — grey, regular, bold — since `SimpleColoredComponent` is
       what the old renderer already was
-- [ ] carry selection painting over by hand: each line component takes `selected`, and the panel's
+      — ➕ each line is also set `isOpaque = false`, because `SimpleColoredComponent`'s own
+      constructor makes itself opaque and would paint the plain tree background over the selection
+      band the panel draws
+- [x] carry selection painting over by hand: each line component takes `selected`, and the panel's
       background follows `UIUtil.getTreeSelectionBackground(selected)`. ⚠️ Verify that method's exact
       name and signature against the checkout before using it — do not recall it
-- [ ] add `tree.setRowHeight(0)` and confirm from the platform source that this is what enables
+      — ⚠️ verified, and the plan's call as written is wrong: the method is
+      `getTreeSelectionBackground(boolean focused)`, whose argument is whether the **tree** has focus,
+      not whether the row is selected. The renderer calls it as
+      `if (selected) UIUtil.getTreeSelectionBackground(tree.hasFocus()) else UIUtil.getTreeBackground()`,
+      and each line takes `UIUtil.getTreeForeground(selected, focused)`
+- [x] add `tree.setRowHeight(0)` and confirm from the platform source that this is what enables
       variable heights, citing `TodoPanel.java:251` in the comment
-- [ ] stop flattening `\n` out of remark text, since rows are multi-line now, and delete the comment
+- [x] stop flattening `\n` out of remark text, since rows are multi-line now, and delete the comment
       explaining the flattening
-- [ ] write tests for what is testable without painting: the renderer produces three visible line
+- [x] write tests for what is testable without painting: the renderer produces three visible line
       components for text needing three, one for short text, and the group and answer rows still carry
       their own styles
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'` — must pass before
+      — ➕ they live in a new `ui/RemarkTreeRendererTest.kt`, not in `RemarksTreeTest.kt` as the Files
+      list assumed: they need a fixture and `RemarksTreeTest` is plain JUnit, and a second class added
+      to that file would be silently skipped by the `--tests` filter below
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarksTreeTest'` — must pass before
       task 8
+      — ➕ run with `--tests 'dev.sasha.clauderemarks.ui.RemarkTreeRendererTest'` beside it, and
+      `RemarksPanelTest` too since `setRowHeight(0)` changed that file: 53 + 13 + 31, all green
 
 ### Task 8: Move the position and the file name below the text
 
@@ -474,6 +487,28 @@ Nothing here is reachable by `./gradlew test`.
 12. A session picking up a batch prints the two-group bullet summary before doing any work.
 13. Carried from phase 12 and still unrun: the three question-mark colours in a light **and** a dark
     theme, and an answer arriving turning its question green on the gutter as well as in the tree.
+
+*Added while task 7 was built. All four are about the stacked-line renderer, and none is reachable by
+a test.*
+
+14. ⚠️ **Widening or narrowing the tool window does not re-wrap rows already on screen.** The wrap
+    width is read once per render, and `setRowHeight(0)` makes JTree cache each row's height, so
+    nothing asks the renderer again until the tree is rebuilt. Pressing Refresh, or writing any
+    remark, rebuilds it and the rows re-wrap. Check how bad this looks in practice before deciding
+    whether it needs fixing — the fix is a resize listener calling
+    `TreeUtil.invalidateCacheAndRepaint(tree.ui)`, which was deliberately left out: it is
+    `@ApiStatus.Experimental`, and adding a third reason for `build.gradle.kts` to subtract
+    `EXPERIMENTAL_API_USAGES` is not something to do on the way past.
+15. The icon sits inside the first line component, so the second and third lines start at the panel's
+    left edge — under the icon, not aligned with the first line's text. Check whether that reads as a
+    hanging indent or as ragged. The platform's own `MultiLineTodoRenderer` puts the icon in a
+    separate `gridx = 0` component instead, which aligns every line; that is the change to make if
+    this looks wrong.
+16. The grey position in front of the text narrows **all three** lines, not just the one it is drawn
+    on, because `wrapToLines` takes a single width. Task 8 moves the position onto its own row below
+    the text, which removes this entirely — so check it only if task 8 is not done yet.
+17. A remark whose text is one word longer than the tree is wide breaks mid-word rather than
+    overflowing. Check that the break looks deliberate and not like a truncation.
 
 ## Post-Completion
 

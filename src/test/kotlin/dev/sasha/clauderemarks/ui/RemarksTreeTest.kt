@@ -156,10 +156,15 @@ class RemarksTreeTest {
         assertEquals(RemarkStatus.READ, remarkNode(row(status = RemarkStatus.READ)).status)
     }
 
-    /** Shift+Enter in the input popup makes this ordinary, and a row is one line of text. */
+    /**
+     * Shift+Enter in the input popup makes a multi-line remark ordinary. The node used to flatten
+     * every newline to a space, because one SimpleColoredComponent cannot draw a break; a row is a
+     * stack of them since phase 13, and `wrapToLines` splits on '\n' itself, so the breaks the person
+     * typed have to reach the renderer intact.
+     */
     @Test
-    fun `a multi-line remark is flattened onto one row`() {
-        assertEquals("first line second line", remarkNode(row(text = "first line\nsecond line")).text)
+    fun `a multi-line remark keeps its own line breaks`() {
+        assertEquals("first line\nsecond line", remarkNode(row(text = "first line\nsecond line")).text)
     }
 
     @Test
