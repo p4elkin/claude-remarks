@@ -1630,3 +1630,69 @@ Phase 5 dropped a pluggable `Dispatcher` interface, a tmux pane and a file insid
 handshake file is not that idea coming back. There is no dispatcher, no plugin point, no choice of
 destination, and nothing in the repository. It is one more write on a path that already renders the
 same markdown.
+
+## The watcher should not need a session to keep it alive
+
+**Planned for phase 15.** Skill-side only — `docs/skill/claude-remarks/SKILL.md` and
+`watch-remarks.sh`. No plugin change. It has to land after phase 13, whose task 9 rewrites the same
+listen-mode section.
+
+Sasha's complaint, watching a real session on 6 August 2026: handling a batch is tangled up with
+restarting the watcher, and the restart delays the actual work. He asked whether the shell could
+simply not stop, so there is nothing to restart, or whether the restart could at least wait until
+the remarks have been dealt with.
+
+### What the delay is made of
+
+Every batch costs two shell round trips before any useful work happens: the `published-read` claim,
+then the re-arm. Each one is its own message, and a message costs about nine seconds of model time
+whatever it carries, so roughly twenty seconds of bookkeeping sits between "a batch arrived" and
+"something is being done about it". `SKILL.md` puts the re-arm there deliberately — "re-arm,
+immediately — before answering anything and before summarising anything".
+
+The watcher exits after each batch because **exiting is the only way it can wake the session**. A
+background shell call notifies the session when the process ends, and printing without ending
+notifies nobody. So the exit-per-batch shape is not an oversight; the re-arm is what it costs.
+
+### Three changes, in the order they are worth doing
+
+**One: let the watcher stream instead of exiting, through the harness's `Monitor` tool.** `Monitor`
+turns each line the process prints into a notification while it keeps running, and a persistent
+monitor lasts the whole session. So `watch-remarks.sh` gains a mode that never exits and prints one
+short line per batch — the nonce, nothing else — and the session reads the published file itself.
+Re-arms drop to zero, and the gap with nothing listening drops to zero with them.
+
+⚠️ `Monitor` is Claude Code's own tool. The skill has to keep the exit-per-batch mode for every
+other agent, so this is a second branch in the document, not a replacement.
+
+⚠️ Print one short line per batch, never the batch text. A monitor that emits too many events is
+stopped automatically, and a large batch is a lot of lines.
+
+**Two: the watcher keeps its own `seen` nonce, and no session ever passes one in.** This is the fix
+for the second complaint — that a session reads annotations it has already dealt with. The published
+file for `lae-master` carried `remarks: 1` while this was happening, so the batch content is not
+repeating; the same batch is being reported twice. `--seen` state lives in the session today, which
+has to type the right nonce back into the next launch line, and `SKILL.md` already records what
+happens when it gets that wrong: "arming with a stale nonce makes the watcher exit 0 within a second
+on a batch that was already handled ... That has happened twice in one day." A streaming watcher
+updates its own `seen` after every report, so there is no value for a session to get wrong and the
+whole class of repeat goes away.
+
+**Three: move the `published-read` claim into the watcher.** It already reads
+`CLAUDE_REMARKS_TOKEN` out of the environment and posts with `curl --config -` for the remote fetch,
+so having it claim a batch and print `ok` or `already-read <session>` is in keeping with what it
+does. With this and the streaming mode together, a batch costs the session no shell calls at all
+before the work starts.
+
+### Deferring the re-arm, if only the small version gets built
+
+Deferring is safe on its own, and the reason `SKILL.md` gives against it is weaker than it reads.
+The document says re-arming after the answering "leaves a gap with nothing listening". But
+`action/PublishRemarks.kt` selects `status != READ`, so Publish Unread re-sends every remark that
+was never acknowledged: a batch published during the gap is carried again by the next one, and the
+re-armed watcher reports it on its first poll, two seconds later, because the nonce differs. Nothing
+is lost.
+
+⚠️ The exception is **Publish Selected**, which sends only the chosen ids. Two selected publishes
+during the gap and the first is not surfaced until some later publish. Those remarks still sit in
+the IDE as published-and-unread, so they are not lost, but the delay has no bound.
