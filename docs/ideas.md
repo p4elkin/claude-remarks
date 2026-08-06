@@ -376,13 +376,28 @@ it after phase 5 lands, not alongside, or the two rewrites collide.
 
 ## A review session shared between Claude Code and the IDE
 
-**Built in phase 6.** See `docs/claude/design.md`, section "The Shared Review Session", for the
-actual shape: the handshake file, the atomic-write transport, `WaitingReviewService`, the
-`ReviewRestService` endpoint and its three-part security rule, and the banner and Send to Claude
-Code button in the tool window. The skill lives at
-`docs/skill/claude-remarks-review/SKILL.md`. Everything decided below was carried in unchanged. Two
-of the "What to borrow from revdiff" instructions further down were deliberately declined rather
-than followed — see the notes marked **Declined in phase 6** in that section.
+**Built in phase 6, and half of it retired in phase 12.** It was built as described below: a
+handshake file, an atomic-write transport, `WaitingReviewService`, the `ReviewRestService` endpoint
+with its three-part security rule, and a banner plus a Send to Claude Code button in the tool window.
+Phase 12 removed the waiting review itself — the `start` and `ack` actions, the banner, the deadline,
+the review phases and the session-keyed acknowledgement. What was kept is everything the published
+file needs: the handshake, the atomic write, the endpoint, the security rule, and the file opening,
+which is now its own action, `open`. See `docs/claude/design.md`, section "The Endpoint the Skill
+Talks To", for what stands today and for what review mode was. The skill lives at
+`docs/skill/claude-remarks/SKILL.md`. Everything decided below was carried in unchanged for as long
+as review mode existed. Two of the "What to borrow from revdiff" instructions further down were
+deliberately declined rather than followed — see the notes marked **Declined in phase 6** in that
+section.
+
+**Why the waiting half went, since this entry is the argument for building it.** The reversal below —
+no MCP, no server, no background process — was worth making and stays made: the endpoint is still
+there, and the plugin still works with nothing installed and nothing listening. What did not earn its
+keep was the *waiting*. A review needed a session id, a deadline, a phase machine, a scheduled
+expiry, a banner and an acknowledgement route of its own, and every one of those was a place the two
+sides could disagree about the same handover. The published file's nonce already answers "which batch
+is this" without any of them, so the person publishes when they are ready and a session either reads
+the file once or listens for the next batch. The one thing genuinely lost is the label — who is
+waiting, and what for — and nothing has asked for it back.
 
 The largest idea here, and the one that changes what the plugin is.
 
@@ -675,19 +690,21 @@ truncates, and a skill that keeps one wait loop for both transports. (Renumbered
 the IDE the remarks were actually delivered" and "Open the real diff for just the files the skill
 named" below.)
 
-**Phase 10 merged the published file and the handoff file into one, but did not extend the remote
-path to the published-file modes.** A remote session can still only reach remarks through a waiting
-review, fetched over the tunnel exactly as phase 8 built it. Listening for the next published batch
-from another machine is still not possible, and the direction for solving it later is deliberately
-not another poll: phase 8's fetch is keyed to a review session, and a remote listener has none, so
-the shape that suggests itself — a fetch keyed to the project plus a poll for a new nonce across the
-tunnel — runs straight into the built-in server's 30 requests a minute from one address, the same
-limit that already forced the remote review poll down to five seconds. Sasha's direction instead: a
-small push service on the machine the IDE runs on, which a remote session subscribes to, so a new
-batch is pushed once when it happens and nothing polls anything. Whoever designs this later should
-start from that shape, not from stretching the tunnel-and-poll pattern further. It is not designed
-here, and the questions it opens — what the service is, how a subscription is authenticated, and
-what happens to a subscriber that went away — are all open.
+**Phase 10 merged the published file and the handoff file into one; phase 11 opened the remote path to
+the published-file modes; phase 12 finished the job.** Phase 8's fetch was keyed to a review session,
+so a remote listener, which has none, could not use it. Phase 11 made the session field optional, and
+phase 12 deleted the field outright — a fetch now carries nothing but the project and answers with
+whatever batch the published file holds. So a remote session reads a published batch or listens for
+the next one exactly the way a local one does, over the tunnel.
+
+**What is still a poll, and the direction that would stop it.** The remote branch polls the fetch
+action every five seconds, because the built-in server allows 30 requests a minute from one address
+and every tunnelled request shares `127.0.0.1`. Sasha's direction for removing the poll rather than
+tuning it: a small push service on the machine the IDE runs on, which a remote session subscribes to,
+so a new batch is pushed once when it happens and nothing polls anything. Whoever designs this later
+should start from that shape, not from stretching the tunnel-and-poll pattern further. It is not
+designed here, and the questions it opens — what the service is, how a subscription is authenticated,
+and what happens to a subscriber that went away — are all open.
 
 **One thing below turned out wrong, and it is worth keeping rather than deleting.** The plan below
 says the person passes three values: host, port and token. It is four. The `start` request's
@@ -799,11 +816,13 @@ Still open:
 ## A button that installs the skill into every detected harness
 
 A button in the plugin's settings page that finds every agent harness on the machine and installs the
-review skill into each one, instead of the person copying a directory by hand. Raised by Sasha on
+skill into each one, instead of the person copying a directory by hand. Raised by Sasha on
 2026-08-03, right after doing it by hand.
 
-Today the skill is installed by hand. During development it was symlinked:
-`~/.claude/skills/claude-remarks-review` → `docs/skill/claude-remarks-review` in the checkout.
+Today the skill is installed by hand. During development it is symlinked:
+`~/.claude/skills/claude-remarks` → `docs/skill/claude-remarks` in the checkout. Phase 12 renamed
+both ends of that link, since the directory was called `claude-remarks-review` until review mode was
+retired, so a symlink made before phase 12 dangles and has to be recreated by hand.
 
 **The blocker comes first: the skill is not in the plugin zip.** It lives in `docs/skill/`, which
 never reaches the artifact — checked against `claude-remarks-0.3.0.zip`, which contains no skill file
@@ -851,15 +870,21 @@ Still open:
 
 ## Tell the IDE the remarks were actually delivered
 
-**Built in phase 7.** See `docs/claude/design.md`, section "The Shared Review Session", subsection
-"Three signals that the remarks arrived", for the actual shape: the phase machine (`Waiting` /
-`Sent`), the deadline declared by the skill and clamped at the endpoint, and the two acknowledgement
-events (`read`, `abandoned`) plus the scheduled staleness check that covers a killed session. Both
-open questions below were settled the same way: nothing is marked sent until the read
-acknowledgement arrives, so there is nothing to "un-send" on an abandoned or rejected review, and
-the deadline is a number the skill declares in the `start` request rather than a plugin setting, so
-the two sides cannot drift apart. The rejection defect described in the subsection right below this
-one was fixed in the same phase, first.
+**Built in phase 7, and retired in phase 12 along with review mode.** It was built as a phase machine
+(`Waiting` / `Sent`), a deadline the skill declared and the endpoint clamped, two acknowledgement
+events (`read`, `abandoned`) and a scheduled staleness check to cover a killed session. Both open
+questions below were settled the same way: nothing was marked sent until the read acknowledgement
+arrived, so there was nothing to "un-send" on an abandoned or rejected review, and the deadline was a
+number the skill declared rather than a plugin setting, so the two sides could not drift apart. The
+rejection defect described in the subsection right below this one was fixed in the same phase, first.
+
+**The principle survived the machinery.** What this entry is really about is that a write is not a
+delivery, and that is still how the plugin works: publishing only ever produces `PUBLISHED`, and only
+an agent's own acknowledgement produces `READ`. Phase 12 kept the acknowledgement route that is keyed
+to a published batch's nonce (`published-read`) and deleted the one keyed to a review session
+(`ack`), together with the phase machine, the deadline and the banner those three signals existed to
+keep honest. With no banner there is nothing on screen that can outlive the agent, which is what two
+of the three signals were for.
 
 Right now the IDE knows it **wrote a file**. It has no idea whether anything read it. Raised by Sasha
 on 2026-08-03, straight after the first real end-to-end run.
@@ -924,12 +949,14 @@ Still open, now answered:
 
 ### Rejecting a review has to reach Claude Code, and the link should say Reject
 
-**Built in phase 7, first, before any of the new machinery above.** `rejectWaitingReview` in
-`review/SendReview.kt` writes the handoff file through the same `atomicWriteString` the send path
-uses, with a body whose first line is the wire-format marker `<!-- claude-remarks: rejected -->`,
-then clears the review. The banner's second link is now labelled Reject. See `docs/claude/design.md`,
-"Three signals that the remarks arrived", for the phase and clearing order, and the two questions
-below for how the open decisions were settled.
+**Built in phase 7, first, before any of the new machinery above, and gone again in phase 12.**
+`rejectWaitingReview` in `review/SendReview.kt` wrote the handoff file through the same
+`atomicWriteString` the send path used, with a body whose first line was the wire-format marker
+`<!-- claude-remarks: rejected -->`, then cleared the review. The banner's second link was labelled
+Reject rather than Cancel, for the reason below. Phase 12 deleted the banner, so there is no link
+left to press and nothing left to reject: a person who does not want to hand anything over simply
+does not publish. The lesson the defect taught is worth keeping even with the code gone — a control
+that reads as "close this" must not silently mean "the other side keeps waiting".
 
 Found by hand on 2026-08-03, in a real IDE. This is a defect, not a wish.
 
@@ -978,12 +1005,15 @@ built.
 
 ## Open the real diff for just the files the skill named
 
-**Built in phase 7.** See `docs/claude/design.md`, "The Shared Review Session", subsection "Opening
-the diff the skill asked for", for the actual shape: `ChangeListManager.getChange` decides per file
-whether it has a local change, every changed file lands in one `showDiffForChange` window, and a
-file with no local change still opens as a plain editor exactly as before. The one real hazard below
-was settled by refusing, not mapping — see the hazard's own paragraph, now updated — and committed
-ranges stayed out of scope exactly as this entry already expected.
+**Built in phase 7, and it is the one part of review mode phase 12 kept.** See
+`docs/claude/design.md`, "The Endpoint the Skill Talks To", subsection "Opening the files the skill
+named", for the actual shape: `ChangeListManager.getChange` decides per file whether it has a local
+change, every changed file lands in one `showDiffForChange` window, and a file with no local change
+still opens as a plain editor exactly as before. The one real hazard below was settled by refusing,
+not mapping — see the hazard's own paragraph, now updated — and committed ranges stayed out of scope
+exactly as this entry already expected. Phase 12 moved this behind its own endpoint action,
+`POST /api/claude-remarks/open`, so a session can put files in front of a person without starting
+anything: `OpenReviewFiles.kt` itself needed no change at all.
 
 Today a review request carries a `files` list and the IDE opens each one as a plain editor. The
 skill's own comment calls this "the cheap version of the diff": the person still has to press the

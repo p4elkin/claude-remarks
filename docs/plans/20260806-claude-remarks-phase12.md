@@ -695,15 +695,22 @@ edited script also reports no syntax error.
 - Modify: `docs/plans/20260806-claude-remarks-phase12.md` (this file — move it to
   `docs/plans/completed/`)
 
-- [ ] bump the version to `0.9.0`
-- [ ] add a phase 12 paragraph to `CLAUDE.md` and rewrite every earlier paragraph that describes
-      review mode as present, rather than leaving them to contradict the new one
-- [ ] update guard 6's command and delete its paragraph about the two acknowledgement routes being
-      tied together
-- [ ] update the project-structure block: two files gone, `ui/RemarkIcons.kt` and the icons directory
+- [x] bump the version to `0.9.0`
+- [x] add a phase 12 paragraph to `CLAUDE.md` and rewrite every earlier paragraph that describes
+      review mode as present, rather than leaving them to contradict the new one (the phase 6, 7, 8
+      and 10 paragraphs are each rewritten to say what that phase built and what became of it; the
+      intro carries a ⚠️ saying to read them as history; the giant opening blob is split into a
+      hand-check part and a "What the plugin does" part, which is the only paragraph describing today)
+- [x] update guard 6's command and delete its paragraph about the two acknowledgement routes being
+      tied together (the paragraph is replaced by one saying there were two between phase 10 and phase
+      12 and why they had to be tied, in the past tense — the argument is worth keeping, the mechanism
+      is gone). Guard 5's prose is rewritten too, since it named `review/ReviewLifecycle.kt` as a live
+      file
+- [x] update the project-structure block: two files gone, `ui/RemarkIcons.kt` and the icons directory
       added, and the changed descriptions of `RemarksTree.kt`, `RemarkStatusLook.kt` and
-      `ReviewRestService.kt`
-- [ ] ⚠️ add a paragraph to `CLAUDE.md`'s Testing section recording a trap this run walked into: **a
+      `ReviewRestService.kt` (also `PublishedRemarks.kt`, `PublishedAck.kt`, `AnswerReceipt.kt`,
+      `OpenReviewFiles.kt` and `RemarksToolWindowFactory.kt`, each of which described review mode)
+- [x] ⚠️ add a paragraph to `CLAUDE.md`'s Testing section recording a trap this run walked into: **a
       Gradle `--tests` filter that names a file rather than a class matches nothing, and Gradle does
       not fail for it when another filter in the same command matches** — it reports BUILD SUCCESSFUL
       while the tests you meant to run never ran. This plan told task 11 to run
@@ -713,19 +720,46 @@ edited script also reports no syntax error.
       this phase's one real trap were the ones silently skipped. List the files whose class names
       differ from their filename, so the next plan author does not repeat it:
       `editor/RemarkGutterIconTest.kt`, `review/OpenReviewFilesTest.kt`, `ui/RemarkIconsTest.kt`
-- [ ] in `docs/claude/design.md`, delete the shared-review-session section and add the two icon tracks
+      (written as its own ⚠️ block with the three files as a bulleted list, and the four real class
+      names in `RemarkGutterIconTest.kt` spelled out)
+- [x] in `docs/claude/design.md`, delete the shared-review-session section and add the two icon tracks
       and the answer nesting, in enough detail that a future session does not have to re-derive either
-      from the code
-- [ ] update `README.md`, including the icon legend, and check the screenshot caption does not
-      describe a banner
-- [ ] update `docs/ideas.md`. Task 13 renames the skill directory, which makes the paths in
+      from the code ("The Shared Review Session" is rewritten as "The Endpoint the Skill Talks To",
+      keeping every subsection that is not about waiting — the file transport, the atomic rename, the
+      watcher, `--owner`, the security rule, the handshake, `projectForPath`, the durable tier, the
+      remote path — and gaining "Opening the files the skill named" for the `open` action, plus a
+      paragraph saying what review mode was so the older phase paragraphs read as history. The new
+      "The icon column carries two facts" subsection carries the six-row table, the exact SVG colours,
+      the READ-with-no-answer decision, the accepted asymmetry, and the `equals`/`hashCode` trap.
+      "Reading an answer: three places" carries the nesting, the id-set subtlety and the new Delete
+      rule. Known Issues struck out thirteen review-mode entries and re-read the answer-with-no-file
+      one, which the new group label partly addresses)
+- [x] update `README.md`, including the icon legend, and check the screenshot caption does not
+      describe a banner (it never did; the three-state table gained two icon columns, "Hand a review
+      over and wait" became "What review mode was", and the first mode is now "Put files in front of
+      me")
+- [x] update `docs/ideas.md`. Task 13 renames the skill directory, which makes the paths in
       "A button that installs the skill into every detected harness" wrong — it names
       `docs/skill/claude-remarks-review` and the dev symlink twice. That entry is a live idea Sasha
       intends to build, and its whole first paragraph is the blocker "the skill is not in the plugin
       zip", which is still true, so fix the paths and leave the argument intact. Also read the file for
       any other section that describes review mode as something the plugin still does, and mark those
       retired rather than deleting them — this file is the record of why things were or were not built
-- [ ] move this plan to `docs/plans/completed/` and update the path where `CLAUDE.md` refers to it
+      (five entries marked retired, each keeping its own argument: the shared review session, the three
+      delivery signals, the Reject link, the diff opening — which is the one that survived — and the
+      remote-session entry, whose "not possible from another machine" claim phase 11 and 12 have
+      overtaken)
+- [x] move this plan to `docs/plans/completed/` and update the path where `CLAUDE.md` refers to it —
+      **deliberately not done.** The orchestrator moves this file after every phase finishes; moving it
+      here would break the review, finalize and stats phases that read it. `CLAUDE.md` names it at its
+      current path with a ⚠️ saying the path moves with it, the same shape phase 11's own entry already
+      uses
+- [x] ➕ add the `0.9.0` entry to `CHANGELOG.md`, which no task's Files list names. That file is the
+      per-version development history with an entry per phase, so a missing phase 12 would be
+      conspicuous; its header also said "eleven phases". The "What has actually been checked by hand"
+      section now says that half of the one gating run exercised review mode and what it still proves,
+      and the hand-check table gained rows for phases 11 and 12. `CHANGELOG.md:69`'s old skill path is
+      left alone, per task 13's recorded decision
 
 ## Hand checks
 

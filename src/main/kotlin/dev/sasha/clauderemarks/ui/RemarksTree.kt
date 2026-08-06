@@ -154,13 +154,12 @@ data class AnswerNode(
     /**
      * The answer's first non-blank line, and what the row draws as its text.
      *
-     * ⚠️ The row deliberately shows this rather than [question], and does not show both. The Answers
-     * group is sorted newest first and is read to see *what came back*; the question is already on
-     * screen twice — on the remark's own row in its file group, which says `answered`, and in the
-     * answer's gutter tooltip, which puts the question first — and since this change it is in the
-     * popup as well, which is where an answer is actually read. A row already carrying a position,
-     * a preview and a file name would have to give up the preview to fit the question, which trades
-     * the one thing only this row shows for a third copy of something shown elsewhere.
+     * ⚠️ The row deliberately shows this rather than [question], and does not show both. The row is
+     * read to see *what came back*, and since phase 12 the nesting already answers "to what": the
+     * question is the row directly above it. It is also in the answer's gutter tooltip, which puts the
+     * question first, and in the popup, which is where an answer is actually read. A row already
+     * carrying a position and a preview would have to give up the preview to fit the question, which
+     * trades the one thing only this row shows for another copy of something shown elsewhere.
      */
     val firstLine: String,
     val markdown: String,

@@ -129,14 +129,14 @@ it disabled, that one entry point is simply absent and everything else is unchan
 about the whole change rather than one file. It is rendered first in the prompt, under its own
 `## General` heading with no code block, and sits at the very top of the tree.
 
-**The tool window is a tree.** Grouped by file, with an Answers group at the very top whenever any
-answer has come back, a General group under it, and a bucket
-level above the files once you put any remark in a bucket. Buckets are names you pick, like "auth
+**The tool window is a tree.** Grouped by file, with a General group above the files and a bucket
+level above that once you put any remark in a bucket. Buckets are names you pick, like "auth
 refactor", assigned to a whole selection at once — sorting a reading pass is the point, so there is
 nothing to assign one at a time. Drag rows onto a bucket to move them, or onto `(no bucket)` to
-clear it. Right-click a row for the same menu the gutter icon offers. Delete
-removes the rows you picked out without asking; on a file or bucket node it stands for everything
-underneath and asks first.
+clear it. An answer sits under the question it answers, as a child row. Right-click a row for the
+same menu the gutter icon offers. Delete removes the rows you picked out without asking, and takes a
+question's answer with it; on a file or bucket node it stands for everything underneath and asks
+first.
 
 **Six toolbar buttons.**
 
@@ -158,21 +158,24 @@ thing as Publish Unread without the tool window open, and can be given a shortcu
 
 **Three states, and only an agent can grant the third.**
 
-| State | Meaning | How the row looks |
-| --- | --- | --- |
-| `PENDING` | Written, handed nowhere | Full-strength text, note icon |
-| `PUBLISHED` | Handed to a channel that cannot confirm a read | Full-strength text, upload icon |
-| `READ` | An agent said it actually read this one | Grey text, check icon |
+| State | Meaning | Text | Icon, plain remark | Icon, question |
+| --- | --- | --- | --- | --- |
+| `PENDING` | Written, handed nowhere | Full strength | Note | Neutral question mark |
+| `PUBLISHED` | Handed to a channel that cannot confirm a read | Full strength | Neutral tick | Yellow question mark |
+| `READ` | An agent said it actually read this one | Grey | Green tick | Yellow question mark |
+| | An answer has come back | Full strength | — | Green question mark |
 
 Colour and icon answer two different questions, and that is deliberate. **The colour says whether
 this is still the work**, which has two answers: Publish Unread carries a published remark again, so
-a published remark is not finished and must not look finished. **The icon says which of the three
-states it is in**, which has three answers, so pending and published are still told apart at a
-glance. `ui/RemarkStatusLook.kt` is the single place that decides both, read by the gutter icon and
+a published remark is not finished and must not look finished. **The icon says how far this one got,
+and whether it is a question at all.** A plain remark walks a note, then a neutral tick, then a green
+tick. A question walks three colours of the same question mark. A question that has been read but not
+answered stays yellow, because green is earned by an answer arriving and by nothing else.
+`ui/RemarkStatusLook.kt` is the single place that decides all of this, read by the gutter icon and
 the tree alike.
 
 Publishing can never produce `READ`, however many times it runs. Only an agent's own
-acknowledgement can, over one of two routes the IDE itself minted. Publishing a read remark again
+acknowledgement can, naming the nonce of the batch it read. Publishing a read remark again
 hands it over as `PUBLISHED`, because nothing has confirmed that second handover.
 
 **Where all this lives.** Remarks and answers are both stored in `.idea/workspace.xml`, which the IDE's own generated
@@ -198,9 +201,8 @@ guess from your wording.
 Select the lines, press `Ctrl+Alt+Shift+A`, type the question, press Enter. The same box opens from
 `Alt+Enter` ("Ask Claude about these lines") and from the editor's right-click menu. That remark is
 stored marked as asking for an answer **and published immediately** — asking is one motion, not five
-steps through the tool window. Two things follow from it being an ordinary publish: it writes the
-clipboard, as every publish does, and if a review is waiting in the banner it answers that review and
-uses up that review's one answer.
+steps through the tool window. One thing follows from it being an ordinary publish: it writes the
+clipboard too, the same as any other.
 
 The batch it publishes is every question still waiting for an answer, not only the one you just
 typed. Usually that is the same thing, because there is only one. It matters when you ask twice in a
@@ -210,21 +212,22 @@ read it. Carrying the earlier question again makes that harmless. A question tha
 answer is left out, so nothing is asked twice.
 
 You can also mark a remark you already wrote: right-click it, or click its gutter icon, and turn
-**Ask for an Answer** on. That only sets the flag — it publishes nothing. A marked row says `asks` in
-grey until an answer arrives, and `answered` afterwards.
+**Ask for an Answer** on. That only sets the flag — it publishes nothing. A marked row draws a
+question mark in place of the note, and the mark turns green when the answer arrives.
 
 **The answer comes back into the IDE.** A session that reads the batch sees which remarks are marked,
 answers each one, and posts the answer back. In the IDE it becomes:
 
-- a row at the top of the tool window, in the **Answers** group, newest first, showing the answer's
-  first line;
+- a row in the tool window directly under the question it answers, showing the answer's first line;
 - a gutter icon on the code the question was about, which follows that code as you keep editing;
 - a popup rendering the whole answer — headings, lists, tables, code fences — opened by clicking the
   gutter icon or double-clicking the row.
 
 An answer is its own thing, not a property of the question. It keeps its own anchor, so it follows
 the code by itself, and it survives its question being cleared: Clear Handed Over takes the remarks
-and leaves the answers, so a reading pass can be cleared while what you learned stays. Clear All
+and leaves the answers, so a reading pass can be cleared while what you learned stays. An answer with
+no question left to sit under moves to a group called **Answers with no question** at the top of the
+tree, which is the only thing that group holds. Clear All
 takes both, says so before it does, and archives both to the history file first. Asking the same
 question twice replaces the answer rather than adding a second one.
 
@@ -234,35 +237,43 @@ works as it always did.
 
 ## The Claude Code skill
 
-`docs/skill/claude-remarks-review/` is a normal Claude Code skill that reads remarks out of the IDE.
+`docs/skill/claude-remarks/` is a normal Claude Code skill that reads remarks out of the IDE.
 Install it by symlinking or copying the directory into `~/.claude/skills/`:
 
 ```sh
-ln -s "$(pwd)/docs/skill/claude-remarks-review" ~/.claude/skills/claude-remarks-review
+ln -s "$(pwd)/docs/skill/claude-remarks" ~/.claude/skills/claude-remarks
 # or
-cp -r docs/skill/claude-remarks-review ~/.claude/skills/claude-remarks-review
+cp -r docs/skill/claude-remarks ~/.claude/skills/claude-remarks
 ```
 
+⚠️ The directory was called `claude-remarks-review` until review mode was retired, so an install made
+before that is a dangling symlink and has to be recreated with one of the commands above.
+
 It is kept in this repository rather than only under `~/.claude/skills` because the skill and the
-IDE endpoint it talks to are one protocol, with four pairs of halves that have to agree — the
-request shapes (where `fetch`'s `session` is optional since phase 11 and every other action's is
-not), the eight fixed header lines and their three readers, the values each endpoint action answers,
-and, since phase 11, the `answer` action's six values plus its 16 KiB body cap. Keeping both halves
-of each in one place is what stops them drifting. `docs/skill/README.md` spells all four out.
+IDE endpoint it talks to are one protocol, with five pairs of halves that have to agree — the request
+shape and answers of each of the four endpoint actions, plus the five fixed header lines and their
+three readers. Keeping both halves of each in one place is what stops them drifting.
+`docs/skill/README.md` spells all five out.
 
 The skill has three modes.
+
+### Put files in front of me
+
+You ask Claude Code to show you something — a diff, a commit, a named set of files. It posts one
+request to the IDE and returns. The files that have a local change open as one diff window with
+next-file navigation, and the rest open as plain editors. Nothing is started, nothing is waited for,
+and no remark is involved yet. Then you read and mark up as usual.
 
 ### Listen mode — the convenient one
 
 You ask Claude Code, in words, to watch for your remarks. It starts a background watcher on the
 published file and then leaves you alone. You read code, mark it up, and press Publish when you have
 something worth handing over; the watcher picks the batch up and Claude Code reports what arrived.
-Nothing is started in the IDE, no banner appears, and nothing interrupts you while you read.
+Nothing appears in the IDE and nothing interrupts you while you read.
 
-**It never starts on its own.** Noticing a published file, or noticing that a review is waiting, is
-not the same as being asked. This is a design decision, not an oversight: a skill that begins
-watching because it saw something interesting would be watching a person who did not ask to be
-watched. You have to say it.
+**It never starts on its own.** Noticing that a file has been published is not the same as being
+asked. This is a design decision, not an oversight: a skill that begins watching because it saw
+something interesting would be watching a person who did not ask to be watched. You have to say it.
 
 One thing it will not do unasked: when a batch arrives, it summarises what came in and waits for you
 to say go, rather than acting on it. A listener runs unattended for hours, and nobody chose that
@@ -290,57 +301,31 @@ why the rule is written down here as well as in the skill.
 
 You published, and you want it acted on now. The skill computes the published file's path from the
 repository root, reads it, acknowledges the batch by its nonce — which is what turns the rows grey —
-and gets to work. No review is started and nothing is waited for.
+and gets to work. Nothing is waited for.
 
 This is the mode to reach for when you published first and asked afterwards.
 
-### Hand a review over and wait
+### What review mode was
 
-The skill asks the IDE to hold a review open for a repository. It finds the IDE through a small
-handshake file the plugin writes under `~/.claude-remarks/` when a project opens, then posts one
-request to the IDE's own built-in server. A banner appears above the tree:
+Until version `0.9.0` there was a fourth mode. The skill asked the IDE to hold a review open for a
+repository; a banner appeared above the tree reading "Claude Code is waiting: *label*", and pressing
+Publish answered that review, with a **Reject** link beside it for saying no. A review carried a
+deadline the skill declared, and went stale on its own if nobody answered it. It is gone, and nothing
+replaces it: the two reading modes above were already carrying almost all of the traffic, and they
+need no session id, no deadline and nothing on screen that can outlive the agent. If you want a
+session to look at a set of files and then read your remarks, that is now the first mode followed by
+either of the other two.
 
-> Claude Code is waiting: *label*
-> Publish to answer, or **Reject**
-
-If the request named files that have a local change, you also land straight in a diff of just those
-files, with the rest opened as plain editors.
-
-You answer it by pressing **Publish Unread** or **Publish Selected** — whichever you would have
-pressed anyway. **There is no separate send control**; a publish is how a waiting review is
-answered. The remarks go to the clipboard as always and into the file the skill is waiting on, and
-the banner changes to say the review is waiting to read them. Nothing is marked read yet. That
-happens only when the skill acknowledges it actually read the file, at which point the rows go grey
-and the banner disappears.
-
-**A review can only be answered once.** Publishing again while the same review still waits is still
-a real publish — the clipboard and the file are both written — but it does not reach that review.
-The review keeps the ids of the batch that actually went to the agent, the balloon says the new
-batch did not go to the waiting session, and the banner says a further publish will not go to it
-either. The reason is on the agent's side: its watcher exits on the first batch that answers the
-review, and nothing re-arms it. Saying "publish again to add more" would be inviting the one thing
-that does not work.
-
-Pressing **Reject** instead writes that decision into the same file, so the waiting session hears
-about it in a second or two rather than sitting out its own timeout, and clears the review. Every
-remark stays exactly as it was. Reject *after* you have published writes nothing — the file already
-holds the remarks, and taking them back is not what Reject means — and only closes the review,
-saying so.
-
-If the skill never answers, the review goes stale on its own after the deadline the skill declared,
-and the banner disappears with a balloon saying the agent left. Nothing handed over this way is ever
-lost, because remarks handed over are never marked read until something confirms the read.
-
-One refusal worth knowing: writing a remark on the *revision* side of a diff — the "before" of a
-change — is refused rather than stored. Its line numbers describe the revision, not the file on
-disk, and the working copy is one click away.
+One refusal worth knowing, which came from review mode and stays: writing a remark on the *revision*
+side of a diff — the "before" of a change — is refused rather than stored. Its line numbers describe
+the revision, not the file on disk, and the working copy is one click away.
 
 ### Why the skill waits with a script
 
 A foreground `Bash` call is capped at ten minutes. A launched background command is not, and
-`watch-remarks.sh` is what lets the skill wait out a real deadline — half an hour for a review,
-twelve hours for listen mode — instead of pretending to. The two modes that wait go through it. The
-one-shot read waits for nothing, so it reads the file inline and never launches anything.
+`watch-remarks.sh` is what lets listen mode wait out a real twelve hours instead of pretending to.
+It is the only mode that waits. The one-shot read reads the file inline, and putting files in front of
+you is one request and an answer.
 
 ## When the IDE is on another machine
 
@@ -363,7 +348,7 @@ or `Referer`, is the whole security model.
 
 The two commands that read the port and the token, and the `ssh -R` line that starts the tunnel, are
 in the "Over SSH: the IDE on another machine" section of
-`docs/skill/claude-remarks-review/SKILL.md`. They are not repeated here, so there is one copy to
+`docs/skill/claude-remarks/SKILL.md`. They are not repeated here, so there is one copy to
 keep right.
 
 ## Status
@@ -371,25 +356,27 @@ keep right.
 Early, and honestly so.
 
 The automated suite is green, and it is a real suite — anchoring, storage, the renderer, the
-resolver, the tree, the endpoint, the review lifecycle. But there are no UI-rendering and no
+resolver, the tree, the endpoint, the answer round trip. But there are no UI-rendering and no
 end-to-end tests, `./gradlew test` runs no shell so it never touches the two scripts the skill
 ships, and **almost nothing has been seen running in a real IDE.**
 
-Exactly one gating run has happened, on version `0.6.0`: a review started over the endpoint, the
-banner appeared, remarks were written including sub-line ones with their markers, the handover
-reached the agent, and the read acknowledgement turned the rows grey. Separately, the remote path
-was run end to end between two machines — a tunnel carried the requests, the review started, the
-banner appeared in the IDE on the far side, a fetch carried the remarks back across the tunnel, and
-the acknowledgement was accepted. That is all of it.
+Exactly one gating run has happened, on version `0.6.0`, and it exercised the review mode that no
+longer exists: a review started over the endpoint, remarks were written including sub-line ones with
+their markers, the handover reached the agent, and the read acknowledgement turned the rows grey.
+Separately, the remote path was run end to end between two machines — a tunnel carried the requests,
+a fetch carried the remarks back across it, and the acknowledgement was accepted. That is all of it.
+What that run still proves is the part that survived: the plugin loads, the handshake is found, a
+publish renders correctly with its sub-line markers, an acknowledgement really does turn rows grey,
+and the endpoint works across a tunnel.
 
-Everything phases 10 and 11 built is therefore unproven, because `0.6.0` predates both: the merged
-published file, the two acknowledgement routes, publishing answering a waiting review, the watcher
-script, the skill's modes, and the appearance rules described above. ⚠️ **That includes the whole
-Ask Claude round trip** — the gesture, the answer coming back, the Answers group, the answer's gutter
-icon and the markdown popup. The automated suite covers the storage, the resolving and the endpoint;
-it cannot cover anything that is drawn, and there is no end-to-end test at all. Several earlier
-things are unproven too. `CHANGELOG.md` says which, and points at the per-phase hand-check lists in
-`docs/plans/`.
+Everything phases 10, 11 and 12 built is unproven, because `0.6.0` predates all three: the merged
+published file, the acknowledgement by nonce, the watcher script, the skill's modes, and the
+appearance rules described above. ⚠️ **That includes the whole Ask Claude round trip** — the gesture,
+the answer coming back, the nesting, the answer's gutter icon and the markdown popup — **and every one
+of the three question-mark icons.** The automated suite covers the storage, the resolving and the
+endpoint; it cannot cover anything that is drawn, and there is no end-to-end test at all. Several
+earlier things are unproven too. `CHANGELOG.md` says which, and points at the per-phase hand-check
+lists in `docs/plans/`.
 
 If you try it, expect to find things. It has had very little real use outside its own test suite.
 
@@ -448,7 +435,7 @@ Roughly two thirds of the suite is plain JUnit with no fixture and runs in milli
 and the sub-line phrase functions, the stored state's XML round trip, the resolver helpers, the
 tree's node-building, the markdown renderer, the settings round trip, the commit reader against real
 `.git` directories built on disk, the history file's rendering, the published file's header, and the
-pure halves of the review endpoint. The rest start a light IDE fixture and are slower, because each
+pure halves of the endpoint. The rest start a light IDE fixture and are slower, because each
 goes through a real project service, a real `Document` or a real markup model. No test count is
 given here on purpose: it goes stale on the next commit, and `./gradlew test` prints the real one.
 
@@ -456,7 +443,7 @@ given here on purpose: it goes stale on the next commit, and `./gradlew test` pr
 not for an agent session.
 
 **Two files that ship with the plugin have no automated check at all.** The suite is Kotlin and runs
-no shell, so it never touches `docs/skill/claude-remarks-review/watch-remarks.sh` or
+no shell, so it never touches `docs/skill/claude-remarks/watch-remarks.sh` or
 `remote-config.sh` — everything the skill's waiting and its stored remote configuration are built
 on. Both are checked by hand instead, each check its own run; `CLAUDE.md`'s Testing section lists
 what those cover. A green suite says nothing about either.
@@ -481,10 +468,11 @@ icon painting, the tree colours, the balloon and the settings page layout are al
   Git4Idea dependency; `RemarkHistory.kt`, the archive cleared remarks and answers are written to.
 - **`ui/`** — the input popup and its key bindings; `RemarkActions.kt`, the Ask-for-an-Answer,
   Publish and bucket menu shared by the gutter and the tree; `RemarkStatusLook.kt`, the one place a
-  status's icon and colour are decided; `ClassNameInsert.kt`; `RemarksTree.kt` and
-  `RemarksTreeDnd.kt`, the tree and its drag-to-bucket wiring; `RemarksToolWindowFactory.kt`, the
-  panel, the toolbar and the review banner; `AnswerPopup.kt`, the popup that renders an answer's
-  markdown.
+  row's icon and colour are decided, over the two icon tracks; `RemarkIcons.kt`, the three
+  question-mark icons the plugin ships itself; `ClassNameInsert.kt`; `RemarksTree.kt` and
+  `RemarksTreeDnd.kt`, the tree, the answer nesting and the drag-to-bucket wiring;
+  `RemarksToolWindowFactory.kt`, the panel and the toolbar; `AnswerPopup.kt`, the popup that renders
+  an answer's markdown.
 - **`action/`** — every entry point that opens the same input popup: the shortcut and popup-menu
   action, the `Alt+Enter` intention, the preview action, and the tool window's general remark. Plus
   `AskClaudeAction.kt`, the Ask Claude gesture and its intention, and `PublishRemarks.kt`, the whole
@@ -496,13 +484,12 @@ icon painting, the tree colours, the balloon and the settings page layout are al
   or through a temp file.
 - **`preview/`** — the markdown preview half: the injected script, the browser extension that
   receives a selection, and the pure arithmetic that turns it into a character range.
-- **`review/`** — the shared review session and the one file that carries both a plain publish and a
-  review's answer. `ReviewHandshake.kt` writes the file a skill reads to find this IDE;
-  `ReviewRestService.kt` is the endpoint at
-  `POST /api/claude-remarks/{start,ack,fetch,published-read,answer}`; `WaitingReview.kt` holds the one
-  waiting review per project; `ReviewLifecycle.kt` answers or rejects it and carries out what an
-  acknowledgement means; `PublishedRemarks.kt` is the merged file every publish, answer and
-  rejection writes; `PublishedAck.kt` is the second acknowledgement route, keyed to a batch's nonce;
+- **`review/`** — the endpoint a skill talks to, and the one file remarks are published into. The
+  package keeps its name from when it held a shared review session; nothing in it holds one now.
+  `ReviewHandshake.kt` writes the file a skill reads to find this IDE; `ReviewRestService.kt` is the
+  endpoint at `POST /api/claude-remarks/{fetch,published-read,answer,open}`; `PublishedRemarks.kt` is
+  the published file and its five-line header; `PublishedAck.kt` is the acknowledgement route, keyed
+  to a batch's nonce, and the only place besides `store/` that may mark a remark read;
   `AnswerReceipt.kt` is everything an incoming answer causes, kept out of the endpoint file because
   it reaches the VFS; `OpenReviewFiles.kt` is the only other file in the package that touches the VFS
   or the editor; `AtomicWrite.kt` is the temp-file-then-rename write they all use.
@@ -510,7 +497,7 @@ icon painting, the tree colours, the balloon and the settings page layout are al
 
 `docs/claude/design.md` is the deeper version of all of this, and is kept current with the code:
 anchoring, the gutter, the change notification, the publish pipeline, the three states, the
-published file, a remark about no file, the shared review session, the Ask Claude gesture and what an
+published file, a remark about no file, the endpoint, the Ask Claude gesture and what an
 answer is. `CLAUDE.md` holds the seven
 grep-checkable rules that must not break. `CHANGELOG.md` is how the project got here.
 

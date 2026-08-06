@@ -1,6 +1,6 @@
 # Changelog
 
-This project was built in eleven phases over five days, each one planned in a file under
+This project was built in twelve phases over five days, each one planned in a file under
 `docs/plans/` before any code was written. The entries below are the record of those phases,
 newest first.
 
@@ -11,6 +11,55 @@ when that phase finished". Every version and date below is read out of the git h
 
 The design that came out of all this lives in `docs/claude/design.md`, which is kept current with
 the code. These entries are how the work happened; that document is what the system now is.
+
+---
+
+## 0.9.0 — 2026-08-06 — phase 12: review mode is retired, and the icon column says two things
+
+The largest deletion in the project so far, plus two changes to how the tool window reads. The
+*waiting* half of what phases 6, 7, 8 and 10 built is gone. What stays is the endpoint, the handshake,
+the published file and the watcher.
+
+- **Review mode is retired whole.** The `start` and `ack` endpoint actions, the banner above the tree,
+  the deadline and its scheduled expiry, the review phases, the rejection and the acknowledgement keyed
+  to a session id are all deleted, with `review/WaitingReview.kt`, `review/ReviewLifecycle.kt` and
+  three test classes. A publish no longer looks for a review to answer. The published file's header
+  goes from eight lines to five — `review:`, `label:` and `rejected:` go, `sanitizeLabel` with them,
+  and `sanitizeControls` now runs on `commit` instead. `FetchRequest` loses its `session` field, so a
+  readable published file is always `ready`. The skill's `## Steps` review flow, 531 lines, is deleted
+  too. It went because it was a second protocol for something that already had one: the published
+  file's nonce already answers "which batch is this", and every piece the review needed on top — a
+  session id, a deadline, a phase machine, a scheduled expiry, a banner, its own acknowledgement route
+  — was a place the two sides could disagree about a single handover. Thirteen entries in
+  `docs/claude/design.md`'s Known Issues were struck out by the deletion, and not one of them was
+  fixed.
+- **One piece of it is kept, as an action of its own.** `POST /api/claude-remarks/open` takes a project
+  and a list of files and opens a real diff over the ones with a local change, plus a plain editor for
+  the rest — the useful half of `start`, with no waiting attached. `review/OpenReviewFiles.kt` needed
+  no change at all. `opened` in the answer counts the paths that passed the filter, not editors that
+  appeared, because the opening hops to the EDT after the response is already written.
+- **An answer nests under the question it answers.** It is a child row of its own question, inside the
+  file group that question already sits in, added expanded, instead of sitting in a flat group at the
+  top of the tree. That flat group narrows to hold only answers whose question is gone, and is
+  relabelled "Answers with no question"; its key is unchanged, so a collapsed state survives the
+  upgrade. Delete on a question now takes its answer with it, in one action and with no dialog, and the
+  confirmation rule becomes "ask when the selection holds a group" — which is what the old arithmetic
+  was a proxy for, and which nesting broke.
+- **The icon column carries two facts instead of one.** A question draws a question mark coloured by
+  how far it got: neutral pending, yellow published, green once an answer is back. A plain remark draws
+  a note, then a neutral tick, then a green tick, replacing the upload mark. The three question marks
+  are the plugin's own SVGs, recoloured from the platform's own question-mark shape, and the grey
+  `asks` word at the end of a row is deleted, because three things now say it.
+  `RemarkGutterIconRenderer` carries both new facts in its `equals` and `hashCode`; without that the
+  gutter icon would never change when an answer arrived, and it would look like it worked because the
+  tree updates through a different path.
+- **The skill directory is renamed** from `docs/skill/claude-remarks-review/` to
+  `docs/skill/claude-remarks/`, so a symlink under `~/.claude/skills/` made before this is left
+  dangling and has to be recreated. The watcher script refuses `--require-review` and `--session` with
+  exit 2 rather than ignoring them, so an old launch line fails loudly instead of watching for the
+  wrong thing.
+
+Plan: `docs/plans/20260806-claude-remarks-phase12.md`, and its spec beside it.
 
 ---
 
@@ -265,14 +314,17 @@ accepted, the banner appeared in the IDE on the far side, a fetch carried the co
 the tunnel, and the acknowledgement was accepted. The published file it carried had correct sub-line
 markers.
 
-Two things that closes, and no more: whether any of this works outside the tests at all, and the
-fetch action's own remote-path answers. **Everything phase 10 built is unproven**, because `0.6.0`
-predates it — the merged published file, the two acknowledgement routes, publishing answering a
-waiting review, the watcher script and the skill's three modes are all in that set, along with the
-three appearance fixes that landed after the phase closed. Phase 6's seven security hand checks were
-run in a real IDE before `0.3.0`, and phase 5's commit stamp was checked in a real IDE; the `runIde`
-checks in the phase 1-2, phase 3-4 and phase 5 plans were skipped in the autonomous sessions that
-did that work.
+⚠️ **Half of that run exercised review mode, which phase 12 has since deleted.** What it still proves:
+the plugin loads at all, the handshake file is found from another machine, the endpoint accepts a token
+and works across a tunnel, a publish renders sub-line markers correctly, and an acknowledgement really
+does mark remarks read. What it proved about `start`, `ack`, the banner and the deadline is history.
+
+**Everything phases 10, 11 and 12 built is unproven**, because `0.6.0` predates all three — the merged
+published file, the acknowledgement by nonce, the watcher script, the skill's modes, the whole Ask
+Claude round trip, the answer nesting and the three question-mark icons are all in that set. Phase 6's
+seven security hand checks were run in a real IDE before `0.3.0`, and phase 5's commit stamp was
+checked in a real IDE; the `runIde` checks in the phase 1-2, phase 3-4 and phase 5 plans were skipped
+in the autonomous sessions that did that work.
 
 Each plan keeps its own list of what it owes, and those lists are the detail:
 
@@ -283,6 +335,12 @@ Each plan keeps its own list of what it owes, and those lists are the detail:
 | 8 | Section 13 of `docs/plans/completed/20260803-claude-remarks-phase8.md` |
 | 9 | Section 12 of `docs/plans/completed/20260803-claude-remarks-phase9.md` |
 | 10 | Section 8 of `docs/plans/completed/20260805-claude-remarks-phase10.md` |
+| 11 | "Hand checks" in `docs/plans/20260805-claude-remarks-phase11.md` |
+| 12 | "Hand checks" in `docs/plans/20260806-claude-remarks-phase12.md` |
 
 Phase 8's and phase 10's lists need something no other phase does: a second machine, an `sshd`, and
 an agent session on the far side of a tunnel.
+
+⚠️ **Phase 12's list supersedes phase 11's wherever the two overlap** — the answer's tree row, the
+gutter icon and the answer round trip are all rewritten by it — and phase 7's is mostly moot, because
+the machinery it checked is deleted and only its diff opening survives, now as the `open` action.
