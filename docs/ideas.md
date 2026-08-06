@@ -1633,9 +1633,10 @@ same markdown.
 
 ## The watcher should not need a session to keep it alive
 
-**Planned for phase 15.** Skill-side only — `docs/skill/claude-remarks/SKILL.md` and
-`watch-remarks.sh`. No plugin change. It has to land after phase 13, whose task 9 rewrites the same
-listen-mode section.
+**Planned for phase 14, tasks 5 to 7.** Skill-side only — `docs/skill/claude-remarks/SKILL.md` and
+`watch-remarks.sh`. No plugin change, and nothing it touches is shared with phase 14's preview half.
+It had to come after phase 13's task 9, which rewrote the same listen-mode section; that task is
+committed, so the constraint is already met.
 
 Sasha's complaint, watching a real session on 6 August 2026: handling a batch is tangled up with
 restarting the watcher, and the restart delays the actual work. He asked whether the shell could
