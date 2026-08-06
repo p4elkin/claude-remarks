@@ -134,37 +134,6 @@ class PublishRemarksTest : BasePlatformTestCase() {
     }
 
     /**
-     * What answerWaitingReview had to say gets its own sentence after the count. The publish itself
-     * succeeded, so the two facts are told in order rather than one replacing the other.
-     */
-    fun testMessageAddsWhatTheWaitingReviewAnswerHadToSay() {
-        assertEquals(
-            "Published 1 remark across 1 file. The review it was meant to answer had already ended.",
-            publishMessage(
-                count = 1,
-                files = 1,
-                clipboardFile = null,
-                writeFailure = null,
-                reviewAnswer = "The review it was meant to answer had already ended.",
-            ),
-        )
-    }
-
-    /** A failed write and a review answer can both be true at once, and both have to be said. */
-    fun testMessageCarriesTheWriteFailureAndTheReviewAnswerTogether() {
-        val message = publishMessage(
-            count = 1,
-            files = 1,
-            clipboardFile = null,
-            writeFailure = "disk full",
-            reviewAnswer = "The review had already ended.",
-        )
-
-        assertTrue(message, message.contains("disk full"))
-        assertTrue(message, message.endsWith("The review had already ended."))
-    }
-
-    /**
      * Publish Unread's enablement, on the Tools-menu action. The predicate is "not yet READ", not
      * "still PENDING": a remark published but never acknowledged is exactly what this action exists
      * to hand over again, and gating on PENDING would grey the action out for it.

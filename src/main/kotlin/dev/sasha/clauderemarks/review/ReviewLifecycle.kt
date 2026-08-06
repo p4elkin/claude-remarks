@@ -108,7 +108,7 @@ internal fun rejectWaitingReview(project: Project, dir: Path? = null) {
     // Recorded before the write, same reason a publish's batch is: a fast acknowledgement must
     // never race a batch this service does not know about yet. The nonce comes back from record()
     // rather than being minted here, so a recorded batch and the header's nonce cannot drift apart.
-    val nonce = PublishedBatchService.getInstance(project).record(emptyList(), waiting.sessionId)
+    val nonce = PublishedBatchService.getInstance(project).record(emptyList())
     try {
         val header = PublishedHeader(
             nonce = nonce,

@@ -268,18 +268,18 @@ Spec section 6.
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/review/PublishedAckTest.kt` (the review-session
   assertions)
 
-- [ ] in `PublishRemarks.kt`, delete the waiting-review snapshot and the answer call, call
+- [x] in `PublishRemarks.kt`, delete the waiting-review snapshot and the answer call, call
       `record(prepared.ids)`, and drop the review sentence from the balloon
-- [ ] in `PublishedAck.kt`, drop `reviewSession` from `PublishedBatch` and from `record`, and reduce
+- [x] in `PublishedAck.kt`, drop `reviewSession` from `PublishedBatch` and from `record`, and reduce
       `reportPublishedRead` to marking the batch's remarks read plus one balloon, inside the existing
       `invokeLater`
-- [ ] rewrite `reportPublishedRead`'s KDoc so the `invokeLater` has **one** stated reason, the store
+- [x] rewrite `reportPublishedRead`'s KDoc so the `invokeLater` has **one** stated reason, the store
       race, not two — a future reader who checks only the reason that no longer applies will delete a
       load-bearing hop
-- [ ] delete the empty-batch branch and its explanation: only a rejection produced an empty batch and
+- [x] delete the empty-batch branch and its explanation: only a rejection produced an empty batch and
       rejections are gone
-- [ ] update `PublishRemarksTest` and `PublishedAckTest`, keeping every non-review case in both
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.action.PublishRemarksTest' --tests 'dev.sasha.clauderemarks.review.PublishedAckTest'`
+- [x] update `PublishRemarksTest` and `PublishedAckTest`, keeping every non-review case in both
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.action.PublishRemarksTest' --tests 'dev.sasha.clauderemarks.review.PublishedAckTest'`
       — must pass before task 4
 
 ### Task 4: Remove start, ack, and fetch's session from the endpoint

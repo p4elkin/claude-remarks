@@ -23,13 +23,11 @@ class PublishedAckTest : BasePlatformTestCase() {
         // The light fixture project is shared across test methods and test classes.
         RemarkStore.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
-        WaitingReviewService.getInstance(project).clear()
     }
 
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
-        WaitingReviewService.getInstance(project).clear()
         UIUtil.dispatchAllInvocationEvents()
         super.tearDown()
     }
@@ -137,62 +135,6 @@ class PublishedAckTest : BasePlatformTestCase() {
     }
 
     /**
-     * A batch that answered a waiting review ends that review too. Without it the remarks would be
-     * READ while the review stayed in its Sent phase, and the review's own expiry would then tell the
-     * person the agent left without reading remarks the store already says were read.
-     */
-    fun testAcknowledgingABatchThatAnsweredAReviewEndsThatReviewToo() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
-        WaitingReviewService.getInstance(project).start("review-1", "a label", 1800)
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!), "review-1")
-        WaitingReviewService.getInstance(project).markSent("review-1", listOf(a.id!!))
-
-        val answer = reportPublishedRead(project, nonce, "s1")
-        UIUtil.dispatchAllInvocationEvents()
-
-        assertEquals(PublishedAckOutcome.OK, answer.outcome)
-        assertEquals(RemarkStatus.READ, statusOf(a.id!!))
-        assertNull(WaitingReviewService.getInstance(project).current())
-    }
-
-    /**
-     * The same thing one step earlier in a publish: the acknowledgement lands after the file was
-     * written, while the publish has not yet stamped the review `Sent`. Ending the review from the
-     * calling thread answered NOT_SENT there and left the review alive to expire later. Queued on
-     * the EDT instead, it runs behind the publish that is still finishing, so it sees the `Sent`
-     * phase and ends the review. markSent standing between the acknowledgement and the drained
-     * queue is what puts the test inside that window.
-     */
-    fun testAnAcknowledgementLandingBeforeTheReviewIsStampedSentStillEndsIt() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
-        WaitingReviewService.getInstance(project).start("review-1", "a label", 1800)
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!), "review-1")
-
-        val answer = reportPublishedRead(project, nonce, "s1")
-        WaitingReviewService.getInstance(project).markSent("review-1", listOf(a.id!!))
-        UIUtil.dispatchAllInvocationEvents()
-
-        assertEquals(PublishedAckOutcome.OK, answer.outcome)
-        assertEquals(RemarkStatus.READ, statusOf(a.id!!))
-        assertNull(WaitingReviewService.getInstance(project).current())
-    }
-
-    /**
-     * A publish with no review waiting leaves any later review alone: the batch carries no session,
-     * so there is nothing for it to end.
-     */
-    fun testAcknowledgingABatchWithNoReviewLeavesALiveReviewAlone() {
-        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
-        WaitingReviewService.getInstance(project).start("review-1", "a label", 1800)
-
-        reportPublishedRead(project, nonce, "s1")
-        UIUtil.dispatchAllInvocationEvents()
-
-        assertNotNull(WaitingReviewService.getInstance(project).current())
-    }
-
-    /**
      * A rejection is recorded as a batch with no ids, so acknowledging one must not show a balloon
      * saying Claude Code read zero remarks. The answer is still ok: the batch is real and this
      * session is the first to name it.
@@ -213,7 +155,7 @@ class PublishedAckTest : BasePlatformTestCase() {
         )
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val service = PublishedBatchService.getInstance(project)
-        val empty = service.record(emptyList(), "review-1")
+        val empty = service.record(emptyList())
         val ordinary = service.record(listOf(a.id!!))
 
         val answer = reportPublishedRead(project, empty, "s1")

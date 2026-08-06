@@ -32,14 +32,9 @@ internal enum class PublishedAckOutcome { OK, ALREADY_READ, UNKNOWN_BATCH }
 internal enum class BatchLookup { OK, UNKNOWN_REMARK, UNKNOWN_BATCH }
 
 /**
- * One published batch: what it carried, which waiting review it answered if any, and who said they
- * read it. Kept after it is acknowledged, not removed — that is what lets a second session be told
- * who got there first instead of being told the batch is unknown.
- *
- * [reviewSession] is what ties the two acknowledgement routes together. Without it, a skill reading a
- * batch through the published-read route would mark the remarks read while the review that batch
- * answered stayed in its Sent phase, and that review's own expiry would then say the remarks were
- * never read. See [reportPublishedRead].
+ * One published batch: what it carried and who said they read it. Kept after it is acknowledged, not
+ * removed — that is what lets a second session be told who got there first instead of being told the
+ * batch is unknown.
  *
  * There is no "written at" field. Retention is by list position — the oldest of the sixteen is
  * dropped — so an age was written on every batch and read by nothing.
@@ -47,7 +42,6 @@ internal enum class BatchLookup { OK, UNKNOWN_REMARK, UNKNOWN_BATCH }
 internal data class PublishedBatch(
     val nonce: String,
     val ids: List<String>,
-    val reviewSession: String? = null,
     val readBy: String? = null,
     val readAt: Long = 0,
 )
@@ -86,13 +80,11 @@ internal class PublishedBatchService {
      * one and pass it in, and "mint it, then record it, then write the file, in that order" was a
      * rule a third call site could get wrong silently. Now there is nothing to get wrong: a caller
      * cannot hold a nonce this service has not recorded.
-     *
-     * [reviewSession] is the waiting review this batch answers, or null for a plain publish.
      */
     @Synchronized
-    internal fun record(ids: List<String>, reviewSession: String? = null): String {
+    internal fun record(ids: List<String>): String {
         val nonce = UUID.randomUUID().toString()
-        batches.add(PublishedBatch(nonce, ids, reviewSession))
+        batches.add(PublishedBatch(nonce, ids))
         while (batches.size > MAX_REMEMBERED_BATCHES) batches.removeAt(0)
         return nonce
     }
@@ -172,51 +164,24 @@ internal class PublishedBatchService {
  * checking `project.isDisposed` inside the queued runnable rather than in front of it, because a
  * project can close in the gap between the two.
  *
- * **The `invokeLater` is load-bearing and not decoration.** It is what stops a fast acknowledgement
- * from landing between a publish's file write and the rest of that publish, which is still running
- * on the EDT. Both halves below need it, for the same reason and against the same window:
- *  - the store mutation, because an acknowledgement landing before `markRemarksPublished` would set
- *    `READ` and then have it immediately overwritten back to `PUBLISHED`;
- *  - the review acknowledgement, because one landing before `answerWaitingReview` would find the
- *    review still in its `Waiting` phase, be answered [AckOutcome.NOT_SENT], and leave the review
- *    alive to expire later — telling the person the agent left without reading remarks the store
- *    already says were read.
- *
- * The window is only as wide as the few statements a publish runs between its file write and those
- * two calls, but a batch is recorded before the write and the file carries its nonce, so a fast
- * agent really can be acknowledging inside it. Queueing both halves on the EDT closes it: they run
- * behind the publish that is still finishing, whichever order the two threads reached this point in.
- *
- * **A batch that answered a waiting review also ends that review**, through the same
- * [WaitingReviewService.acknowledge] the `ack` action goes through, and for the same reason the two
- * routes exist at all: they are two ways of saying one thing. The balloon is written here rather
- * than by `review/ReviewLifecycle.kt`'s `reportReviewEnd`, so an acknowledgement produces one balloon
- * and one store mutation whichever route it came in by. That call's own outcome is deliberately
- * ignored: [AckOutcome.NO_REVIEW] is the ordinary answer for a rejection's batch, whose review was
- * cleared by the rejection itself, and there is nothing for this route to do about either answer.
- *
- * **An empty batch shows no balloon.** A rejection is recorded as a batch with no ids
- * (`review/ReviewLifecycle.kt`), so acknowledging one would otherwise mark nothing read and still show a
- * balloon saying zero remarks were read. It still queues, because it still names the review it
- * rejected. The answer is still `ok`: the batch was real and this session is the first to name it.
+ * **The `invokeLater` is load-bearing and not decoration, for one reason.** It stops a fast
+ * acknowledgement from landing between a publish's file write and the rest of that publish, which is
+ * still running on the EDT: an acknowledgement landing before `markRemarksPublished` would set `READ`
+ * and then have it immediately overwritten back to `PUBLISHED`. The window is only as wide as the few
+ * statements a publish runs between its file write and that call, but a batch is recorded before the
+ * write and the file carries its nonce, so a fast agent really can be acknowledging inside it.
+ * Queueing on the EDT closes it: the acknowledgement runs behind the publish that is still finishing,
+ * whichever order the two threads reached this point in.
  */
 internal fun reportPublishedRead(project: Project, nonce: String, session: String): PublishedAckAnswer {
     val (answer, batch) = PublishedBatchService.getInstance(project).acknowledge(nonce, session)
-    if (batch != null) {
+    if (batch != null && batch.ids.isNotEmpty()) {
         val ids = batch.ids
-        val reviewSession = batch.reviewSession
-        if (ids.isNotEmpty() || reviewSession != null) {
-            ApplicationManager.getApplication().invokeLater {
-                if (project.isDisposed) return@invokeLater
-                reviewSession?.let {
-                    WaitingReviewService.getInstance(project).acknowledge(it, ReviewEnd.READ)
-                }
-                if (ids.isNotEmpty()) {
-                    markRemarksRead(project, ids)
-                    val count = ids.size
-                    notifyRemarks(project, "Claude Code read $count remark${plural(count)}.")
-                }
-            }
+        ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed) return@invokeLater
+            markRemarksRead(project, ids)
+            val count = ids.size
+            notifyRemarks(project, "Claude Code read $count remark${plural(count)}.")
         }
     }
     return answer

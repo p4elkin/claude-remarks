@@ -18,10 +18,8 @@ import dev.sasha.clauderemarks.render.collectForPrompt
 import dev.sasha.clauderemarks.render.renderPrompt
 import dev.sasha.clauderemarks.review.PublishedBatchService
 import dev.sasha.clauderemarks.review.PublishedHeader
-import dev.sasha.clauderemarks.review.answerWaitingReview
 import dev.sasha.clauderemarks.review.handshakeDir
 import dev.sasha.clauderemarks.review.projectIdentity
-import dev.sasha.clauderemarks.review.waitingReviewForPublish
 import dev.sasha.clauderemarks.review.writePublished
 import dev.sasha.clauderemarks.settings.RemarkSettings
 import dev.sasha.clauderemarks.store.RemarkStore
@@ -68,17 +66,6 @@ internal data class Prepared(
  * prompt (with a header) to the published file, marks those remarks published and says so in one
  * balloon.
  *
- * If a review is waiting when this runs, publishing is how it gets answered: the header names the
- * waiting review's session and label, and a successful write also stamps that review
- * [dev.sasha.clauderemarks.review.ReviewPhase.Sent] with the ids just published, through
- * [dev.sasha.clauderemarks.review.answerWaitingReview]. There is no separate Send action any more —
- * publishing is the only way a waiting review is handed anything.
- *
- * A review can only be answered once. If it is already `Sent`, this is an ordinary publish: the file
- * is written and the remarks are marked published, but the review keeps the ids of the batch that
- * actually reached the agent, and the balloon says the batch did not go to the waiting session. See
- * [dev.sasha.clauderemarks.review.WaitingReviewService.markSent] for why.
- *
  * [ids] null means every remark that is not yet `READ`. A non-null list is used as given, published
  * ones included, so publishing again after a paste went to the wrong place works.
  *
@@ -100,10 +87,9 @@ internal data class Prepared(
  * The async pipeline itself is not driven from a test, the same reason PublishRemarksTest's own
  * KDoc gives for the clipboard and the balloon: pumping a read action plus an EDT callback in a
  * light fixture buys a flaky test for very little. [publishMessage] is the pure part of this and is
- * what PublishRemarksTest exercises instead. That leaves the header's `reviewSession`/`reviewLabel`
- * fields — that they actually carry the waiting review's session and label, not merely that
- * `answerWaitingReview` stamps the right phase — checked only by the phase 10 plan's own hand
- * check, the same way a failed published-file write and an unresolved project root already are.
+ * what PublishRemarksTest exercises instead. A failed published-file write and an unresolved project
+ * root are both checked only by hand, the same way the phase 9 and phase 10 plans' own hand checks
+ * already cover them.
  */
 fun publishRemarks(project: Project, ids: Collection<String>?) {
     ReadAction.nonBlocking<Prepared> { prepare(project, ids) }
@@ -145,34 +131,24 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
             // A null root means the project's identity did not resolve. Same shape as an
             // IOException: the publish still hands over the clipboard, but the published file is
             // not written, and the balloon says which of the two happened.
-            val (writeFailure, reviewAnswer) = if (prepared.root == null) {
-                "the project root did not resolve" to null
+            val writeFailure = if (prepared.root == null) {
+                "the project root did not resolve"
             } else {
-                // Read before the batch is recorded and before the header is built, on the EDT this
-                // whole block already runs on, so the recorded batch, the header's review fields and
-                // the answer below all name the same snapshot.
-                val waiting = waitingReviewForPublish(project)
                 // The batch is recorded before the write, and record() hands back the nonce the
                 // header then carries. A fast agent can read the file and acknowledge within
                 // milliseconds, and a batch recorded after the write would answer unknown-batch to
                 // an acknowledgement that was actually correct. record() runs on the EDT, which is
                 // exactly what it is meant to be called from — see PublishedAck.kt's KDoc. If the
                 // write below then fails, the catch drops the batch again.
-                val nonce = PublishedBatchService.getInstance(project)
-                    .record(prepared.ids, waiting?.sessionId)
-                // The try covers the write and nothing after it. answerWaitingReview runs below,
-                // outside it, because it only runs once the write has already succeeded: inside,
-                // a throw from it would reach the catch and call forget(nonce), dropping a batch
-                // whose file exists — and the agent's own acknowledgement of that file would then
-                // be answered unknown-batch.
-                val failure = try {
+                val nonce = PublishedBatchService.getInstance(project).record(prepared.ids)
+                try {
                     val header = PublishedHeader(
                         nonce = nonce,
                         publishedAt = System.currentTimeMillis(),
                         commit = prepared.commit,
                         remarks = prepared.ids.size,
-                        reviewSession = waiting?.sessionId,
-                        reviewLabel = waiting?.label,
+                        reviewSession = null,
+                        reviewLabel = null,
                         rejected = false,
                     ).render()
                     // handshakeDir() is called here, inside the try, and is deliberately not a
@@ -206,22 +182,13 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
                     PublishedBatchService.getInstance(project).forget(nonce)
                     e.message ?: e.toString()
                 }
-                // Only stamped once the write actually succeeded: nothing was handed over on the
-                // path that threw above, so nothing here should claim a review was answered.
-                // waitingReviewForPublish's own snapshot can still have gone stale in the meantime —
-                // rejected, acknowledged, or past its deadline — and it can equally have been
-                // answered by an earlier publish already. answerWaitingReview's markSent call catches
-                // both on its own, atomically, and gives each its own sentence.
-                val answer = if (failure != null) null
-                else waiting?.let { answerWaitingReview(project, it.sessionId, prepared.ids) }
-                failure to answer
             }
 
             markRemarksPublished(project, prepared.ids)
 
             notifyRemarks(
                 project,
-                publishMessage(prepared.ids.size, prepared.files, clipboard.file, writeFailure, reviewAnswer),
+                publishMessage(prepared.ids.size, prepared.files, clipboard.file, writeFailure),
             )
         }
         .submit(AppExecutorUtil.getAppExecutorService())
@@ -287,8 +254,7 @@ internal fun prepare(project: Project, ids: Collection<String>?): Prepared {
 internal fun plural(n: Int): String = if (n == 1) "" else "s"
 
 /**
- * The one balloon publishRemarks shows, in one sentence even when it has two or three things to
- * say.
+ * The one balloon publishRemarks shows, in one sentence even when it has two things to say.
  *
  * [clipboardFile] is the oversized-payload temp file from [clipboardPayload], or null for the
  * common case where the prompt went straight to the clipboard. [writeFailure] is why the published
@@ -298,26 +264,19 @@ internal fun plural(n: Int): String = if (n == 1) "" else "s"
  * PUBLISHED is not a lie — and adds why the published file itself was not updated, in the same
  * sentence rather than a second balloon. A reason, not just "it failed": a permissions problem, a
  * full disk and a refused name are all the same sentence without it.
- *
- * [reviewAnswer] is [dev.sasha.clauderemarks.review.answerWaitingReview]'s own sentence, appended
- * whenever a waiting review's answer did not simply succeed. Null both when nothing was waiting and
- * when the review that was waiting is now waiting to read these — the ordinary case needs no extra
- * words on top of "Published".
  */
 internal fun publishMessage(
     count: Int,
     files: Int,
     clipboardFile: Path?,
     writeFailure: String?,
-    reviewAnswer: String? = null,
 ): String {
     val what = "$count remark${plural(count)} across $files file${plural(files)}"
     val clipboardSentence = if (clipboardFile == null) "Published $what"
         else "$what was too large for the clipboard. Wrote $clipboardFile and copied the path"
-    val base = if (writeFailure != null)
+    return if (writeFailure != null)
         "$clipboardSentence, but the published file was not updated: $writeFailure."
     else "$clipboardSentence."
-    return if (reviewAnswer != null) "$base $reviewAnswer" else base
 }
 
 /**
