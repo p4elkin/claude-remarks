@@ -78,7 +78,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      * and the skill sends the same value back as the published-read key.
      */
     fun testAFetchAfterThePublishCarriesTheWholePromptInTheBody() {
-        writePublished(identity(), publishedBody(reviewSession = "s1"))
+        writePublished(identity(), publishedBody())
 
         val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
 
@@ -95,49 +95,12 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testAFetchMarksNothingRead() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note")
-        writePublished(identity(), publishedBody(reviewSession = "s1"))
+        writePublished(identity(), publishedBody())
 
         val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
 
         assertTrue(sent, sent.contains("\"ready\""))
         assertEquals(RemarkStatus.PENDING, RemarkStore.getInstance(project).all().single { it.id == remark.id }.status)
-    }
-
-    /**
-     * The case that was impossible before phase 11, and the whole reason the action was relaxed. A
-     * plain publish writes `review: none`, so `header.reviewSession` is null and the comparison is
-     * false for every session id any caller could send — a batch that does not answer a review was
-     * unreachable over the tunnel. With no session in the body there is nothing to compare against,
-     * so the gate is skipped and the batch comes back.
-     *
-     * `nonce` matters as much as `content` here: listen mode arms its watcher with the nonce it read
-     * off exactly this response.
-     */
-    fun testASessionLessFetchAnswersReadyForAPlainPublish() {
-        writePublished(identity(), publishedBody(reviewSession = null))
-
-        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
-
-        assertTrue(sent, sent.contains("\"ready\""))
-        assertTrue(sent, sent.contains("a note about A"))
-        assertTrue(sent, sent.contains("\"nonce\""))
-        assertTrue(sent, sent.contains("\"n1\""))
-    }
-
-    /**
-     * An absent session means "any batch", including one answering somebody else's review. That is
-     * deliberate and not a hole: `session` was never a secret, the token in `isHostTrusted` is what
-     * gates this route, and the skill's listen mode has its own rule for a batch that names a session
-     * — say so, name it, act on nothing. Without this test that behaviour reads as a bug and gets
-     * "fixed" into a refusal the listener cannot work around.
-     */
-    fun testASessionLessFetchAlsoCarriesABatchAnsweringSomebodyElsesReview() {
-        writePublished(identity(), publishedBody(reviewSession = "s1"))
-
-        val sent = post("/api/claude-remarks/fetch", """{"project":"${projectPath()}"}""")
-
-        assertTrue(sent, sent.contains("\"ready\""))
-        assertTrue(sent, sent.contains("a note about A"))
     }
 
     /** Nothing published for this project at all, asked without a session: still the ordinary poll answer. */
@@ -208,16 +171,13 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
         assertTrue(sent, sent.contains("\"detail\""))
     }
 
-    /** A published batch naming [reviewSession], for the fetch tests that only need the header shape. */
-    private fun publishedBody(reviewSession: String?): String {
+    /** A minimal published batch, for the fetch tests that only need the header shape. */
+    private fun publishedBody(): String {
         val header = PublishedHeader(
             nonce = "n1",
             publishedAt = System.currentTimeMillis(),
             commit = null,
             remarks = 1,
-            reviewSession = reviewSession,
-            reviewLabel = "a label",
-            rejected = false,
         ).render()
         return header + "\n" + "a note about A"
     }

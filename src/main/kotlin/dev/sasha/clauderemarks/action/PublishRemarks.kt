@@ -147,9 +147,6 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
                         publishedAt = System.currentTimeMillis(),
                         commit = prepared.commit,
                         remarks = prepared.ids.size,
-                        reviewSession = null,
-                        reviewLabel = null,
-                        rejected = false,
                     ).render()
                     // handshakeDir() is called here, inside the try, and is deliberately not a
                     // default argument on publishRemarks. Kotlin evaluates a default argument in

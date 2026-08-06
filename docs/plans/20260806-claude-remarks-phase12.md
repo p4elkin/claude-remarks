@@ -351,17 +351,17 @@ Spec section 4.
 - Modify: `src/test/kotlin/dev/sasha/clauderemarks/review/PublishedRemarksTest.kt` (the header round
   trip and the malformed-header cases)
 
-- [ ] drop `reviewSession`, `reviewLabel` and `rejected` from `PublishedHeader`, and make `render()`
+- [x] drop `reviewSession`, `reviewLabel` and `rejected` from `PublishedHeader`, and make `render()`
       write five lines
-- [ ] make `publishedHeaderOf` refuse a text with fewer than five lines, and parse lines 2 to 5 only
-- [ ] delete `sanitizeLabel`; keep `sanitizeControls` and apply it to `commit`, with a comment saying
+- [x] make `publishedHeaderOf` refuse a text with fewer than five lines, and parse lines 2 to 5 only
+- [x] delete `sanitizeLabel`; keep `sanitizeControls` and apply it to `commit`, with a comment saying
       why it is still needed once nothing from HTTP reaches the header
-- [ ] update the `PUBLISHED_MARKER` KDoc: there is one kind of batch now
-- [ ] write tests: the five-line round trip; a four-line text reads back null; a missing prefix on
+- [x] update the `PUBLISHED_MARKER` KDoc: there is one kind of batch now
+- [x] write tests: the five-line round trip; a four-line text reads back null; a missing prefix on
       each of lines 2 to 5 reads back null; a non-integer `remarks:` reads back null
-- [ ] write a test that a `commit` carrying a control character comes back with it replaced, so the
+- [x] write a test that a `commit` carrying a control character comes back with it replaced, so the
       header cannot shift
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.PublishedRemarksTest' --tests 'dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest'`
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.review.PublishedRemarksTest' --tests 'dev.sasha.clauderemarks.review.ReviewEndpointSmokeTest'`
       — must pass before task 7
 
 ### Task 7: Nest an answer under the question it answers
