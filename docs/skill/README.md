@@ -42,9 +42,14 @@ endpoint it talks to are one protocol, and five separate pairs of halves have to
   nothing checks line 6 — the three extra lines simply read as part of the body. What does not
   survive is its acknowledgement, since the IDE forgot that batch when it restarted;
 - the five values the `published-read` action answers — `ok`, `already-read`, `unknown-batch`,
-  `unknown-project`, `bad-request` — read by the inline shell in `SKILL.md`'s two reading modes.
-  `watch-remarks.sh` is not the other half of *this* pair: it never sends `published-read` at all, it
-  only polls the published file or `POST /fetch`. The six values `fetch` answers — `ready`,
+  `unknown-project`, `bad-request` — read by the inline shell in `SKILL.md`'s two reading modes and,
+  since phase 14, by `watch-remarks.sh` too. The watcher sends `published-read` only when it is
+  launched with `--claim` and `--session`; with neither it sends nothing and only polls the published
+  file or `POST /fetch`, which is what every caller before phase 14 gets. When it does claim, it puts
+  the answer on the end of the one line it prints for the batch — `ok`, `already-read <session>` or
+  `unknown-batch` — and an answer it could not get at all becomes `claim-failed` there instead, with
+  the nonce still beside it, because a batch nobody hears about is worse than one claimed twice. The
+  six values `fetch` answers — `ready`,
   `no-review`, `too-large`, `failed`, `unknown-project`, `bad-request` — are the status pair
   `watch-remarks.sh` holds the other half of, in its `--fetch` loop. ⚠️ `no-review` means "nothing
   has been published for this project". It kept that name from when a review was the only thing that

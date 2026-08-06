@@ -317,20 +317,27 @@ watcher should not need a session to keep it alive", before starting.
 - Modify: `docs/skill/README.md` (the sentence saying this script "never sends `published-read` at
   all", which this task makes untrue)
 
-- [ ] add `--claim <base_url>` and `--session <id>`. When both are given, POST `published-read` for a
+- [x] add `--claim <base_url>` and `--session <id>`. When both are given, POST `published-read` for a
       new batch **before** printing it, and put the outcome word on the same line as the nonce: `ok`,
-      `already-read <session>`, or `unknown-batch`
-- [ ] take the token from `CLAUDE_REMARKS_TOKEN` in the environment and pass it with
+      `already-read <session>`, or `unknown-batch` — `claim_batch` sends it and leaves the word in
+      `claim_outcome`, which both print sites append: `<nonce> <path> ok` in `--file` mode,
+      `<nonce> ok` in `--fetch` mode. `--claim` also needs `--project` and `--stream`
+- [x] take the token from `CLAUDE_REMARKS_TOKEN` in the environment and pass it with
       `printf 'header = "X-Claude-Remarks-Token: %s"\n' "$token" | curl --config -`, exactly as the
-      `--fetch` branch does. ⚠️ Never in argv, never echoed
-- [ ] ⚠️ a claim that fails must not swallow the batch. On any non-2xx, print the http code **and the
+      `--fetch` branch does. ⚠️ Never in argv, never echoed — proved with a `curl` shim that records
+      its own argv: a canary token appeared in the endpoint's header and in no recorded argv
+- [x] ⚠️ a claim that fails must not swallow the batch. On any non-2xx, print the http code **and the
       nonce anyway**, so the session still learns a batch arrived. Losing a batch to a failed claim is
-      worse than claiming twice
-- [ ] without `--claim` the script sends nothing, exactly as today. Both new flags are opt-in
-- [ ] fix the line in `docs/skill/README.md` that says this script never sends `published-read`
-- [ ] hand-verify what can be verified without a running IDE: the argument parse, and a run against a
+      worse than claiming twice — a refused connection printed
+      `<nonce> <path> claim-failed http 000`
+- [x] without `--claim` the script sends nothing, exactly as today. Both new flags are opt-in —
+      checked: a stream run with no `--claim` invoked `curl` zero times and printed task 5's two-field
+      line unchanged
+- [x] fix the line in `docs/skill/README.md` that says this script never sends `published-read`
+- [x] hand-verify what can be verified without a running IDE: the argument parse, and a run against a
       URL that refuses the connection, confirming the failure path still prints the nonce. Say in the
-      progress log which parts could only be checked by reading
+      progress log which parts could only be checked by reading — done in both modes against a fake
+      `http.server`, transcripts in the progress log
 
 ### Task 7: Listen mode uses the stream, and keeps the old path for other agents
 

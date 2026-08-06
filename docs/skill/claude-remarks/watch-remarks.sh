@@ -21,6 +21,13 @@
 #     back in with --seen on a next launch, so there is no value left for a session to get wrong,
 #     and a batch that was already handled cannot be reported a second time.
 #   - The deadline restarts on every batch, so somebody who keeps publishing keeps their watcher.
+#   - With --claim the watcher sends the published-read acknowledgement itself, before it prints the
+#     batch's line, and the answer goes on the end of that same line. That is one round trip the
+#     session no longer makes and one more value it cannot get wrong. ⚠️ A claim that does not reach
+#     the IDE prints claim-failed and the nonce anyway: claiming twice is recoverable, a batch
+#     nobody hears about is not. --claim belongs to stream mode alone — without --stream stdout
+#     carries the batch itself and the session sends published-read for it, so a claim from here
+#     would take that batch out from under the session reading it.
 #
 # Everything else is the same in both shapes. The deadline, an owner that is gone, and every
 # refusal all exit exactly as they do without --stream, --owner included: an orphan that streams
@@ -33,15 +40,22 @@ set -u
 usage() {
   echo "usage:" >&2
   echo "  watch-remarks.sh --file <path> [--seen <nonce>] [--stream]" >&2
+  echo "                    [--claim <base_url> --session <id> --project <path>]" >&2
   echo "                    [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]" >&2
   echo "  watch-remarks.sh --fetch <base_url> --project <path>" >&2
-  echo "                    [--seen <nonce>] [--stream] [--deadline <seconds>] [--poll <seconds>]" >&2
-  echo "                    [--owner <pid>]" >&2
+  echo "                    [--seen <nonce>] [--stream] [--claim <base_url> --session <id>]" >&2
+  echo "                    [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]" >&2
   echo "" >&2
   echo "--stream keeps polling instead of exiting on a batch. It prints one line per batch —" >&2
   echo "  the nonce, and the watched path in --file mode — never the batch body, and it keeps" >&2
   echo "  its own seen nonce, so nothing has to be passed back in on a next launch. Without it" >&2
   echo "  one batch goes to stdout whole and the script exits 0, exactly as it always has." >&2
+  echo "" >&2
+  echo "--claim <base_url> --session <id> acknowledges each new batch from here, with a" >&2
+  echo "  published-read POST, before the batch's line is printed. The answer goes on the end of" >&2
+  echo "  that line: ok, already-read <session>, unknown-batch, or claim-failed <why>, and the" >&2
+  echo "  nonce is printed whatever the answer is. It needs --stream, --project, and the IDE" >&2
+  echo "  token in CLAUDE_REMARKS_TOKEN. Without it this script sends no acknowledgement at all." >&2
   echo "" >&2
   echo "exit codes: 0 a batch (on stdout; never reached with --stream), 1 the deadline passed," >&2
   echo "            2 a refusal, 3 the --owner process is gone, above 128 this watcher was killed" >&2
@@ -54,6 +68,10 @@ fetch_url=
 project=
 seen=
 stream=
+claim_url=
+session=
+claim_resp=
+claim_outcome=
 deadline=1800
 poll=
 poll_set=
@@ -67,7 +85,7 @@ while [ $# -gt 0 ]; do
   # absent: it is the one flag that takes nothing, so listing it here would demand a value it never
   # has and refuse every correct use of it.
   case "$1" in
-    --file | --fetch | --project | --seen | --deadline | --poll | --owner)
+    --file | --fetch | --project | --seen | --claim | --session | --deadline | --poll | --owner)
       if [ $# -lt 2 ]; then
         echo "watch-remarks.sh: $1 needs a value" >&2
         usage
@@ -80,6 +98,8 @@ while [ $# -gt 0 ]; do
     --project) project=$2; shift 2 ;;
     --seen) seen=$2; shift 2 ;;
     --stream) stream=yes; shift ;;
+    --claim) claim_url=$2; shift 2 ;;
+    --session) session=$2; shift 2 ;;
     --deadline) deadline=$2; shift 2 ;;
     --poll) poll=$2; poll_set=yes; shift 2 ;;
     --owner) owner=$2; owner_set=yes; shift 2 ;;
@@ -102,6 +122,44 @@ case "$mode" in
     ;;
   *) usage ;;
 esac
+
+# --claim and --session are one flag in two halves: the endpoint needs a base url to post to and a
+# name the caller invents for itself, and neither half does anything alone. Refused rather than
+# ignored, so a launch line that lost one of them says so instead of quietly never claiming. This
+# also keeps the refusal a stale caller already got for --session on its own, back when that flag
+# named a review.
+if [ -n "$claim_url" ] && [ -z "$session" ]; then
+  echo "watch-remarks.sh: --claim needs --session <id>, a name this caller invents for itself" >&2
+  exit 2
+fi
+if [ -n "$session" ] && [ -z "$claim_url" ]; then
+  echo "watch-remarks.sh: --session only means something with --claim <base_url>" >&2
+  exit 2
+fi
+
+if [ -n "$claim_url" ]; then
+  # Stream mode only. Without --stream stdout carries the whole batch and the session that reads it
+  # sends published-read for itself; a claim from here would be answered ok, that session's own
+  # claim would then be answered already-read, and it would walk away from a batch nobody handled.
+  if [ -z "$stream" ]; then
+    echo "watch-remarks.sh: --claim applies only with --stream. Without --stream the batch goes to" >&2
+    echo "stdout and the session that reads it sends published-read itself, so a claim from here" >&2
+    echo "would take the batch out from under it" >&2
+    exit 2
+  fi
+  # In fetch mode --project is required already; this is what asks for it in file mode, where the
+  # published file's name is a hash and the path behind it cannot be recovered from it.
+  if [ -z "$project" ]; then
+    echo "watch-remarks.sh: --claim needs --project <path>, the repository path as the IDE sees it" >&2
+    exit 2
+  fi
+  # Refused here rather than at the first batch: with no token every claim would answer 401 for the
+  # whole run, and a refusal at launch is seen while a claim failing forever is not.
+  if [ -z "${CLAUDE_REMARKS_TOKEN:-}" ]; then
+    echo "watch-remarks.sh: CLAUDE_REMARKS_TOKEN must be set in the environment for --claim" >&2
+    exit 2
+  fi
+fi
 
 # Zero is refused as well as a non-digit. `sleep 0` returns at once, so --poll 0 turns either loop
 # into a busy poll for the whole deadline — in fetch mode, a curl flood into a server that allows
@@ -221,7 +279,7 @@ trap cleanup EXIT
 # this watcher on purpose. Nothing takes over from another watcher any more, so a session reading
 # an exit code above 128 should report that its watcher was killed and start a new one — never read
 # it as a batch or as the deadline.
-trap 'cleanup; rm -f "${tmpcopy:-}" "${resp:-}"; exit 143' INT TERM HUP
+trap 'cleanup; rm -f "${tmpcopy:-}" "${resp:-}" "${claim_resp:-}"; exit 143' INT TERM HUP
 
 start_ts=$(date +%s)
 deadline_ts=$((start_ts + deadline))
@@ -283,6 +341,65 @@ owner_is_gone() {
   [ -n "$owner_set" ] || return 1
   kill -0 "$owner" 2>/dev/null && return 1
   return 0
+}
+
+# The claim, written once so the two loops cannot disagree about it. It takes the nonce of the batch
+# about to be reported and leaves one word (or a word and a name) in claim_outcome, which the caller
+# puts on the end of the batch's own line. With no --claim it leaves that empty and sends nothing,
+# which is what keeps every existing run byte for byte as it was.
+#
+# ⚠️ It never fails the run and never skips a batch. Every ending here — a status this script does
+# not know, a non-2xx, a connection refused, an http 000 with nothing behind it — comes back as a
+# word the caller still prints beside the nonce. Claiming twice is recoverable: the second caller is
+# answered already-read and can see it. A batch the session was never told about is not recoverable
+# at all, so nothing in here is allowed to swallow one.
+claim_batch() {
+  claim_outcome=
+  [ -n "$claim_url" ] || return 0
+
+  claim_resp=$(mktemp)
+  claim_body=$(jq -n --arg session "$session" --arg project "$project" --arg nonce "$1" \
+    '{session:$session, project:$project, nonce:$nonce}')
+  # The token goes in on stdin, through a curl config file, never as an argument — the same shape
+  # and the same reason as the fetch call below: an argument sits in curl's own argv, which every
+  # process on this machine can read out of ps, and the token is the only gate on the endpoint.
+  claim_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$CLAUDE_REMARKS_TOKEN" \
+    | curl -s --config - -o "$claim_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+      -X POST "$claim_url/published-read" \
+      -H "Content-Type: application/json" \
+      -d "$claim_body")
+
+  case "$claim_code" in
+    2??)
+      claim_status=$(jq -r '.status // empty' "$claim_resp" 2>/dev/null)
+      case "$claim_status" in
+        ok | unknown-batch)
+          claim_outcome=$claim_status
+          ;;
+        already-read)
+          # The endpoint reports who got there first, and that name is the whole use of this answer:
+          # it is how a session tells "somebody else is on it" from "the IDE forgot this batch".
+          claim_who=$(jq -r '.session // empty' "$claim_resp" 2>/dev/null)
+          claim_outcome="already-read ${claim_who:-unknown}"
+          ;;
+        *)
+          # unknown-project and bad-request arrive here: this endpoint answers 200 with a status
+          # field for both, so they are not http failures. Either one means this script and the
+          # plugin disagree about the request, which polling cannot fix — but the batch is real and
+          # is still reported, so the session can act on it and send its own acknowledgement.
+          claim_outcome="claim-failed ${claim_status:-no-status}"
+          ;;
+      esac
+      ;;
+    *)
+      # 000 is curl's answer for a connection it never made — the IDE is not running, or the tunnel
+      # is down. 403 is a stale token. Both print here, beside the nonce.
+      claim_outcome="claim-failed http $claim_code"
+      ;;
+  esac
+
+  rm -f "$claim_resp"
+  claim_resp=
 }
 
 if [ "$mode" = file ]; then
@@ -355,10 +472,14 @@ if [ "$mode" = file ]; then
 
     if [ "$nonce" != "$seen" ]; then
       if [ -n "$stream" ]; then
-        # One line, two fields, and nothing else — see the header comment for why more is what
-        # stops the watch rather than what helps it. The path is here because the session needs
-        # somewhere to read the batch from, and in this mode it opens the file itself.
-        echo "$nonce $file"
+        # The claim goes out before the line is printed, so the word it produces can travel on that
+        # same line. It is empty with no --claim, and the line is then the two fields it always was.
+        claim_batch "$nonce"
+        # One line, two fields plus the claim's answer, and nothing else — see the header comment
+        # for why more is what stops the watch rather than what helps it. The path is here because
+        # the session needs somewhere to read the batch from, and in this mode it opens the file
+        # itself.
+        echo "$nonce $file${claim_outcome:+ $claim_outcome}"
         # This assignment is the point of stream mode. The seen nonce is this script's own state
         # now, so the next poll compares against the batch just reported, and there is no value
         # left for a calling session to pass back in wrongly on a re-arm.
@@ -426,10 +547,11 @@ while :; do
       nonce=$(jq -r '.nonce // empty' "$resp")
       if [ "$nonce" != "$seen" ]; then
         if [ -n "$stream" ]; then
-          # The nonce on its own here, with no path beside it: in fetch mode the batch lives on the
-          # IDE machine and there is no local file to name. The session fetches it for itself, the
-          # same way it does without --stream.
-          echo "$nonce"
+          # The nonce, and the claim's answer after it when there is one: in fetch mode the batch
+          # lives on the IDE machine and there is no local file to name, so no path goes here. The
+          # session fetches it for itself, the same way it does without --stream.
+          claim_batch "$nonce"
+          echo "$nonce${claim_outcome:+ $claim_outcome}"
           seen=$nonce
           deadline_ts=$(($(date +%s) + deadline))
         else
