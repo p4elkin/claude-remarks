@@ -1,19 +1,50 @@
 #!/bin/sh
-# A background command that never exits never notifies the session waiting on it — so every path
-# out of this script (a new batch, the deadline, an owner that is gone, an error) is an explicit
-# exit, and none of them loop back.
+# This script has two shapes, and --stream is what picks between them. Both are supported and both
+# have to keep working; neither is a leftover.
+#
+# Without --stream — the default, and what every existing caller gets — a background command that
+# never exits never notifies the session waiting on it. So every path out of this script (a new
+# batch, the deadline, an owner that is gone, an error) is an explicit exit, and none of them loop
+# back. The batch itself goes to stdout whole, and the session reads it from there after the
+# process ends.
+#
+# With --stream the loop deliberately does not end on a batch, and the loop below is therefore not
+# a bug. It works because the caller is not waiting on the process ending: the harness's Monitor
+# tool turns each line this script prints into a notification while the process keeps running, so
+# printing is how the session is woken and exiting would end the watch instead of delivering it.
+# Three things follow from that, and each of them is deliberate:
+#
+#   - One short line per batch, never the batch body: the nonce, plus the watched path in --file
+#     mode. A monitor that emits too many events is stopped automatically, and a published file is
+#     hundreds of lines. The session opens the file itself once it has the line.
+#   - The seen nonce lives in this script, not in the calling session. Nothing has to be passed
+#     back in with --seen on a next launch, so there is no value left for a session to get wrong,
+#     and a batch that was already handled cannot be reported a second time.
+#   - The deadline restarts on every batch, so somebody who keeps publishing keeps their watcher.
+#
+# Everything else is the same in both shapes. The deadline, an owner that is gone, and every
+# refusal all exit exactly as they do without --stream, --owner included: an orphan that streams
+# forever is worse than one that stops at its deadline.
+#
+# ⚠️ Monitor is Claude Code's own tool. Every other agent runs the exit-per-batch shape above, which
+# is why it stays rather than being replaced.
 set -u
 
 usage() {
   echo "usage:" >&2
-  echo "  watch-remarks.sh --file <path> [--seen <nonce>]" >&2
+  echo "  watch-remarks.sh --file <path> [--seen <nonce>] [--stream]" >&2
   echo "                    [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]" >&2
   echo "  watch-remarks.sh --fetch <base_url> --project <path>" >&2
-  echo "                    [--seen <nonce>] [--deadline <seconds>] [--poll <seconds>]" >&2
+  echo "                    [--seen <nonce>] [--stream] [--deadline <seconds>] [--poll <seconds>]" >&2
   echo "                    [--owner <pid>]" >&2
   echo "" >&2
-  echo "exit codes: 0 a batch (on stdout), 1 the deadline passed, 2 a refusal," >&2
-  echo "            3 the --owner process is gone, above 128 this watcher was killed" >&2
+  echo "--stream keeps polling instead of exiting on a batch. It prints one line per batch —" >&2
+  echo "  the nonce, and the watched path in --file mode — never the batch body, and it keeps" >&2
+  echo "  its own seen nonce, so nothing has to be passed back in on a next launch. Without it" >&2
+  echo "  one batch goes to stdout whole and the script exits 0, exactly as it always has." >&2
+  echo "" >&2
+  echo "exit codes: 0 a batch (on stdout; never reached with --stream), 1 the deadline passed," >&2
+  echo "            2 a refusal, 3 the --owner process is gone, above 128 this watcher was killed" >&2
   exit 2
 }
 
@@ -22,6 +53,7 @@ file=
 fetch_url=
 project=
 seen=
+stream=
 deadline=1800
 poll=
 poll_set=
@@ -29,9 +61,11 @@ owner=
 owner_set=
 
 while [ $# -gt 0 ]; do
-  # Every flag below takes a value. Checked here rather than in each branch, because `set -u` turns
-  # a missing one into "$2: unbound variable" — a shell error in place of the usage text the
-  # unrecognized-argument branch already prints for every other mistake.
+  # Every flag named below takes a value. Checked here rather than in each branch, because `set -u`
+  # turns a missing one into "$2: unbound variable" — a shell error in place of the usage text the
+  # unrecognized-argument branch already prints for every other mistake. --stream is deliberately
+  # absent: it is the one flag that takes nothing, so listing it here would demand a value it never
+  # has and refuse every correct use of it.
   case "$1" in
     --file | --fetch | --project | --seen | --deadline | --poll | --owner)
       if [ $# -lt 2 ]; then
@@ -45,6 +79,7 @@ while [ $# -gt 0 ]; do
     --fetch) mode=fetch; fetch_url=$2; shift 2 ;;
     --project) project=$2; shift 2 ;;
     --seen) seen=$2; shift 2 ;;
+    --stream) stream=yes; shift ;;
     --deadline) deadline=$2; shift 2 ;;
     --poll) poll=$2; poll_set=yes; shift 2 ;;
     --owner) owner=$2; owner_set=yes; shift 2 ;;
@@ -319,6 +354,23 @@ if [ "$mode" = file ]; then
     esac
 
     if [ "$nonce" != "$seen" ]; then
+      if [ -n "$stream" ]; then
+        # One line, two fields, and nothing else — see the header comment for why more is what
+        # stops the watch rather than what helps it. The path is here because the session needs
+        # somewhere to read the batch from, and in this mode it opens the file itself.
+        echo "$nonce $file"
+        # This assignment is the point of stream mode. The seen nonce is this script's own state
+        # now, so the next poll compares against the batch just reported, and there is no value
+        # left for a calling session to pass back in wrongly on a re-arm.
+        seen=$nonce
+        # Somebody still publishing is somebody still working, so the wait starts again from this
+        # batch rather than running out at a deadline measured from the launch.
+        deadline_ts=$(($(date +%s) + deadline))
+        rm -f "$tmpcopy"
+        tmpcopy=
+        sleep_capped || timed_out_file
+        continue
+      fi
       cat "$tmpcopy"
       rm -f "$tmpcopy"
       exit 0
@@ -373,9 +425,18 @@ while :; do
     ready)
       nonce=$(jq -r '.nonce // empty' "$resp")
       if [ "$nonce" != "$seen" ]; then
-        jq -r '.content' "$resp"
-        rm -f "$resp"
-        exit 0
+        if [ -n "$stream" ]; then
+          # The nonce on its own here, with no path beside it: in fetch mode the batch lives on the
+          # IDE machine and there is no local file to name. The session fetches it for itself, the
+          # same way it does without --stream.
+          echo "$nonce"
+          seen=$nonce
+          deadline_ts=$(($(date +%s) + deadline))
+        else
+          jq -r '.content' "$resp"
+          rm -f "$resp"
+          exit 0
+        fi
       fi
       ;;
     too-large)

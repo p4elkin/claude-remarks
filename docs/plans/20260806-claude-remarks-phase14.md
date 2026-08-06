@@ -281,31 +281,33 @@ watcher should not need a session to keep it alive", before starting.
 - Modify: `docs/skill/claude-remarks/watch-remarks.sh` (the header comment at the top of the file, the
   argument parse around `--seen`, and both poll loops — the `--file` one and the `--fetch` one)
 
-- [ ] add `--stream`. Without it the script behaves exactly as it does today — report one batch, exit
+- [x] add `--stream`. Without it the script behaves exactly as it does today — report one batch, exit
       0 — because every other caller of this script depends on that. With it, report the batch and
       keep polling
-- [ ] in stream mode print **one short line per batch and nothing else**: the nonce, and in `--file`
+- [x] in stream mode print **one short line per batch and nothing else**: the nonce, and in `--file`
       mode the path. ⚠️ Never the batch body. The harness turns each printed line into a notification,
       a large batch is a lot of lines, and a monitor producing too many events is stopped
       automatically
-- [ ] after reporting a batch, set the script's own seen nonce to the one just reported, so the next
+- [x] after reporting a batch, set the script's own seen nonce to the one just reported, so the next
       poll compares against it. **This is the point of the task.** Today that state lives in the
       calling session, which has to type the right nonce back into every launch line, and `SKILL.md`
       already records what happens when it gets that wrong: "arming with a stale nonce makes the
       watcher exit 0 within a second on a batch that was already handled ... That has happened twice
       in one day"
-- [ ] reset the deadline on every batch in stream mode, so a person who keeps publishing keeps their
+- [x] reset the deadline on every batch in stream mode, so a person who keeps publishing keeps their
       watcher
-- [ ] ⚠️ rewrite the comment at the top of the file. It says today that "every path out of this script
+- [x] ⚠️ rewrite the comment at the top of the file. It says today that "every path out of this script
       ... is an explicit exit, and none of them loop back". Stream mode is exactly that exception, so
       the comment has to say which shape applies when, or the next reader reads the loop as a bug
-- [ ] keep `--owner` working in stream mode. An orphan that streams forever is worse than one that
+- [x] keep `--owner` working in stream mode. An orphan that streams forever is worse than one that
       exits at its deadline, and the comment block around `--owner` already explains why orphans
       matter here
-- [ ] ⚠️ verify by hand **in the scratchpad with `HOME` pointed at a temporary directory**, never
+- [x] ⚠️ verify by hand **in the scratchpad with `HOME` pointed at a temporary directory**, never
       against the real `~/.claude-remarks`: write a fake published file, change its nonce twice, and
       confirm two lines come out of one process and that an unchanged file produces no third line.
-      Paste the transcript into the progress log — there is no automated test for this script
+      Paste the transcript into the progress log — there is no automated test for this script —
+      done in both modes: `--file` against a fake published file, and `--fetch` against a fake local
+      endpoint; transcripts are in the progress log
 
 ### Task 6: The watcher claims the batch itself
 
