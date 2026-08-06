@@ -433,17 +433,17 @@ exists.
 - Create: `src/main/kotlin/dev/sasha/clauderemarks/ui/RemarkIcons.kt`
 - Create: `src/test/kotlin/dev/sasha/clauderemarks/ui/RemarkIconsTest.kt`
 
-- [ ] write the failing test first: a plain JUnit class asserting all six resources resolve through
+- [x] write the failing test first: a plain JUnit class asserting all six resources resolve through
       `RemarkIcons::class.java.getResource("/dev/sasha/clauderemarks/icons/<name>.svg")`
-- [ ] run it and watch it fail, for the right reason — the resources do not exist yet
-- [ ] copy the question mark shape from `~/dev/oss/intellij-community/platform/icons/src/expui/general/questionMark.svg`
+- [x] run it and watch it fail, for the right reason — the resources do not exist yet
+- [x] copy the question mark shape from `~/dev/oss/intellij-community/platform/icons/src/expui/general/questionMark.svg`
       into the six files, recoloured per the table in Technical Details, keeping the 16×16 size and the
       `0 0 16 16` viewBox
-- [ ] add `RemarkIcons` with three `val`s, each `IconLoader.getIcon("/dev/sasha/clauderemarks/icons/<name>.svg", RemarkIcons::class.java)`,
+- [x] add `RemarkIcons` with three `val`s, each `IconLoader.getIcon("/dev/sasha/clauderemarks/icons/<name>.svg", RemarkIcons::class.java)`,
       and a KDoc saying a wrong path fails only at runtime and that this test is what catches it
-- [ ] add the fixture-backed half of the test: each of the three icons reports a width of 16, which is
+- [x] add the fixture-backed half of the test: each of the three icons reports a width of 16, which is
       what catches an SVG that does not parse
-- [ ] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkIconsTest'` — must pass before
+- [x] run `./gradlew test --tests 'dev.sasha.clauderemarks.ui.RemarkIconsTest'` — must pass before
       task 10
 
 ### Task 10: The look function takes the two new facts
