@@ -6,9 +6,9 @@ set -u
 
 usage() {
   echo "usage:" >&2
-  echo "  watch-remarks.sh --file <path> [--seen <nonce>] [--require-review <session>]" >&2
+  echo "  watch-remarks.sh --file <path> [--seen <nonce>]" >&2
   echo "                    [--deadline <seconds>] [--poll <seconds>] [--owner <pid>]" >&2
-  echo "  watch-remarks.sh --fetch <base_url> --project <path> [--session <id>]" >&2
+  echo "  watch-remarks.sh --fetch <base_url> --project <path>" >&2
   echo "                    [--seen <nonce>] [--deadline <seconds>] [--poll <seconds>]" >&2
   echo "                    [--owner <pid>]" >&2
   echo "" >&2
@@ -20,10 +20,8 @@ usage() {
 mode=
 file=
 fetch_url=
-session_id=
 project=
 seen=
-require_review=
 deadline=1800
 poll=
 poll_set=
@@ -35,7 +33,7 @@ while [ $# -gt 0 ]; do
   # a missing one into "$2: unbound variable" — a shell error in place of the usage text the
   # unrecognized-argument branch already prints for every other mistake.
   case "$1" in
-    --file | --fetch | --session | --project | --seen | --require-review | --deadline | --poll | --owner)
+    --file | --fetch | --project | --seen | --deadline | --poll | --owner)
       if [ $# -lt 2 ]; then
         echo "watch-remarks.sh: $1 needs a value" >&2
         usage
@@ -45,10 +43,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --file) mode=file; file=$2; shift 2 ;;
     --fetch) mode=fetch; fetch_url=$2; shift 2 ;;
-    --session) session_id=$2; shift 2 ;;
     --project) project=$2; shift 2 ;;
     --seen) seen=$2; shift 2 ;;
-    --require-review) require_review=$2; shift 2 ;;
     --deadline) deadline=$2; shift 2 ;;
     --poll) poll=$2; poll_set=yes; shift 2 ;;
     --owner) owner=$2; owner_set=yes; shift 2 ;;
@@ -62,17 +58,8 @@ case "$mode" in
     [ -n "$poll_set" ] || poll=2
     ;;
   fetch)
-    # --session is optional. Without one the endpoint hands back any batch published for this
-    # project, which is what a listener wants; with one it hands back only that session's own
-    # review's batches, exactly as it always did.
     [ -n "$fetch_url" ] && [ -n "$project" ] || usage
     [ -n "$poll_set" ] || poll=5
-    if [ -n "$require_review" ]; then
-      echo "watch-remarks.sh: --require-review is not supported with --fetch — a fetch carrying a" >&2
-      echo "session already answers ready only for that session's own review, and a fetch without" >&2
-      echo "one deliberately takes any batch" >&2
-      exit 2
-    fi
     if [ -z "${CLAUDE_REMARKS_TOKEN:-}" ]; then
       echo "watch-remarks.sh: CLAUDE_REMARKS_TOKEN must be set in the environment for --fetch" >&2
       exit 2
@@ -232,8 +219,8 @@ timed_out_file() {
 }
 
 timed_out_fetch() {
-  # Named after the project and not after the session: with --session absent this watcher is
-  # waiting on any batch for the repository, and there is no session to name.
+  # Named after the project and not after a session: this watcher waits on any batch for the
+  # repository, and there is no session to name.
   echo "no new batch was published for $project within $deadline seconds" >&2
   exit 1
 }
@@ -331,33 +318,7 @@ if [ "$mode" = file ]; then
         ;;
     esac
 
-    if [ -n "$require_review" ]; then
-      # --require-review decides on its own, and --seen is not consulted at all. The review session
-      # was invented moments before this watcher started, so any batch whose review: field names it
-      # is this review's own answer, whatever nonce the file carries. Comparing the nonce too would
-      # lose exactly the batch this is waiting for: the review flow reads --seen off the file in the
-      # same shell that posts to /start, so an answer published in the gap between those two is
-      # already recorded as seen before the watcher ever runs, and the wait would then run its whole
-      # deadline out on a batch that had already arrived.
-      review_line=$(sed -n '6p' "$tmpcopy")
-      # Checked with a case, the same way lines 1 and 2 are. A bare ${review_line#"review: "} on a
-      # line with no such prefix yields the whole line, which then compares against the session id
-      # as if it were a field — publishedHeaderOf on the Kotlin side refuses the file instead.
-      case "$review_line" in
-        "review: "*) review_value=${review_line#"review: "} ;;
-        *)
-          echo "watch-remarks.sh: $file's line 6 does not start with 'review: ' — the plugin that" >&2
-          echo "wrote it is older than this skill" >&2
-          rm -f "$tmpcopy"
-          exit 2
-          ;;
-      esac
-      if [ "$review_value" = "$require_review" ]; then
-        cat "$tmpcopy"
-        rm -f "$tmpcopy"
-        exit 0
-      fi
-    elif [ "$nonce" != "$seen" ]; then
+    if [ "$nonce" != "$seen" ]; then
       cat "$tmpcopy"
       rm -f "$tmpcopy"
       exit 0
@@ -370,11 +331,12 @@ if [ "$mode" = file ]; then
 fi
 
 # mode = fetch: POST /fetch and read the answer's status. The endpoint documents seven for this
-# action: waiting (nothing published yet), ready (a new or repeated batch), no-review (the file, if
-# any, answers someone else), too-large, failed (an IOException, an unparseable header, or a project
-# directory that no longer resolves), plus bad-request and unknown-project, which mean this script
-# and the plugin disagree about the request itself. Only waiting and no-review are worth another
-# poll; every other one ends the run.
+# action: waiting (nothing published yet), ready (a new or repeated batch), no-review (nothing has
+# been published for this project — the status kept its name from when a review was the only thing
+# that published), too-large, failed (an IOException, an unparseable header, or a project directory
+# that no longer resolves), plus bad-request and unknown-project, which mean this script and the
+# plugin disagree about the request itself. Only waiting and no-review are worth another poll;
+# every other one ends the run.
 resp=
 while :; do
   now=$(date +%s)
@@ -386,15 +348,7 @@ while :; do
   fi
 
   resp=$(mktemp)
-  # The body carries session only when there is one. An absent session is what the endpoint reads
-  # as "any batch for this project"; a body carrying an empty string is a different thing, and the
-  # endpoint would have to guess which was meant.
-  if [ -n "$session_id" ]; then
-    body=$(jq -n --arg session "$session_id" --arg project "$project" \
-      '{session:$session, project:$project}')
-  else
-    body=$(jq -n --arg project "$project" '{project:$project}')
-  fi
+  body=$(jq -n --arg project "$project" '{project:$project}')
   # The token goes in on stdin, through a curl config file, never as an argument. An argument sits
   # in curl's own argv, which every process on this machine can read out of ps — and the token is
   # the only gate on the endpoint, so a local process is exactly the attacker it exists to stop.

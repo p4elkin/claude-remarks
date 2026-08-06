@@ -588,20 +588,48 @@ Spec section 18. Checked by hand in the scratchpad, never against the real `~/.c
   the whole line-6 `review:` block in file mode; and the conditional that added `session` to the fetch
   request body)
 
-- [ ] remove both flags from the whitelist and from the argument `case`, so an old launch line fails
+- [x] remove both flags from the whitelist and from the argument `case`, so an old launch line fails
       loudly with exit 2 rather than being silently ignored
-- [ ] remove `require_review`, `session_id`, the `--fetch` refusal message, and the line-6 block with
+- [x] remove `require_review`, `session_id`, the `--fetch` refusal message, and the line-6 block with
       its explanatory comment
-- [ ] make the fetch body always `{project}`, dropping the conditional
-- [ ] update the two usage lines to match exactly what is still accepted
-- [ ] check by hand, each check its own run, in the scratchpad with `HOME` pointed at a temporary
+- [x] make the fetch body always `{project}`, dropping the conditional
+- [x] update the two usage lines to match exactly what is still accepted
+- [x] check by hand, each check its own run, in the scratchpad with `HOME` pointed at a temporary
       directory: a five-line header is read and its nonce taken from line 2; an old eight-line header
       still yields its nonce; `--require-review` is refused with exit 2; `--session` is refused with
       exit 2; fetch mode sends a body with `project` and no `session`
-- [ ] check by hand that `--owner` is untouched: a live owner keeps polling, a killed owner ends the
+- [x] check by hand that `--owner` is untouched: a live owner keeps polling, a killed owner ends the
       watch inside one poll with exit 3, and a non-numeric, empty or zero value is refused with exit 2
-- [ ] write the results of every check above into this plan file under the task, since no automated
+- [x] write the results of every check above into this plan file under the task, since no automated
       test covers any of them
+
+**Hand-check results (run in the scratchpad, `HOME` pointed at a temporary directory under it,
+never against the real `~/.claude-remarks`):**
+
+1. Five-line header, `--file`, `--seen ""`: exit 0, stdout carries the whole file and its
+   `nonce: five-line-nonce-1` line — read from line 2, as before. PASS.
+2. Old eight-line header (the extra `review:`/`label:`/`rejected:` lines from `0.8.0`), same
+   `--file`/`--seen` shape: exit 0, `nonce: eight-line-nonce-1` still comes back correctly. The
+   extra three lines are read as body, not rejected. PASS.
+3. `--file <path> --require-review some-session`: exit 2, stderr says
+   `unrecognized argument: --require-review` (the whitelist removal fires, not the old refusal
+   message, which is deleted along with the flag). PASS.
+4. `--fetch <url> --project <path> --session some-session`: exit 2, stderr says
+   `unrecognized argument: --session`. PASS.
+5. Fetch mode against a one-shot local HTTP server that captured the raw POST body: the body sent
+   was `{"project": "/tmp/myproject"}`, with no `session` key anywhere in it, and the watcher
+   printed the fetched content and exited 0 on the `ready` answer. PASS.
+6. `--owner abc` and `--owner 0`: both refused, exit 2, with the existing "must be a positive whole
+   number" / "must be greater than zero" messages — unchanged by this task. PASS.
+7. `--owner <live pid>`, `--deadline 4 --poll 1`: the watcher kept running (confirmed alive after
+   1s) and ran out its own 4-second deadline normally (exit 1, "no new batch appeared…"), never
+   reporting the owner as gone. PASS.
+8. `--owner <pid>`, then that pid killed after 1s, `--deadline 30 --poll 1`: the watcher noticed
+   within one poll interval (well under a second in this run) and exited 3 with "…is gone —
+   stopping the watch on …". PASS.
+
+All eight checks passed; no code change was needed as a result of any of them. `sh -n` on the
+edited script also reports no syntax error.
 
 ### Task 15: Verify acceptance criteria
 
