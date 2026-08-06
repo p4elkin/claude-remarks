@@ -541,26 +541,41 @@ Spec section 17. No Kotlin changes; nothing in this task is covered by `./gradle
   `## Over SSH: the IDE on another machine`; `## Where the two scripts are, and how to name them`;
   `## What to say if something goes wrong`)
 
-- [ ] `git mv` the directory, then fix every absolute path written inside `SKILL.md` — the skill's own
-      directory is not on `PATH`, so the watcher launch lines carry full paths
-- [ ] delete the whole `## Steps` review flow, and the `Hand a review over and wait for it` bullet
-      from the intro
-- [ ] rewrite the front matter `description` from scratch for the three modes that exist: open files,
+- [x] `git mv` the directory, then fix every absolute path written inside `SKILL.md` — the skill's own
+      directory is not on `PATH`, so the watcher launch lines carry full paths (`git status` reports
+      all three files as renames, so the history follows; zero matches for the old directory name are
+      left in `SKILL.md`)
+- [x] delete the whole `## Steps` review flow, and the `Hand a review over and wait for it` bullet
+      from the intro (531 lines deleted)
+- [x] rewrite the front matter `description` from scratch for the three modes that exist: open files,
       read what was published, listen for the next batch. It is the text that decides whether this
       skill is reached at all, so do not surgically remove a clause from the middle
-- [ ] add `## Open files in the IDE` as the first mode: read the handshake, one POST to
+- [x] add `## Open files in the IDE` as the first mode: read the handshake, one POST to
       `/api/claude-remarks/open` with the token on stdin through `printf | curl --config -`, and the
       three answers. No waiting, no watcher
-- [ ] fix the header reads in both remaining modes: five lines, the nonce still on line 2, and delete
+- [x] fix the header reads in both remaining modes: five lines, the nonce still on line 2, and delete
       the line-6 and line-8 claim checks in listen mode along with the prose explaining them
-- [ ] reduce listen mode's `already-read` prose to the one case that remains — another session got
+- [x] reduce listen mode's `already-read` prose to the one case that remains — another session got
       there first — and drop the review case
-- [ ] update `## Over SSH` (listen mode and the one-shot read, not review mode) and
+- [x] update `## Over SSH` (listen mode and the one-shot read, not review mode) and
       `## What to say if something goes wrong` (drop the handoff-file timeout, keep the 403 line)
-- [ ] add one line to the troubleshooting section: a published file left by `0.8.0` has an eight-line
-      header and answers `failed` once, until the next publish overwrites it
-- [ ] read the whole file top to bottom afterwards and confirm no sentence still describes a waiting
-      review, a banner, a Reject link, a deadline or a session id
+- [x] add one line to the troubleshooting section about a published file left by `0.8.0`. ⚠️ **The
+      plan's premise for this one is wrong and the line written says the opposite.** An eight-line
+      header does **not** answer `failed`: `publishedHeaderOf` reads lines 2 to 5 and checks nothing
+      at line 6, and lines 1 to 5 are byte for byte the same in both versions, so every one of the
+      three readers gets the right values out of an old file and the three extra lines simply read as
+      body. What actually breaks is the acknowledgement — that nonce belongs to an IDE run that has
+      ended, so `published-read` answers `unknown-batch`. The troubleshooting entry says that instead
+- [x] read the whole file top to bottom afterwards and confirm no sentence still describes a waiting
+      review, a banner, a Reject link, a deadline or a session id (read whole; the only surviving
+      mentions of a review are the four that say it is gone, plus the `no-review` status name, which
+      keeps its name on purpose and now carries the sentence explaining why)
+- [x] ➕ update `docs/skill/README.md`: its `ln -s` and `cp -r` commands named the old directory, so
+      the rename broke them outright, and its protocol section still described the eight-line header
+      and the `ack` action. No other task's Files list names this file
+- [x] ➕ update `## The watcher script`'s flag synopsis in `SKILL.md`: it documented
+      `--require-review` and `--session`, which task 14 removes, and the last checkbox above forbids
+      leaving a sentence that describes a session id
 
 ### Task 14: The watcher drops its two review flags
 

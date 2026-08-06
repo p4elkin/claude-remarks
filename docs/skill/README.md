@@ -1,59 +1,68 @@
-# Installing the claude-remarks-review skill
+# Installing the claude-remarks skill
 
-`claude-remarks-review/` is a normal Claude Code skill. Install it by copying or symlinking the
+`claude-remarks/` is a normal Claude Code skill. Install it by copying or symlinking the
 directory into `~/.claude/skills/`:
 
 ```sh
-ln -s "$(pwd)/docs/skill/claude-remarks-review" ~/.claude/skills/claude-remarks-review
+ln -s "$(pwd)/docs/skill/claude-remarks" ~/.claude/skills/claude-remarks
 ```
 
 or, without a symlink:
 
 ```sh
-cp -r docs/skill/claude-remarks-review ~/.claude/skills/claude-remarks-review
+cp -r docs/skill/claude-remarks ~/.claude/skills/claude-remarks
 ```
 
-It is kept in this repository, not only under `~/.claude/skills`, because the skill and the IDE
-endpoint it talks to are one protocol, and four separate pairs of halves have to agree:
+⚠️ **The directory was called `claude-remarks-review` until phase 12 retired review mode.** An
+install made before that points at a path this repository no longer has, so it has to be removed and
+recreated under the new name; a symlink left behind simply dangles.
 
-- the request shape in `review/ReviewRestService.kt` and the `curl` calls in `SKILL.md`. Since phase
-  11, `fetch`'s `session` field is **optional**: an absent one means "any batch in the file", which is
-  what lets a listener claim a plain publish over the tunnel. A caller that still sends one behaves
-  exactly as it did. The other four actions all still require it, `answer` included, even though
-  nothing on the IDE side reads `answer`'s;
-- the eight fixed lines `PublishedHeader.render()` writes, in `review/PublishedRemarks.kt`, and the
+It is kept in this repository, not only under `~/.claude/skills`, because the skill and the IDE
+endpoint it talks to are one protocol, and five separate pairs of halves have to agree:
+
+- the request shape in `review/ReviewRestService.kt` and the `curl` calls in `SKILL.md`. There are
+  four actions: `fetch`, `published-read`, `answer` and `open`. `fetch`'s body is `{project}` and
+  nothing else — its optional `session` field went with review mode in phase 12, so it now always
+  hands back whatever batch was last published for that project;
+- the five fixed lines `PublishedHeader.render()` writes, in `review/PublishedRemarks.kt`, and the
   line-numbered reads that depend on that exact order. **There are three readers, not two, and a
   header reorder has to be checked against all of them** — this is the one bullet where a silent
   drift is possible, because reading the wrong line raises no error at all, it just returns the wrong
   string:
-  - `review/PublishedRemarks.kt` writes the eight lines and `publishedHeaderOf` parses them back;
-  - `SKILL.md` reads the header by line number in its inline shell, in all three modes;
+  - `review/PublishedRemarks.kt` writes the five lines and `publishedHeaderOf` parses lines 2 to 5
+    back;
+  - `SKILL.md` reads the header by line number in its inline shell, in both reading modes;
   - `watch-remarks.sh` reads it by line number too: **line 1** for the marker
-    `<!-- claude-remarks: published -->`, **line 2** for `nonce: `, and **line 6** for `review: `,
-    which is how `--require-review` recognizes the batch that answers its own review. It reads no
-    other line.
+    `<!-- claude-remarks: published -->` and **line 2** for `nonce: `. It reads no other line.
 
-  This includes the `rejected:` field, which is how a rejection is told apart from a real batch since
-  phase 10. Before phase 10 a rejection was its own file with its own first-line marker,
-  `REJECTED_MARKER`; that marker and the separate handoff file are both gone, and the published
-  file's header is the one place any of the three ever checks;
-- the five values the `ack` action answers — `ok`, `no-review`, `not-sent`, `unknown-project`,
-  `bad-request` — and the branch in `SKILL.md` that reads them; and, since phase 10, the five values
-  the `published-read` action answers — `ok`, `already-read`, `unknown-batch`, `unknown-project`,
-  `bad-request` — read by the inline shell in `SKILL.md`'s two published-file modes, the one-shot
-  read and listen mode. `watch-remarks.sh` is not the other half of *this* pair: it never sends
-  `published-read` at all, it only polls the published file or `POST /fetch`. The seven values
-  `fetch` answers — `ready`, `waiting`, `no-review`, `too-large`, `failed`, `unknown-project`,
-  `bad-request` — are the status pair `watch-remarks.sh` holds the other half of, in its
-  `--fetch` loop. It is still one of the three readers of the header above; the two facts are
-  separate; and
-- the six values the `answer` action answers, added in phase 11 — `ok`, `unknown-batch`,
-  `unknown-remark`, `too-large`, `unknown-project`, `bad-request` — plus the 16 KiB
-  `MAX_ANSWER_BYTES` cap on the body, against the answer POST block in `SKILL.md`. This is the
-  fourth pair and the only one where the IDE writes something a person then reads, so a drift here
-  loses work rather than a poll: an answer refused as `too-large` is a body the session has to be
-  told to shorten, and a session that treats every non-`ok` as retryable will send it again for ever.
+  The header was eight lines until phase 12, carrying `review:`, `label:` and `rejected:` after
+  `remarks:`, which is how a rejection was told apart from a real batch. All three are gone with
+  review mode: there is one kind of batch now. A file left behind by version `0.8.0` or earlier still
+  reads correctly through every one of the three readers, because lines 1 to 5 did not move and
+  nothing checks line 6 — the three extra lines simply read as part of the body. What does not
+  survive is its acknowledgement, since the IDE forgot that batch when it restarted;
+- the five values the `published-read` action answers — `ok`, `already-read`, `unknown-batch`,
+  `unknown-project`, `bad-request` — read by the inline shell in `SKILL.md`'s two reading modes.
+  `watch-remarks.sh` is not the other half of *this* pair: it never sends `published-read` at all, it
+  only polls the published file or `POST /fetch`. The six values `fetch` answers — `ready`,
+  `no-review`, `too-large`, `failed`, `unknown-project`, `bad-request` — are the status pair
+  `watch-remarks.sh` holds the other half of, in its `--fetch` loop. ⚠️ `no-review` means "nothing
+  has been published for this project". It kept that name from when a review was the only thing that
+  published, and renaming it would break every deployed copy of the skill and of the watcher at once.
+  `watch-remarks.sh` is still one of the three readers of the header above; the two facts are
+  separate;
+- the six values the `answer` action answers — `ok`, `unknown-batch`, `unknown-remark`, `too-large`,
+  `unknown-project`, `bad-request` — plus the 16 KiB `MAX_ANSWER_BYTES` cap on the body, against the
+  answer POST block in `SKILL.md`. This is the one pair where the IDE stores something a person then
+  reads, so a drift here loses work rather than a poll: an answer refused as `too-large` is a body
+  the session has to be told to shorten, and a session that treats every non-`ok` as retryable will
+  send it again for ever; and
+- the three values the `open` action answers — `ok` with an `opened` count, `unknown-project`,
+  `bad-request` — against the open block in `SKILL.md`. This is the smallest pair: nothing is stored
+  and nothing waits on it, so a drift costs one request rather than any work. `opened` counts paths
+  the IDE accepted, not editors it opened, and `SKILL.md` has to keep saying so — the opening happens
+  after the response has already been sent.
 
 Keeping both halves of each in one place is what stops them drifting apart. The IDE and the
 Claude Code session run on the same machine in the normal case, and over a tunnel in the remote
-one — see "Over SSH: the IDE on another machine" in `claude-remarks-review/SKILL.md`.
+one — see "Over SSH: the IDE on another machine" in `claude-remarks/SKILL.md`.
