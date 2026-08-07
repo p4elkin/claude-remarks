@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>dev.sasha.clauderemarks</id>
     <name>Claude Remarks</name>
-    <vendor>sasha</vendor>
+    <vendor email="sasha.pchelintsev@gmail.com" url="https://github.com/p4elkin/claude-remarks">sasha</vendor>
     <description><![CDATA[
         Attach short remarks to line ranges while reading code, then hand them all to a
         Claude Code session as one prompt. Remarks never touch the source files.
