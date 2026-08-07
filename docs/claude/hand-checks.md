@@ -26,13 +26,24 @@ before `0.3.0` was released, and phase 5's commit stamp. The `runIde` checks in 
 3-4 and phase 5 plans were skipped in the autonomous sessions that did that work, so for those read
 "it works" as "the tests pass" until somebody runs the list at the end of the plan.
 
+**Four checks were run on 2026-08-07, on `0.12.0`.** Sasha ran them in a real IDE and reported them
+done, with nothing to fix:
+
+- the skill install from Settings → Tools → Claude Remarks, on a machine with no copy installed
+- write a remark, publish it, and have a Claude Code session read the batch — the round trip
+- the tool window: the Open and Done split, a row whose text wraps, and an answer nested under its
+  question
+- the balloon on project open when the skill is missing
+
+Those four are the ones a person meets first, so the plugin is no longer in the state where nobody
+has watched the main path work. The rest of this file still stands.
+
 ## What is unproven
 
-**Everything built after `0.6.0` is unproven in a real IDE.** That is the merged published file, the
-acknowledgement by nonce, the watcher script and its streaming shape, the skill's three modes, the
-whole Ask Claude round trip, the answer nesting, the three question-mark icons, the Open/Done split,
-the wrapped rows and the grey metadata line, the preview's two actions and its highlighting, and the
-skill install with its settings row, its button and its balloon.
+**Almost everything built after `0.6.0` is still unproven in a real IDE**, minus the four above. That
+leaves the merged published file, the acknowledgement by nonce, the watcher script and its streaming
+shape, the skill's remaining modes, the whole Ask Claude round trip, the three question-mark icons,
+the grey metadata line, and the preview's two actions and its highlighting.
 
 The markdown preview entry point has never been watched running either, in any version.
 
