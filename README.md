@@ -31,6 +31,7 @@ a real IDE. See [Status](#status) before you decide to rely on it.
 ## Contents
 
 - [What it does](#what-it-does)
+- [Where remarks work](#where-remarks-work)
 - [Installing](#installing)
 - [Working with it](#working-with-it)
 - [Asking instead of telling](#asking-instead-of-telling)
@@ -39,7 +40,6 @@ a real IDE. See [Status](#status) before you decide to rely on it.
 - [Status](#status)
 - [IdeaVim](#ideavim)
 - [Building and testing](#building-and-testing)
-- [Architecture](#architecture)
 - [Licence](#licence)
 
 ## What it does
@@ -60,6 +60,17 @@ Mark up what you are reading, in the IDE, and hand the marks to Claude Code.
   Tell a session `listen for my remarks in this project` and it waits in the background while you
   read, then picks up each batch you publish. See
   [The Claude Code skill](#the-claude-code-skill).
+
+## Where remarks work
+
+- **Source editors** — any file the editor shows, whole lines or a phrase inside one.
+- **The rendered markdown preview** — select text in the preview and right-click for either
+  `Add Claude Remark` or `Ask Claude`. Annotated elements are highlighted in the preview itself, and
+  the highlight follows you as you type.
+- **Diff views** — write remarks on the working-copy side, the "after" of a change. ⚠️ The revision
+  side is refused rather than stored: its line numbers describe the revision, not the file on disk,
+  and the working copy is one click away.
+- **No file at all** — a general remark about the project, written from the tool window.
 
 ## Installing
 
@@ -326,31 +337,15 @@ to say go, rather than acting on it. A listener runs unattended for hours, and n
 exact moment for the work to start. Answering a question marked with Ask Claude is the exception, and
 a deliberate one — you already asked.
 
-**Two earlier promises are reversed, and both were reversed because they made the loop worse.**
+**It picks up whatever is already waiting.** If you published first and asked afterwards, that batch
+is the first thing it reads.
 
-- **It re-arms itself after every batch.** It used to stop at the first batch and wait to be asked
-  again, because only one watcher per repository could run at a time. That rule is gone: several
-  sessions may listen to one repository now, nothing kills a watcher, and the IDE decides who acts on
-  a batch — the first session to claim it gets it, and any other is told the batch is already read,
-  names who got it, and goes back to listening.
-- **It claims what is already waiting.** It used to act on nothing published before it started. So
-  publishing and then asking a session to listen left the batch sitting there. Now the first thing it
-  does is read the batch already in the file and claim it.
+**It keeps listening after every batch**, so publish as often as you like without asking again.
+Several sessions can listen to one repository at once; the first to claim a batch acts on it, and the
+others tell you who got it and carry on waiting.
 
-**In Claude Code it does not restart at all.** The watcher has a streaming shape since `0.11.0`: it
-keeps polling instead of stopping on each batch, it remembers by itself which batch it has already
-told you about, and it acknowledges each new one on its own before it reports it. So there is no
-re-arm between a batch arriving and the work on it starting, and there is no value a session can type
-back wrongly and make you read the same batch twice. It also puts a copy of each batch aside and
-points the session at the copy, so publishing again while the session is still reading the previous
-batch cannot overwrite the one it is working on. Every other agent keeps the stop-and-restart loop
-described above, which is why both are still in the skill.
-
-It waits up to twelve hours, every batch resets that clock, and it says at the start how to stop it
-early. ⚠️ Stopping it means the pid on the first line of that repository's `.watch` file, never a
-`pkill` or `killall` matched on the script's name: every repository's watcher on the machine runs a
-program with that name, and a blunt match stops all of them at once. That happened once, and it is
-why the rule is written down here as well as in the skill.
+It waits up to twelve hours, and every batch resets that clock. To stop it sooner, tell the session
+to stop listening.
 
 ### Read what is already published
 
@@ -359,21 +354,6 @@ repository root, reads it, acknowledges the batch by its nonce — which is what
 and gets to work. Nothing is waited for.
 
 This is the mode to reach for when you published first and asked afterwards.
-
-### What review mode was
-
-Until version `0.9.0` there was a fourth mode. The skill asked the IDE to hold a review open for a
-repository; a banner appeared above the tree reading "Claude Code is waiting: *label*", and pressing
-Publish answered that review, with a **Reject** link beside it for saying no. A review carried a
-deadline the skill declared, and went stale on its own if nobody answered it. It is gone, and nothing
-replaces it: the two reading modes above were already carrying almost all of the traffic, and they
-need no session id, no deadline and nothing on screen that can outlive the agent. If you want a
-session to look at a set of files and then read your remarks, that is now the first mode followed by
-either of the other two.
-
-One refusal worth knowing, which came from review mode and stays: writing a remark on the *revision*
-side of a diff — the "before" of a change — is refused rather than stored. Its line numbers describe
-the revision, not the file on disk, and the working copy is one click away.
 
 ### Why the skill waits with a script
 
@@ -509,59 +489,6 @@ suite says nothing about either.
 
 There are also no UI-rendering or end-to-end tests. The popup appearing at the caret, the gutter
 icon painting, the tree colours, the balloon and the settings page layout are all hand checks.
-
-## Architecture
-
-- **`anchor/`** — pure Kotlin, no platform imports, which is what keeps its tests running in
-  milliseconds. Hashing lines, capturing an anchor, the two-pass resolve, and the sub-line phrase
-  functions. `SubLineRange.kt` is the one place that decides whether a column pair is a real
-  sub-line range and how a position is written down.
-- **`model/`** — the persisted `RemarkState` record, and `AnswerState`, the answer's own record with
-  its own copy of the anchor fields.
-- **`store/`** — `RemarkStore.kt`, the project service that persists both lists; `RemarkEdits.kt`, the
-  only functions production code may use to change one, plus the `REMARKS_CHANGED` notification;
-  `RemarkResolver.kt`, which turns stored remarks and answers into resolved rows through one shared
-  `resolveStored`; `RemarkTarget.kt`, which
-  decides where a remark on the current editor would go and refuses the revision side of a diff;
-  `ContextFormat.kt`; `GitHead.kt`, which reads the repository HEAD straight out of `.git` with no
-  Git4Idea dependency; `RemarkHistory.kt`, the archive cleared remarks and answers are written to.
-- **`ui/`** — the input popup and its key bindings; `RemarkActions.kt`, the Ask-for-an-Answer and
-  Publish menu shared by the gutter and the tree; `RemarkStatusLook.kt`, the one place a
-  row's icon and colour are decided, over the two icon tracks; `RemarkIcons.kt`, the three
-  question-mark icons the plugin ships itself; `ClassNameInsert.kt`; `RemarksTree.kt`, the Open/Done
-  split, the answer nesting and the stacked-line cell renderer; `WrapText.kt`, the pure word-break
-  that renderer wraps a row with, with no platform import at all;
-  `RemarksToolWindowFactory.kt`, the panel and the toolbar; `AnswerPopup.kt`, the popup that renders
-  an answer's markdown.
-- **`action/`** — every entry point that opens the same input popup: the shortcut and popup-menu
-  action, the `Alt+Enter` intention, the preview action, and the tool window's general remark. Plus
-  `AskClaudeAction.kt`, the Ask Claude gesture and its intention, and `PublishRemarks.kt`, the whole
-  publish pipeline and the Tools-menu action.
-- **`editor/`** — the gutter icon renderer and the project service that keeps gutter icons in step
-  with the code.
-- **`render/`** — `PromptRenderer.kt`, pure Kotlin, remarks to markdown; `PromptPayload.kt`, which
-  reads the code around each remark and decides whether the payload goes to the clipboard directly
-  or through a temp file.
-- **`preview/`** — the markdown preview half: the injected script and stylesheet, the browser extension
-  that receives a selection and pushes the highlights back, the pure arithmetic that turns a selection
-  into a character range, and `PreviewHighlights.kt`, the pure half that decides which remarks the page
-  should highlight and where each one starts.
-- **`review/`** — the endpoint a skill talks to, and the one file remarks are published into. The
-  package keeps its name from when it held a shared review session; nothing in it holds one now.
-  `ReviewHandshake.kt` writes the file a skill reads to find this IDE; `ReviewRestService.kt` is the
-  endpoint at `POST /api/claude-remarks/{fetch,published-read,answer,open}`; `PublishedRemarks.kt` is
-  the published file and its five-line header; `PublishedAck.kt` is the acknowledgement route, keyed
-  to a batch's nonce, and the only place besides `store/` that may mark a remark read;
-  `AnswerReceipt.kt` is everything an incoming answer causes, kept out of the endpoint file because
-  it reaches the VFS; `OpenReviewFiles.kt` is the only other file in the package that touches the VFS
-  or the editor; `AtomicWrite.kt` is the temp-file-then-rename write they all use.
-- **`settings/`** — the app-level service holding the editable prompt header, and its page.
-
-`docs/claude/design.md` is the deeper version of all of this, and is kept current with the code:
-anchoring, the gutter, the change notification, the publish pipeline, the three states, the
-published file, a remark about no file, the endpoint, the Ask Claude gesture and what an
-answer is. `CLAUDE.md` holds the seven
-grep-checkable rules that must not break. `CHANGELOG.md` is how the project got here.
 
 ## Licence
 
