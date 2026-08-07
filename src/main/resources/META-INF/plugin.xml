@@ -1,11 +1,24 @@
 <idea-plugin>
     <id>dev.sasha.clauderemarks</id>
     <name>Claude Remarks</name>
-    <vendor email="sasha.pchelintsev@gmail.com" url="https://github.com/p4elkin/claude-remarks">sasha</vendor>
+    <vendor email="sasha.pchelintsev@gmail.com" url="https://github.com/p4elkin/claude-remarks">Aleksandr Pchelintcev</vendor>
     <description><![CDATA[
         Attach short remarks to line ranges while reading code, then hand them all to a
         Claude Code session as one prompt. Remarks never touch the source files.
     ]]></description>
+    <!-- The "What's new" panel on the Marketplace listing and in the IDE's plugin list. It covers the
+         current version only, and nothing generates it: CHANGELOG.md is the full record and this is a
+         hand-written summary of its newest section. Rewrite it in the same commit that bumps the
+         version in build.gradle.kts, or the panel keeps describing the release before this one. -->
+    <change-notes><![CDATA[
+        <b>0.12.0</b>
+        <ul>
+            <li>The Claude Code skill ships inside the plugin. Nothing to copy by hand.</li>
+            <li>Settings &rarr; Tools &rarr; Claude Remarks installs it, and says which version is on disk.</li>
+            <li>A notification on project open offers the same install when the skill is missing or out of date.</li>
+        </ul>
+        <a href="https://github.com/p4elkin/claude-remarks/blob/main/CHANGELOG.md">Full changelog</a>
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
     <!-- Needed for ShowDiffAction, which opens the real diff for the files the `open` action names.
