@@ -505,6 +505,10 @@ provider hierarchy.
 
 ## What has actually been checked by hand
 
+⚠️ **`docs/claude/hand-checks.md` is the live list and the one to keep current.** What follows is the
+record as of the last phase, kept here because a changelog is where a reader looks for it. When the
+two disagree, that file is right.
+
 Almost nothing. The automated suite is green and has been throughout, but a green suite says very
 little about a plugin: there are no UI-rendering and no end-to-end tests, and the two shell scripts
 the skill ships are not run by `./gradlew test` at all.
@@ -523,12 +527,13 @@ the plugin loads at all, the handshake file is found from another machine, the e
 and works across a tunnel, a publish renders sub-line markers correctly, and an acknowledgement really
 does mark remarks read. What it proved about `start`, `ack`, the banner and the deadline is history.
 
-**Everything phases 10, 11 and 12 built is unproven**, because `0.6.0` predates all three — the merged
-published file, the acknowledgement by nonce, the watcher script, the skill's modes, the whole Ask
-Claude round trip, the answer nesting and the three question-mark icons are all in that set. Phase 6's
-seven security hand checks were run in a real IDE before `0.3.0`, and phase 5's commit stamp was
-checked in a real IDE; the `runIde` checks in the phase 1-2, phase 3-4 and phase 5 plans were skipped
-in the autonomous sessions that did that work.
+**Everything phases 10 to 15 built is unproven**, because `0.6.0` predates all six — the merged
+published file, the acknowledgement by nonce, the watcher script and its streaming shape, the skill's
+modes, the whole Ask Claude round trip, the answer nesting, the three question-mark icons, the
+Open/Done split, the wrapped rows, the preview's two actions and its highlighting, and the skill
+install are all in that set. Phase 6's seven security hand checks were run in a real IDE before
+`0.3.0`, and phase 5's commit stamp was checked in a real IDE; the `runIde` checks in the phase 1-2,
+phase 3-4 and phase 5 plans were skipped in the autonomous sessions that did that work.
 
 Each plan keeps its own list of what it owes, and those lists are the detail:
 
@@ -540,11 +545,15 @@ Each plan keeps its own list of what it owes, and those lists are the detail:
 | 9 | Section 12 of `docs/plans/completed/20260803-claude-remarks-phase9.md` |
 | 10 | Section 8 of `docs/plans/completed/20260805-claude-remarks-phase10.md` |
 | 11 | "Hand checks" in `docs/plans/20260805-claude-remarks-phase11.md` |
-| 12 | "Hand checks" in `docs/plans/20260806-claude-remarks-phase12.md` |
+| 12 | "Hand checks" in `docs/plans/completed/20260806-claude-remarks-phase12.md` |
+| 13 | "Hand checks" in `docs/plans/completed/20260806-claude-remarks-phase13.md` |
+| 14 | "Hand checks" in `docs/plans/completed/20260806-claude-remarks-phase14.md` |
+| 15 | "Hand checks" in `docs/plans/completed/20260806-claude-remarks-phase15.md` |
 
 Phase 8's and phase 10's lists need something no other phase does: a second machine, an `sshd`, and
 an agent session on the far side of a tunnel.
 
-⚠️ **Phase 12's list supersedes phase 11's wherever the two overlap** — the answer's tree row, the
-gutter icon and the answer round trip are all rewritten by it — and phase 7's is mostly moot, because
-the machinery it checked is deleted and only its diff opening survives, now as the `open` action.
+⚠️ **A later list supersedes an earlier one wherever the two overlap** — phase 13's beats phase 12's,
+which beats phase 11's, because all three rewrote the same tree rows. Phase 7's is mostly moot,
+because the machinery it checked is deleted and only its diff opening survives, now as the `open`
+action. `docs/claude/hand-checks.md` carries the current reading of all of that.
