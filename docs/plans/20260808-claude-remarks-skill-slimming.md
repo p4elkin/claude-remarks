@@ -162,18 +162,18 @@ it.
 
 **Model:** sonnet
 
-- [ ] Create `listen-without-monitor.md` holding `### The exit-per-batch branch` from `SKILL.md` lines
+- [x] Create `listen-without-monitor.md` holding `### The exit-per-batch branch` from `SKILL.md` lines
       768-881, carried across unchanged, with its heading raised to `#` and a first paragraph saying
       which branch this is and that the setup block in `SKILL.md` runs first
-- [ ] Delete those lines from `SKILL.md` and replace them with a short pointer inside the branch test:
+- [x] Delete those lines from `SKILL.md` and replace them with a short pointer inside the branch test:
       the sentence must say the file name and when to read it
-- [ ] Add `"listen-without-monitor.md"` to `SKILL_FILES`
-- [ ] Fix the "last name in SKILL_FILES" comment in `SkillInstallTest`
-- [ ] Write a test that a reference file lands in the target directory with its content intact
-- [ ] Write a test that a reference file is **not** executable after an install, beside the existing
+- [x] Add `"listen-without-monitor.md"` to `SKILL_FILES`
+- [x] Fix the "last name in SKILL_FILES" comment in `SkillInstallTest`
+- [x] Write a test that a reference file lands in the target directory with its content intact
+- [x] Write a test that a reference file is **not** executable after an install, beside the existing
       test that both scripts are
-- [ ] Check the byte accounting: `SKILL.md` plus the new file, minus the new header, equals 96,306
-- [ ] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 2
+- [x] Check the byte accounting: `SKILL.md` plus the new file, minus the new header, equals 96,306
+- [x] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 2
 
 ### Task 2: Move the watcher background out
 

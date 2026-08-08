@@ -22,6 +22,7 @@ class SkillInstallTest {
         "SKILL.md" -> "---\nname: claude-remarks\ndescription: >\n  hi\n".byteInputStream()
         "watch-remarks.sh" -> "#!/bin/sh\necho fake watch script\n".byteInputStream()
         "remote-config.sh" -> "#!/bin/sh\necho fake remote config\n".byteInputStream()
+        "listen-without-monitor.md" -> "# The exit-per-batch branch\nfake reference content\n".byteInputStream()
         else -> null
     }
 
@@ -284,7 +285,7 @@ class SkillInstallTest {
     // --- installSkill ----------------------------------------------------------------------------
 
     @Test
-    fun `installs all three files, stamps SKILL_md on line 2, and makes both scripts executable`() {
+    fun `installs every skill file, stamps SKILL_md on line 2, and makes both scripts executable`() {
         val targetDir = Files.createTempDirectory("claude-remarks-target-").toRealPath()
             .resolve("claude-remarks")
 
@@ -298,6 +299,31 @@ class SkillInstallTest {
         assertTrue(Files.readString(targetDir.resolve("remote-config.sh")).contains("fake remote config"))
         assertTrue(Files.isExecutable(targetDir.resolve("watch-remarks.sh")))
         assertTrue(Files.isExecutable(targetDir.resolve("remote-config.sh")))
+    }
+
+    @Test
+    fun `a reference file lands in the target directory with its content intact`() {
+        val targetDir = Files.createTempDirectory("claude-remarks-target-").toRealPath()
+            .resolve("claude-remarks")
+
+        val result = SkillInstall.installSkill(targetDir, "0.12.0", ::fakeResource)
+
+        assertNull(result)
+        assertEquals(
+            "# The exit-per-batch branch\nfake reference content\n",
+            Files.readString(targetDir.resolve("listen-without-monitor.md")),
+        )
+    }
+
+    @Test
+    fun `a reference file is not executable after an install, unlike the two scripts`() {
+        val targetDir = Files.createTempDirectory("claude-remarks-target-").toRealPath()
+            .resolve("claude-remarks")
+
+        val result = SkillInstall.installSkill(targetDir, "0.12.0", ::fakeResource)
+
+        assertNull(result)
+        assertFalse(Files.isExecutable(targetDir.resolve("listen-without-monitor.md")))
     }
 
     @Test
@@ -329,7 +355,7 @@ class SkillInstallTest {
         // a failed script write left the stamp on disk: skillPresence read the bundled version back,
         // the settings row said "up to date" and the balloon never fired again, while a real session
         // answered that watch-remarks.sh was not found. So SKILL.md is written last, and this fails
-        // remote-config.sh — the last name in SKILL_FILES — to prove it.
+        // remote-config.sh — one of the names in SKILL_FILES that is not SKILL.md — to prove it.
         val targetDir = Files.createTempDirectory("claude-remarks-target-").toRealPath()
             .resolve("claude-remarks")
 
@@ -361,7 +387,10 @@ class SkillInstallTest {
 
         assertNull(result)
         assertEquals("SKILL.md", order.last())
-        assertEquals(setOf("watch-remarks.sh", "remote-config.sh"), order.dropLast(1).toSet())
+        assertEquals(
+            setOf("watch-remarks.sh", "remote-config.sh", "listen-without-monitor.md"),
+            order.dropLast(1).toSet(),
+        )
     }
 
     @Test
@@ -438,7 +467,7 @@ class SkillInstallTest {
     }
 
     @Test
-    fun `refuses when one of the three target files is a symlink, before writing anything`() {
+    fun `refuses when one of the target files is a symlink, before writing anything`() {
         val elsewhere = Files.createTempDirectory("claude-remarks-elsewhere-").toRealPath()
         val elsewhereFile = elsewhere.resolve("elsewhere.md")
         Files.writeString(elsewhereFile, "not the skill")

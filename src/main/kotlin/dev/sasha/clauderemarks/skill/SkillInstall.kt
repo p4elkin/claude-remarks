@@ -8,7 +8,7 @@ import java.nio.file.Path
 
 /**
  * The pure half of installing the skill into a detected harness: detecting harnesses, stamping and
- * reading the version, and copying the three resource files out.
+ * reading the version, and copying the skill's resource files out.
  *
  * Plain `java.nio` and plain strings throughout, the same argument `anchor/` and
  * `render/PromptRenderer.kt` already make for their own files: no fixture, tests in milliseconds.
@@ -29,15 +29,16 @@ object SkillInstall {
     private const val SKILL_MD = "SKILL.md"
 
     /**
-     * The three files that make up the skill, in one place because **nothing enumerates the
-     * directory**: listing jar entries through a classloader is not something to rely on. Adding a
-     * fourth file to the skill later means adding its name here too — forgetting is silent, because
+     * The files that make up the skill, in one place because **nothing enumerates the
+     * directory**: listing jar entries through a classloader is not something to rely on. Adding
+     * another file to the skill later means adding its name here too — forgetting is silent, because
      * the file simply does not get installed and nothing reports it.
      *
      * This is the list of names, not the order they are written in. [installSkill] deliberately
      * writes `SKILL.md` last, whatever order this list happens to be in.
      */
-    val SKILL_FILES: List<String> = listOf(SKILL_MD, "watch-remarks.sh", "remote-config.sh")
+    val SKILL_FILES: List<String> =
+        listOf(SKILL_MD, "watch-remarks.sh", "remote-config.sh", "listen-without-monitor.md")
 
     /**
      * The path segments this code appends below a person's home directory to reach the installed
@@ -223,7 +224,7 @@ object SkillInstall {
      * reason is written here rather than only in a plan file.
      *
      * **Refuses outright when any directory this code appends below the home directory, or any of
-     * the three files inside [targetDir], is a symlink**, before writing anything at all. On this
+     * the skill's files inside [targetDir], is a symlink**, before writing anything at all. On this
      * machine `~/.claude/skills/claude-remarks` is a symlink into the checkout, and writing through
      * it would silently overwrite the plugin's own source files with stamped copies.
      *
@@ -237,8 +238,9 @@ object SkillInstall {
      * `/private/var/folders/…`, so "refuse when the resolved path differs from the lexical one"
      * would refuse every temporary directory and any home directory sitting under a symlinked mount.
      *
-     * **`SKILL.md` is written last, and it is the file carrying the stamp.** The two scripts go
-     * first, then their executable bits, then the stamped `SKILL.md`. So a stamp is only ever on
+     * **`SKILL.md` is written last, and it is the file carrying the stamp.** The two scripts and
+     * every reference file go first, then the scripts' executable bits, then the stamped
+     * `SKILL.md`. So a stamp is only ever on
      * disk once the install really finished. ⚠️ With `SKILL.md` written first, a later write or a
      * refused `setExecutable` left a stamped `SKILL.md` beside a missing or non-executable script:
      * [skillPresence] then read the bundled version back, the settings row said "up to date" and
