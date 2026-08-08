@@ -2,9 +2,10 @@
 
 An IntelliJ Platform plugin for reviewing code you are about to hand to a Claude Code session.
 
-If you have used `plannotator` or `revdiff`, the shape is familiar: read a change, leave notes on the
-lines that need them, hand the notes to an agent. This one does it from inside the IDE, and three
-things follow from that.
+If you have used [plannotator](https://github.com/backnotprop/plannotator) or
+[revdiff](https://github.com/umputun/revdiff), the shape is familiar: read a change, leave notes on
+the lines that need them, hand the notes to an agent. This one does it from inside the IDE, and
+three things follow from that.
 
 - **The review surface is the IDE, not a browser page or a terminal overlay.** You read where you
   already read code — go to definition, find usages, the real diff viewer, the rendered markdown
