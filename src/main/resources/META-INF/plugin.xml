@@ -2,9 +2,65 @@
     <id>dev.sasha.clauderemarks</id>
     <name>Claude Remarks</name>
     <vendor email="sasha.pchelintsev@gmail.com" url="https://github.com/p4elkin/claude-remarks">Aleksandr Pchelintcev</vendor>
+    <!-- This element IS the Marketplace listing page. The README is never shown there, so anything a
+         prospective user needs has to be here. Keep the first line saying Claude Code is required:
+         without it the plugin is inert, and somebody finding that out after installing leaves a
+         review that outlives the fix. The screenshot is an absolute raw.githubusercontent.com URL
+         because the Marketplace cannot resolve a repository-relative path — the same shape the
+         bundled stream-debugger plugin uses. -->
     <description><![CDATA[
-        Attach short remarks to line ranges while reading code, then hand them all to a
-        Claude Code session as one prompt. Remarks never touch the source files.
+        <p><b>Requires <a href="https://claude.com/claude-code">Claude Code</a>.</b> This plugin is a
+        front end for it. With no Claude Code session to hand remarks to, there is nothing here to
+        use.</p>
+
+        <p>Attach short remarks to line ranges while you read code, then hand them all to a Claude
+        Code session as one prompt: your note, the lines it points at, the code itself.
+        <b>Remarks never touch your source files.</b> They live in IDE state only and stay out of
+        version control.</p>
+
+        <p>If you have used
+        <a href="https://github.com/backnotprop/plannotator">plannotator</a> or
+        <a href="https://github.com/umputun/revdiff">revdiff</a>, the shape is familiar: read a
+        change, leave notes on the lines that need them, hand the notes to an agent. This one does it
+        from inside the IDE, and three things follow from that.</p>
+
+        <ul>
+            <li><b>The review surface is your IDE</b>, not a browser page or a terminal overlay. Go
+            to definition, find usages, the real diff viewer, the rendered markdown preview, your own
+            keymap and theme.</li>
+            <li><b>The review is continuous.</b> There is no session to open and none to close. Mark
+            things as you read, publish when you have something worth sending, and a listening
+            session picks up each batch as it lands.</li>
+            <li><b>A question goes back to the session that already has the context</b>, so there is
+            nothing to re-explain. The answer comes back into the IDE, onto the line you asked
+            about.</li>
+        </ul>
+
+        <p>The whole thing in four steps:</p>
+
+        <ol>
+            <li>Install the bundled Claude Code skill, with one button in
+            <b>Settings | Tools | Claude Remarks</b>.</li>
+            <li>Tell a session <code>listen for my remarks in this project</code>.</li>
+            <li>Read, annotate, ask questions. Press <b>Publish Unread</b> when you have a batch
+            worth sending.</li>
+            <li>Profit.</li>
+        </ol>
+
+        <p>Remarks work in source editors over whole lines or a phrase inside one, in the rendered
+        markdown preview, on the working-copy side of a diff, and with no file at all when the note
+        is about the change as a whole.</p>
+
+        <img src="https://raw.githubusercontent.com/p4elkin/claude-remarks/main/docs/images/remarks.png"
+             alt="The rendered README with two annotated paragraphs tinted, the remark box open over it, and the Claude Remarks tool window on the right"
+             width="750" height="409">
+
+        <p><b>This is early software.</b> The path described above has been run by hand and works.
+        Most of the rest has not been watched running, and it has had little use outside its own test
+        suite. The two shell scripts the skill ships are macOS and Linux only, so on Windows the
+        listening step needs WSL; everything else, including the clipboard route, works there.
+        <a href="https://github.com/p4elkin/claude-remarks">The repository</a> says plainly what is
+        proven and what is not.</p>
     ]]></description>
     <!-- The "What's new" panel on the Marketplace listing and in the IDE's plugin list. It covers the
          current version only, and nothing generates it: CHANGELOG.md is the full record and this is a
