@@ -53,7 +53,7 @@ and what to tell the agent:
   `127.0.0.1`. The agent can store them so they are not retyped on every later run:
   `~/.claude/skills/claude-remarks/remote-config.sh save --port <port> --project <the
   IDE-machine path> [--host <host>]` — an absolute path, because the skill's own directory is on no
-  shell's `PATH`; see "Where the two scripts are, and how to name them" below — with
+  shell's `PATH`; see "Where the skill's own files are, and how to name them" in `SKILL.md` — with
   `CLAUDE_REMARKS_TOKEN` set to the token in its environment, never as an
   argument, which is world-readable through `ps`. It is keyed to **this** (the agent) machine's own
   repository root, so two repositories here never share one stored configuration. `show` prints

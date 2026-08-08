@@ -119,7 +119,7 @@ object SkillInstall {
      * The version stamped into [text], or null when there is none.
      *
      * Scans at most the first five lines — the stamp is always on line 2, and five is generous
-     * headroom without reading a whole 96 KB file just to answer this. Never throws: a line that
+     * headroom without reading a whole 80 KB file just to answer this. Never throws: a line that
      * looks like a stamp but does not parse reads exactly the same as no stamp at all, which is what
      * lets a caller tell "installed, version unknown" apart from "not installed" without ever
      * guessing a version.

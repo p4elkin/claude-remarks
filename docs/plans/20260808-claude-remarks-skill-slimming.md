@@ -20,7 +20,7 @@ The goal is to cut what a session loads by moving whole sections into separate f
 only when the session actually needs them. **Nothing is deleted for being long.** Every section that
 moves keeps its words; only its address changes.
 
-The target is `SKILL.md` under 80,000 bytes with no loss of content, and every moved section reachable
+The target is `SKILL.md` at around 80,000 bytes with no loss of content, and every moved section reachable
 by one clear sentence telling the session when to go and read it. (This target was written as 60,000
 and corrected to 80,000 once tasks 1-3 had landed — see the first item of task 4 for why the original
 number could not be reached without deleting content.)
@@ -221,7 +221,20 @@ it.
 
 ### Task 4: Verify acceptance criteria
 
-- [x] `SKILL.md` is under **80,000** bytes — measured 78,232. ⚠️ This criterion was written as 60,000
+- [x] `SKILL.md` measures around **80,000** bytes — 78,232 when task 4 ran, 79,405 after the review
+      pass repointed every cross-reference that a move had left saying "above" or "below", 79,997
+      after the second review pass fixed the two routes a session actually walks (the
+      directory-resolution block now prints the directory it found, and the monitor branch's
+      acknowledgement step names where each value it needs was printed), and **80,036** after the
+      third pass corrected one stale shell comment.
+      ⚠️ **80,000 is a measurement here, not a ceiling.** Sasha decided that after the second pass
+      reported cutting a comment "to fit": the number's only job was to stop the split chasing an
+      unreachable 60,000, and a figure that makes a later pass delete prose inverts this plan's own
+      first rule, that nothing is deleted for being long. Never shorten, drop or compress a sentence
+      in `SKILL.md` to stay under a byte figure. If a correctness fix needs 500 more bytes, spend
+      them.
+      The byte totals recorded below are task 4's; the CHANGELOG entry carries the final ones.
+      ⚠️ This criterion was written as 60,000
       and that number was an estimate rather than a measurement. Tasks 1-3 moved every genuinely
       situational section out — 20,527 bytes into three files — and what is left is the three modes
       themselves, which the plan deliberately keeps whole because they are the work. So 60,000 was

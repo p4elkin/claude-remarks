@@ -1401,8 +1401,11 @@ pattern.
 
 ⚠️ **A file written by `0.8.0` still reads correctly, and phase 12's own plan predicted the opposite.**
 Lines 1 to 5 are byte for byte the same in both versions, and `publishedHeaderOf` checks nothing at
-line 6, so all three readers get the right values out of an eight-line header and its three extra
-lines are simply read as body. What actually breaks across the upgrade is the acknowledgement: that
+line 6, so all four readers get the right values out of an eight-line header and its three extra
+lines are simply read as body. The four are `publishedHeaderOf` here, `SKILL.md`'s inline shell in
+both reading modes, `listen-without-monitor.md`'s exit-per-batch listen branch, and
+`watch-remarks.sh`, which reads line 1 and line 2 and no other line. `docs/skill/README.md` lists
+them as the bullet a header reorder has to be checked against. What actually breaks across the upgrade is the acknowledgement: that
 nonce belongs to an IDE run that has ended, so `published-read` answers `unknown-batch`. Publishing
 again is the whole fix, and the skill's troubleshooting section says so.
 
@@ -2257,9 +2260,10 @@ for a run without `--stream`, which is what every agent other than Claude Code r
 
 ⚠️ **Exit 3 is the one exit code no session ever sees.** It means the process named by `--owner` is
 gone, and that process is the session itself, so by the time the watcher exits that way there is
-nobody left to be woken. It exists to stop an orphan, not to report anything, and `SKILL.md` says
-plainly that nothing should be written to handle it. The subsection below says why the watcher can be
-orphaned at all.
+nobody left to be woken. It exists to stop an orphan, not to report anything, and the exit-per-batch
+branch, which lives in `listen-without-monitor.md` since the skill was split, says plainly that
+nothing should be written to handle it. The subsection below says why the watcher can be orphaned at
+all.
 
 ⚠️ **143 used to mean "another watcher took over", and since phase 11 it means nothing of the kind.**
 Nothing takes over any more, so 143 is just a kill: a harness restart, a machine going to sleep, a
@@ -2482,11 +2486,13 @@ line names the same watched path — never by `pkill`, `killall` or a `ps | grep
 `watch-remarks.sh`. A streaming watcher writes the same pid file an exiting one does, so nothing about
 that rule changes.
 
-⚠️ **`Monitor` is Claude Code's own tool.** Every other agent runs the exit-per-batch shape, so
-`SKILL.md` keeps both branches and the default shape is byte for byte what it was. Listen mode picks
-between them with one shell variable on the first line of a setup block the two branches otherwise
-share, and the summarise, answer and wait-for-go steps are written once, in a section both branches
-end in, so there is one copy rather than two that can drift apart.
+⚠️ **`Monitor` is Claude Code's own tool.** Every other agent runs the exit-per-batch shape. Since
+the skill was split, `SKILL.md` keeps the monitor branch and one pointer sentence, and the
+exit-per-batch branch sits in `listen-without-monitor.md` with its bytes unchanged. Listen mode still
+picks between them with one shell variable on the first line of a setup block the two branches
+otherwise share, and that setup block stayed in `SKILL.md` because both branches run it. The
+summarise, answer and wait-for-go steps are written once too, in a section of `SKILL.md` both
+branches end in, so there is one copy rather than two that can drift apart.
 
 ⚠️ **Any hand check of this runs in the scratchpad with a fake `HOME` and a fake port.** Faking `HOME`
 alone is not enough: a handshake file names a port, the ordinary one is `63342`, and that is the IDE
@@ -2851,10 +2857,27 @@ not; and the IDE is on the same machine in the normal case. Each moved section i
 paid for on every run and used on almost none.
 
 **Nothing was deleted for being long.** Every moved section kept its bytes and only its address
-changed. `SKILL.md` is 78,232 now, the three files are 9,049, 3,225 and 8,253, and the four together
-are the original 96,306 plus exactly 2,453 bytes of new file titles and the pointer sentences left
-behind. ⚠️ That arithmetic is the whole proof that nothing was dropped, so a later edit that moves
-more material out should redo it rather than trust that a section arrived whole.
+changed, and the four files together came to the original 96,306 plus nothing but the new file
+titles, the pointer sentences left behind, and the cross-references the review passes afterwards
+repointed at a file and a section instead of "above" or "below". The CHANGELOG entry "after 0.12.1 — the skill loads
+less of itself" carries that arithmetic, file by file, as the record of the move. It is deliberately
+not repeated here: these numbers go stale on the first ordinary edit to `SKILL.md`, and a stale proof
+in the living design document is worse than none.
+
+⚠️ **A pointer that crosses into another file is the thing that rots.** Every "above" and "below" in
+a moved section stopped meaning anything the moment it moved, and one of them sent the monitor branch
+into the exit-per-batch file for a `published-read` block that is wrong for it in two ways. So a
+later move names the file and the section heading in every cross-reference, in both directions, and
+`SkillResourceTest` holds the machine-checkable half, and its two directions deliberately scan
+different sets of files. ⚠️ **Forward: every reference file has to be named by `SKILL.md` itself.**
+`SKILL.md` is the only skill file a session loads on its own, so a reference file named only by
+another reference file has no entry route — the file naming it is one nobody opens either. That is a
+live case, not a hypothetical: `watcher-background.md` is named by `listen-without-monitor.md` as
+well, and Claude Code always takes the monitor branch and is told never to open that file.
+**Reverse: every `*.md`/`*.sh` name pointed at has to be in `SKILL_FILES`, unioned over every
+markdown file in the list**, not `SKILL.md` alone — the reference files cross-reference each other
+and both scripts, so a reverse check that read only `SKILL.md` would leave the same rot one file away
+from where it looked.
 
 ⚠️ **Each reference file has to name its own subject in its first lines.** A session opens one with
 the `Read` tool, out of order, with none of `SKILL.md`'s argument in front of it. So each opens with
@@ -2870,8 +2893,11 @@ where a session would hit that situation rather than collected at the end.
 is the setup block both listen branches run first, the monitor branch itself, the launch line with
 its flags — a session that needs to start a watcher must not have to open a second file to do it —
 and the section that resolves the script directory, which the setup block cannot do from inside
-another file. What is left at 78,232 bytes is those modes, so cutting further would mean deleting
-content rather than moving it.
+another file. What is left, around 80,000 bytes, is those modes, so cutting further would mean deleting
+content rather than moving it. ⚠️ **That figure is a measurement, not a ceiling.** The plan's 80,000
+existed only to stop the split chasing an unreachable 60,000; a later pass read it as a budget and
+cut a comment to fit, which inverts the rule that nothing is deleted for being long. A correctness
+fix that needs another 500 bytes spends them.
 
 ### The install copies, and development symlinks, and they are opposite on purpose
 

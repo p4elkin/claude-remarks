@@ -18,7 +18,7 @@ description: >
   running on the same machine is the normal case for all three. When the IDE is on another machine,
   reached over SSH, the one-shot read and listen mode both need a tunnel the person sets up by hand
   and four connection values from them, which this skill can also store so they are not retyped
-  every run — see "Over SSH: the IDE on another machine" in remote-and-trouble.md.
+  every run.
 ---
 
 # Claude Remarks
@@ -37,6 +37,15 @@ Three things this skill does with the Claude Remarks tool window, and they do no
   harness has a `Monitor` tool, and with a fresh watcher after every batch everywhere else. Opt-in
   only: start this because a person asked, in words, to watch or listen, never because a published
   file was noticed. That is `## Listen for the next batch`.
+
+**Three more files sit beside this `SKILL.md`, in this skill's own directory**, and every pointer
+below names one of them by its bare file name: `listen-without-monitor.md`,
+`watcher-background.md` and `remote-and-trouble.md`. Each holds a section a run needs only
+sometimes, and nothing opens one until a pointer sends you there. ⚠️ A skill has no variable naming
+its own directory, so if a `Read` of the bare name does not resolve, run the three-candidate block
+in `## Where the skill's own files are, and how to name them` below. It prints one line,
+`skill_dir=<the directory>`, and the file to read is that directory's own `<name>`: the two scripts
+and these three files all sit in it.
 
 Pick the first when there are files the person should be looking at. Pick the second when the person
 says they published something, or asks for remarks that already exist. Pick the third only when the
@@ -392,8 +401,8 @@ the two modes above, this one runs open-ended in the background instead of answe
   watcher streams one line per batch, keeps its own seen nonce, and claims each batch itself.
 - **No — every other agent.** Keep the exit-per-batch loop this skill has always used: one watcher
   per batch, read what it printed when it exits, then arm a fresh one. Nothing about that path
-  changes, and it must keep working. Read `listen-without-monitor.md` for the whole of this branch,
-  once the setup block below has run.
+  changes, and it must keep working. Read `listen-without-monitor.md`, beside this file, for the
+  whole of this branch, once the setup block below has run.
 
 **What the two branches share is almost everything.** The setup below is one block for both. Both
 watch the same published file, both claim a batch before acting on it, both summarise a batch into
@@ -484,10 +493,10 @@ if [ -f "$listen_conf" ]; then
 fi
 [ -n "$listen_project" ] || listen_project=$listen_root
 
-# Where the watcher script is. See "Where the two scripts are, and how to name them" below: the
-# skill's directory is not on PATH, so the launch line printed at the end of this block has to
-# carry an absolute path or it answers "command not found". The third candidate below is not an
-# implementation detail: it is what lets this script run straight out of a checkout of this
+# Where the watcher script is. See "Where the skill's own files are, and how to name them" below:
+# the skill's directory is not on PATH, so the launch line printed at the end of this block has
+# to carry an absolute path or it answers "command not found". The third candidate below is not
+# an implementation detail: it is what lets this script run straight out of a checkout of this
 # repository, with no install step at all.
 listen_skill_dir=
 for listen_candidate in \
@@ -615,7 +624,8 @@ fi
 echo "listen_session=$listen_session"
 echo "listen_project=$listen_project"
 [ -n "$listen_remote" ] || echo "listen_file=$listen_file"
-# Printed only when there is a pending batch to read. This is the path the table below says to open.
+# Printed only when there is a pending batch to read. This is the path the startup-claim table in
+# listen-without-monitor.md says to open.
 [ -z "$listen_copy" ] || echo "listen_copy=$listen_copy"
 
 if [ -n "$listen_monitor" ]; then
@@ -734,11 +744,21 @@ exit-143 bullet below.
   there is no mismatch to check for and no newer batch hiding behind the path. A batch published
   while this session was busy is a batch of its own, with a snapshot and a line of its own, and it
   arrives as the next notification.
-- **Acknowledge the batch yourself when the outcome word was not `ok`.** Use the `published-read`
-  block `listen-without-monitor.md` spells out, with field 1's nonce in place of
-  `$listen_nonce` and the session id the setup block printed in place of `$listen_session`. For
-  `unknown-batch` that call answers `unknown-batch` again and marks nothing read — send it anyway,
-  rather than keeping a second rule for the one case where it is only a wasted request.
+- **Acknowledge the batch yourself when the outcome word was not `ok`.** Send the same
+  `published-read` call the startup claim in `### The setup, run first in both branches` above
+  sends, with field 1's nonce in place of `$listen_seen`. ⚠️ **Nothing carries a variable from one
+  Bash call to the next**, so all four of that block's values are empty here and each comes from
+  what it printed: `$listen_session` and `$listen_project` are its own printed lines, and the
+  monitor launch line beside them holds the other two — `$listen_base_url` is the value after
+  `--claim`, and `$listen_token` is what that line's `CLAUDE_REMARKS_TOKEN=$(…)` prefix reads, so
+  run that same command here and keep the token on stdin through the `curl --config -` file, never
+  in an argument. A launch line with no `--claim` means no IDE has this project open and there is no
+  token: say the batch could not be acknowledged.
+  For `unknown-batch` that call answers `unknown-batch` again and marks nothing read — send it
+  anyway, rather than keeping a second rule for the one case where it is only a wasted request.
+  ⚠️ Do **not** open `listen-without-monitor.md` for this. Its copy of the call builds a URL from a
+  local handshake file, so it prints "cannot acknowledge" in the remote case, and the step written
+  under it is "re-arm, immediately", which this branch must never do.
 - Then the three steps both branches share: **summarise, answer, wait for go.**
 - **Arm nothing.** The monitor armed at the start is still running and the next batch is already
   covered. ⚠️ Arming a second watcher here is the mistake this branch exists to prevent: two watchers
@@ -1011,16 +1031,21 @@ the token out of the stored `remote-<hash>.env`, and put the stored project path
 machine's** path — in the `project` field. Everything else in the block is unchanged, the token line
 included.
 
-Setting up the tunnel itself, and the four connection values it needs, is now in
-`remote-and-trouble.md`'s "Over SSH" section — read it before this remote case, or any of the
-remote-case paragraphs above, can actually be acted on.
+Setting up the tunnel itself, and the four connection values it needs, is in
+`remote-and-trouble.md`'s "Over SSH" section — that file sits beside this one, in this skill's own
+directory. Read it before this remote case, or any of the remote-case paragraphs above, can actually
+be acted on.
 
-## Where the two scripts are, and how to name them
+## Where the skill's own files are, and how to name them
 
 **Both scripts are named by absolute path, always. Never by their bare name.** `watch-remarks.sh`
 and `remote-config.sh` sit in this skill's own directory, which is not on any shell's `PATH`, so a
 line reading `watch-remarks.sh --file …` answers `command not found` and the whole wait mechanism
 below silently does nothing. That has happened for real.
+
+**The three reference files sit in that same directory**, and this section covers them too. A `Read`
+of a bare name is resolved by the harness rather than by a shell, so it usually works; when it does
+not, the block below hands back the directory to put in front of the name.
 
 **A skill has no variable naming its own directory**, so where it sits is a convention, and the
 convention is the one `docs/skill/README.md` installs: `~/.claude/skills/claude-remarks/`,
@@ -1051,6 +1076,8 @@ if [ -z "$skill_dir" ]; then
   echo "again. Do not fall back to the bare name: it is not on PATH and never has been."
   exit 1
 fi
+# Printed on success: a later Read of a reference file names "$skill_dir/<name>" out of this line.
+echo "skill_dir=$skill_dir"
 ```
 
 `remote-config.sh` is named the same way. Where this file writes it out in prose it is written
@@ -1103,10 +1130,10 @@ perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '<skill dir>/watch-remar
 fail**, and they fail in a way that looks fine: the watcher starts, claims its pid file and polls
 normally, right up until something signals the launching shell's process group.
 
-⚠️ Read `watcher-background.md` if the watcher will not start, or dies unexpectedly with
-`Terminated: 15` in its output — it carries the measured proof for why the line above is not the
-same as `nohup … &` or a `( … & )` double fork, and why detaching this way means the watcher outlives
-the session.
+⚠️ Read `watcher-background.md`, beside this file, if the watcher will not start, or dies
+unexpectedly with `Terminated: 15` in its output — it carries the measured proof for why the line
+above is not the same as `nohup … &` or a `( … & )` double fork, and why detaching this way means the
+watcher outlives the session.
 
 **`--owner` is passed `$PPID`, never `$$`.** `$$` is the Bash call's own shell, and that shell exits
 as soon as the block printing the launch line finishes — a watcher owning it would exit on its first
@@ -1167,12 +1194,11 @@ watch-remarks.sh --fetch <base_url> --project <path>
 - `--owner <pid>` names the process the watcher belongs to. Every exit-per-batch launch line passes
   it, set to `$PPID` — see "Launching it, and why the `perl` line is there" just above for what that
   is, and `watcher-background.md` for why the watcher would otherwise outlive the session. ⚠️ The
-  monitor branch passes no
-  `--owner` at all; a wrong pid there would end the watch on its first poll, which is the only thing
-  passing it could still do. The loop tests it with `kill -0` once per
+  monitor branch passes no `--owner` at all; a wrong pid there would end the watch on its first
+  poll, which is the only thing passing it could still do. The loop tests it with `kill -0` once per
   poll, beside the deadline check, and exits `3` when it is gone. Optional: with no `--owner` the
-  script behaves exactly as it did before this flag existed. Validated the way `--deadline` is —
-  a non-numeric value, an empty one and zero are all refused with exit `2`. Zero has a reason of its
+  script behaves exactly as it did before this flag existed. Validated the way `--deadline` is — a
+  non-numeric value, an empty one and zero are all refused with exit `2`. Zero has a reason of its
   own: `kill -0 0` asks about the caller's whole process group and would answer "alive" forever.
 - The token for `--fetch` is read from `CLAUDE_REMARKS_TOKEN` in the environment, never from an
   argument — an argument is visible to every process on the machine through `ps`, and the token is

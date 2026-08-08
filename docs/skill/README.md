@@ -34,25 +34,29 @@ endpoint it talks to are one protocol, and five separate pairs of halves have to
   nothing else — its optional `session` field went with review mode in phase 12, so it now always
   hands back whatever batch was last published for that project;
 - the five fixed lines `PublishedHeader.render()` writes, in `review/PublishedRemarks.kt`, and the
-  line-numbered reads that depend on that exact order. **There are three readers, not two, and a
+  line-numbered reads that depend on that exact order. **There are four readers, not two, and a
   header reorder has to be checked against all of them** — this is the one bullet where a silent
   drift is possible, because reading the wrong line raises no error at all, it just returns the wrong
   string:
   - `review/PublishedRemarks.kt` writes the five lines and `publishedHeaderOf` parses lines 2 to 5
     back;
   - `SKILL.md` reads the header by line number in its inline shell, in both reading modes;
+  - `listen-without-monitor.md` reads it by line number too, out of what the watcher printed, in the
+    exit-per-batch listen branch. That branch used to sit inside `SKILL.md` and moved into its own
+    file when the skill was split, so it is easy to miss when checking a reorder;
   - `watch-remarks.sh` reads it by line number too: **line 1** for the marker
     `<!-- claude-remarks: published -->` and **line 2** for `nonce: `. It reads no other line.
 
   The header was eight lines until phase 12, carrying `review:`, `label:` and `rejected:` after
   `remarks:`, which is how a rejection was told apart from a real batch. All three are gone with
   review mode: there is one kind of batch now. A file left behind by version `0.8.0` or earlier still
-  reads correctly through every one of the three readers, because lines 1 to 5 did not move and
+  reads correctly through every one of the four readers, because lines 1 to 5 did not move and
   nothing checks line 6 — the three extra lines simply read as part of the body. What does not
   survive is its acknowledgement, since the IDE forgot that batch when it restarted;
 - the five values the `published-read` action answers — `ok`, `already-read`, `unknown-batch`,
-  `unknown-project`, `bad-request` — read by the inline shell in `SKILL.md`'s two reading modes and,
-  since phase 14, by `watch-remarks.sh` too. The watcher sends `published-read` only when it is
+  `unknown-project`, `bad-request` — read by the inline shell in `SKILL.md`'s two reading modes, by
+  the second copy of that call in `listen-without-monitor.md`'s exit-per-batch branch, and, since
+  phase 14, by `watch-remarks.sh` too. The watcher sends `published-read` only when it is
   launched with `--claim` and `--session`; with neither it sends nothing and only polls the published
   file or `POST /fetch`, which is what every caller before phase 14 gets. When it does claim, it puts
   the answer on the end of the one line it prints for the batch — `ok`, `already-read <session>` or
@@ -63,7 +67,7 @@ endpoint it talks to are one protocol, and five separate pairs of halves have to
   `watch-remarks.sh` holds the other half of, in its `--fetch` loop. ⚠️ `no-review` means "nothing
   has been published for this project". It kept that name from when a review was the only thing that
   published, and renaming it would break every deployed copy of the skill and of the watcher at once.
-  `watch-remarks.sh` is still one of the three readers of the header above; the two facts are
+  `watch-remarks.sh` is still one of the four readers of the header above; the two facts are
   separate;
 - the six values the `answer` action answers — `ok`, `unknown-batch`, `unknown-remark`, `too-large`,
   `unknown-project`, `bad-request` — plus the 16 KiB `MAX_ANSWER_BYTES` cap on the body, against the
@@ -79,5 +83,6 @@ endpoint it talks to are one protocol, and five separate pairs of halves have to
 
 Keeping both halves of each in one place is what stops them drifting apart. The IDE and the
 Claude Code session run on the same machine in the normal case, and over a tunnel in the remote
-one — see "Over SSH: the IDE on another machine" in `claude-remarks/remote-and-trouble.md`, the file
-`SKILL.md` points at for that case.
+one — see "Over SSH: the IDE on another machine" in `remote-and-trouble.md`, which sits beside
+`SKILL.md` in the resource directory named at the top of this file and is what `SKILL.md` points at
+for that case.

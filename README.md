@@ -355,7 +355,7 @@ before either move is a dangling symlink and has to be recreated with one of the
 It is kept in this repository rather than only under `~/.claude/skills` because the skill and the
 IDE endpoint it talks to are one protocol, with five pairs of halves that have to agree — the request
 shape and answers of each of the four endpoint actions, plus the five fixed header lines and their
-three readers. Keeping both halves of each in one place is what stops them drifting.
+four readers. Keeping both halves of each in one place is what stops them drifting.
 `docs/skill/README.md` spells all five out.
 
 The skill has three modes.

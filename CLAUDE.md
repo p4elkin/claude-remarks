@@ -1,6 +1,6 @@
 # Claude Remarks — Working Notes
 
-An IntelliJ Platform plugin, version `0.12.0`. A person reads code in the IDE, marks the places worth
+An IntelliJ Platform plugin, version `0.12.1`. A person reads code in the IDE, marks the places worth
 saying something about, and the plugin turns every mark into one markdown prompt for a Claude Code
 session. Nothing is ever written into a source file.
 
@@ -205,9 +205,15 @@ session that invokes the skill loads the whole of `SKILL.md` before it does any 
 can never take is paid for on every run — the listen branch written for a harness with no `Monitor`
 tool is the clearest one, since Claude Code always takes the other. `SKILL.md` keeps the three modes
 whole and points at each reference file with one sentence saying when to go and read it. Nothing was
-deleted for being long: `SKILL.md` went from 96,306 bytes to 78,232, and the four markdown files
-together hold every byte of the original plus 2,453 bytes of new titles and pointer sentences. See
+deleted for being long: `SKILL.md` went from 96,306 bytes to 80,329, and the CHANGELOG entry "after
+0.12.1 — the skill loads less of itself" carries the byte accounting that proves the difference is
+nothing but the new titles, the pointer sentences and the cross-references repointed afterwards. See
 `design.md`, "The skill is six files, split by when a session needs each one".
+
+⚠️ **Both update surfaces compare version strings only**, so an existing install stays on whatever
+files its version shipped with until the version moves. Splitting the skill without bumping
+`build.gradle.kts` means `shouldNotifySkillInstall` stays quiet and the settings row still says "up
+to date"; the person's only route is the Reinstall button, until the next release bumps the version.
 
 It has three modes, and only the first two run without being asked:
 
@@ -895,7 +901,20 @@ excluded rather than throwing, three tests on the column being clamped to its ow
 `toJson` shapes), and the four skill classes — `SkillResourceTest` (every name in `SKILL_FILES`
 resolves on the classpath and is not empty — it loops the list rather than naming files, so a name
 added there is covered the moment it is added, and it asks production for the path rather than
-writing a copy of it, the same argument `RemarkIconsTest` makes), `SkillInstallTest` (the stamp on both branches
+writing a copy of it, the same argument `RemarkIconsTest` makes; ⚠️ the loop is the whole body, so
+two lines in front of it assert `SKILL_FILES` is non-empty and still carries `SKILL.md`, because an
+emptied list would otherwise pass with no assertion run at all. Its second test is the pointer guard,
+and it is the only test in the repository that reads the skill's prose. ⚠️ Its two directions scan
+different sets of files on purpose. Forward: every name in `SKILL_FILES` apart from `SKILL.md` has to
+appear in **`SKILL.md` itself**, because that is the only skill file a session loads on its own — a
+reference file named only by another reference file has no entry route, since nothing opens that file
+either until `SKILL.md` sends a session there. Reverse: every `*.md`/`*.sh` file name pointed at has
+to be in `SKILL_FILES`, unioned over **every** `.md` name in the list rather than `SKILL.md` alone,
+because the reference files cross-reference each other and both scripts —
+`README.md` allowed through, since `docs/skill/README.md` is a
+repository document no installed skill can reach. Without it, renaming a reference file and
+forgetting the sentences that send a session to it leaves the suite green while a live session is
+told to `Read` a file that was never installed), `SkillInstallTest` (the stamp on both branches
 ⚠️ including CRLF and a byte-order mark, the pin against the real `SKILL.md` that the stamp never
 lands inside the `description:` block scalar, `stampedVersionOf`'s three answers and its five-line
 cutoff, detection ⚠️ including a bare `~/.claude` with no `skills/` inside it, the install's success
@@ -907,7 +926,13 @@ count of six — so a seventh name is covered the day it is added, and a leftove
 temp file fails it — and the symlink refusals ⚠️ for a symlinked `~/.claude` and a
 symlinked `skills/` as well as for the leaf and the files inside, each asserting nothing at the far end
 changed, plus one that an ordinary temporary directory is **not** refused, which is what fails if
-somebody replaces the check with a `toRealPath()` comparison), `SkillRowTextTest` (every branch of
+somebody replaces the check with a `toRealPath()` comparison. ⚠️ The per-file refusal is asserted for
+a symlinked **reference file** as well as for a symlinked `SKILL.md`, and that is the case that
+matters: a reference file is written in the first loop, so a refusal that stopped covering it would
+write through the link before anything noticed, while `SKILL.md` is written last and would be safe by
+accident. Both assert every name in `SKILL_FILES` is absent afterwards, derived from the list rather
+than naming the two scripts. Every temporary directory the class makes is deleted again in an
+`@After`), `SkillRowTextTest` (every branch of
 the settings row's sentence and button label) and `SkillInstallNotificationTest`
 (`shouldNotifySkillInstall` across every combination, and ⚠️ that the balloon's sentence never says
 "not installed" about a machine that has a copy) — are plain JUnit tests with
