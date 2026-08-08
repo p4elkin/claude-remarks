@@ -67,7 +67,7 @@
          hand-written summary of its newest section. Rewrite it in the same commit that bumps the
          version in build.gradle.kts, or the panel keeps describing the release before this one. -->
     <change-notes><![CDATA[
-        <b>0.12.0</b>
+        <b>0.12.1</b>
         <ul>
             <li>The Claude Code skill ships inside the plugin. Nothing to copy by hand.</li>
             <li>Settings &rarr; Tools &rarr; Claude Remarks installs it, and says which version is on disk.</li>

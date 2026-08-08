@@ -4,15 +4,49 @@ This project was built in fifteen phases over six days, each one planned in a fi
 `docs/plans/` before any code was written. The entries below are the record of those phases,
 newest first.
 
-They are development history, not release announcements: nothing here was published to the
-JetBrains Marketplace, and a version number only ever means "this is what `build.gradle.kts` said
-when that phase finished". Every version and date below is read out of the git history of
-`build.gradle.kts`, and every plan section named at the end is a file in this repository.
+They are development history, not release announcements. A version number mostly means "this is what
+`build.gradle.kts` said when that phase finished". Every version and date below is read out of the
+git history of `build.gradle.kts`, and every plan section named at the end is a file in this
+repository. `0.12.0` is the first version that was ever submitted to the JetBrains Marketplace, and
+it was rejected; `0.12.1` is the fix.
 
 The design that came out of all this lives in `docs/claude/design.md`, which is kept current with
 the code. These entries are how the work happened; that document is what the system now is.
 
 ---
+
+## 0.12.1 — 2026-08-08 — the version lookup stops asking the platform
+
+`0.12.0` was submitted to the JetBrains Marketplace and its automated verification refused it:
+**1 usage of internal API**, `PluginManager.getPluginByClass(Class)`. Nothing user-visible changes in
+this release.
+
+- **What went wrong, and why a local run did not catch it.** `sinceBuild = "252"` carries no upper
+  bound, so the plugin claims every later build and the Marketplace verifies against every later
+  build — it used IntelliJ IDEA 2026.2.1 rc (262.9437.65). `getPluginByClass` carries no annotation
+  at all in the 252 line the plugin compiles against and is `@ApiStatus.Internal` in 262, so
+  `./gradlew verifyPlugin` against the compile target stayed green while the upload was refused.
+- **Both obvious replacements are internal too.** `PluginManager.findEnabledPlugin` and
+  `PluginManagerCore.getPlugin` are both `@ApiStatus.Internal` in 262, checked against that exact
+  build's sources. 262 points at `PluginDetailsService` instead, which does not exist in 252, so
+  there is nothing to compile against. ⚠️ There is no platform call for "what version am I" that is
+  supported across the range this plugin claims.
+- **So the build writes the answer into a resource.** `writePluginVersionResource` in
+  `build.gradle.kts` puts the version in `dev/sasha/clauderemarks/plugin-version.txt`, and
+  `bundledPluginVersion()` reads it back. The path sits inside the plugin's own package on purpose:
+  `/META-INF/plugin.xml` and a bare `/version.txt` are names platform jars also carry, and which copy
+  a classloader returns is not something to bet a version number on. `skill/BundledSkillVersion.kt`
+  now has no `com.intellij` import at all, so unlike the old lookup it returns a real version inside
+  a test fixture instead of null.
+- **`PluginVersionResourceTest` guards it.** One Gradle task produces that resource and nothing else
+  would fail if it stopped running: the settings row would quietly say "version unknown" and the
+  install notification would return early and never fire, with nothing logged either way.
+- **`pluginVerification.ides` now asks for more than the compile target.** ⚠️ It does not yet get it:
+  `recommended()` resolves to 252 alone, and neither `2026.2` nor the build number `262.9437.65`
+  resolves for IntelliJ IDEA Community through the default repositories, so the `select` block for
+  262 and later currently matches nothing and the local run still schedules one verification. The
+  block is left in place so it starts covering 262 the moment that build reaches the feed. Until
+  then, ⚠️ **a green local `verifyPlugin` is not the same check the Marketplace runs.**
 
 ## 0.12.0 — 2026-08-07 — phase 15: the skill ships inside the plugin, and the plugin installs it
 
