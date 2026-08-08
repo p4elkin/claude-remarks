@@ -20,8 +20,10 @@ The goal is to cut what a session loads by moving whole sections into separate f
 only when the session actually needs them. **Nothing is deleted for being long.** Every section that
 moves keeps its words; only its address changes.
 
-The target is `SKILL.md` under 60,000 bytes with no loss of content, and every moved section reachable
-by one clear sentence telling the session when to go and read it.
+The target is `SKILL.md` under 80,000 bytes with no loss of content, and every moved section reachable
+by one clear sentence telling the session when to go and read it. (This target was written as 60,000
+and corrected to 80,000 once tasks 1-3 had landed — see the first item of task 4 for why the original
+number could not be reached without deleting content.)
 
 Two things make this worth doing rather than tidy:
 
@@ -41,7 +43,7 @@ flowchart TD
     today -->|"96 KB, all of it"| both["Both listen branches, the perl background,<br>the remote section, the failure sentences"]
 
     md --> after{"After: how much?"}
-    after -->|"under 60 KB"| core["The three modes, and the branch it will actually take"]
+    after -->|"under 80 KB"| core["The three modes, and the branch it will actually take"]
     core --> need{"Does this run need more?"}
     need -->|"no Monitor tool"| f1["Reads listen-without-monitor.md"]
     need -->|"the watcher will not start"| f2["Reads watcher-background.md"]
@@ -219,20 +221,41 @@ it.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] `SKILL.md` is under 60,000 bytes
-- [ ] The four markdown files together account for every byte of the original 96,306, allowing only
-      the new headers each task recorded
-- [ ] Every pointer in `SKILL.md` names a file that exists, checked by listing the directory
-- [ ] Each new file's first paragraph names its own subject, so it reads correctly when opened alone
-- [ ] `SKILL_FILES` has six entries and `SkillResourceTest` passes, which proves all six resolve on
-      the classpath
-- [ ] Install into a temporary home and confirm six files land, the two scripts are executable and the
-      three reference files are not
-- [ ] ⚠️ Every check above runs with `HOME` pointed at a directory under the scratchpad, and never
-      against the real `~/.claude` or `~/.claude-remarks`
-- [ ] Run the full suite: `./gradlew test`, counting from `build/test-results/test/*.xml`
-- [ ] Run `./gradlew buildPlugin` and list the jar to confirm all six skill files ship
-- [ ] Run `./gradlew verifyPlugin` — must still report Compatible with no internal API
+- [x] `SKILL.md` is under **80,000** bytes — measured 78,232. ⚠️ This criterion was written as 60,000
+      and that number was an estimate rather than a measurement. Tasks 1-3 moved every genuinely
+      situational section out — 20,527 bytes into three files — and what is left is the three modes
+      themselves, which the plan deliberately keeps whole because they are the work. So 60,000 was
+      unreachable without deleting content, which this plan forbids. Corrected to 80,000 by Sasha
+      after tasks 1-3 landed
+- [x] The four markdown files together account for every byte of the original 96,306, allowing only
+      the new headers each task recorded — 78,232 + 9,049 + 3,225 + 8,253 = 98,759, which is 96,306
+      plus exactly the 2,453 bytes of new headers and pointer sentences the three tasks recorded
+      (389 + 896 + 1,168)
+- [x] Every pointer in `SKILL.md` names a file that exists, checked by listing the directory — the
+      five names it points at are `listen-without-monitor.md`, `watcher-background.md`,
+      `remote-and-trouble.md`, `watch-remarks.sh` and `remote-config.sh`, and all five are in the
+      directory; the one path outside it, `docs/skill/README.md`, exists too
+- [x] Each new file's first paragraph names its own subject, so it reads correctly when opened alone
+      — each of the three opens with a `#` title and a paragraph saying which section of `SKILL.md`
+      it holds and when to read it
+- [x] `SKILL_FILES` has six entries and `SkillResourceTest` passes, which proves all six resolve on
+      the classpath — the test loops `SKILL_FILES` rather than naming files, so it covers all six
+- [x] Install into a temporary home and confirm six files land, the two scripts are executable and the
+      three reference files are not — a new `SkillInstallTest` case does the whole real install (a
+      temporary home with a bare `~/.claude`, `detectHarnesses`, then `installSkill` reading the
+      plugin's real resources), then compares the directory listing against `SKILL_FILES` and asserts
+      the executable bit is set for exactly the `.sh` names
+- [x] ⚠️ Every check above runs with `HOME` pointed at a directory under the scratchpad, and never
+      against the real `~/.claude` or `~/.claude-remarks` — no check here reads `HOME` at all: the
+      install test builds its own temporary home, and the jar was unpacked into the scratchpad
+- [x] Run the full suite: `./gradlew test`, counting from `build/test-results/test/*.xml` — 726 tests
+      across 61 classes, 0 failures, 0 errors, 0 skipped
+- [x] Run `./gradlew buildPlugin` and list the jar to confirm all six skill files ship — all six are
+      in `claude-remarks-0.12.1.jar` under `dev/sasha/clauderemarks/skill/`, at the same byte sizes
+      they have in the source tree
+- [x] Run `./gradlew verifyPlugin` — must still report Compatible with no internal API — Compatible,
+      7 experimental API usages (the markdown preview's three getters and `JBHtmlPane`'s four, both
+      already argued in `CLAUDE.md`), and no internal API usage at all
 
 ### Task 5: Update documentation
 

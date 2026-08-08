@@ -402,6 +402,40 @@ class SkillInstallTest {
     }
 
     @Test
+    fun `a real install into a temporary home lands every skill file, only the scripts executable`() {
+        // The only test in this class that reads the plugin's REAL resources rather than
+        // fakeResource, and it goes the whole way a settings-page install goes: a home directory with
+        // a bare ~/.claude in it, detectHarnesses picking the target, then installSkill. The
+        // temporary home is what keeps it away from the real ~/.claude, which on this machine is a
+        // symlink into this very checkout — see the class KDoc and
+        // .claude/rules/planning-rules.md.
+        val home = Files.createTempDirectory("claude-remarks-home-").toRealPath()
+        Files.createDirectories(home.resolve(".claude"))
+        val targetDir = SkillInstall.detectHarnesses(home).single().targetDir!!
+
+        val result = SkillInstall.installSkill(targetDir, "0.12.0") { name ->
+            SkillInstall::class.java.getResourceAsStream(SkillInstall.resourcePath(name))
+        }
+
+        assertNull(result)
+        // Compared as a set against SKILL_FILES rather than against a hand-written list of names or
+        // a count: a file added to SKILL_FILES is covered here the moment it is added, and an
+        // atomicWriteString temp file left behind would show up as an extra entry.
+        assertEquals(
+            SkillInstall.SKILL_FILES.toSet(),
+            Files.list(targetDir).use { paths -> paths.map { it.fileName.toString() }.toList() }.toSet(),
+        )
+        SkillInstall.SKILL_FILES.forEach { name ->
+            assertEquals(
+                "$name: only a .sh file is made executable",
+                name.endsWith(".sh"),
+                Files.isExecutable(targetDir.resolve(name)),
+            )
+        }
+        assertEquals(SkillInstall.SkillPresence.Present("0.12.0"), SkillInstall.skillPresence(targetDir))
+    }
+
+    @Test
     fun `refuses when the target directory is a symlink, and writes nothing at the far end`() {
         val realDir = Files.createTempDirectory("claude-remarks-real-").toRealPath()
         val marker = realDir.resolve("marker.txt")
