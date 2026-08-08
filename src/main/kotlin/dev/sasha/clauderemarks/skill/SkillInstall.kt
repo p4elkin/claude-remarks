@@ -38,7 +38,14 @@ object SkillInstall {
      * writes `SKILL.md` last, whatever order this list happens to be in.
      */
     val SKILL_FILES: List<String> =
-        listOf(SKILL_MD, "watch-remarks.sh", "remote-config.sh", "listen-without-monitor.md", "watcher-background.md")
+        listOf(
+            SKILL_MD,
+            "watch-remarks.sh",
+            "remote-config.sh",
+            "listen-without-monitor.md",
+            "watcher-background.md",
+            "remote-and-trouble.md",
+        )
 
     /**
      * The path segments this code appends below a person's home directory to reach the installed

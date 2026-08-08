@@ -24,6 +24,7 @@ class SkillInstallTest {
         "remote-config.sh" -> "#!/bin/sh\necho fake remote config\n".byteInputStream()
         "listen-without-monitor.md" -> "# The exit-per-batch branch\nfake reference content\n".byteInputStream()
         "watcher-background.md" -> "# Why the perl line is there\nfake background content\n".byteInputStream()
+        "remote-and-trouble.md" -> "# Over SSH, and what to say\nfake remote and trouble content\n".byteInputStream()
         else -> null
     }
 
@@ -389,7 +390,13 @@ class SkillInstallTest {
         assertNull(result)
         assertEquals("SKILL.md", order.last())
         assertEquals(
-            setOf("watch-remarks.sh", "remote-config.sh", "listen-without-monitor.md", "watcher-background.md"),
+            setOf(
+                "watch-remarks.sh",
+                "remote-config.sh",
+                "listen-without-monitor.md",
+                "watcher-background.md",
+                "remote-and-trouble.md",
+            ),
             order.dropLast(1).toSet(),
         )
     }

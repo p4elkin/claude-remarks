@@ -206,16 +206,16 @@ it.
 
 **Model:** sonnet
 
-- [ ] Create `remote-and-trouble.md` holding both sections, each keeping its own heading, with a first
+- [x] Create `remote-and-trouble.md` holding both sections, each keeping its own heading, with a first
       paragraph saying it covers two things: an IDE on another machine, and what to say when something
       fails
-- [ ] Delete both from `SKILL.md`, leaving one pointer for each, placed where a session would hit the
+- [x] Delete both from `SKILL.md`, leaving one pointer for each, placed where a session would hit the
       situation rather than at the end of the file
-- [ ] ⚠️ Check every remaining cross-reference in `SKILL.md` to either section by searching for "Over
+- [x] ⚠️ Check every remaining cross-reference in `SKILL.md` to either section by searching for "Over
       SSH" and for the failure wording, and repoint each one at the new file
-- [ ] Add `"remote-and-trouble.md"` to `SKILL_FILES`
-- [ ] Check the byte accounting against task 2's total
-- [ ] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 4
+- [x] Add `"remote-and-trouble.md"` to `SKILL_FILES`
+- [x] Check the byte accounting against task 2's total
+- [x] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 4
 
 ### Task 4: Verify acceptance criteria
 
