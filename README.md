@@ -34,11 +34,11 @@ The session reads that file and talks back over an HTTP endpoint that only liste
 ```mermaid
 flowchart TD
     you(["You, reading code"])
-    plugin["Claude Remarks plugin<br/>remarks live in IDE state"]
-    file[("The published file<br/>one per project, under ~/.claude-remarks/")]
-    watcher["watch-remarks.sh<br/>polls for a new batch"]
-    session["Claude Code session<br/>running the bundled skill"]
-    endpoint["The plugin's HTTP endpoint<br/>localhost only, token-gated"]
+    plugin["Claude Remarks plugin — remarks live in IDE state"]
+    file[("The published file — one per project, under ~/.claude-remarks/")]
+    watcher["watch-remarks.sh — polls for a new batch"]
+    session["Claude Code session — running the bundled skill"]
+    endpoint["The plugin's HTTP endpoint — localhost only, token-gated"]
 
     you -->|writes a remark| plugin
     plugin -->|Publish writes one batch| file
