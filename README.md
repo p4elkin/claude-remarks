@@ -32,7 +32,7 @@ needs with its position on the grey line underneath.*
 The session reads that file and talks back over an HTTP endpoint that only listens on localhost.
 
 ```mermaid
-flowchart LR
+flowchart TD
     you(["You, reading code"])
     plugin["Claude Remarks plugin<br/>remarks live in IDE state"]
     file[("The published file<br/>one per project, under ~/.claude-remarks/")]
