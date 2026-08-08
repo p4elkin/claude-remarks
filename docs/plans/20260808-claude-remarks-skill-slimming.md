@@ -259,13 +259,33 @@ it.
 
 ### Task 5: Update documentation
 
-- [ ] `CLAUDE.md`: the skill entry under "Project structure" names three files and warns that nothing
-      enumerates the directory. Update the count and the names
-- [ ] `docs/claude/design.md`: add why the skill is split by when a section is needed rather than by
-      topic, in the "Shipping the Skill Inside the Plugin" section
-- [ ] `CHANGELOG.md`: a new entry, with the before and after byte counts
-- [ ] `README.md`: check whether the skill section names the file count, and correct it if so
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] `CLAUDE.md`: the skill entry under "Project structure" names three files and warns that nothing
+      enumerates the directory. Update the count and the names — the Project-structure entry now
+      lists all six names, says the six live in `SkillInstall.SKILL_FILES` and warns about a
+      **seventh** file; the "The skill, and how it is installed" section above it names the six too
+      and gained a paragraph on why the three reference files are split out by when a session needs
+      them; and the Testing section's two now-false counts were corrected — `SkillResourceTest` loops
+      `SKILL_FILES` rather than covering "three resources", and the symlink refusal covers "the files
+      inside" rather than "the three files", with the two new `SkillInstallTest` cases described
+- [x] `docs/claude/design.md`: add why the skill is split by when a section is needed rather than by
+      topic, in the "Shipping the Skill Inside the Plugin" section — new subsection "The skill is six
+      files, split by when a session needs each one", with a table of file/content/when-read, the
+      argument against a topic split, the byte accounting as the proof nothing was dropped, why each
+      file must name its own subject, why a pointer is not optional, and what deliberately stayed.
+      The four now-false counts elsewhere in that section were corrected as well
+- [x] `CHANGELOG.md`: a new entry, with the before and after byte counts — "after 0.12.1 — 2026-08-08
+      — the skill loads less of itself", following the "after 0.8.0" precedent for a skill-side change
+      with no version bump: 96,306 before, 78,232 after, and the four-file sum proving the 2,453 bytes
+      of new titles and pointers are the only difference
+- [x] `README.md`: check whether the skill section names the file count, and correct it if so — it
+      said "three files" twice; both now say six and name what the three reference files are for.
+      ⚠️ It also carried a cross-reference that this plan's task 3 made false: the `ssh -R` line was
+      said to be in `SKILL.md`'s "Over SSH" section, which now lives in `remote-and-trouble.md`
+- [x] ➕ `docs/skill/README.md` had the same two problems and is not named in this task's list — the
+      "three files" opening and the same stale "Over SSH … in `SKILL.md`" pointer. Both fixed, since
+      the plan created both and leaving them would send a reader to a section that is no longer there
+- [x] Move this plan to `docs/plans/completed/` (skipped - the harness moves the plan after all
+      phases finish; moving it mid-run breaks every later review, finalize and stats phase)
 
 ## Post-completion
 

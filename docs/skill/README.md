@@ -1,11 +1,12 @@
 # Installing the claude-remarks skill
 
-The skill's three files — `SKILL.md`, `watch-remarks.sh` and `remote-config.sh` — live inside the
-plugin now, as plain resources under
+The skill's six files — `SKILL.md`, the two scripts `watch-remarks.sh` and `remote-config.sh`, and
+the three reference files `SKILL.md` points at, `listen-without-monitor.md`, `watcher-background.md`
+and `remote-and-trouble.md` — live inside the plugin now, as plain resources under
 `src/main/resources/dev/sasha/clauderemarks/skill/`. The ordinary way to install the skill is the
-Install button on the plugin's settings page (Settings → Tools → Claude Remarks), which copies the
-three files out of the running plugin, stamps the installed `SKILL.md` with its version, and makes
-the two scripts executable.
+Install button on the plugin's settings page (Settings → Tools → Claude Remarks), which copies all
+six out of the running plugin, stamps the installed `SKILL.md` with its version, and makes the two
+scripts executable.
 
 The two commands below are the fallback, for a checkout with no plugin build to hand, or before
 phase 15's install button exists in an installed version:
@@ -78,4 +79,5 @@ endpoint it talks to are one protocol, and five separate pairs of halves have to
 
 Keeping both halves of each in one place is what stops them drifting apart. The IDE and the
 Claude Code session run on the same machine in the normal case, and over a tunnel in the remote
-one — see "Over SSH: the IDE on another machine" in `claude-remarks/SKILL.md`.
+one — see "Over SSH: the IDE on another machine" in `claude-remarks/remote-and-trouble.md`, the file
+`SKILL.md` points at for that case.

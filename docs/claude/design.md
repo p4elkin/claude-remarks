@@ -2801,9 +2801,10 @@ does not detect and does not report on.
 
 Phase 15 moved the skill's three files into the plugin's own resources, and gave the plugin a way to
 install them into Claude Code. Before it, the skill was installed by hand, and somebody who installed
-the plugin zip got no skill at all.
+the plugin zip got no skill at all. There are six files now: `SKILL.md` was split, and the section
+below on when a session needs each one says why.
 
-**One copy, and it is a resource.** `SKILL.md`, `watch-remarks.sh` and `remote-config.sh` live at
+**One copy, and it is a resource.** All six live at
 `src/main/resources/dev/sasha/clauderemarks/skill/`, beside the two package-shaped resource
 directories the plugin already had, `icons/` and `preview/`. They used to live under
 `docs/skill/claude-remarks/`, and `docs/` never reaches the artifact: `claude-remarks-0.3.0.zip`
@@ -2816,7 +2817,7 @@ where a missed edit is invisible. One copy won, and the file that reads it in a 
 at the new path instead.
 
 **Nothing enumerates the directory.** Listing jar entries through a classloader is not something to
-rely on, so the three names sit in one constant, `SkillInstall.SKILL_FILES`. ⚠️ Adding a fourth file
+rely on, so the six names sit in one constant, `SkillInstall.SKILL_FILES`. ⚠️ Adding a seventh file
 to the skill later means adding its name there too. Forgetting is silent: the file simply is not
 installed, and nothing reports it.
 
@@ -2828,9 +2829,53 @@ is what keeps the classloader out and lets a test feed fake contents. The one re
 a separate file for exactly this reason: `PluginManager.getPluginByClass` is a `com.intellij` import,
 and the settings row and the notification both need that one lookup.
 
+### The skill is six files, split by when a session needs each one
+
+`SKILL.md` was 96,306 bytes over 1,478 lines. A session that invokes the skill loads all of it —
+roughly 24,000 tokens — before it does any work, and much of what it loads it can never use. Three
+sections moved into files of their own, read through the ordinary `Read` tool and only when the run
+actually needs them:
+
+| file | what is in it | when a session reads it |
+| --- | --- | --- |
+| `listen-without-monitor.md` | the exit-per-batch listen branch, one watcher per batch | the harness has no `Monitor` tool |
+| `watcher-background.md` | why the `perl … setsid()` launch line is not `( nohup … & )` | a watcher will not start, or dies unexpectedly |
+| `remote-and-trouble.md` | the IDE on another machine, and what to say when something fails | the IDE is over a tunnel, or a request failed |
+
+**The split is by when a section is needed, not by topic.** A topic split would have produced a file
+per mode, and every session takes one of the modes, so every session would open a second file to do
+ordinary work. The shape of the traffic is what makes this split worth having instead: Claude Code
+always has a `Monitor` tool, so it always takes the monitor branch and never needs the other one; a
+watcher that starts is the ordinary case, and the `setsid` argument is only ever wanted when one does
+not; and the IDE is on the same machine in the normal case. Each moved section is something a session
+paid for on every run and used on almost none.
+
+**Nothing was deleted for being long.** Every moved section kept its bytes and only its address
+changed. `SKILL.md` is 78,232 now, the three files are 9,049, 3,225 and 8,253, and the four together
+are the original 96,306 plus exactly 2,453 bytes of new file titles and the pointer sentences left
+behind. ⚠️ That arithmetic is the whole proof that nothing was dropped, so a later edit that moves
+more material out should redo it rather than trust that a section arrived whole.
+
+⚠️ **Each reference file has to name its own subject in its first lines.** A session opens one with
+the `Read` tool, out of order, with none of `SKILL.md`'s argument in front of it. So each opens with
+a title and a paragraph saying which part of `SKILL.md` it holds and when to read it. A file that
+opens mid-argument is unreadable on its own.
+
+⚠️ **A pointer in `SKILL.md` is not optional.** Nothing enumerates the directory and no session goes
+looking, so a moved section nothing points at is a section nobody reads again. Each of the three is
+reached by one sentence that names the file and the situation which sends a session to it, placed
+where a session would hit that situation rather than collected at the end.
+
+**What deliberately stayed.** The three modes are whole in `SKILL.md`, because they are the work. So
+is the setup block both listen branches run first, the monitor branch itself, the launch line with
+its flags — a session that needs to start a watcher must not have to open a second file to do it —
+and the section that resolves the script directory, which the setup block cannot do from inside
+another file. What is left at 78,232 bytes is those modes, so cutting further would mean deleting
+content rather than moving it.
+
 ### The install copies, and development symlinks, and they are opposite on purpose
 
-The choice was to copy the three files out or to symlink them. Copying wins for an installation, and
+The choice was to copy the skill's files out or to symlink them. Copying wins for an installation, and
 a symlink wins for a checkout.
 
 **Why an installation copies.** An installed plugin lives under a versioned path. A symlink into it
@@ -2860,7 +2905,7 @@ So `installSkill` checks `Files.isSymbolicLink` before it writes anything at all
 sentence saying it looks like a development install and has to be removed first.
 
 ⚠️ **It checks the ancestors too, not only the leaf.** The components are `~/.claude`,
-`~/.claude/skills`, `~/.claude/skills/claude-remarks` and the three files inside — everything this
+`~/.claude/skills`, `~/.claude/skills/claude-remarks` and the six files inside — everything this
 code appends below the home directory, one per segment of `CLAUDE_SKILL_SEGMENTS`, which is also what
 builds the target path, so the two can never disagree. A dotfiles checkout can make `~/.claude`
 itself the symlink: the leaf is then an ordinary directory, a leaf-only check passes, and
@@ -2935,8 +2980,8 @@ POSIX view.
 
 ### Why `SKILL.md` is written last
 
-The order is: the two scripts, then their executable bits, then the stamped `SKILL.md`. So the stamp
-is only ever on disk once the install really finished.
+The order is: the other five files, then the executable bit on the two scripts among them, then the
+stamped `SKILL.md`. So the stamp is only ever on disk once the install really finished.
 
 ⚠️ **With `SKILL.md` written first, a partly failed install reported itself up to date for ever.** A
 later write that failed, or a `setExecutable` that returned false, left the already-stamped

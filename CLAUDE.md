@@ -194,10 +194,20 @@ it.
 
 ### The skill, and how it is installed
 
-The skill is three files, shipped as ordinary plugin resources:
-`src/main/resources/dev/sasha/clauderemarks/skill/{SKILL.md,watch-remarks.sh,remote-config.sh}`. One
-copy and never two. They live there rather than under `docs/` because `docs/` never reaches the
-plugin zip.
+The skill is six files, shipped as ordinary plugin resources, all under
+`src/main/resources/dev/sasha/clauderemarks/skill/`: `SKILL.md`, the two scripts `watch-remarks.sh`
+and `remote-config.sh`, and three reference files — `listen-without-monitor.md`,
+`watcher-background.md` and `remote-and-trouble.md`. One copy and never two. They live there rather
+than under `docs/` because `docs/` never reaches the plugin zip.
+
+⚠️ **The three reference files are split out by when a session needs them, not by topic.** Every
+session that invokes the skill loads the whole of `SKILL.md` before it does any work, so a branch it
+can never take is paid for on every run — the listen branch written for a harness with no `Monitor`
+tool is the clearest one, since Claude Code always takes the other. `SKILL.md` keeps the three modes
+whole and points at each reference file with one sentence saying when to go and read it. Nothing was
+deleted for being long: `SKILL.md` went from 96,306 bytes to 78,232, and the four markdown files
+together hold every byte of the original plus 2,453 bytes of new titles and pointer sentences. See
+`design.md`, "The skill is six files, split by when a session needs each one".
 
 It has three modes, and only the first two run without being asked:
 
@@ -745,15 +755,19 @@ src/main/resources/dev/sasha/clauderemarks/preview/claude-remarks-preview.css
                                                   list. Both colours are alpha-blended over whatever
                                                   background is there, since this page defines no
                                                   theme colour variables a stylesheet could read
-src/main/resources/dev/sasha/clauderemarks/skill/{SKILL.md,watch-remarks.sh,remote-config.sh}
-                                                  the Claude Code skill itself. It sits under
+src/main/resources/dev/sasha/clauderemarks/skill/{SKILL.md,watch-remarks.sh,remote-config.sh,
+listen-without-monitor.md,watcher-background.md,remote-and-trouble.md}
+                                                  the Claude Code skill itself, six files: SKILL.md,
+                                                  the two scripts, and the three reference files
+                                                  SKILL.md points at, each read only when a session
+                                                  actually needs it. It sits under
                                                   src/main/resources/ so that it reaches the plugin
                                                   zip — docs/ never does. ONE copy, never two. They
                                                   are ordinary resources: they need no line in
                                                   build.gradle.kts and none in plugin.xml.
                                                   ⚠️ Nothing enumerates this directory — the
-                                                  three names live in SkillInstall.SKILL_FILES, and
-                                                  a fourth file added here without being added
+                                                  six names live in SkillInstall.SKILL_FILES, and
+                                                  a seventh file added here without being added
                                                   there is silently not installed
 src/main/resources/intentionDescriptions/AddRemarkIntention/description.html
 src/main/resources/intentionDescriptions/AskClaudeIntention/description.html
@@ -878,15 +892,20 @@ becoming an offset, an unanswered question becoming the question kind, an answer
 back to the plain kind, the three exclusions one test each — orphaned, about no file, about another
 file — several remarks each keeping their own offset, a start line past the end of the source being
 excluded rather than throwing, three tests on the column being clamped to its own line, and the two
-`toJson` shapes), and the four skill classes — `SkillResourceTest` (all three skill resources
-resolve on the classpath and are not empty, asking production for the path rather than writing a copy
-of it, the same argument `RemarkIconsTest` makes), `SkillInstallTest` (the stamp on both branches
+`toJson` shapes), and the four skill classes — `SkillResourceTest` (every name in `SKILL_FILES`
+resolves on the classpath and is not empty — it loops the list rather than naming files, so a name
+added there is covered the moment it is added, and it asks production for the path rather than
+writing a copy of it, the same argument `RemarkIconsTest` makes), `SkillInstallTest` (the stamp on both branches
 ⚠️ including CRLF and a byte-order mark, the pin against the real `SKILL.md` that the stamp never
 lands inside the `description:` block scalar, `stampedVersionOf`'s three answers and its five-line
 cutoff, detection ⚠️ including a bare `~/.claude` with no `skills/` inside it, the install's success
 path with both scripts executable, ⚠️ that `SKILL.md` is written **last** and that a later file
-failing leaves no stamp behind, and the symlink refusals ⚠️ for a symlinked `~/.claude` and a
-symlinked `skills/` as well as for the leaf and the three files, each asserting nothing at the far end
+failing leaves no stamp behind, that a reference `.md` file lands with its content intact and is
+**not** made executable, one whole real install into a temporary home whose target listing is
+compared against `SKILL_FILES` as a set with the executable bit derived from `.sh` rather than a
+count of six — so a seventh name is covered the day it is added, and a leftover `atomicWriteString`
+temp file fails it — and the symlink refusals ⚠️ for a symlinked `~/.claude` and a
+symlinked `skills/` as well as for the leaf and the files inside, each asserting nothing at the far end
 changed, plus one that an ordinary temporary directory is **not** refused, which is what fails if
 somebody replaces the check with a `toRealPath()` comparison), `SkillRowTextTest` (every branch of
 the settings row's sentence and button label) and `SkillInstallNotificationTest`

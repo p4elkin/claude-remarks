@@ -15,6 +15,57 @@ the code. These entries are how the work happened; that document is what the sys
 
 ---
 
+## after 0.12.1 — 2026-08-08 — the skill loads less of itself
+
+Nothing in the plugin's behaviour changed here and no version was bumped. This is the skill side
+only. `SKILL.md` was 96,306 bytes over 1,478 lines, and every session that invoked the skill loaded
+all of it — roughly 24,000 tokens — before doing any work. It is **78,232** bytes now, and what came
+out of it sits in three files a session reads only when it needs them.
+
+- **Nothing was deleted for being long.** Every moved section kept its bytes; only its address
+  changed. `SKILL.md` 78,232 + `listen-without-monitor.md` 9,049 + `watcher-background.md` 3,225 +
+  `remote-and-trouble.md` 8,253 = 98,759, which is the original 96,306 plus exactly the 2,453 bytes
+  of new file titles and pointer sentences the three moves added. That arithmetic is the proof, and
+  each task recorded its own share of it before the next one started.
+- **The split is by when a section is needed, not by topic.** `listen-without-monitor.md` holds the
+  exit-per-batch listen branch, which only a harness with no `Monitor` tool takes — Claude Code
+  always takes the other one and read this one anyway on every run. `watcher-background.md` holds the
+  argument for why the `perl … setsid()` launch line is not `( nohup … & )`, wanted only when a
+  watcher will not start; the launch line itself and its flags stayed, so nothing has to open a
+  second file to start one. `remote-and-trouble.md` holds "Over SSH: the IDE on another machine" and
+  "What to say if something goes wrong". A topic split would have made a file per mode, and every
+  session takes a mode, so every session would open a second file to do ordinary work.
+- **Each moved section is reachable by one sentence.** Nothing enumerates the directory and no
+  session goes looking, so `SKILL.md` points at each file where a session would hit the situation
+  rather than in a list at the end. Each reference file opens with a title and a paragraph naming its
+  own subject, because a session opens it with the ordinary `Read` tool and none of `SKILL.md`'s
+  argument in front of it.
+- **The install needed one line.** The three names were added to `SkillInstall.SKILL_FILES`.
+  `installSkill` already copied everything that is not `SKILL.md`, set the executable bit only on
+  `.sh` names, covered every name in the list by the symlink refusal and wrote the stamped `SKILL.md`
+  last — so a new `.md` file was handled correctly the moment it was named. `SkillResourceTest` loops
+  `SKILL_FILES` and covered all six at once. `SkillInstallTest` gained a case that runs a whole real
+  install into a temporary home, then compares the target listing against `SKILL_FILES` and asserts
+  the executable bit is set for exactly the `.sh` names, rather than counting to six.
+- ⚠️ **The plan aimed at 60,000 bytes, and that number was an estimate rather than a measurement.**
+  What is left once every situational section has moved is the three modes themselves, which the plan
+  keeps whole because they are the work. The target was corrected to 80,000 rather than reached by
+  deleting content.
+- ⚠️ **Anyone who installed `0.12.1` has three files.** The next install writes six. Nothing removes
+  a file that has left `SKILL_FILES`, which costs nothing here because nothing was renamed.
+
+Checked: `./gradlew test` (726 tests, 61 classes, no failures, counted from
+`build/test-results/test/*.xml`), `./gradlew buildPlugin` with all six skill files listed inside
+`claude-remarks-0.12.1.jar` at the same byte sizes they have in the source tree, and
+`./gradlew verifyPlugin` still Compatible with no internal API usage. ⚠️ Still hand checks: that a
+real listen session never reads the three reference files when nothing goes wrong, which is the whole
+point of the change, and that a session which cannot start a watcher finds `watcher-background.md`
+instead of guessing.
+
+Plan: `docs/plans/completed/20260808-claude-remarks-skill-slimming.md`.
+
+---
+
 ## 0.12.1 — 2026-08-08 — the version lookup stops asking the platform
 
 `0.12.0` was submitted to the JetBrains Marketplace and its automated verification refused it:
