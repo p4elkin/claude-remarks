@@ -20,6 +20,13 @@ three things follow from that.
   you — no re-explaining what the change is. The answer comes back into the IDE, onto the line you
   asked about, instead of into a chat log you then have to map onto code yourself.
 
+The whole thing in four steps:
+
+1. **Install the bundled Claude Code skill** — one button in **Settings → Tools → Claude Remarks**.
+2. **Tell a session** `listen for my remarks in this project`.
+3. **Read, annotate, ask questions.** Press **Publish Unread** when you have a batch worth sending.
+4. **Profit.**
+
 ![The rendered README on the left with two annotated paragraphs tinted, the remark box open over it, and the Claude Remarks tool window on the right listing read remarks under Done, each with a green tick and a grey position line](docs/images/remarks.png)
 
 *Marking up this very README from inside the IDE. On the left it is the rendered markdown preview,
