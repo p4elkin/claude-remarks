@@ -2,6 +2,23 @@
 
 An IntelliJ Platform plugin for reviewing code you are about to hand to a Claude Code session.
 
+If you have used `plannotator` or `revdiff`, the shape is familiar: read a change, leave notes on the
+lines that need them, hand the notes to an agent. This one does it from inside the IDE, and three
+things follow from that.
+
+- **The review surface is the IDE, not a browser page or a terminal overlay.** You read where you
+  already read code — go to definition, find usages, the real diff viewer, the rendered markdown
+  preview, your own keymap and theme. Nothing is exported somewhere else to be looked at, and a
+  remark's gutter icon follows the line as you keep editing around it.
+- **The review is continuous. It has no start and no end.** There is no session to open, no page
+  waiting for you to press Done. You mark things as you read, for as long as you like, and publish
+  when you have something worth sending. A Claude Code session can sit listening the whole time: it
+  picks up each batch as it lands, acts on it, and goes back to waiting.
+- **A question goes back to the session that already has the context.** Ask Claude publishes that
+  question on the spot, and the session answering it is the one that has been reading along with
+  you — no re-explaining what the change is. The answer comes back into the IDE, onto the line you
+  asked about, instead of into a chat log you then have to map onto code yourself.
+
 ![The rendered README on the left with two annotated paragraphs tinted, the remark box open over it, and the Claude Remarks tool window on the right listing read remarks under Done, each with a green tick and a grey position line](docs/images/remarks.png)
 
 *Marking up this very README from inside the IDE. On the left it is the rendered markdown preview,
@@ -10,12 +27,53 @@ them is the next remark being written. On the right the tool window groups what 
 session has read under Done, one file group per file, each row wrapping over as many lines as it
 needs with its position on the grey line underneath.*
 
-You read the code in the IDE, where you can actually navigate it, and mark the places you have
-something to say about. The plugin holds those remarks next to the code without writing a single
-byte into it, and when you are done it renders all of them into one markdown prompt: your note, the
-lines it points at, the code itself. You paste that into a Claude Code session, or let the bundled
-skill pick it up on its own. A remark can also be a question, and then the answer comes back into
-the IDE, onto the line you asked about.
+**The parts, and what passes between them.** Remarks live in IDE state. A publish writes one file.
+The session reads that file and talks back over an HTTP endpoint that only listens on localhost.
+
+```mermaid
+flowchart LR
+    you(["You, reading code"])
+    plugin["Claude Remarks plugin<br/>remarks live in IDE state"]
+    file[("The published file<br/>one per project, under ~/.claude-remarks/")]
+    watcher["watch-remarks.sh<br/>polls for a new batch"]
+    session["Claude Code session<br/>running the bundled skill"]
+    endpoint["The plugin's HTTP endpoint<br/>localhost only, token-gated"]
+
+    you -->|writes a remark| plugin
+    plugin -->|Publish writes one batch| file
+    file -->|the watcher notices it| watcher
+    watcher -->|hands over the batch| session
+    session -->|claims it, sends any answer| endpoint
+    endpoint -->|marks remarks read, stores the answer| plugin
+```
+
+**What that looks like from your side.** The loop closes: an answer comes back to the line you asked
+about, and you carry on reading.
+
+```mermaid
+flowchart TD
+    read["You read code in the IDE"]
+    mark["Mark the lines, type a remark"]
+    q{"Is it a question?"}
+    keep["Keep reading and mark more"]
+    pub["Press Publish Unread"]
+    now["Published on the spot"]
+    pick["The listening session claims the batch"]
+    work["It does the work and says what it changed"]
+    ans["It answers, and the answer appears on that line"]
+
+    read --> mark --> q
+    q -->|no| keep --> pub --> pick
+    q -->|yes| now --> pick
+    pick --> work
+    pick --> ans
+    ans --> read
+```
+
+The plugin holds every remark next to the code without writing a single byte into it, and renders
+them into one markdown prompt: your note, the lines it points at, the code itself. That goes to the
+clipboard and to a file at the same time, so you can paste it yourself or let the bundled skill pick
+it up.
 
 The alternative is typing "in `Foo.kt`, the thing around line 140, could you..." three times in a
 row and hoping the model finds it. This is that, but the model gets the exact lines.
