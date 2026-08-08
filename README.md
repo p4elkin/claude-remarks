@@ -28,47 +28,27 @@ them is the next remark being written. On the right the tool window groups what 
 session has read under Done, one file group per file, each row wrapping over as many lines as it
 needs with its position on the grey line underneath.*
 
-**The parts, and what passes between them.** Remarks live in IDE state. A publish writes one file.
-The session reads that file and talks back over an HTTP endpoint that only listens on localhost.
+**The parts, and what passes between them.** Remarks live in IDE state, never in your files. A
+publish writes one file per project under `~/.claude-remarks/`. The session's copy of
+`watch-remarks.sh` polls that file, and the session talks back over an HTTP endpoint that listens on
+localhost only and wants a token.
 
 ```mermaid
-flowchart TD
-    you(["You, reading code"])
-    plugin["Claude Remarks plugin — remarks live in IDE state"]
-    file[("The published file — one per project, under ~/.claude-remarks/")]
-    watcher["watch-remarks.sh — polls for a new batch"]
-    session["Claude Code session — running the bundled skill"]
-    endpoint["The plugin's HTTP endpoint — localhost only, token-gated"]
-
-    you -->|writes a remark| plugin
-    plugin -->|Publish writes one batch| file
-    file -->|the watcher notices it| watcher
-    watcher -->|hands over the batch| session
-    session -->|claims it, sends any answer| endpoint
-    endpoint -->|marks remarks read, stores the answer| plugin
+flowchart LR
+    plugin["Claude Remarks"] -->|publishes| file[("Published file")]
+    file -->|polled| session["Claude Code session"]
+    session -->|claims and answers| plugin
 ```
 
 **What that looks like from your side.** The loop closes: an answer comes back to the line you asked
 about, and you carry on reading.
 
 ```mermaid
-flowchart TD
-    read["You read code in the IDE"]
-    mark["Mark the lines, type a remark"]
-    q{"Is it a question?"}
-    keep["Keep reading and mark more"]
-    pub["Press Publish Unread"]
-    now["Published on the spot"]
-    pick["The listening session claims the batch"]
-    work["It does the work and says what it changed"]
-    ans["It answers, and the answer appears on that line"]
-
-    read --> mark --> q
-    q -->|no| keep --> pub --> pick
-    q -->|yes| now --> pick
-    pick --> work
-    pick --> ans
-    ans --> read
+flowchart LR
+    mark["Write a remark"] --> q{"A question?"}
+    q -->|no| claim["A session takes it, acts or answers"]
+    q -->|yes| claim
+    claim --> mark
 ```
 
 The plugin holds every remark next to the code without writing a single byte into it, and renders
