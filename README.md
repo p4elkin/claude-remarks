@@ -2,16 +2,13 @@
 
 An IntelliJ Platform plugin for reviewing code you are about to hand to a Claude Code session.
 
-![The remark box open over the README text, the Claude Remarks tool window listing two remarks on the right, and the status bar reporting that a Claude Code session read them](docs/images/remarks.png)
+![The rendered README on the left with two annotated paragraphs tinted, the remark box open over it, and the Claude Remarks tool window on the right listing read remarks under Done, each with a green tick and a grey position line](docs/images/remarks.png)
 
-*Marking up this very README from inside the IDE. The two greyed rows on the right are remarks a
-Claude Code session has already read; the box in the middle is the next one being written.*
-
-⚠️ **That screenshot is out of date and is waiting for a fresh capture.** It was taken before phase
-12 rewrote the icon column and before phase 13 rebuilt the tool window, so it shows neither the
-icons the plugin draws today nor the current row layout — no Open and Done groups, no wrapped rows,
-no grey line under the text. Read the words below for what the tool window looks like now, not the
-picture.
+*Marking up this very README from inside the IDE. On the left it is the rendered markdown preview,
+not the source: the two tinted paragraphs are the ones remarks already point at, and the box over
+them is the next remark being written. On the right the tool window groups what a Claude Code
+session has read under Done, one file group per file, each row wrapping over as many lines as it
+needs with its position on the grey line underneath.*
 
 You read the code in the IDE, where you can actually navigate it, and mark the places you have
 something to say about. The plugin holds those remarks next to the code without writing a single
@@ -23,8 +20,8 @@ the IDE, onto the line you asked about.
 The alternative is typing "in `Foo.kt`, the thing around line 140, could you..." three times in a
 row and hoping the model finds it. This is that, but the model gets the exact lines.
 
-**This is early software.** The test suite is green, but almost none of it has been seen running in
-a real IDE. See [Status](#status) before you decide to rely on it.
+**This is early software.** The main path has been run by hand and works; most of the rest has never
+been watched running. See [Status](#status) before you decide to rely on it.
 
 ---
 
@@ -392,28 +389,28 @@ Early, and honestly so.
 
 The automated suite is green, and it is a real suite — anchoring, storage, the renderer, the
 resolver, the tree, the endpoint, the answer round trip. But there are no UI-rendering and no
-end-to-end tests, `./gradlew test` runs no shell so it never touches the two scripts the skill
-ships, and **almost nothing has been seen running in a real IDE.**
+end-to-end tests, and `./gradlew test` runs no shell, so it never touches the two scripts the skill
+ships. Everything that is drawn, clicked or written in shell is checked by a person or not at all.
 
-Exactly one gating run has happened, on version `0.6.0`, and it exercised the review mode that no
-longer exists: a review started over the endpoint, remarks were written including sub-line ones with
-their markers, the handover reached the agent, and the read acknowledgement turned the rows grey.
-Separately, the remote path was run end to end between two machines — a tunnel carried the requests,
-a fetch carried the remarks back across it, and the acknowledgement was accepted. That is all of it.
-What that run still proves is the part that survived: the plugin loads, the handshake is found, a
-publish renders correctly with its sub-line markers, an acknowledgement really does turn rows grey,
-and the endpoint works across a tunnel.
+**The path you will walk first has been walked.** On `0.12.0` these were run by hand in a real IDE
+and worked: installing the skill from Settings → Tools → Claude Remarks on a machine that had no
+copy; writing a remark, publishing it, and having a Claude Code session read the batch; the tool
+window's Open and Done groups, a row whose text wraps, and an answer sitting under its question; and
+the notification on project open when the skill is missing. The screenshot at the top of this page
+is the other half of that — it is a real IDE, and the tinted paragraphs in it are the preview
+highlighting doing its job.
 
-Everything phases 10 to 15 built is unproven, because `0.6.0` predates all six: the merged
-published file, the acknowledgement by nonce, the watcher script, the skill's modes, the Open/Done
-split, the wrapped rows, the appearance rules described above, the preview's two actions and its
-highlighting, the watcher's streaming shape, and the skill install — its settings row, its button and
-its balloon. ⚠️ **That includes the whole Ask Claude round trip** — the gesture,
-the answer coming back, the nesting, the answer's gutter icon and the markdown popup — **and every one
-of the three question-mark icons.** The automated suite covers the storage, the resolving and the
-endpoint; it cannot cover anything that is drawn, and there is no end-to-end test at all. Several
-earlier things are unproven too. `CHANGELOG.md` says which, and points at the per-phase hand-check
-lists in `docs/plans/`.
+Before that, exactly one gating run had happened, on version `0.6.0`, and it exercised the review
+mode that no longer exists. What it still proves is the part that survived: the plugin loads, the
+handshake is found, a publish renders correctly with its sub-line markers, an acknowledgement really
+does mark remarks read, and the endpoint works across an SSH tunnel to another machine.
+
+**What is still unproven is most of the rest.** ⚠️ That includes **the whole Ask Claude round
+trip** — the gesture, the answer coming back over the endpoint, the answer's gutter icon and the
+markdown popup — **and all three question-mark icons**, whose colours nothing automated can tell
+apart. It also includes the watcher script's streaming shape, the skill's remaining modes, the
+acknowledgement by nonce, and the preview's two right-click actions. `docs/claude/hand-checks.md`
+is the live list of what is owed, and it points at the per-phase lists in `docs/plans/`.
 
 If you try it, expect to find things. It has had very little real use outside its own test suite.
 
