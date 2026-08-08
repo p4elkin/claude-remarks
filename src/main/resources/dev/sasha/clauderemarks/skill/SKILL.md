@@ -1152,41 +1152,10 @@ perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '<skill dir>/watch-remar
 fail**, and they fail in a way that looks fine: the watcher starts, claims its pid file and polls
 normally, right up until something signals the launching shell's process group.
 
-**What went wrong.** A session launches its watcher as an ordinary background Bash task. Four
-watchers died in one evening with `Terminated: 15` — a plain `SIGTERM` from outside. It was not a
-takeover: nothing in this skill kills a watcher any more, and no second watcher was running on that
-repository. Watchers belonging to a different session on a *different* repository died at the same
-moment, which is what says the signal was aimed at a process group and swept them all up.
-
-**The three launch shapes, measured:**
-
-| launch | PPID | PGID | in the launching shell's process group? |
-|---|---|---|---|
-| plain background task | the shell | the shell's | yes |
-| `( nohup … & )` double fork | 1 | **still the shell's** | yes |
-| `perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- …` | 1 once the launching shell exits | **its own** | no |
-
-The double fork is the trap. It does reparent to `init`, so `ps` shows PPID 1 and it looks detached —
-but a process group is not inherited from the parent that way, and `kill -- -<pgid>` still reaches
-it. Only `setsid()` puts the process in a group of its own. Checked directly: with the three forms
-started inside one process group and `kill -TERM -<that group>` sent, the plain form died, the double
-fork died, and the `setsid` form survived.
-
-⚠️ **macOS ships no `setsid` binary**, which is why the obvious one-word fix is not available here.
-Perl is on every Mac and `POSIX::setsid` is in its core, so the line above is the portable form.
-`exec` replaces perl with the watcher, so the watcher keeps perl's own pid — the pid it writes to its
-pid file is still the pid to stop it by, and nothing about the pid file changes.
-
-**Detaching means the watcher outlives the session, and `--owner` is what pays for that.** A watcher
-in its own session is not stopped when the session that started it goes away. It reparents to `init`
-and runs to its deadline — twelve hours, in listen mode. Such an orphan is not dangerous in the way
-it first looks: it catches a batch, writes it to a file nobody reads and exits, and nothing is marked
-read, because the *session* claims a batch and the watcher never does. What it does cost is the pid
-file. The orphan holds it, so a person stopping "the watcher" for that repository stops the orphan
-and leaves the live one running, and something looks like it is listening when nothing is. So every
-exit-per-batch launch line passes `--owner`, and the watcher stops on its own when its session is
-gone. ⚠️ The monitor branch passes none, and needs none: nothing detached it in the first place, so
-the watcher is the monitor's own child and stops when the monitor stops.
+⚠️ Read `watcher-background.md` if the watcher will not start, or dies unexpectedly with
+`Terminated: 15` in its output — it carries the measured proof for why the line above is not the
+same as `nohup … &` or a `( … & )` double fork, and why detaching this way means the watcher outlives
+the session.
 
 **`--owner` is passed `$PPID`, never `$$`.** `$$` is the Bash call's own shell, and that shell exits
 as soon as the block printing the launch line finishes — a watcher owning it would exit on its first
@@ -1246,7 +1215,8 @@ watch-remarks.sh --fetch <base_url> --project <path>
   wait the real 2 or 5 seconds per poll would take too long to run by hand.
 - `--owner <pid>` names the process the watcher belongs to. Every exit-per-batch launch line passes
   it, set to `$PPID` — see "Launching it, and why the `perl` line is there" just above for what that
-  is and why the watcher would otherwise outlive the session. ⚠️ The monitor branch passes no
+  is, and `watcher-background.md` for why the watcher would otherwise outlive the session. ⚠️ The
+  monitor branch passes no
   `--owner` at all; a wrong pid there would end the watch on its first poll, which is the only thing
   passing it could still do. The loop tests it with `kill -0` once per
   poll, beside the deadline check, and exits `3` when it is gone. Optional: with no `--owner` the

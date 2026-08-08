@@ -185,16 +185,16 @@ it.
 
 **Model:** sonnet
 
-- [ ] Split `### Launching it, and why the perl line is there` in two: the launch line, its flags and
+- [x] Split `### Launching it, and why the perl line is there` in two: the launch line, its flags and
       the instruction to use it stay; the explanation of process groups, `setsid` and why
       `( nohup … & )` differs moves
-- [ ] Create `watcher-background.md` with the moved half, carried across unchanged, opening with a
+- [x] Create `watcher-background.md` with the moved half, carried across unchanged, opening with a
       paragraph saying it explains the launch line in `SKILL.md` and is not needed to run one
-- [ ] Leave one sentence in `SKILL.md` pointing at it, phrased for when the watcher will not start or
+- [x] Leave one sentence in `SKILL.md` pointing at it, phrased for when the watcher will not start or
       dies unexpectedly
-- [ ] Add `"watcher-background.md"` to `SKILL_FILES`
-- [ ] Check the byte accounting again against task 1's total
-- [ ] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 3
+- [x] Add `"watcher-background.md"` to `SKILL_FILES`
+- [x] Check the byte accounting again against task 1's total
+- [x] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 3
 
 ### Task 3: Move the remote section and the failure sentences out
 
