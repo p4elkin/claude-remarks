@@ -1401,8 +1401,11 @@ pattern.
 
 ⚠️ **A file written by `0.8.0` still reads correctly, and phase 12's own plan predicted the opposite.**
 Lines 1 to 5 are byte for byte the same in both versions, and `publishedHeaderOf` checks nothing at
-line 6, so all three readers get the right values out of an eight-line header and its three extra
-lines are simply read as body. What actually breaks across the upgrade is the acknowledgement: that
+line 6, so all four readers get the right values out of an eight-line header and its three extra
+lines are simply read as body. The four are `publishedHeaderOf` here, `SKILL.md`'s inline shell in
+both reading modes, `listen-without-monitor.md`'s exit-per-batch listen branch, and
+`watch-remarks.sh`, which reads line 1 and line 2 and no other line. `docs/skill/README.md` lists
+them as the bullet a header reorder has to be checked against. What actually breaks across the upgrade is the acknowledgement: that
 nonce belongs to an IDE run that has ended, so `published-read` answers `unknown-batch`. Publishing
 again is the whole fix, and the skill's troubleshooting section says so.
 
@@ -2257,9 +2260,10 @@ for a run without `--stream`, which is what every agent other than Claude Code r
 
 ⚠️ **Exit 3 is the one exit code no session ever sees.** It means the process named by `--owner` is
 gone, and that process is the session itself, so by the time the watcher exits that way there is
-nobody left to be woken. It exists to stop an orphan, not to report anything, and `SKILL.md` says
-plainly that nothing should be written to handle it. The subsection below says why the watcher can be
-orphaned at all.
+nobody left to be woken. It exists to stop an orphan, not to report anything, and the exit-per-batch
+branch, which lives in `listen-without-monitor.md` since the skill was split, says plainly that
+nothing should be written to handle it. The subsection below says why the watcher can be orphaned at
+all.
 
 ⚠️ **143 used to mean "another watcher took over", and since phase 11 it means nothing of the kind.**
 Nothing takes over any more, so 143 is just a kill: a harness restart, a machine going to sleep, a
@@ -2482,11 +2486,13 @@ line names the same watched path — never by `pkill`, `killall` or a `ps | grep
 `watch-remarks.sh`. A streaming watcher writes the same pid file an exiting one does, so nothing about
 that rule changes.
 
-⚠️ **`Monitor` is Claude Code's own tool.** Every other agent runs the exit-per-batch shape, so
-`SKILL.md` keeps both branches and the default shape is byte for byte what it was. Listen mode picks
-between them with one shell variable on the first line of a setup block the two branches otherwise
-share, and the summarise, answer and wait-for-go steps are written once, in a section both branches
-end in, so there is one copy rather than two that can drift apart.
+⚠️ **`Monitor` is Claude Code's own tool.** Every other agent runs the exit-per-batch shape. Since
+the skill was split, `SKILL.md` keeps the monitor branch and one pointer sentence, and the
+exit-per-batch branch sits in `listen-without-monitor.md` with its bytes unchanged. Listen mode still
+picks between them with one shell variable on the first line of a setup block the two branches
+otherwise share, and that setup block stayed in `SKILL.md` because both branches run it. The
+summarise, answer and wait-for-go steps are written once too, in a section of `SKILL.md` both
+branches end in, so there is one copy rather than two that can drift apart.
 
 ⚠️ **Any hand check of this runs in the scratchpad with a fake `HOME` and a fake port.** Faking `HOME`
 alone is not enough: a handshake file names a port, the ordinary one is `63342`, and that is the IDE
@@ -2801,9 +2807,10 @@ does not detect and does not report on.
 
 Phase 15 moved the skill's three files into the plugin's own resources, and gave the plugin a way to
 install them into Claude Code. Before it, the skill was installed by hand, and somebody who installed
-the plugin zip got no skill at all.
+the plugin zip got no skill at all. There are six files now: `SKILL.md` was split, and the section
+below on when a session needs each one says why.
 
-**One copy, and it is a resource.** `SKILL.md`, `watch-remarks.sh` and `remote-config.sh` live at
+**One copy, and it is a resource.** All six live at
 `src/main/resources/dev/sasha/clauderemarks/skill/`, beside the two package-shaped resource
 directories the plugin already had, `icons/` and `preview/`. They used to live under
 `docs/skill/claude-remarks/`, and `docs/` never reaches the artifact: `claude-remarks-0.3.0.zip`
@@ -2816,7 +2823,7 @@ where a missed edit is invisible. One copy won, and the file that reads it in a 
 at the new path instead.
 
 **Nothing enumerates the directory.** Listing jar entries through a classloader is not something to
-rely on, so the three names sit in one constant, `SkillInstall.SKILL_FILES`. ⚠️ Adding a fourth file
+rely on, so the six names sit in one constant, `SkillInstall.SKILL_FILES`. ⚠️ Adding a seventh file
 to the skill later means adding its name there too. Forgetting is silent: the file simply is not
 installed, and nothing reports it.
 
@@ -2828,9 +2835,73 @@ is what keeps the classloader out and lets a test feed fake contents. The one re
 a separate file for exactly this reason: `PluginManager.getPluginByClass` is a `com.intellij` import,
 and the settings row and the notification both need that one lookup.
 
+### The skill is six files, split by when a session needs each one
+
+`SKILL.md` was 96,306 bytes over 1,478 lines. A session that invokes the skill loads all of it —
+roughly 24,000 tokens — before it does any work, and much of what it loads it can never use. Three
+sections moved into files of their own, read through the ordinary `Read` tool and only when the run
+actually needs them:
+
+| file | what is in it | when a session reads it |
+| --- | --- | --- |
+| `listen-without-monitor.md` | the exit-per-batch listen branch, one watcher per batch | the harness has no `Monitor` tool |
+| `watcher-background.md` | why the `perl … setsid()` launch line is not `( nohup … & )` | a watcher will not start, or dies unexpectedly |
+| `remote-and-trouble.md` | the IDE on another machine, and what to say when something fails | the IDE is over a tunnel, or a request failed |
+
+**The split is by when a section is needed, not by topic.** A topic split would have produced a file
+per mode, and every session takes one of the modes, so every session would open a second file to do
+ordinary work. The shape of the traffic is what makes this split worth having instead: Claude Code
+always has a `Monitor` tool, so it always takes the monitor branch and never needs the other one; a
+watcher that starts is the ordinary case, and the `setsid` argument is only ever wanted when one does
+not; and the IDE is on the same machine in the normal case. Each moved section is something a session
+paid for on every run and used on almost none.
+
+**Nothing was deleted for being long.** Every moved section kept its bytes and only its address
+changed, and the four files together came to the original 96,306 plus nothing but the new file
+titles, the pointer sentences left behind, and the cross-references the review passes afterwards
+repointed at a file and a section instead of "above" or "below". The CHANGELOG entry "after 0.12.1 — the skill loads
+less of itself" carries that arithmetic, file by file, as the record of the move. It is deliberately
+not repeated here: these numbers go stale on the first ordinary edit to `SKILL.md`, and a stale proof
+in the living design document is worse than none.
+
+⚠️ **A pointer that crosses into another file is the thing that rots.** Every "above" and "below" in
+a moved section stopped meaning anything the moment it moved, and one of them sent the monitor branch
+into the exit-per-batch file for a `published-read` block that is wrong for it in two ways. So a
+later move names the file and the section heading in every cross-reference, in both directions, and
+`SkillResourceTest` holds the machine-checkable half, and its two directions deliberately scan
+different sets of files. ⚠️ **Forward: every reference file has to be named by `SKILL.md` itself.**
+`SKILL.md` is the only skill file a session loads on its own, so a reference file named only by
+another reference file has no entry route — the file naming it is one nobody opens either. That is a
+live case, not a hypothetical: `watcher-background.md` is named by `listen-without-monitor.md` as
+well, and Claude Code always takes the monitor branch and is told never to open that file.
+**Reverse: every `*.md`/`*.sh` name pointed at has to be in `SKILL_FILES`, unioned over every
+markdown file in the list**, not `SKILL.md` alone — the reference files cross-reference each other
+and both scripts, so a reverse check that read only `SKILL.md` would leave the same rot one file away
+from where it looked.
+
+⚠️ **Each reference file has to name its own subject in its first lines.** A session opens one with
+the `Read` tool, out of order, with none of `SKILL.md`'s argument in front of it. So each opens with
+a title and a paragraph saying which part of `SKILL.md` it holds and when to read it. A file that
+opens mid-argument is unreadable on its own.
+
+⚠️ **A pointer in `SKILL.md` is not optional.** Nothing enumerates the directory and no session goes
+looking, so a moved section nothing points at is a section nobody reads again. Each of the three is
+reached by one sentence that names the file and the situation which sends a session to it, placed
+where a session would hit that situation rather than collected at the end.
+
+**What deliberately stayed.** The three modes are whole in `SKILL.md`, because they are the work. So
+is the setup block both listen branches run first, the monitor branch itself, the launch line with
+its flags — a session that needs to start a watcher must not have to open a second file to do it —
+and the section that resolves the script directory, which the setup block cannot do from inside
+another file. What is left, around 80,000 bytes, is those modes, so cutting further would mean deleting
+content rather than moving it. ⚠️ **That figure is a measurement, not a ceiling.** The plan's 80,000
+existed only to stop the split chasing an unreachable 60,000; a later pass read it as a budget and
+cut a comment to fit, which inverts the rule that nothing is deleted for being long. A correctness
+fix that needs another 500 bytes spends them.
+
 ### The install copies, and development symlinks, and they are opposite on purpose
 
-The choice was to copy the three files out or to symlink them. Copying wins for an installation, and
+The choice was to copy the skill's files out or to symlink them. Copying wins for an installation, and
 a symlink wins for a checkout.
 
 **Why an installation copies.** An installed plugin lives under a versioned path. A symlink into it
@@ -2860,7 +2931,7 @@ So `installSkill` checks `Files.isSymbolicLink` before it writes anything at all
 sentence saying it looks like a development install and has to be removed first.
 
 ⚠️ **It checks the ancestors too, not only the leaf.** The components are `~/.claude`,
-`~/.claude/skills`, `~/.claude/skills/claude-remarks` and the three files inside — everything this
+`~/.claude/skills`, `~/.claude/skills/claude-remarks` and the six files inside — everything this
 code appends below the home directory, one per segment of `CLAUDE_SKILL_SEGMENTS`, which is also what
 builds the target path, so the two can never disagree. A dotfiles checkout can make `~/.claude`
 itself the symlink: the leaf is then an ordinary directory, a leaf-only check passes, and
@@ -2935,8 +3006,8 @@ POSIX view.
 
 ### Why `SKILL.md` is written last
 
-The order is: the two scripts, then their executable bits, then the stamped `SKILL.md`. So the stamp
-is only ever on disk once the install really finished.
+The order is: the other five files, then the executable bit on the two scripts among them, then the
+stamped `SKILL.md`. So the stamp is only ever on disk once the install really finished.
 
 ⚠️ **With `SKILL.md` written first, a partly failed install reported itself up to date for ever.** A
 later write that failed, or a `setExecutable` that returned false, left the already-stamped

@@ -64,6 +64,7 @@ checks. The numbering below is each plan's own; nothing here renumbers anything.
 | phase 13 — the tool window, Open and Done, twenty-one checks | "Hand checks" in `docs/plans/completed/20260806-claude-remarks-phase13.md` |
 | phase 14 — the preview highlighting and streaming, fourteen checks | "Hand checks" in `docs/plans/completed/20260806-claude-remarks-phase14.md` |
 | phase 15 — the skill install | "Hand checks" in `docs/plans/completed/20260806-claude-remarks-phase15.md` |
+| the skill split — three checks: an install lands all six files, a listen session that hits no trouble reads none of the three reference files, and a watcher made to fail sends the session to `watcher-background.md` | "Post-completion" in `docs/plans/20260808-claude-remarks-skill-slimming.md` |
 
 ⚠️ **Four of those plans have moved into `docs/plans/completed/` and the rest have not.** The paths
 above are where each file sits today. When a plan moves, its path here moves with it.

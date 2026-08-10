@@ -20,8 +20,10 @@ The goal is to cut what a session loads by moving whole sections into separate f
 only when the session actually needs them. **Nothing is deleted for being long.** Every section that
 moves keeps its words; only its address changes.
 
-The target is `SKILL.md` under 60,000 bytes with no loss of content, and every moved section reachable
-by one clear sentence telling the session when to go and read it.
+The target is `SKILL.md` at around 80,000 bytes with no loss of content, and every moved section reachable
+by one clear sentence telling the session when to go and read it. (This target was written as 60,000
+and corrected to 80,000 once tasks 1-3 had landed — see the first item of task 4 for why the original
+number could not be reached without deleting content.)
 
 Two things make this worth doing rather than tidy:
 
@@ -41,7 +43,7 @@ flowchart TD
     today -->|"96 KB, all of it"| both["Both listen branches, the perl background,<br>the remote section, the failure sentences"]
 
     md --> after{"After: how much?"}
-    after -->|"under 60 KB"| core["The three modes, and the branch it will actually take"]
+    after -->|"under 80 KB"| core["The three modes, and the branch it will actually take"]
     core --> need{"Does this run need more?"}
     need -->|"no Monitor tool"| f1["Reads listen-without-monitor.md"]
     need -->|"the watcher will not start"| f2["Reads watcher-background.md"]
@@ -162,18 +164,18 @@ it.
 
 **Model:** sonnet
 
-- [ ] Create `listen-without-monitor.md` holding `### The exit-per-batch branch` from `SKILL.md` lines
+- [x] Create `listen-without-monitor.md` holding `### The exit-per-batch branch` from `SKILL.md` lines
       768-881, carried across unchanged, with its heading raised to `#` and a first paragraph saying
       which branch this is and that the setup block in `SKILL.md` runs first
-- [ ] Delete those lines from `SKILL.md` and replace them with a short pointer inside the branch test:
+- [x] Delete those lines from `SKILL.md` and replace them with a short pointer inside the branch test:
       the sentence must say the file name and when to read it
-- [ ] Add `"listen-without-monitor.md"` to `SKILL_FILES`
-- [ ] Fix the "last name in SKILL_FILES" comment in `SkillInstallTest`
-- [ ] Write a test that a reference file lands in the target directory with its content intact
-- [ ] Write a test that a reference file is **not** executable after an install, beside the existing
+- [x] Add `"listen-without-monitor.md"` to `SKILL_FILES`
+- [x] Fix the "last name in SKILL_FILES" comment in `SkillInstallTest`
+- [x] Write a test that a reference file lands in the target directory with its content intact
+- [x] Write a test that a reference file is **not** executable after an install, beside the existing
       test that both scripts are
-- [ ] Check the byte accounting: `SKILL.md` plus the new file, minus the new header, equals 96,306
-- [ ] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 2
+- [x] Check the byte accounting: `SKILL.md` plus the new file, minus the new header, equals 96,306
+- [x] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 2
 
 ### Task 2: Move the watcher background out
 
@@ -185,16 +187,16 @@ it.
 
 **Model:** sonnet
 
-- [ ] Split `### Launching it, and why the perl line is there` in two: the launch line, its flags and
+- [x] Split `### Launching it, and why the perl line is there` in two: the launch line, its flags and
       the instruction to use it stay; the explanation of process groups, `setsid` and why
       `( nohup … & )` differs moves
-- [ ] Create `watcher-background.md` with the moved half, carried across unchanged, opening with a
+- [x] Create `watcher-background.md` with the moved half, carried across unchanged, opening with a
       paragraph saying it explains the launch line in `SKILL.md` and is not needed to run one
-- [ ] Leave one sentence in `SKILL.md` pointing at it, phrased for when the watcher will not start or
+- [x] Leave one sentence in `SKILL.md` pointing at it, phrased for when the watcher will not start or
       dies unexpectedly
-- [ ] Add `"watcher-background.md"` to `SKILL_FILES`
-- [ ] Check the byte accounting again against task 1's total
-- [ ] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 3
+- [x] Add `"watcher-background.md"` to `SKILL_FILES`
+- [x] Check the byte accounting again against task 1's total
+- [x] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 3
 
 ### Task 3: Move the remote section and the failure sentences out
 
@@ -206,43 +208,97 @@ it.
 
 **Model:** sonnet
 
-- [ ] Create `remote-and-trouble.md` holding both sections, each keeping its own heading, with a first
+- [x] Create `remote-and-trouble.md` holding both sections, each keeping its own heading, with a first
       paragraph saying it covers two things: an IDE on another machine, and what to say when something
       fails
-- [ ] Delete both from `SKILL.md`, leaving one pointer for each, placed where a session would hit the
+- [x] Delete both from `SKILL.md`, leaving one pointer for each, placed where a session would hit the
       situation rather than at the end of the file
-- [ ] ⚠️ Check every remaining cross-reference in `SKILL.md` to either section by searching for "Over
+- [x] ⚠️ Check every remaining cross-reference in `SKILL.md` to either section by searching for "Over
       SSH" and for the failure wording, and repoint each one at the new file
-- [ ] Add `"remote-and-trouble.md"` to `SKILL_FILES`
-- [ ] Check the byte accounting against task 2's total
-- [ ] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 4
+- [x] Add `"remote-and-trouble.md"` to `SKILL_FILES`
+- [x] Check the byte accounting against task 2's total
+- [x] Run `./gradlew test --tests 'dev.sasha.clauderemarks.skill.*'` — must pass before task 4
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] `SKILL.md` is under 60,000 bytes
-- [ ] The four markdown files together account for every byte of the original 96,306, allowing only
-      the new headers each task recorded
-- [ ] Every pointer in `SKILL.md` names a file that exists, checked by listing the directory
-- [ ] Each new file's first paragraph names its own subject, so it reads correctly when opened alone
-- [ ] `SKILL_FILES` has six entries and `SkillResourceTest` passes, which proves all six resolve on
-      the classpath
-- [ ] Install into a temporary home and confirm six files land, the two scripts are executable and the
-      three reference files are not
-- [ ] ⚠️ Every check above runs with `HOME` pointed at a directory under the scratchpad, and never
-      against the real `~/.claude` or `~/.claude-remarks`
-- [ ] Run the full suite: `./gradlew test`, counting from `build/test-results/test/*.xml`
-- [ ] Run `./gradlew buildPlugin` and list the jar to confirm all six skill files ship
-- [ ] Run `./gradlew verifyPlugin` — must still report Compatible with no internal API
+- [x] `SKILL.md` measures around **80,000** bytes — 78,232 when task 4 ran, 79,405 after the review
+      pass repointed every cross-reference that a move had left saying "above" or "below", 79,997
+      after the second review pass fixed the two routes a session actually walks (the
+      directory-resolution block now prints the directory it found, and the monitor branch's
+      acknowledgement step names where each value it needs was printed), and **80,036** after the
+      third pass corrected one stale shell comment.
+      ⚠️ **80,000 is a measurement here, not a ceiling.** Sasha decided that after the second pass
+      reported cutting a comment "to fit": the number's only job was to stop the split chasing an
+      unreachable 60,000, and a figure that makes a later pass delete prose inverts this plan's own
+      first rule, that nothing is deleted for being long. Never shorten, drop or compress a sentence
+      in `SKILL.md` to stay under a byte figure. If a correctness fix needs 500 more bytes, spend
+      them.
+      The byte totals recorded below are task 4's; the CHANGELOG entry carries the final ones.
+      ⚠️ This criterion was written as 60,000
+      and that number was an estimate rather than a measurement. Tasks 1-3 moved every genuinely
+      situational section out — 20,527 bytes into three files — and what is left is the three modes
+      themselves, which the plan deliberately keeps whole because they are the work. So 60,000 was
+      unreachable without deleting content, which this plan forbids. Corrected to 80,000 by Sasha
+      after tasks 1-3 landed
+- [x] The four markdown files together account for every byte of the original 96,306, allowing only
+      the new headers each task recorded — 78,232 + 9,049 + 3,225 + 8,253 = 98,759, which is 96,306
+      plus exactly the 2,453 bytes of new headers and pointer sentences the three tasks recorded
+      (389 + 896 + 1,168)
+- [x] Every pointer in `SKILL.md` names a file that exists, checked by listing the directory — the
+      five names it points at are `listen-without-monitor.md`, `watcher-background.md`,
+      `remote-and-trouble.md`, `watch-remarks.sh` and `remote-config.sh`, and all five are in the
+      directory; the one path outside it, `docs/skill/README.md`, exists too
+- [x] Each new file's first paragraph names its own subject, so it reads correctly when opened alone
+      — each of the three opens with a `#` title and a paragraph saying which section of `SKILL.md`
+      it holds and when to read it
+- [x] `SKILL_FILES` has six entries and `SkillResourceTest` passes, which proves all six resolve on
+      the classpath — the test loops `SKILL_FILES` rather than naming files, so it covers all six
+- [x] Install into a temporary home and confirm six files land, the two scripts are executable and the
+      three reference files are not — a new `SkillInstallTest` case does the whole real install (a
+      temporary home with a bare `~/.claude`, `detectHarnesses`, then `installSkill` reading the
+      plugin's real resources), then compares the directory listing against `SKILL_FILES` and asserts
+      the executable bit is set for exactly the `.sh` names
+- [x] ⚠️ Every check above runs with `HOME` pointed at a directory under the scratchpad, and never
+      against the real `~/.claude` or `~/.claude-remarks` — no check here reads `HOME` at all: the
+      install test builds its own temporary home, and the jar was unpacked into the scratchpad
+- [x] Run the full suite: `./gradlew test`, counting from `build/test-results/test/*.xml` — 726 tests
+      across 61 classes, 0 failures, 0 errors, 0 skipped
+- [x] Run `./gradlew buildPlugin` and list the jar to confirm all six skill files ship — all six are
+      in `claude-remarks-0.12.1.jar` under `dev/sasha/clauderemarks/skill/`, at the same byte sizes
+      they have in the source tree
+- [x] Run `./gradlew verifyPlugin` — must still report Compatible with no internal API — Compatible,
+      7 experimental API usages (the markdown preview's three getters and `JBHtmlPane`'s four, both
+      already argued in `CLAUDE.md`), and no internal API usage at all
 
 ### Task 5: Update documentation
 
-- [ ] `CLAUDE.md`: the skill entry under "Project structure" names three files and warns that nothing
-      enumerates the directory. Update the count and the names
-- [ ] `docs/claude/design.md`: add why the skill is split by when a section is needed rather than by
-      topic, in the "Shipping the Skill Inside the Plugin" section
-- [ ] `CHANGELOG.md`: a new entry, with the before and after byte counts
-- [ ] `README.md`: check whether the skill section names the file count, and correct it if so
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] `CLAUDE.md`: the skill entry under "Project structure" names three files and warns that nothing
+      enumerates the directory. Update the count and the names — the Project-structure entry now
+      lists all six names, says the six live in `SkillInstall.SKILL_FILES` and warns about a
+      **seventh** file; the "The skill, and how it is installed" section above it names the six too
+      and gained a paragraph on why the three reference files are split out by when a session needs
+      them; and the Testing section's two now-false counts were corrected — `SkillResourceTest` loops
+      `SKILL_FILES` rather than covering "three resources", and the symlink refusal covers "the files
+      inside" rather than "the three files", with the two new `SkillInstallTest` cases described
+- [x] `docs/claude/design.md`: add why the skill is split by when a section is needed rather than by
+      topic, in the "Shipping the Skill Inside the Plugin" section — new subsection "The skill is six
+      files, split by when a session needs each one", with a table of file/content/when-read, the
+      argument against a topic split, the byte accounting as the proof nothing was dropped, why each
+      file must name its own subject, why a pointer is not optional, and what deliberately stayed.
+      The four now-false counts elsewhere in that section were corrected as well
+- [x] `CHANGELOG.md`: a new entry, with the before and after byte counts — "after 0.12.1 — 2026-08-08
+      — the skill loads less of itself", following the "after 0.8.0" precedent for a skill-side change
+      with no version bump: 96,306 before, 78,232 after, and the four-file sum proving the 2,453 bytes
+      of new titles and pointers are the only difference
+- [x] `README.md`: check whether the skill section names the file count, and correct it if so — it
+      said "three files" twice; both now say six and name what the three reference files are for.
+      ⚠️ It also carried a cross-reference that this plan's task 3 made false: the `ssh -R` line was
+      said to be in `SKILL.md`'s "Over SSH" section, which now lives in `remote-and-trouble.md`
+- [x] ➕ `docs/skill/README.md` had the same two problems and is not named in this task's list — the
+      "three files" opening and the same stale "Over SSH … in `SKILL.md`" pointer. Both fixed, since
+      the plan created both and leaving them would send a reader to a section that is no longer there
+- [x] Move this plan to `docs/plans/completed/` (skipped - the harness moves the plan after all
+      phases finish; moving it mid-run breaks every later review, finalize and stats phase)
 
 ## Post-completion
 

@@ -18,7 +18,7 @@ description: >
   running on the same machine is the normal case for all three. When the IDE is on another machine,
   reached over SSH, the one-shot read and listen mode both need a tunnel the person sets up by hand
   and four connection values from them, which this skill can also store so they are not retyped
-  every run — see "Over SSH: the IDE on another machine" below.
+  every run.
 ---
 
 # Claude Remarks
@@ -37,6 +37,15 @@ Three things this skill does with the Claude Remarks tool window, and they do no
   harness has a `Monitor` tool, and with a fresh watcher after every batch everywhere else. Opt-in
   only: start this because a person asked, in words, to watch or listen, never because a published
   file was noticed. That is `## Listen for the next batch`.
+
+**Three more files sit beside this `SKILL.md`, in this skill's own directory**, and every pointer
+below names one of them by its bare file name: `listen-without-monitor.md`,
+`watcher-background.md` and `remote-and-trouble.md`. Each holds a section a run needs only
+sometimes, and nothing opens one until a pointer sends you there. ⚠️ A skill has no variable naming
+its own directory, so if a `Read` of the bare name does not resolve, run the three-candidate block
+in `## Where the skill's own files are, and how to name them` below. It prints one line,
+`skill_dir=<the directory>`, and the file to read is that directory's own `<name>`: the two scripts
+and these three files all sit in it.
 
 Pick the first when there are files the person should be looking at. Pick the second when the person
 says they published something, or asks for remarks that already exist. Pick the third only when the
@@ -173,9 +182,13 @@ that carry no `status` at all, so read the HTTP code before the body.
   seconds and send it once more.
 
 **In the remote case** — the IDE on another machine, see "Over SSH: the IDE on another machine"
-below — there is no handshake file on this machine at all. POST to `$base_url/open`, use the token
-out of the stored `remote-<hash>.env`, and put the **IDE machine's** path in the `project` field.
-Everything else in the block is unchanged, the token line included.
+in `remote-and-trouble.md` — there is no handshake file on this machine at all. POST to
+`$base_url/open`, use the token out of the stored `remote-<hash>.env`, and put the **IDE machine's**
+path in the `project` field. Everything else in the block is unchanged, the token line included.
+
+Exact wording to use with the person for this and every other failure shape a request in any of the
+three modes can answer with — a stale token, a missing tunnel, an old published file, an unexpected
+acknowledgement — is in `remote-and-trouble.md`'s "What to say if something goes wrong" section.
 
 ## Read remarks the person already published
 
@@ -388,7 +401,8 @@ the two modes above, this one runs open-ended in the background instead of answe
   watcher streams one line per batch, keeps its own seen nonce, and claims each batch itself.
 - **No — every other agent.** Keep the exit-per-batch loop this skill has always used: one watcher
   per batch, read what it printed when it exits, then arm a fresh one. Nothing about that path
-  changes, and it must keep working.
+  changes, and it must keep working. Read `listen-without-monitor.md`, beside this file, for the
+  whole of this branch, once the setup block below has run.
 
 **What the two branches share is almost everything.** The setup below is one block for both. Both
 watch the same published file, both claim a batch before acting on it, both summarise a batch into
@@ -479,10 +493,10 @@ if [ -f "$listen_conf" ]; then
 fi
 [ -n "$listen_project" ] || listen_project=$listen_root
 
-# Where the watcher script is. See "Where the two scripts are, and how to name them" below: the
-# skill's directory is not on PATH, so the launch line printed at the end of this block has to
-# carry an absolute path or it answers "command not found". The third candidate below is not an
-# implementation detail: it is what lets this script run straight out of a checkout of this
+# Where the watcher script is. See "Where the skill's own files are, and how to name them" below:
+# the skill's directory is not on PATH, so the launch line printed at the end of this block has
+# to carry an absolute path or it answers "command not found". The third candidate below is not
+# an implementation detail: it is what lets this script run straight out of a checkout of this
 # repository, with no install step at all.
 listen_skill_dir=
 for listen_candidate in \
@@ -557,7 +571,7 @@ if [ -z "$listen_monitor" ]; then
         echo "fetch: http $listen_fetch_code, status ${listen_fetch_status:-unknown}"
         cat "$listen_fetch_resp" ; echo
         echo "report this and stop — too-large, failed and bad-request are not fixed by polling, and"
-        echo "http 000 with no status at all is a missing tunnel; see 'Over SSH' below"
+        echo "http 000 with no status at all is a missing tunnel; see 'Over SSH' in remote-and-trouble.md"
         rm -f "$listen_fetch_resp"
         exit 2
         ;;
@@ -610,7 +624,8 @@ fi
 echo "listen_session=$listen_session"
 echo "listen_project=$listen_project"
 [ -n "$listen_remote" ] || echo "listen_file=$listen_file"
-# Printed only when there is a pending batch to read. This is the path the table below says to open.
+# Printed only when there is a pending batch to read. This is the path the startup-claim table in
+# listen-without-monitor.md says to open.
 [ -z "$listen_copy" ] || echo "listen_copy=$listen_copy"
 
 if [ -n "$listen_monitor" ]; then
@@ -729,11 +744,21 @@ exit-143 bullet below.
   there is no mismatch to check for and no newer batch hiding behind the path. A batch published
   while this session was busy is a batch of its own, with a snapshot and a line of its own, and it
   arrives as the next notification.
-- **Acknowledge the batch yourself when the outcome word was not `ok`.** Use the `published-read`
-  block the exit-per-batch branch spells out below, with field 1's nonce in place of
-  `$listen_nonce` and the session id the setup block printed in place of `$listen_session`. For
-  `unknown-batch` that call answers `unknown-batch` again and marks nothing read — send it anyway,
-  rather than keeping a second rule for the one case where it is only a wasted request.
+- **Acknowledge the batch yourself when the outcome word was not `ok`.** Send the same
+  `published-read` call the startup claim in `### The setup, run first in both branches` above
+  sends, with field 1's nonce in place of `$listen_seen`. ⚠️ **Nothing carries a variable from one
+  Bash call to the next**, so all four of that block's values are empty here and each comes from
+  what it printed: `$listen_session` and `$listen_project` are its own printed lines, and the
+  monitor launch line beside them holds the other two — `$listen_base_url` is the value after
+  `--claim`, and `$listen_token` is what that line's `CLAUDE_REMARKS_TOKEN=$(…)` prefix reads, so
+  run that same command here and keep the token on stdin through the `curl --config -` file, never
+  in an argument. A launch line with no `--claim` means no IDE has this project open and there is no
+  token: say the batch could not be acknowledged.
+  For `unknown-batch` that call answers `unknown-batch` again and marks nothing read — send it
+  anyway, rather than keeping a second rule for the one case where it is only a wasted request.
+  ⚠️ Do **not** open `listen-without-monitor.md` for this. Its copy of the call builds a URL from a
+  local handshake file, so it prints "cannot acknowledge" in the remote case, and the step written
+  under it is "re-arm, immediately", which this branch must never do.
 - Then the three steps both branches share: **summarise, answer, wait for go.**
 - **Arm nothing.** The monitor armed at the start is still running and the next batch is already
   covered. ⚠️ Arming a second watcher here is the mistake this branch exists to prevent: two watchers
@@ -764,120 +789,6 @@ exit-143 bullet below.
   came back naming this session's own earlier id. `already-read` means "act on nothing" only when the
   id it names belongs to a different session.
 - **Exit 3 cannot arrive**, because this branch passes no `--owner`.
-
-### The exit-per-batch branch: one watcher per batch
-
-This is the path every agent without a `Monitor` tool takes, and it is unchanged.
-
-**The `perl` wrapper in front of the script is not decoration, and must not be simplified away.** It
-puts the watcher in a session and a process group of its own, so that a signal aimed at this
-session's process group cannot reach it. "The watcher script" section below carries the measurements
-and the reason the obvious alternatives do not work.
-
-**What the startup claim answered decides what to do with the pending batch**, and the three answers
-`published-read` already gives cover every case:
-
-| answer | what it means | what to do |
-|---|---|---|
-| `ok` | nobody had claimed that batch | genuine unhandled work. Surface it exactly as if the watcher had just caught it: read the copy at `listen_copy`, summarise it, answer what asks to be answered, wait for go |
-| `already-read` | another session got there first, and the answer names it | skip the batch and name the session that holds it. Do not read it, do not answer its marked remarks. Then go on listening |
-| `unknown-batch` | it fell off the IDE's remembered sixteen, or the IDE restarted since it was published | nobody can confirm whether it was handled. Surface it from the same `listen_copy`, and **say plainly that it may already have been done** rather than presenting it as fresh |
-| no nonce at all | nothing has ever been published for this project | nothing to claim, and no copy was printed. Arm the watcher with an empty `--seen` and wait |
-| any non-2xx http code | the claim never reached the IDE — a stale token, a dead tunnel, `http 000` with no status | nobody can say whether the batch was handled. The block already cleared `--seen`, so the watcher will report the batch on its first poll; say that, and say the token or the tunnel is the likely reason |
-
-⚠️ **Read the copy the setup block printed as `listen_copy`, never `$listen_file` and never a fresh
-`fetch`.** The claim above marked every remark in that batch `READ`, and Publish Unread only ever
-picks up remarks that are not `READ`. So a publish landing after the claim overwrites `$listen_file`,
-and the claimed batch can never come back — its remarks would sit in the IDE's Done group looking
-handled while nobody had read them. The copy was taken before the claim and nothing rewrites it. This
-is the same rule the monitor branch states for its snapshot, for the same reason.
-
-**A publish landing between the claim and the arming loses neither batch.** The new one carries a
-different nonce, and the watcher is armed with `--seen` set to the nonce just claimed, so it is
-reported on the watcher's very first poll. The claimed one is safe because the session reads the copy
-rather than the file that publish has just overwritten.
-
-**When the watcher exits, act on what it printed — built with `$listen_session`, `$listen_root`
-and `$listen_name` typed again, since nothing carries a shell across two Bash calls:**
-
-- **Exit 0.** What the watcher printed is the whole published file, header included. Read the
-  five-line header directly out of what it printed, by line number, the same way the one-shot mode
-  above reads it off disk: line 2 is `nonce: `, line 3 `published: `, line 4 `commit: `, line 5
-  `remarks: `. Every batch is the same kind of batch, so there is nothing in the header to check
-  before deciding whether to act on it.
-  - Acknowledge it the same way the one-shot mode does, with `$listen_session` in place of
-    `$pub_session` and line 2's nonce in place of `$pub_nonce`:
-
-    ```sh
-    listen_nonce=THE_NONCE_FROM_LINE_2_ABOVE
-    listen_handshake="$HOME/.claude-remarks/$listen_name.json"
-    if [ -f "$listen_handshake" ]; then
-      listen_port=$(jq -r .port "$listen_handshake")
-      listen_token=$(jq -r .token "$listen_handshake")
-      listen_ack_resp=$(mktemp)
-      listen_ack_body=$(jq -n --arg session "$listen_session" --arg project "$listen_root" \
-        --arg nonce "$listen_nonce" '{session:$session, project:$project, nonce:$nonce}')
-      # The token on stdin through a curl config file, never as an argument — see the one-shot
-      # mode's copy of this block above for why.
-      listen_ack_code=$(printf 'header = "X-Claude-Remarks-Token: %s"\n' "$listen_token" \
-        | curl -s --config - -o "$listen_ack_resp" -w '%{http_code}' --connect-timeout 5 --max-time 20 \
-            -X POST "http://127.0.0.1:$listen_port/api/claude-remarks/published-read" \
-            -H "Content-Type: application/json" -d "$listen_ack_body")
-      listen_ack_answer=$(jq -r '.status // empty' "$listen_ack_resp" 2>/dev/null)
-      listen_ack_session=$(jq -r '.session // empty' "$listen_ack_resp" 2>/dev/null)
-      echo "published-read: http $listen_ack_code, status ${listen_ack_answer:-unknown}"
-      rm -f "$listen_ack_resp"
-    else
-      echo "no handshake file at $listen_handshake — can watch but cannot acknowledge. Say that"
-      echo "plainly, then read the batch anyway."
-    fi
-    ```
-
-    **This is the second copy of the `published-read` call, and it stays a copy on purpose.** A
-    third script beside `watch-remarks.sh` and `remote-config.sh` would leave one copy, and
-    `docs/skill/README.md` argues exactly that for the header format. It is not worth it here: the
-    two copies agree on the wire call and differ in what they do with the answer — the one-shot mode
-    spends a paragraph on a 403 and a stale token, this one compares `already-read` against its own
-    session id — so a shared script would need a flag for each difference and would still leave both
-    paragraphs of prose behind. It would also add a third thing that has to be found by absolute
-    path, which is the failure "Where the two scripts are" exists to stop. The two blocks are kept
-    identical line for line in the part that matters, the `printf | curl --config -` shape: change
-    one and change the other. The monitor branch above sends the same call, when its outcome word
-    says the watcher's own claim did not land, and it reuses this block rather than adding a third.
-
-    `already-read` naming a session other than `$listen_session` means another session got to this
-    batch first: say so at the top, name that session, and do not act. `already-read` naming
-    `$listen_session` itself is a retry after a lost response, not an anomaly — proceed as normal.
-  - **Then re-arm, immediately — before summarising anything and before answering anything.** Run
-    the same launch line again as its own new Bash call, marked background, by the same absolute
-    path the setup block resolved and printed and never by the bare name, keeping the `perl`
-    wrapper and the same `--owner` value, with `--seen` set to
-    this batch's nonce and a fresh `--deadline 43200`. `$PPID` in the new Bash call is the same
-    number the setup block printed, so a re-arm can read it again rather than remembering it.
-    Re-arming is not a choice put to the person
-    and not something to ask about: listening carries on by itself until one of the three endings
-    below.
-
-    **This step is where it is for a reason.** Answering and summarising both take a while, and
-    while they are being written the person is often still publishing. Re-arming after them leaves
-    a gap with nothing listening, which is the exact failure this loop exists to remove.
-
-    Each re-arm gets its own `--deadline 43200`, so any batch resets the clock and listening
-    continues for as long as the person keeps working.
-  - Then the three steps both branches share: **summarise, answer, wait for go.**
-- **Exit 1.** The twelve-hour deadline passed with nothing new. Report it and stop. There is
-  nothing to acknowledge — `published-read` is never sent for a batch that never arrived.
-- **Exit 2.** Something the watcher could not get past. Report what it printed verbatim and stop.
-- **Exit 3 never reaches this session, and there is nothing to write for it.** It means the process
-  named by `--owner` is gone, and that process is this session. A session cannot be handed the exit
-  code of a watcher that outlived it. It is written down here so nobody adds handling for a case
-  that cannot arrive.
-- **Any exit code above 128, 143 in particular.** The watcher was killed. 143 is `128 + SIGTERM`,
-  which any kill produces — a harness restart, a machine going to sleep, a stray `kill`. Nothing
-  arrived and nothing is owed, so acknowledge nothing. Say in one line that the watcher was killed,
-  then **arm a new one** and go on listening. Do not read a pid file here and do not go looking for
-  a watcher that displaced this one: nothing takes over from anything any more, so there is nothing
-  for such a check to find.
 
 ### Then, in both branches: summarise, answer, wait for go
 
@@ -1120,69 +1031,21 @@ the token out of the stored `remote-<hash>.env`, and put the stored project path
 machine's** path — in the `project` field. Everything else in the block is unchanged, the token line
 included.
 
-## Over SSH: the IDE on another machine
+Setting up the tunnel itself, and the four connection values it needs, is in
+`remote-and-trouble.md`'s "Over SSH" section — that file sits beside this one, in this skill's own
+directory. Read it before this remote case, or any of the remote-case paragraphs above, can actually
+be acted on.
 
-The IDE and this Claude Code session on the same machine is the normal case, reading the
-handshake file directly. When the IDE is on another machine — a laptop reached over SSH — both
-the handshake file and the published file are local paths on that other machine, so there is
-nothing on this machine to read directly. The endpoint's `fetch` action carries the published
-file's content back in the HTTP response body instead, and an SSH tunnel is what lets this
-machine reach that endpoint at all.
-
-**Which modes need it, and for what.** Listen mode needs it for everything: the startup `fetch` that
-reads the pending batch, the claim, the acknowledgement and the answers. The one-shot read needs it
-for the same reasons in a different order — there is no published file on this machine to read, so
-it reads the batch through one `fetch` in place of the `sed` reads, and then acknowledges and answers
-over the tunnel. The open action needs it for its one request. Here is what the person needs to do,
-and what to tell the agent:
-
-- **On the IDE machine**, in the repository: read the port and the token out of the handshake
-  file into shell variables, and print them so they are there to read. Do not send the token over
-  anything that logs it.
-
-  ```console
-  HS=~/.claude-remarks/$(printf %s "$(git rev-parse --show-toplevel)" | shasum -a 256 | cut -c1-16).json
-  PORT=$(jq -r .port "$HS")
-  TOKEN=$(jq -r .token "$HS")
-  echo "port: $PORT"
-  echo "token: $TOKEN"
-  ```
-- **Start the tunnel from the IDE machine**, in that same shell, so `$PORT` still holds the value
-  that was just read:
-
-  ```console
-  ssh -o ExitOnForwardFailure=yes -R 8765:127.0.0.1:"$PORT" the-agent-machine
-  ```
-
-  `-R` and not `-L`: the SSH connection already goes from the IDE machine to the agent machine,
-  and `-R` forwards a port on the far end back through it. `-L` would need the IDE machine to be
-  reachable by `sshd` from the agent machine, which is the harder direction to arrange on a
-  laptop. `ExitOnForwardFailure=yes` is not decoration: without it, a port already taken on the
-  agent machine makes `ssh` print a warning and connect anyway, and every later request answers
-  connection refused for a reason that looks nothing like the cause. Pick a port nothing on the
-  agent machine uses, and do not reuse 63342 if that machine runs an IDE too.
-- **Then tell the agent four values:** the tunnel's local port on the agent machine (8765 above),
-  the token, the repository path as the **IDE machine** sees it, and the host only if it is not
-  `127.0.0.1`. The agent can store them so they are not retyped on every later run:
-  `~/.claude/skills/claude-remarks/remote-config.sh save --port <port> --project <the
-  IDE-machine path> [--host <host>]` — an absolute path, because the skill's own directory is on no
-  shell's `PATH`; see "Where the two scripts are, and how to name them" below — with
-  `CLAUDE_REMARKS_TOKEN` set to the token in its environment, never as an
-  argument, which is world-readable through `ps`. It is keyed to **this** (the agent) machine's own
-  repository root, so two repositories here never share one stored configuration. `show` prints
-  back what is stored, without the token; `forget` deletes it. Listen mode's startup block reads a
-  stored file automatically; with none stored, all four still have to be pasted by hand.
-- **A missing tunnel looks like connection refused**, and that is the whole of the error handling.
-  The plugin does not manage the tunnel, does not detect it and does not report on it.
-- **Restarting the IDE is what invalidates the token.** Re-opening a project rewrites the
-  handshake file with the same token, because the token is minted once per IDE run.
-
-## Where the two scripts are, and how to name them
+## Where the skill's own files are, and how to name them
 
 **Both scripts are named by absolute path, always. Never by their bare name.** `watch-remarks.sh`
 and `remote-config.sh` sit in this skill's own directory, which is not on any shell's `PATH`, so a
 line reading `watch-remarks.sh --file …` answers `command not found` and the whole wait mechanism
 below silently does nothing. That has happened for real.
+
+**The three reference files sit in that same directory**, and this section covers them too. A `Read`
+of a bare name is resolved by the harness rather than by a shell, so it usually works; when it does
+not, the block below hands back the directory to put in front of the name.
 
 **A skill has no variable naming its own directory**, so where it sits is a convention, and the
 convention is the one `docs/skill/README.md` installs: `~/.claude/skills/claude-remarks/`,
@@ -1213,6 +1076,8 @@ if [ -z "$skill_dir" ]; then
   echo "again. Do not fall back to the bare name: it is not on PATH and never has been."
   exit 1
 fi
+# Printed on success: a later Read of a reference file names "$skill_dir/<name>" out of this line.
+echo "skill_dir=$skill_dir"
 ```
 
 `remote-config.sh` is named the same way. Where this file writes it out in prose it is written
@@ -1265,41 +1130,10 @@ perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- '<skill dir>/watch-remar
 fail**, and they fail in a way that looks fine: the watcher starts, claims its pid file and polls
 normally, right up until something signals the launching shell's process group.
 
-**What went wrong.** A session launches its watcher as an ordinary background Bash task. Four
-watchers died in one evening with `Terminated: 15` — a plain `SIGTERM` from outside. It was not a
-takeover: nothing in this skill kills a watcher any more, and no second watcher was running on that
-repository. Watchers belonging to a different session on a *different* repository died at the same
-moment, which is what says the signal was aimed at a process group and swept them all up.
-
-**The three launch shapes, measured:**
-
-| launch | PPID | PGID | in the launching shell's process group? |
-|---|---|---|---|
-| plain background task | the shell | the shell's | yes |
-| `( nohup … & )` double fork | 1 | **still the shell's** | yes |
-| `perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- …` | 1 once the launching shell exits | **its own** | no |
-
-The double fork is the trap. It does reparent to `init`, so `ps` shows PPID 1 and it looks detached —
-but a process group is not inherited from the parent that way, and `kill -- -<pgid>` still reaches
-it. Only `setsid()` puts the process in a group of its own. Checked directly: with the three forms
-started inside one process group and `kill -TERM -<that group>` sent, the plain form died, the double
-fork died, and the `setsid` form survived.
-
-⚠️ **macOS ships no `setsid` binary**, which is why the obvious one-word fix is not available here.
-Perl is on every Mac and `POSIX::setsid` is in its core, so the line above is the portable form.
-`exec` replaces perl with the watcher, so the watcher keeps perl's own pid — the pid it writes to its
-pid file is still the pid to stop it by, and nothing about the pid file changes.
-
-**Detaching means the watcher outlives the session, and `--owner` is what pays for that.** A watcher
-in its own session is not stopped when the session that started it goes away. It reparents to `init`
-and runs to its deadline — twelve hours, in listen mode. Such an orphan is not dangerous in the way
-it first looks: it catches a batch, writes it to a file nobody reads and exits, and nothing is marked
-read, because the *session* claims a batch and the watcher never does. What it does cost is the pid
-file. The orphan holds it, so a person stopping "the watcher" for that repository stops the orphan
-and leaves the live one running, and something looks like it is listening when nothing is. So every
-exit-per-batch launch line passes `--owner`, and the watcher stops on its own when its session is
-gone. ⚠️ The monitor branch passes none, and needs none: nothing detached it in the first place, so
-the watcher is the monitor's own child and stops when the monitor stops.
+⚠️ Read `watcher-background.md`, beside this file, if the watcher will not start, or dies
+unexpectedly with `Terminated: 15` in its output — it carries the measured proof for why the line
+above is not the same as `nohup … &` or a `( … & )` double fork, and why detaching this way means the
+watcher outlives the session.
 
 **`--owner` is passed `$PPID`, never `$$`.** `$$` is the Bash call's own shell, and that shell exits
 as soon as the block printing the launch line finishes — a watcher owning it would exit on its first
@@ -1359,12 +1193,12 @@ watch-remarks.sh --fetch <base_url> --project <path>
   wait the real 2 or 5 seconds per poll would take too long to run by hand.
 - `--owner <pid>` names the process the watcher belongs to. Every exit-per-batch launch line passes
   it, set to `$PPID` — see "Launching it, and why the `perl` line is there" just above for what that
-  is and why the watcher would otherwise outlive the session. ⚠️ The monitor branch passes no
-  `--owner` at all; a wrong pid there would end the watch on its first poll, which is the only thing
-  passing it could still do. The loop tests it with `kill -0` once per
+  is, and `watcher-background.md` for why the watcher would otherwise outlive the session. ⚠️ The
+  monitor branch passes no `--owner` at all; a wrong pid there would end the watch on its first
+  poll, which is the only thing passing it could still do. The loop tests it with `kill -0` once per
   poll, beside the deadline check, and exits `3` when it is gone. Optional: with no `--owner` the
-  script behaves exactly as it did before this flag existed. Validated the way `--deadline` is —
-  a non-numeric value, an empty one and zero are all refused with exit `2`. Zero has a reason of its
+  script behaves exactly as it did before this flag existed. Validated the way `--deadline` is — a
+  non-numeric value, an empty one and zero are all refused with exit `2`. Zero has a reason of its
   own: `kill -0 0` asks about the caller's whole process group and would answer "alive" forever.
 - The token for `--fetch` is read from `CLAUDE_REMARKS_TOKEN` in the environment, never from an
   argument — an argument is visible to every process on the machine through `ps`, and the token is
@@ -1428,51 +1262,3 @@ the **IDE machine** uses. ⚠️ When those two strings differ — the ordinary 
 watcher and a remote watcher for one repository write two different pid files and never see each
 other. That is no conflict, since no watcher excludes another anyway. It costs one thing: stopping a
 watcher means knowing which of the two files names it.
-
-## What to say if something goes wrong
-
-- Missing handshake file: "No IDE has this repository open right now. Open the project in
-  IntelliJ (or another JetBrains IDE with the Claude Remarks plugin) and try again."
-- 403, same-machine case: "The IDE at this port answered with a stale token — re-open the project
-  in the IDE, which writes a fresh handshake, then try again."
-- 403, remote case: "The token stored in `<remote_conf>` is stale — the IDE was restarted since it
-  was saved. Get a fresh one (`crtunnel` on the IDE machine prints it, or 'Over SSH' above if that
-  helper is not installed), then run
-  `~/.claude/skills/claude-remarks/remote-config.sh save --port <port> --project <path>`
-  again with `CLAUDE_REMARKS_TOKEN` set to it."
-- An acknowledgement answers anything other than `ok`: report the outcome (`already-read`,
-  `unknown-batch`, `unknown-project`, `bad-request`) and the body verbatim, and add that the remarks
-  were read here but the IDE never marked them read, so the next Publish Unread will carry them
-  again.
-- A published file left behind by plugin version `0.8.0` or earlier: it carries the old eight-line
-  header, with `review:`, `label:` and `rejected:` after `remarks:`. **It still reads**, because the
-  first five lines are byte for byte what the five-line header writes and nothing checks line 6 — so
-  the nonce, the date, the commit and the count all come out right, and the three extra lines simply
-  appear at the top of the body. What does go wrong is the acknowledgement: that nonce was minted by
-  an IDE run that has since ended, so `published-read` answers `unknown-batch`. Say that the file
-  predates the installed plugin, act on it if the person wants, and say the next publish overwrites it
-  with a five-line header. Do not poll for it to fix itself.
-- No tunnel in the remote case (connection refused): "There is no tunnel reaching the IDE machine
-  at this host and port. On the IDE machine, start one with
-  `ssh -o ExitOnForwardFailure=yes -R <port>:127.0.0.1:<the IDE's port> <this machine>`, then try
-  again." `ExitOnForwardFailure=yes` matters here: without it a taken port on this machine makes
-  `ssh` connect anyway with no forwarding, and every request after that answers connection refused
-  for a reason that looks nothing like the real cause.
-- `fetch` answers `too-large`: "The published batch is too big to send through the tunnel
-  (`<bytes>` bytes, limit `<limit>`)." Take both numbers from the watcher's own stderr line, which
-  reads them out of the response and prints them in brackets. Then: "The remarks are still in the
-  IDE, in the published file under `~/.claude-remarks/` on the IDE machine. Ask the person to read
-  them there, or to publish fewer remarks at a time." Not a failure to retry — the same file comes
-  back the same size every poll, so this stops here.
-- `fetch` answers `failed`: "The IDE reached the published file and could not use it: `<detail>`."
-  The `detail` field says which of three things happened — the file could not be read (an
-  IOException), its header could not be parsed (something other than this plugin wrote it, or an
-  older plugin's file is still sitting there), or the open project's own directory no longer
-  resolves (the checkout was deleted, moved or unmounted under the IDE). None of the three gets
-  better by polling, which is why the watcher exits 2 on it rather than waiting the deadline out.
-  Report the detail verbatim, and stop. There is nothing to acknowledge — no batch reached this side
-  — and the person can publish again once the cause is fixed.
-- `fetch` answers `unknown-project` in the remote case: "The two machines disagree about where the
-  repository lives. The response's `open` list names the paths the IDE has open — pass one of
-  those as `ide_project` and try again." This is the normal first failure of the remote case, not
-  a rare mistake.

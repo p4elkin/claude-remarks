@@ -93,7 +93,7 @@ fun skillInstallNotificationText(
  *
  * Called inline from [dev.sasha.clauderemarks.editor.RemarkGutterStartup.execute], a suspend
  * function that already runs off the EDT — so the filesystem reads below (three directories, and
- * possibly the first five lines of a 96 KB `SKILL.md`) need no executor hop of their own, and
+ * possibly the first five lines of an 80 KB `SKILL.md`) need no executor hop of their own, and
  * neither does showing the notification: [com.intellij.notification.Notification.notify] only
  * publishes onto the notification bus, which is safe to call from any thread.
  *

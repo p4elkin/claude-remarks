@@ -15,6 +15,100 @@ the code. These entries are how the work happened; that document is what the sys
 
 ---
 
+## after 0.12.1 — 2026-08-08 — the skill loads less of itself
+
+Nothing in the plugin's behaviour changed here and no version was bumped. This is the skill side
+only. `SKILL.md` was 96,306 bytes over 1,478 lines, and every session that invoked the skill loaded
+all of it — roughly 24,000 tokens — before doing any work. It is **80,329** bytes now, and what came
+out of it sits in three files a session reads only when it needs them.
+
+- **Nothing was deleted for being long.** Every moved section kept its bytes; only its address
+  changed. `SKILL.md` 80,329 + `listen-without-monitor.md` 10,733 + `watcher-background.md` 3,225 +
+  `remote-and-trouble.md` 8,267 = 102,554, which is the original 96,306 plus 6,248 bytes of new file
+  titles, pointer sentences and repointed cross-references. That arithmetic is the proof, and each
+  task recorded its own share of it before the next one started. The moves themselves accounted for
+  2,453 of those bytes; the three review passes afterwards spent the other 3,552 — first on making
+  every cross-reference name its file and its section instead of saying "above" or "below", then on
+  the two routes a session really walks (the block that resolves the directory a reference file is
+  read out of now prints that directory, and the monitor branch's own acknowledgement step names
+  where each of the four values it needs was printed, since no variable survives from the Bash call
+  that set them), and last on the same defect in the exit-per-batch branch. A fourth pass, on
+  consistency rather than correctness, spent the remaining 243: it widened the section title
+  `## Where the two scripts are, and how to name them` to
+  `## Where the skill's own files are, and how to name them`, because a session is now sent there to
+  resolve a reference file and not only a script, and it repaired four sentences that still described
+  the skill as it was before the split.
+- ⚠️ **80,329 is a measurement, not a ceiling.** The plan's 80,000 figure existed only to stop the
+  split chasing an unreachable 60,000. The second review pass read it as a budget and cut a shell
+  comment to fit, which inverts the first rule of this whole change, so the figure was recorded as a
+  measurement afterwards: a correctness fix that needs another 500 bytes spends them.
+- **The split is by when a section is needed, not by topic.** `listen-without-monitor.md` holds the
+  exit-per-batch listen branch, which only a harness with no `Monitor` tool takes — Claude Code
+  always takes the other one and read this one anyway on every run. `watcher-background.md` holds the
+  argument for why the `perl … setsid()` launch line is not `( nohup … & )`, wanted only when a
+  watcher will not start; the launch line itself and its flags stayed, so nothing has to open a
+  second file to start one. `remote-and-trouble.md` holds "Over SSH: the IDE on another machine" and
+  "What to say if something goes wrong". A topic split would have made a file per mode, and every
+  session takes a mode, so every session would open a second file to do ordinary work.
+- **Each moved section is reachable by one sentence.** Nothing enumerates the directory and no
+  session goes looking, so `SKILL.md` points at each file where a session would hit the situation
+  rather than in a list at the end. Each reference file opens with a title and a paragraph naming its
+  own subject, because a session opens it with the ordinary `Read` tool and none of `SKILL.md`'s
+  argument in front of it.
+- **The install needed one line.** The three names were added to `SkillInstall.SKILL_FILES`.
+  `installSkill` already copied everything that is not `SKILL.md`, set the executable bit only on
+  `.sh` names, covered every name in the list by the symlink refusal and wrote the stamped `SKILL.md`
+  last — so a new `.md` file was handled correctly the moment it was named. `SkillResourceTest` loops
+  `SKILL_FILES` and covered all six at once. `SkillInstallTest` gained a case that runs a whole real
+  install into a temporary home, then compares the target listing against `SKILL_FILES` and asserts
+  the executable bit is set for exactly the `.sh` names, rather than counting to six.
+- ⚠️ **The plan aimed at 60,000 bytes, and that number was an estimate rather than a measurement.**
+  What is left once every situational section has moved is the three modes themselves, which the plan
+  keeps whole because they are the work. The target was corrected to 80,000 rather than reached by
+  deleting content.
+- ⚠️ **Anyone who installed `0.12.1` keeps three files, and nothing offers them the other three.**
+  Both update surfaces compare version strings and nothing else: `shouldNotifySkillInstall` returns
+  false when the installed stamp equals the bundled version, and the settings row says "up to date"
+  for the same reason. The version did not move here, so for an existing install there is no "next
+  install" to speak of — the only routes to the six files are pressing **Reinstall** by hand on the
+  settings page, or the next release, which bumps the version and makes both surfaces fire on their
+  own. Whoever cuts that release should know the six-file skill is what goes out with it.
+- ⚠️ **Nothing removes a file that has left `SKILL_FILES`**, which costs nothing here because
+  nothing was renamed.
+
+- **A review pass afterwards fixed what the moves broke, which was every cross-reference.** A moved
+  section's "above" and "below" stop meaning anything the moment it moves, and one of them sent the
+  monitor branch into `listen-without-monitor.md` for a `published-read` block that is wrong for it
+  twice over: it builds its URL from a local handshake file, so it answers "cannot acknowledge" over
+  a tunnel, and the step written under it is "re-arm, immediately", which the monitor branch must
+  never do. Every cross-reference now names its file and its section. `SkillResourceTest` gained the
+  machine-checkable half: every name in `SKILL_FILES` has to appear in `SKILL.md`'s text, and every
+  `*.md`/`*.sh` name the text points at has to be in `SKILL_FILES`.
+
+- **A third pass fixed the exit-per-batch branch's own acknowledgement, and re-anchored the pointer
+  guard.** The block that acknowledges a batch in `listen-without-monitor.md` read `$listen_root` and
+  `$listen_name`, and the setup block prints neither, so in a fresh Bash call both were empty: the
+  handshake path came out as `~/.claude-remarks/.json`, the block took its "cannot acknowledge"
+  branch, and the batch stayed unread in the IDE while the session reported the wrong cause. It now
+  takes the session and the project from the two lines the setup block really does print, and
+  computes the handshake name again itself — the git top level hashed and cut to sixteen characters,
+  the same computation the setup block does. The pointer guard, meanwhile, had been widened to accept
+  any skill markdown file naming a reference file. Its forward direction is anchored back at
+  `SKILL.md` specifically, since that is the only file a session loads by itself: being named by
+  another reference file is not a route. The reverse direction still unions every markdown file.
+
+Checked: `./gradlew test` (727 tests, 61 classes, no failures, counted from
+`build/test-results/test/*.xml`), `./gradlew buildPlugin` with all six skill files listed inside
+`claude-remarks-0.12.1.jar` at the same byte sizes they have in the source tree, and
+`./gradlew verifyPlugin` still Compatible with no internal API usage. ⚠️ Still hand checks: that a
+real listen session never reads the three reference files when nothing goes wrong, which is the whole
+point of the change, and that a session which cannot start a watcher finds `watcher-background.md`
+instead of guessing.
+
+Plan: `docs/plans/20260808-claude-remarks-skill-slimming.md`.
+
+---
+
 ## 0.12.1 — 2026-08-08 — the version lookup stops asking the platform
 
 `0.12.0` was submitted to the JetBrains Marketplace and its automated verification refused it:

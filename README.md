@@ -344,11 +344,14 @@ works as it always did.
 ## The Claude Code skill
 
 The skill that reads remarks out of the IDE is a normal Claude Code skill, and since phase 15 its
-three files live inside the plugin's own resources, under
-`src/main/resources/dev/sasha/clauderemarks/skill/`. The ordinary way to install it is the Install
-button on the plugin's settings page (Settings → Tools → Claude Remarks), which copies the three
-files out of the running plugin. The fallback, for a checkout with no plugin build to hand, is to
-symlink or copy the directory into `~/.claude/skills/` by hand:
+files live inside the plugin's own resources, under
+`src/main/resources/dev/sasha/clauderemarks/skill/`. There are six of them: `SKILL.md`, the two
+scripts `watch-remarks.sh` and `remote-config.sh`, and three reference files that `SKILL.md` points
+at and a session reads only when it needs them — one for a harness with no `Monitor` tool, one for a
+watcher that will not start, and one for an IDE on another machine or a request that failed. The
+ordinary way to install it is the Install button on the plugin's settings page (Settings → Tools →
+Claude Remarks), which copies all six out of the running plugin. The fallback, for a checkout with no
+plugin build to hand, is to symlink or copy the directory into `~/.claude/skills/` by hand:
 
 ```sh
 ln -s "$(pwd)/src/main/resources/dev/sasha/clauderemarks/skill" ~/.claude/skills/claude-remarks
@@ -363,7 +366,7 @@ before either move is a dangling symlink and has to be recreated with one of the
 It is kept in this repository rather than only under `~/.claude/skills` because the skill and the
 IDE endpoint it talks to are one protocol, with five pairs of halves that have to agree — the request
 shape and answers of each of the four endpoint actions, plus the five fixed header lines and their
-three readers. Keeping both halves of each in one place is what stops them drifting.
+four readers. Keeping both halves of each in one place is what stops them drifting.
 `docs/skill/README.md` spells all five out.
 
 The skill has three modes.
@@ -436,9 +439,9 @@ guessing. That same binding, plus a per-run token and the refusal of any request
 or `Referer`, is the whole security model.
 
 The two commands that read the port and the token, and the `ssh -R` line that starts the tunnel, are
-in the "Over SSH: the IDE on another machine" section of
-`src/main/resources/dev/sasha/clauderemarks/skill/SKILL.md`. They are not repeated here, so there is
-one copy to keep right.
+in `src/main/resources/dev/sasha/clauderemarks/skill/remote-and-trouble.md`, under "Over SSH: the IDE
+on another machine" — the section `SKILL.md` points a session at when the IDE is on another machine.
+They are not repeated here, so there is one copy to keep right.
 
 ## Status
 
