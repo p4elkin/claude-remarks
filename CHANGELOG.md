@@ -105,7 +105,7 @@ real listen session never reads the three reference files when nothing goes wron
 point of the change, and that a session which cannot start a watcher finds `watcher-background.md`
 instead of guessing.
 
-Plan: `docs/plans/20260808-claude-remarks-skill-slimming.md`.
+Plan: `docs/plans/completed/20260808-claude-remarks-skill-slimming.md`.
 
 ---
 
@@ -216,7 +216,7 @@ and the first one is what the second one needed.
   documentation first, and that is its own later piece of work. Listing them with a sentence saying
   why is what keeps the gap visible instead of silent.
 
-Plan: `docs/plans/20260806-claude-remarks-phase15.md`.
+Plan: `docs/plans/completed/20260806-claude-remarks-phase15.md`.
 
 ---
 
@@ -279,7 +279,7 @@ already had, and the watcher script stops needing a session to keep it alive.
   persistent monitor and never re-arms; every other agent keeps the exit-per-batch loop, unchanged. The
   summarise, answer and wait-for-go steps are written once, in a section both branches end in.
 
-Plan: `docs/plans/20260806-claude-remarks-phase14.md`.
+Plan: `docs/plans/completed/20260806-claude-remarks-phase14.md`.
 
 ---
 
@@ -340,7 +340,7 @@ grouping by state, and a row stops being one cropped line.
   before any work, quoting each remark rather than paraphrasing it, with `none` written under an empty
   group so a dropped group cannot be mistaken for nothing to report.
 
-Plan: `docs/plans/20260806-claude-remarks-phase13.md`.
+Plan: `docs/plans/completed/20260806-claude-remarks-phase13.md`.
 
 ---
 
@@ -391,7 +391,7 @@ the published file and the watcher.
   exit 2 rather than ignoring them, so an old launch line fails loudly instead of watching for the
   wrong thing.
 
-Plan: `docs/plans/20260806-claude-remarks-phase12.md`, and its spec beside it.
+Plan: `docs/plans/completed/20260806-claude-remarks-phase12.md`, and its spec beside it.
 
 ---
 
