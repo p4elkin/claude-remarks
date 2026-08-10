@@ -126,10 +126,21 @@ Build the plugin zip, then install it from disk:
 In the IDE: **Settings → Plugins → the gear icon → Install Plugin from Disk…**, pick that zip, and
 restart when asked.
 
-The plugin carries the Claude Code skill inside it. Once the plugin is installed, open
-**Settings → Tools → Claude Remarks**: the Claude Remarks skill row lists the coding agents found on
-the machine and installs the skill into Claude Code with one button. The IDE also offers it once in a
-balloon when a project opens and the skill is missing or out of date. See
+⚠️ **Installing the plugin is not the whole job. Install the skill too.** The plugin carries the
+Claude Code skill inside it, but a session cannot use it until it is copied out. Open
+**Settings → Tools → Claude Remarks** and look for the **Claude Remarks skill** row:
+
+![The Claude Remarks settings page, with the Claude Remarks skill group at the bottom listing Claude Code, Codex and Gemini, and an install button beside Claude Code](docs/images/install-skill.png)
+
+*The row names every coding agent found on the machine. The button beside Claude Code reads
+**Install** when the skill is not there and **Reinstall** once it is, as above. Codex and Gemini are
+listed without a button, because their own file layouts have not been read yet and a guessed path
+writes a file nobody loads.*
+
+Without that press, everything else still works — you write remarks and Publish Unread puts them on
+the clipboard — but no session picks them up on its own, and telling one to `listen for my remarks in
+this project` does nothing. The IDE also offers the install once in a balloon when a project opens
+and the skill is missing, so if you dismissed a balloon, this page is where it went. See
 [The Claude Code skill](#the-claude-code-skill).
 
 It needs a 2025.2 or newer build (`sinceBuild = 252`, no upper bound), and an IDE that ships the VCS

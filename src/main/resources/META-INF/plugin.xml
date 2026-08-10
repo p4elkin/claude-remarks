@@ -47,6 +47,15 @@
             <li>Profit.</li>
         </ol>
 
+        <p><b>Do not skip step 1.</b> Installing the plugin does not install the skill — the plugin
+        carries it, and one button copies it out. Until you press it, remarks still go to the
+        clipboard but no session picks them up on its own. The button reads <b>Install</b> when the
+        skill is not there and <b>Reinstall</b> once it is.</p>
+
+        <img src="https://raw.githubusercontent.com/p4elkin/claude-remarks/main/docs/images/install-skill.png"
+             alt="The Claude Remarks settings page, with the Claude Remarks skill group listing Claude Code, Codex and Gemini, and an install button beside Claude Code"
+             width="750" height="584">
+
         <p>Remarks work in source editors over whole lines or a phrase inside one, in the rendered
         markdown preview, on the working-copy side of a diff, and with no file at all when the note
         is about the change as a whole.</p>
