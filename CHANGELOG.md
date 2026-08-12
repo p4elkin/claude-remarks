@@ -15,6 +15,45 @@ the code. These entries are how the work happened; that document is what the sys
 
 ---
 
+## after 0.12.1 — 2026-08-12 — the skill says which project it is listening to
+
+A session running in a git worktree armed listen mode on a **different** repository and claimed a
+batch that did not belong to it. The batch claim did its job — the answer came back
+`already-read <the other session>`, so nothing was corrupted and nothing was acted on — but had the
+race gone the other way it would have taken a batch belonging to work it knew nothing about. Reported
+by the session it happened to.
+
+- **The root cause is not a bug in the naming.** Inside a worktree `git rev-parse --show-toplevel`
+  answers with the worktree's own root, and the plugin hashes exactly that string, so the two sides
+  agree. `store/GitHead.kt` already follows a `.git` that is a file to a gitdir outside the tree, and
+  documents why no containment check is allowed there. One repository with a main checkout and three
+  worktrees is simply four projects, four hashes, four handshakes and four published files.
+- **What went wrong is that the session overrode the computed root by hand**, from a harness reminder
+  saying the person had opened a file — a path in the main checkout, a different project with its own
+  IDE window and its own agent session. A hint naming one window says nothing about which project a
+  session should listen to.
+- ⚠️ **So the guard that was asked for would have been a no-op, and is not what shipped.** The
+  suggestion was to check that the handshake's `path` matches the computed root. It always does:
+  the handshake is named `sha256(path)`, so a handshake found at `sha256(root)` has that root by
+  construction, and the check can only fail on a hash collision. It also asked for the project path
+  to be written into the handshake JSON — already there since phase 6, as `path` beside `port` and
+  `token`.
+- **What shipped instead names the ambiguity.** Both the listen setup and the one-shot read block now
+  print the root they computed; say plainly when it is a worktree, naming the main checkout via
+  `git rev-parse --git-common-dir`; and, when no IDE has that root open, list the projects that are
+  open, read out of each handshake's own `path`. `SKILL.md` gained two paragraphs: worktrees are
+  separate projects, and a harness hint about an opened file is **not** authoritative — the handshake
+  files are. The word "worktree" appeared nowhere in the skill before this.
+- ⚠️ **The listing uses `find`, not a `*.json` glob.** Under zsh an unmatched glob is a hard error
+  that aborts the line before the loop runs, and "no handshakes at all" is exactly the case the
+  listing exists to report. The first version of this guard had that bug; `CLAUDE.md`'s guard 3
+  already documents the same trap for `--include='*.kt'`.
+
+Checked against a real worktree under a temporary `HOME`: the note fires in the worktree and names
+the right main checkout, the two hashes differ, the guard stays silent in an ordinary checkout with
+its handshake present, and the listing survives zero handshakes, a handshake with no `path` key from
+an older build, and a path containing a space.
+
 ## after 0.12.1 — 2026-08-08 — the skill loads less of itself
 
 Nothing in the plugin's behaviour changed here and no version was bumped. This is the skill side

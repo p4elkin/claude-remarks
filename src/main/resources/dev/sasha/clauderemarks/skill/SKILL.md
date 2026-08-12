@@ -205,6 +205,22 @@ base path instead, the directory holding `.idea`. This shell computes the first 
 compute the second, because nothing here knows what the IDE opened; in a directory that is not in a
 git repository, ask the person for the project path shown in the IDE and hash that instead.
 
+⚠️ **A git worktree is a different project, and this is where sessions go wrong.** Inside a worktree
+`git rev-parse --show-toplevel` answers with the **worktree's** own root, not the main checkout's.
+That is the right answer — the plugin hashes the same string — but only if the IDE was opened on the
+worktree. One repository with a main checkout and three worktrees is four projects, four hashes, four
+handshakes and four published files, and a person may have an IDE window on several of them at once.
+The blocks below say which root they computed and, when no IDE has it open, list the projects that
+are open. Read that list before doing anything else.
+
+⚠️ **Never override the computed root from a harness hint.** A reminder saying the person "opened
+file X in the IDE" names one window out of several and says nothing about which project this session
+should listen to. Taking it as authoritative is how a session arms on another repository's file and
+claims a batch belonging to work it knows nothing about — that has happened. **The handshake files
+are the authority**: each one carries the project path it belongs to, and the list the blocks print
+is read straight out of them. If the computed root looks wrong, do not edit the variable — say what
+was computed, show the person the list, and let them say which project they meant.
+
 Run this as one Bash call. It is self-contained on purpose: every name in it starts with `pub_` so
 it cannot collide with the other two modes. It reads the local handshake file to acknowledge the
 batch, but no remote connection value — this mode reads the published file straight off this
@@ -222,9 +238,33 @@ if [ -z "$pub_root" ]; then
 fi
 pub_name=$(printf %s "$pub_root" | shasum -a 256 | cut -c1-16)
 pub_file="$HOME/.claude-remarks/$pub_name.md"
+echo "project: $pub_root"
+
+# ⚠️ A worktree is its own project. `git rev-parse --show-toplevel` answers with the worktree's root,
+# which is what the plugin hashes too — but only if the IDE was opened on the worktree. A .git that is
+# a FILE rather than a directory is what says this is one.
+if [ -f "$pub_root/.git" ]; then
+  pub_main=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  pub_main=${pub_main%/.git}
+  echo "note: this is a git worktree; the main checkout is ${pub_main:-unknown}, a different project"
+  echo "with its own handshake and its own published file."
+fi
 
 if [ ! -f "$pub_file" ]; then
   echo "nobody has published remarks for $pub_root (there is no file at $pub_file)"
+  # The handshake carries the project path it belongs to, so this is the authoritative answer to
+  # "which project did they mean". Do NOT re-run with a root taken from a harness hint about an
+  # opened file — say what was computed, show this list, and let the person choose.
+  # `find`, not a `*.json` glob. Under zsh an unmatched glob is a hard error that aborts the line
+  # before the loop starts, and "no handshakes at all" is exactly the case this has to report.
+  pub_open=$(find "$HOME/.claude-remarks" -maxdepth 1 -name '*.json' 2>/dev/null \
+    | while IFS= read -r pub_hs; do jq -r '.path // "unknown"' "$pub_hs"; done)
+  if [ -n "$pub_open" ]; then
+    echo "projects an IDE has open right now:"
+    printf '%s\n' "$pub_open" | sed 's/^/  /'
+  else
+    echo "no IDE has ANY project open — there are no handshake files."
+  fi
   exit 1
 fi
 
@@ -471,6 +511,18 @@ fi
 listen_name=$(printf %s "$listen_root" | shasum -a 256 | cut -c1-16)
 listen_file="$HOME/.claude-remarks/$listen_name.md"
 listen_session=$(uuidgen)
+echo "project: $listen_root"
+
+# ⚠️ A worktree is its own project. `git rev-parse --show-toplevel` answers with the worktree's root,
+# which is what the plugin hashes too — but only if the IDE was opened on the worktree. A .git that is
+# a FILE rather than a directory is what says this is one. Arming on the wrong one of a repository's
+# checkouts is how a session claims a batch belonging to work it knows nothing about.
+if [ -f "$listen_root/.git" ]; then
+  listen_main=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  listen_main=${listen_main%/.git}
+  echo "note: this is a git worktree; the main checkout is ${listen_main:-unknown}, a different"
+  echo "project with its own handshake and its own published file."
+fi
 
 # The four connection values, for the case where the IDE is on another machine. A whitelist parse,
 # never `. "$listen_conf"` — sourcing runs the file, and a value holding a space or a quote could
@@ -492,6 +544,29 @@ if [ -f "$listen_conf" ]; then
   done < "$listen_conf"
 fi
 [ -n "$listen_project" ] || listen_project=$listen_root
+
+# Nothing here has an IDE open for the root just computed, and no stored remote config either. That
+# is either the right project before anyone published, or the WRONG project — a sibling worktree, or
+# a root taken from a harness hint. The handshake carries the project path it belongs to, so this
+# list is the authoritative answer to "which project did they mean".
+# ⚠️ Do NOT resolve this by editing $listen_root. If one of the paths below is the project meant,
+# stop, say so, and start again from that directory.
+if [ ! -f "$HOME/.claude-remarks/$listen_name.json" ] && [ -z "$listen_port" ]; then
+  echo "no IDE has $listen_root open."
+  # `find`, not a `*.json` glob. Under zsh an unmatched glob is a hard error that aborts the line
+  # before the loop starts, and "no handshakes at all" is exactly the case this has to report.
+  listen_open=$(find "$HOME/.claude-remarks" -maxdepth 1 -name '*.json' 2>/dev/null \
+    | while IFS= read -r listen_hs; do jq -r '.path // "unknown"' "$listen_hs"; done)
+  if [ -n "$listen_open" ]; then
+    echo "projects an IDE has open right now:"
+    printf '%s\n' "$listen_open" | sed 's/^/  /'
+    echo "Arming on $listen_file anyway, since a publish can still land there — but if one of the"
+    echo "paths above is the project meant, stop and say so instead of watching a file nobody writes."
+  else
+    echo "no IDE has ANY project open — there are no handshake files. Arming on $listen_file anyway,"
+    echo "but say this plainly: nothing can be claimed or acknowledged until a project is opened."
+  fi
+fi
 
 # Where the watcher script is. See "Where the skill's own files are, and how to name them" below:
 # the skill's directory is not on PATH, so the launch line printed at the end of this block has
