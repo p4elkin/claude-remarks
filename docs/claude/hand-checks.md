@@ -38,6 +38,14 @@ done, with nothing to fix:
 Those four are the ones a person meets first, so the plugin is no longer in the state where nobody
 has watched the main path work. The rest of this file still stands.
 
+**Half of the diff `DataContext` check was answered by a bug report, on 2026-08-13.** Sasha opened a
+commit-to-commit diff of a Magnolia file and got the refusal, naming that file. That sentence can only
+be produced when the data context carried a diff content whose `getHighlightFile()` resolved to a real
+file under the project root, so the route `store/RemarkTarget.kt` depends on does work in a running
+IDE. ⚠️ What it does **not** answer is which pane's content the platform put there. `CURRENT_CONTENT`
+is documented to follow the focus tracker, and only a person switching panes and watching the answer
+change can confirm it.
+
 ## What is unproven
 
 **Almost everything built after `0.6.0` is still unproven in a real IDE**, minus the four above. That
@@ -65,9 +73,27 @@ checks. The numbering below is each plan's own; nothing here renumbers anything.
 | phase 14 — the preview highlighting and streaming, fourteen checks | "Hand checks" in `docs/plans/completed/20260806-claude-remarks-phase14.md` |
 | phase 15 — the skill install | "Hand checks" in `docs/plans/completed/20260806-claude-remarks-phase15.md` |
 | the skill split — three checks: an install lands all six files, a listen session that hits no trouble reads none of the three reference files, and a watcher made to fail sends the session to `watcher-background.md` | "Post-completion" in `docs/plans/20260808-claude-remarks-skill-slimming.md` |
+| the diff refusal narrowing — three checks, listed below rather than in a plan, because it was reported and fixed in one sitting | this file, next section |
 
 ⚠️ **Four of those plans have moved into `docs/plans/completed/` and the rest have not.** The paths
 above are where each file sits today. When a plan moves, its path here moves with it.
+
+## The diff refusal narrowing — three checks, all owed
+
+Added 2026-08-13. Nothing here is reachable by `./gradlew test`: a light fixture cannot build a real
+diff viewer, so the suite proves the decision and not the window it is made in.
+
+1. **A remark on the newer pane of a commit-to-commit diff lands on the right lines.** Open a branch's
+   HEAD commit against an older commit, with the branch checked out and the working tree clean. Write
+   a remark on the newer side. It should be accepted; then open the file itself and confirm the gutter
+   icon is on the lines that were selected, not near them.
+2. **The older pane still refuses, and says why.** Same window, same file, the other side. The sentence
+   should now say the text is not what is on disk. ⚠️ This is also the pane-focus check the
+   `CURRENT_CONTENT` note above leaves open: if switching sides changes the answer, the platform is
+   publishing the focused pane's content, which nothing else can confirm.
+3. **A dirty working tree refuses on both sides.** Edit the file, do not commit, then reopen the same
+   diff. The newer pane's text is no longer the file on disk, so it must refuse — this is the check
+   that the comparison really runs rather than the pane being accepted for being the newer one.
 
 ## How the lists relate to each other
 

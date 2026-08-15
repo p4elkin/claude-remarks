@@ -15,6 +15,43 @@ the code. These entries are how the work happened; that document is what the sys
 
 ---
 
+## after 0.12.1 — 2026-08-13 — a remark on a diff of two commits
+
+Reported from a real IDE: every pane of a diff refused a remark, with "QueryResultImpl.java here is a
+revision, not the working copy". The diff was a branch's HEAD commit against an older commit — how a
+whole change gets read at once — so neither pane was the working copy, and the sentence sent the
+person to a side of the diff that did not exist.
+
+- **The refusal was right about the general case and wrong about this one.** A remark's line numbers
+  come from the document being read, and its anchor is captured from that document's text; both are
+  resolved later against the working copy. On a revision pane those are usually different text, which
+  is why phase 7 refused the pane whole. But the branch was checked out, so the newer pane's text
+  *was* the file on disk, character for character.
+- **So the refusal now asks one more question before refusing.** `showsWorkingCopyText` in
+  `store/RemarkTarget.kt` compares the pane's document with the working copy's. Same text, the remark
+  is allowed and stored under the working copy's path. Different text, or no readable document at all
+  — a binary file, one too large, one deleted — and the refusal stands, now saying the text is not
+  what is on disk rather than naming a side of the diff.
+- ⚠️ **A second bug turned up while testing the first, and it was the more serious one.** The
+  candidate list was a `listOfNotNull`, and `remarkTargetProblem` reads its first position as "the
+  document being shown IS this file" and accepts it with no comparison. So whenever the pane's
+  document belonged to no file, the working copy slid into that position and the pane was accepted
+  outright — the revision's line numbers stored against the working copy, exactly the mis-anchoring
+  the refusal exists to prevent. The platform really does produce that shape:
+  `DiffContentFactoryImpl.createPsiDocument` returns null for a binary file type and falls back to a
+  document belonging to nothing. The list now holds nulls in fixed positions.
+- **How that one was found is worth keeping.** It was not reasoned out. A test written for the "no
+  readable working copy" branch failed in the wrong direction — it reported no problem where the old
+  code should have refused — and the diagnostic run that followed showed the pane's document had no
+  file at all. Three rounds of reading the platform source had not suggested it.
+- Two new tests in `DiffRemarkTargetTest`, one rewritten: a matching revision pane is accepted and
+  answers with the working copy's path, a differing one is refused with the exact new sentence, and
+  the binary-highlight-file pane is refused rather than accepted. 729 tests, 0 failures.
+
+Plan: none — reported and fixed in one sitting.
+
+---
+
 ## after 0.12.1 — 2026-08-12 — the skill says which project it is listening to
 
 A session running in a git worktree armed listen mode on a **different** repository and claimed a

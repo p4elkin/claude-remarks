@@ -1118,11 +1118,20 @@ orphan it — neither is guaranteed. Opening a diff by default makes this case c
 rare, so it has to be answered as part of this work and not after it. See
 [[Annotating inside the diff viewer]], which already lists the options: refuse the old side with a
 sentence saying why, or map the line through the diff's own line mapping onto the new revision.
-**Answered: refuse.** `remarkTargetProblem` in `store/RemarkTarget.kt` refuses a remark on the
-revision side of a diff with a sentence naming the working copy as the other side, one click away.
-Mapping the line through the diff's own line mapping is real work and stays a later phase.
+**Answered: refuse, then narrowed.** `remarkTargetProblem` in `store/RemarkTarget.kt` first refused
+every remark on the revision side of a diff, with a sentence naming the working copy as the other
+side, one click away. It now refuses only a pane whose text differs from the working copy's, so the
+newer side of a commit-to-commit diff on a checked-out branch is allowed — the case below turns out
+to be half-solved by that. Mapping the line through the diff's own line mapping is still real work
+and stays a later phase.
 
 ### Committed ranges are a separate, bigger job
+
+**Half of this is now solved, and not by the part anybody expected.** Reading a committed range is
+routinely done by opening the branch's HEAD commit against an older one in the IDE's own diff, with
+no help from this plugin at all — and remarks work in that window now, on the newer pane, because
+that pane's text is the checked-out working copy's text. See the refusal narrowing above. What is
+still missing is the plugin *opening* such a diff itself, which is the paragraph below.
 
 `ChangeListManager` only knows about uncommitted work. A review of `main..HEAD` is a review of
 changes that are already committed, so `getChange` returns null for every one of them and this whole

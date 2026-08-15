@@ -956,12 +956,40 @@ intention builds one with `DataManager.getInstance().getDataContext(editor.conte
 `EditorKind.DIFF` editor without deciding, and lets `invoke` either open the input or show the
 reason at the caret.
 
-**Such a remark is refused, since phase 7.** The route above finds the working tree's file, and the
-anchor would still be captured from `editor.document`, which is the *revision's* text. Phase 6 shipped
-that combination as a stored remark; phase 7 refuses it. `remarkTargetProblem` answers with a sentence
-naming the working copy, and the reasoning for the reversal is in "Opening the diff the skill asked
-for" below — opening a diff by default made this pane common rather than rare, and a remark whose line
-numbers describe a different revision either lands by luck or orphans with no warning.
+**Such a remark was refused outright from phase 7, and is now refused only when the text differs.**
+The route above finds the working tree's file, and the anchor is still captured from
+`editor.document`, which is the *revision's* text. Phase 6 shipped that combination as a stored
+remark; phase 7 refused it whole; today `remarkTargetProblem` asks one more question before refusing.
+
+`showsWorkingCopyText` compares the pane's document with the working copy's, character for character,
+and a pane that matches is allowed. The reason that is safe is the same fingerprint argument the
+whole anchoring module rests on: when the two texts are one string, the pane's line numbers describe
+the working copy as exactly as the working copy's own do, and the anchor captured from the pane
+resolves onto the lines the person chose. When they differ, the remark describes text that is not
+there — it either lands by luck or orphans with no warning — so the refusal stands.
+
+**Why that narrowing was needed.** The case it unlocks is not exotic, it is the common way a branch
+gets read: comparing the branch's HEAD commit against some older commit, to see the whole change at
+once. Both panes are revisions, so nothing in that window is the working copy and phase 7's refusal
+applied to every line of it, while sending the person to "the working-tree side of this diff" — a
+side that does not exist there. But the branch is checked out, so the newer pane's text *is* the file
+on disk, and the only thing wrong with a remark written on it was the check, not the remark.
+
+**The comparison is whole-text, and null is a refusal.** Comparing only the selected lines would be
+cheaper and wrong: those lines are at the line numbers they are at only if everything above them
+matches too. A length check in front makes the differing case cost nothing, which is the case it runs
+in most often. `FileDocumentManager.getDocument` returning null — a binary file, one too large, one
+deleted — refuses. Accepting a pane because the check could not be run is the one way this narrowing
+could store a remark against text nobody has.
+
+⚠️ **The candidate list holds nulls, in fixed positions, and must not go back to `listOfNotNull`.**
+`remarkTargetProblem` reads the first position as "the document being shown IS this file" and accepts
+it with no comparison at all. Dropping a null promotes the diff route into that position whenever the
+pane's document belongs to no file — which the platform really does produce:
+`DiffContentFactoryImpl.createPsiDocument` returns null for a binary file type and falls back to a
+plain `EditorFactory` document belonging to nothing. That shape was accepted outright until the list
+was made positional, with the revision's line numbers going to the working copy. `DiffRemarkTargetTest`
+builds it, and both of its assertions failed before the fix.
 
 **The anchor-is-a-fingerprint reasoning still holds, for the working-copy side.** An anchor is a
 fingerprint, never a pointer: `textHash` plus a few context lines, resolved against the working tree
@@ -974,18 +1002,33 @@ the highlight file second — go through the same `VfsUtilCore.getRelativePath(f
 returns null unless `root` really is an ancestor. There is no second route around the check, which
 is the whole reason the fallback is a second entry in one list rather than a branch of its own.
 
-**Since the refusal, the second candidate is not a storage route at all.** It is what lets
+**The second candidate is a real storage route again, for matching panes only.** It is also what lets
 `remarkTargetProblem` tell a revision pane apart from a file genuinely outside the project, so each
-gets its own sentence. `relativePathOf` still reads the same list, but in production only its first
-candidate can ever answer: its one caller, `openNewRemarkInput`, returns before it whenever
-`remarkTargetProblem` is non-null. `DiffRemarkTargetTest` asserts the second candidate resolves, and
-that assertion pins the two functions reading one candidate list — not a path a remark can take.
+gets its own sentence. `relativePathOf` reads the same two positions and answers with the second when
+the first has none — which is right, because a remark allowed on a matching revision pane is stored
+against the working copy, under the working copy's path.
+
+⚠️ `relativePathOf` says where a remark *would* go, never whether one *may* be written. Only
+`remarkTargetProblem` compares the texts. Both callers ask it first and return before they reach
+`relativePathOf` — `openNewRemarkInput` in `action/AddRemarkAction.kt` and `askClaude` in
+`action/AskClaudeAction.kt`. A third caller that skipped it would store exactly the mis-anchored
+remark this section is about.
 
 **What is checked and what is not.** `DiffRemarkTargetTest` builds the exact content shape a
 revision produces, from the platform's own `DiffContentFactory`, and drives the real action through
 a `TestActionEvent`. It does not build a `SimpleDiffViewer`, which a light fixture cannot do, so
-nothing in the suite proves the platform really publishes `CURRENT_CONTENT` for the focused pane —
-that came from reading `TwosideDiffViewer` and still needs one hand check in a sandbox IDE.
+nothing in the suite proves the platform really publishes `CURRENT_CONTENT` for the focused pane.
+That came from reading `TwosideDiffViewer`, and one half of it is now confirmed in the field: a
+person reading a commit-to-commit diff of a Magnolia file got the refusal naming that exact file, so
+the content in the data context did carry a highlight file resolving to the project file. Which
+*pane's* content it was is still unconfirmed, and stays a hand check.
+
+**What the modification-stamp guard covers here, and what it does not.** `openNewRemarkInput` refuses
+if `editor.document` changed while the input box was open. On a matching revision pane that document
+is the revision's, which never changes, so the guard is vacuous there: an edit to the working copy
+during those few seconds would not be caught. Deliberately left alone. The anchor is a fingerprint,
+so the outcome of that race is the ordinary one — the remark resolves onto moved code, or orphans —
+rather than a wrong line silently presented as right.
 
 ## The Editor Side
 

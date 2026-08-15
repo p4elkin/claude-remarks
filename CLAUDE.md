@@ -64,9 +64,12 @@ greys only once it is `READ`.
 
 A gutter icon appears on the marked lines and follows the code as the file is edited.
 
-⚠️ A remark written on the revision side of a diff is refused, with a sentence pointing at the
-working copy, rather than stored with line numbers that describe a different revision. See
-`design.md`, "Adding a Remark While Reading a Diff".
+⚠️ A remark on a diff pane whose document is a VCS revision is allowed only when that pane's text is
+the working copy's text, character for character. That is the case for the newer side of a
+commit-to-commit diff on a checked-out branch, which is how a whole branch gets read at once. Every
+other revision pane is refused, with a sentence pointing at the working copy, rather than stored with
+line numbers that describe text nobody has on disk. See `design.md`, "Adding a Remark While Reading a
+Diff".
 
 ### Two places to mark: the editor and the rendered markdown preview
 
@@ -514,11 +517,15 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    StoredAnchor value type and resolveStored, which resolveOne and
                                    resolveAnswers both go through, so the file lookup, the Document
                                    lookup, the no-file case and the five refusals are written once
-  store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, the diff fallback, and the
-                                   refusal for a remark on the revision side of a diff.
-                                   fileTargetProblem is the file-only half of that refusal,
+  store/RemarkTarget.kt            relativePathOf, remarkTargetProblem, the diff route, and
+                                   showsWorkingCopyText, which decides whether a revision pane may
+                                   carry a remark by comparing the pane's text with the working
+                                   copy's. fileTargetProblem is the file-only half of the refusal,
                                    split out so the preview's own action can reuse it without a diff
-                                   or an editor
+                                   or an editor. ⚠️ targetFiles holds nulls in fixed positions and
+                                   must never go back to listOfNotNull: dropping a null promotes the
+                                   diff route into the position that means "this IS the document
+                                   being shown", which accepts a revision pane outright
   store/ContextFormat.kt           joinContext/splitContext, how context lines are stored
   store/GitHead.kt                 headCommit and gitTopLevel, both off one walk up the tree for
                                    .git. Reads .git directly, no platform import, no Git4Idea
