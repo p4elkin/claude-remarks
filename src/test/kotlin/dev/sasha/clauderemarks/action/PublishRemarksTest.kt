@@ -17,6 +17,9 @@ import dev.sasha.clauderemarks.store.addGeneralRemark
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.markRemarksRead
+import dev.sasha.clauderemarks.store.editRemark
+import dev.sasha.clauderemarks.store.recordAnswer
+import dev.sasha.clauderemarks.store.answer
 import java.nio.file.Path
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermissions
@@ -33,6 +36,26 @@ import java.nio.file.attribute.PosixFilePermissions
  * little.
  */
 class PublishRemarksTest : BasePlatformTestCase() {
+
+    fun testEditedReadRemarksArePreparedIncludingAnsweredOnes() {
+        val plain = addGeneralRemark(project, "plain")
+        val answered = addGeneralRemark(project, "question", asksForAnswer = true)
+        markRemarksRead(project, listOf(plain.id!!, answered.id!!))
+        recordAnswer(project, answer(remarkId = answered.id!!))
+        editRemark(project, plain.id!!, "updated plain")
+        editRemark(project, answered.id!!, "updated question")
+        val prepared = prepare(project, null)
+        assertEquals(setOf(plain.id, answered.id), prepared.ids.toSet())
+        assertEquals(mapOf(plain.id!! to 1, answered.id!! to 1), prepared.revisions)
+    }
+
+    fun testPreparedRevisionsMatchTheRenderedRows() {
+        val a = addGeneralRemark(project, "a")
+        val b = addGeneralRemark(project, "b")
+        editRemark(project, b.id!!, "edited b")
+        assertEquals(mapOf(a.id!! to 0, b.id!! to 1), prepare(project, null).revisions)
+        assertEquals(mapOf(b.id!! to 1), prepare(project, listOf(b.id!!)).revisions)
+    }
 
     override fun setUp() {
         super.setUp()

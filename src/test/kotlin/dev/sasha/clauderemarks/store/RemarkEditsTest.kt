@@ -127,6 +127,8 @@ class RemarkEditsTest : BasePlatformTestCase() {
 
         assertEquals(2, heard)
         assertEquals("changed", RemarkStore.getInstance(project).all().single().text)
+        editRemark(project, stored.id!!, "changed")
+        assertEquals("An unchanged edit must not notify", 2, heard)
     }
 
     fun testEditingAnUnknownIdDoesNotPublish() {

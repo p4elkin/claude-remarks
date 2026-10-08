@@ -23,6 +23,61 @@ import org.junit.Test
  */
 class RemarkStoreStateTest {
 
+    @Test
+    fun `a real edit reopens a read remark and advances its revision`() {
+        val store = RemarkStore()
+        store.add(remark(status = RemarkStatus.READ, readAt = 123L, revision = 7))
+        assertTrue(store.edit("r-1", "changed"))
+        val edited = store.all().single()
+        assertEquals(RemarkStatus.PENDING, edited.status)
+        assertEquals(0L, edited.readAt)
+        assertEquals(8, edited.revision)
+    }
+
+    @Test
+    fun `an unchanged edit preserves read status revision and modification count`() {
+        val store = RemarkStore()
+        store.add(remark(status = RemarkStatus.READ, readAt = 123L, revision = 7))
+        val count = store.stateModificationCount
+        assertFalse(store.edit("r-1", "note"))
+        val unchanged = store.all().single()
+        assertEquals(RemarkStatus.READ, unchanged.status)
+        assertEquals(123L, unchanged.readAt)
+        assertEquals(7, unchanged.revision)
+        assertEquals(count, store.stateModificationCount)
+    }
+
+    @Test
+    fun `editing pending or published remarks preserves status and advances revision`() {
+        for (status in listOf(RemarkStatus.PENDING, RemarkStatus.PUBLISHED)) {
+            val store = RemarkStore()
+            store.add(remark(status = status, revision = 7))
+            assertTrue(store.edit("r-1", "changed"))
+            assertEquals(status, store.all().single().status)
+            assertEquals(8, store.all().single().revision)
+        }
+    }
+
+    @Test
+    fun `markRead skips stale revisions and still marks matching and unspecified ids`() {
+        val store = RemarkStore()
+        store.add(remark(id = "stale", revision = 2))
+        store.add(remark(id = "matching", status = RemarkStatus.PUBLISHED, revision = 3))
+        store.add(remark(id = "unspecified", revision = 4))
+        assertEquals(2, store.markRead(setOf("stale", "matching", "unspecified"), mapOf("stale" to 1, "matching" to 3)))
+        assertEquals(RemarkStatus.PENDING, store.all().single { it.id == "stale" }.status)
+        assertEquals(RemarkStatus.READ, store.all().single { it.id == "matching" }.status)
+        assertEquals(RemarkStatus.READ, store.all().single { it.id == "unspecified" }.status)
+    }
+
+    @Test
+    fun `a remark stored before revision existed loads at zero`() {
+        val restored = deserializeOne("""<option name="id" value="old" /><option name="text" value="old text" />""")
+        assertEquals("old", restored.id)
+        assertEquals("old text", restored.text)
+        assertEquals(0, restored.revision)
+    }
+
     /**
      * Compared as serialized XML rather than field by field, the same way `a snapshot carries every
      * field a remark is stored with` does. The eleven hand-written assertions this replaces named
@@ -43,6 +98,7 @@ class RemarkStoreStateTest {
             status = RemarkStatus.PUBLISHED,
             createdAt = 1_700_000_000_000L,
             readAt = 1_700_000_500_000L,
+            revision = 7,
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",
             contextAfter = "line c\nline d",
@@ -493,8 +549,7 @@ class RemarkStoreStateTest {
         assertTrue(roundTrip(state).remarks.single().asksForAnswer)
     }
 
-    /** The storage half of "readAt is stamped once and stays put": once it is non-zero it has to
-     *  reach workspace.xml and come back, the same as every other timestamp on this class. */
+    /** A non-zero readAt reaches workspace.xml and comes back until a real READ edit resets it. */
     @Test
     fun `readAt survives the round trip when it is set`() {
         val state = RemarkStore.RemarksState()
@@ -612,6 +667,7 @@ class RemarkStoreStateTest {
             status = RemarkStatus.PUBLISHED,
             createdAt = 1_700_000_000_000L,
             readAt = 1_700_000_500_000L,
+            revision = 7,
             textHash = "abcdef0123456789",
             contextBefore = "line a\nline b",
             contextAfter = "line c\nline d",

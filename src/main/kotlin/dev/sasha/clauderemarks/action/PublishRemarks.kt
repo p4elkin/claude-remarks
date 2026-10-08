@@ -73,7 +73,7 @@ internal fun startPublishHook(
 
 /**
  * What the read action produced: the finished markdown, which remarks went into it, how many real
- * files it covers, the project's identity and the head commit.
+ * files it covers, the project's identity, the head commit, and each rendered remark's text revision.
  *
  * [root] is `projectIdentity`'s answer, the same thing the handshake file is named for — the git top
  * level, or the project base path outside a repository — not the base path on its own. [files]
@@ -94,6 +94,7 @@ internal data class Prepared(
     val files: Int,
     val root: Path?,
     val commit: String?,
+    val revisions: Map<String, Int>,
 )
 
 /**
@@ -178,7 +179,7 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
                 // an acknowledgement that was actually correct. record() runs on the EDT, which is
                 // exactly what it is meant to be called from — see PublishedAck.kt's KDoc. If the
                 // write below then fails, the catch drops the batch again.
-                val nonce = PublishedBatchService.getInstance(project).record(prepared.ids)
+                val nonce = PublishedBatchService.getInstance(project).record(prepared.ids, prepared.revisions)
                 try {
                     val header = PublishedHeader(
                         nonce = nonce,
@@ -282,7 +283,7 @@ internal fun prepare(project: Project, ids: Collection<String>?): Prepared {
     val rows = resolveAll(project).filter { row ->
         if (wanted == null) row.remark.status != RemarkStatus.READ else row.remark.id in wanted
     }
-    if (rows.isEmpty()) return Prepared("", emptyList(), 0, null, null)
+    if (rows.isEmpty()) return Prepared("", emptyList(), 0, null, null, emptyMap())
 
     val collected = collectForPrompt(project, rows)
     // projectIdentity, the one function ReviewHandshakeService and the endpoint's project matching
@@ -301,6 +302,7 @@ internal fun prepare(project: Project, ids: Collection<String>?): Prepared {
         files = collected.map { it.path }.filter { it.isNotEmpty() }.distinct().size,
         root = root,
         commit = root?.let { headCommit(it) },
+        revisions = rows.mapNotNull { row -> row.remark.id?.let { it to row.remark.revision } }.toMap(),
     )
 }
 

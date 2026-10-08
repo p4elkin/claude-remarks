@@ -312,7 +312,7 @@ class AnswerReceiptTest : BasePlatformTestCase() {
     }
 
     private fun record(vararg ids: String) =
-        PublishedBatchService.getInstance(project).record(ids.toList())
+        PublishedBatchService.getInstance(project).record(ids.toList(), emptyMap())
 
     private fun answers(): List<AnswerState> = RemarkStore.getInstance(project).allAnswers()
 
