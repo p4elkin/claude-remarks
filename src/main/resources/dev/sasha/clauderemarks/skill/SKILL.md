@@ -66,8 +66,10 @@ says. A hook naming another port belongs to another IDE: ignore it and use the m
 
 The plugin skips this project's hook when it is not a regular file, is not owned by the current
 user, or is writable by group or others; when its JSON is not an object; when its `argv` is not a
-non-empty array of strings starting with an absolute path; and when its `label` is not a string. If the hook fails any of these, or a publish shows the balloon "The live review is
-closed", tell the person the hook is broken or left over and stop. Do not start a watcher beside it.
+non-empty array of strings starting with an absolute path; and when it has a `label` that is not a
+string, `null` included. An absent or empty label is fine: it reads as `live review`. If the hook
+fails any of these, or a publish shows the balloon "The live review is closed", tell the person the
+hook is broken or left over and stop. Do not start a watcher beside it.
 
 While a live review owns the project, it acknowledges the published batches. Do not start
 `watch-remarks.sh` for this project. Handle batches
