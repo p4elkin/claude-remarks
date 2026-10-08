@@ -1,6 +1,6 @@
 # Claude Remarks — Working Notes
 
-An IntelliJ Platform plugin, version `0.12.1`. A person reads code in the IDE, marks the places worth
+An IntelliJ Platform plugin, version `0.13.0`. A person reads code in the IDE, marks the places worth
 saying something about, and the plugin turns every mark into one markdown prompt for a Claude Code
 session. Nothing is ever written into a source file.
 
@@ -51,6 +51,15 @@ An answer is a second stored record with an anchor of its own, created only by a
 acknowledgement produces `READ`. Guards 6 and 7 below are what hold that. A published remark stays in
 the list and still draws at full strength, because it is still the work the next publish carries. It
 greys only once it is `READ`.
+
+A real text edit increments the remark's persisted `revision`. If it was `READ`, the edit moves it
+back to `PENDING` and resets `readAt` to 0. Saving unchanged text changes nothing. A published batch
+records the revisions its prompt rendered. Its acknowledgement skips remarks whose revision changed
+since preparation, so the next Publish Unread carries their updated text. The read balloon counts
+only remarks actually marked READ and stays silent when that count is zero.
+
+An edited READ remark survives Clear Handed Over. It moves to Open unless it already has an answer;
+answered remarks stay in Done because Done means READ or has an answer.
 
 ### Writing one
 
@@ -124,6 +133,12 @@ at once: the clipboard, and one file under `~/.claude-remarks/<hash of the proje
 overwritten on every publish. A balloon says how many remarks across how many files. Publish Selected
 does the same for the picked rows, which is what makes a published remark sendable again when the
 paste went to the wrong window.
+
+An agterm live review can own `~/.claude-remarks/<hash>.hook.json`. After a successful file write,
+the plugin sends that batch's exact UTF-8 bytes to its argv on one serial executor. It checks the
+file's owner, write permissions, executable path and IDE port first. Invalid hooks are warned about
+in the log. Hook outcomes get a separate balloon; a failure leaves the normal publish intact.
+See `design.md`, "The live review publish hook".
 
 The project's identity is the git top level, or the project base path outside a git repository. One
 function decides it, `projectIdentity` in `review/ReviewHandshake.kt`, and the handshake file and the
@@ -499,9 +514,9 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    by the tree row and by the history heading. Pure Kotlin, so the
                                    renderer can import it without breaking rule 2 above
   model/RemarkState.kt             the persisted record, RemarkStatus, phrase (the sub-line text
-                                   between startColumn and endColumn), asksForAnswer, and readAt,
-                                   which is 0 for a remark never read and for every remark stored
-                                   before that field existed
+                                   between startColumn and endColumn), asksForAnswer, revision, and
+                                   readAt. Revision defaults to 0 for old records; readAt is 0 until
+                                   read and resets to 0 when a real edit reopens a READ remark
   model/AnswerState.kt             the answer record: remarkId, the question copied at
                                    answer time, the markdown, answeredAt, and its own nine anchor
                                    fields. Its KDoc argues why it does not share a superclass with
@@ -510,7 +525,8 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    remarks and answers, both @get:XCollection
   store/RemarkEdits.kt             the eleven mutation functions plus notifyRemarksChanged (twelve
                                    in all), the REMARKS_CHANGED topic. markRemarksRead is what
-                                   reaches RemarkStore.markRead, which stamps readAt
+                                   reaches RemarkStore.markRead, which skips stale revisions and stamps
+                                   readAt; RemarksState.editRemark resets it on a real READ edit
   store/RemarkResolver.kt          projectRoot, resolveAll, anchorOf, and isAboutNoFile, which
                                    resolveOne checks before treating a remark with no path as
                                    itself rather than as an orphan. Also the pure
@@ -698,14 +714,20 @@ src/main/kotlin/dev/sasha/clauderemarks/
                                    PROJECT, Disposable) — the file a skill reads to find this IDE
   review/AtomicWrite.kt            atomicWriteString: temp file beside the target, then rename
   review/PublishedRemarks.kt       PublishedHeader (nonce, publishedAt, commit, remarks) with
-                                   render()/publishedHeaderOf(), PUBLISHED_MARKER, publishedName,
+                                   render()/publishedHeaderOf(), PUBLISHED_MARKER, publishedName, hookName,
                                    writePublished: the one file a publish writes under handshakeDir().
                                    Nothing is sanitised on the way out: a control character
                                    in commit shifts the header, publishedHeaderOf reads back null and
                                    the fetch answers failed, which is the loud answer this file wants
+  review/PublishHook.kt            readHook validates launcher-owned hook files; runHook runs argv
+                                   with snapshot bytes on stdin, concurrent pipe handling and a
+                                   bounded wait. HookDecision and HookOutcome; no platform imports
+  review/PublishHookMessages.kt    outcomeMessage maps hook results to escaped HTML balloon content
+                                   and platform notification types
   review/PublishedAck.kt           PublishedAckOutcome, PublishedBatch, PublishedAckAnswer,
                                    PublishedBatchService (@Service PROJECT, in memory only, the last
-                                   sixteen published batches, @Synchronized record/acknowledge) and
+                                   sixteen published batches with rendered revision maps,
+                                   @Synchronized record/acknowledge) and
                                    reportPublishedRead: the ONLY acknowledgement route, keyed to a
                                    published batch's nonce. Also BatchLookup and batchCarries, the
                                    non-destructive read the
@@ -868,14 +890,19 @@ never exits on its own.
 Anchoring (`AnchoringTest`, including `phraseAt`, `findPhrase` and `resolveWithPhrase`),
 `SubLineRangeTest` (the shared rule: one line needs the end column after the start, across lines the
 two columns are never ordered against each other, and the three shapes `positionLabel` prints),
-storage round-trips, the resolver helpers (including `isAboutNoFile`), the tree's node-building
+`RemarkStoreStateTest` (storage round-trips and snapshots include revision; old XML loads at 0;
+real edits advance revision, READ edits reopen and reset readAt, unchanged edits change nothing,
+and stale revisions are skipped by markRead), `PublishHookTest` (file validation, UTF-8 and 200 KB
+stdin, exit outcomes, early exit with unread stdin, timeout and descendant cleanup, inherited pipes,
+and escaped outcome messages), the resolver helpers (including `isAboutNoFile`), the tree's node-building
 (including the General group, and the answer nesting: a matched answer is its
 question's child, an answer naming nothing is in the top-level "Answers with no question" group, that
 group is absent when every answer has a question, a nested row carries no file name and a top-level one
 does, and an answer naming a remark that produced no node lands in the top-level group rather than
 disappearing; and the Open/Done split: a `READ` remark is under Done, an answered
-question is under Done with its answer still nested, `PENDING` and `PUBLISHED` are under Open, Done
-orders by `readAt`, a remark with `readAt == 0` falls back to `createdAt`, two Done rows sharing a
+question is under Done with its answer still nested, `PENDING` and `PUBLISHED` are under Open,
+editing a READ remark through RemarksState.editRemark moves it to Open unless it has an answer,
+Done orders by `readAt`, a remark with `readAt == 0` falls back to `createdAt`, two Done rows sharing a
 processed time fall back to the resolved line, a question answered but never acknowledged is processed
 when its answer came back, and an empty side produces
 no group at all), `WrapTextTest` (the word-break, with a fixed width per character so the
@@ -951,7 +978,8 @@ need a light IDE fixture
 resolved against real files, including a path that tries to climb out of the project, and that a
 resolved row carries the phrase's refreshed columns),
 `SelectedLinesTest` (the selection line math against a real `Document`), `RemarkEditsTest` (the
-eleven mutation functions publish `REMARKS_CHANGED`; that `recordAnswer` upserts
+eleven mutation functions publish `REMARKS_CHANGED`, with no notification for an unchanged edit;
+that `recordAnswer` upserts
 on the remark id rather than appending, that `deleteAnswer` is keyed on the answer's own id, that
 `clearAllRemarks` archives and clears both lists while `clearHandedOverRemarks` leaves answers
 alone; and that `markRemarksRead` stamps `readAt` and that a second mark leaves an
@@ -989,7 +1017,9 @@ sets `Tree.forceFocusedSelectionForeground` in `UIManager` and puts it back in `
 fixture loads no theme, so reading the key instead would silently assert nothing),
 `NavigationLineBaseTest` (pins `OpenFileDescriptor`'s
 0-based line argument), the collector half of `PromptPayloadTest`, `PublishRemarksTest` (that a
-publish with no ids takes every remark that is not `READ`, not only `PENDING` ones),
+publish with no ids takes every remark that is not `READ`, edited READ remarks are picked even
+when answered, prepared revisions match the rendered rows, and hook snapshots run in call order
+while the published file is overwritten; another IDE's hook port schedules nothing),
 `PublishedRemarksTest` (the published file's name and write, `PublishedHeader`'s **five**-line
 `render()`/`publishedHeaderOf()`
 round trip, that a four-line text reads back null, that a missing prefix on any of lines 2 to 5 or a
@@ -998,7 +1028,9 @@ non-integer `remarks:` reads back null, and that a `commit` carrying a newline s
 `PublishedAckTest` (fixture-backed: an acknowledgement of a recorded batch marks
 its remarks read and answers `ok`; a second session, or the same session twice, gets `already-read`
 naming who got there first; an unknown nonce answers `unknown-batch`; only the last sixteen batches
-are remembered; and an acknowledgement marks only its own batch),
+are remembered; an acknowledgement marks only its own batch and skips text edited since preparation,
+including an edit before its EDT callback; its balloon counts only rows actually marked READ,
+and a zero count shows no balloon),
 `ReviewEndpointSmokeTest` (the one test that calls `ReviewRestService.execute` itself, through a
 real `EmbeddedChannel`, so the response actually carries a body. It covers all four actions
 and every status each of them can answer: `fetch`'s six — `ready` with the whole prompt, `no-review`

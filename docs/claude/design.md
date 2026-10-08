@@ -14,6 +14,7 @@
 10. [The Editor Side](#the-editor-side)
 11. [The Change Notification](#the-change-notification)
 12. [The Publish Pipeline](#the-publish-pipeline)
+    - [The live review publish hook](#the-live-review-publish-hook)
 13. [A Remark About No File](#a-remark-about-no-file)
 14. [One Pass Over The Tree](#one-pass-over-the-tree)
 15. [Open, Done, and Rows That Wrap](#open-done-and-rows-that-wrap)
@@ -43,6 +44,8 @@ A remark has these fields:
 - `path`: The file path, relative to the project root. Produced by `VfsUtilCore.getRelativePath(file, projectRoot)`. This is what gets shown in the tool window and written into dispatch prompts.
 - `startLine`, `endLine`: The 0-based, inclusive line numbers of the anchored range.
 - `text`: The user's note (what they wrote in the remark).
+- `revision`: Text edit counter. A real edit increments it; unchanged text leaves it alone. It defaults
+  to 0, so records stored before this field existed load without migration.
 - `asksForAnswer`: A boolean, false by default. True means this remark is a question the agent is
   meant to answer, not work to do. Set by the Ask Claude gesture (`action/AskClaudeAction.kt`) or by
   the Ask for an Answer toggle in the shared menu, and read by the prompt renderer, which marks such
@@ -52,14 +55,13 @@ A remark has these fields:
   `PUBLISHED` by `markRemarksPublished` once a publish reaches the clipboard or the published file,
   and to `READ` by `markRemarksRead` once a review acknowledgement says an agent read it. See "The
   three states, and why published is not read" below. Published and read remarks both stay in the
-  list, drawn gray, until Clear Handed Over.
+  list until Clear Handed Over; only READ draws gray. A real text edit of a READ remark reopens it
+  as PENDING, so Clear Handed Over leaves it in the store.
 - `createdAt`: Timestamp when the remark was created.
-- `readAt`: Timestamp of the moment an agent's acknowledgement marked this remark `READ`, and 0 when
-  nothing ever did — which includes every remark stored before phase 13 added the field. Stamped in
-  `RemarkStore.markRead`, and only there, so a second acknowledgement of the same remark leaves the
-  first stamp alone. Guard 6 in `CLAUDE.md` allows exactly two files to reach `markRemarksRead`,
-  which is what makes this a single-writer field by construction. Done orders by it, together with
-  the time an answer came back; see "Open and Done" below.
+- `readAt`: When the current text was first marked READ, or 0 while unread, including old records
+  without this field. `RemarkStore.markRead` stamps it when zero. Republishing unchanged text keeps
+  the stamp; `RemarksState.editRemark` resets it on a real READ edit. Done orders by it together
+  with the time an answer came back; see "Open and Done" below.
 - `textHash`: The first 16 hex characters of a SHA-256 hash of the lines at creation time.
 - `contextBefore`, `contextAfter`: A few lines of context from above and below the remark, joined with newlines in a single string. Stored this way instead of as a list because the serializer handles single strings more predictably.
 - `commit`: The repository HEAD read straight out of `.git` when the remark was written, or null
@@ -1154,6 +1156,25 @@ watching for it. `PUBLISHED` means "handed to a channel that has not yet been co
 "handed to a channel that never can be." `READ` is what a confirmation is worth once it arrives.
 Treating the two as the same state would let a publish claim a confirmation nobody gave.
 
+**Text edits reopen work, and acknowledgements check the rendered revision.** Under its existing
+synchronized lock, `RemarksState.editRemark` returns false for unchanged text. A real edit changes the
+text, increments `revision`, and changes READ to PENDING with `readAt = 0`; PENDING and PUBLISHED keep
+their status. The modification count is incremented after all those writes. `RemarkEdits.editRemark`
+announces only a real change.
+
+`prepare` captures an id-to-revision map from the same rows that render the prompt. `Prepared` carries
+it to `publishRemarks`, which passes it to `PublishedBatchService.record`. The batch keeps both ids
+and revisions. `acknowledge` returns that batch to `reportPublishedRead`, and the queued EDT callback
+passes its revisions through `markRemarksRead` to `markRead`. An id in the map is skipped if its
+current revision differs. This comparison happens under the store lock, so an edit before the EDT
+callback runs is covered too. Skipped remarks remain unread and are picked by Publish Unread.
+
+`markRemarksRead` returns the actual changed count. The read balloon uses it and shows nothing for
+zero. The endpoint's response still reports the recorded batch size, because store mutation runs
+later on the EDT. Empty revision maps retain the old behavior for test callers; production always
+supplies the map from preparation. An edited READ remark with an answer stays in Done, while an
+unanswered one moves to Open. Both are eligible for Publish Unread.
+
 Publishing a remark that is already `READ` moves it back to `PUBLISHED`, never the other way round.
 Handing a remark over again is a new handover, and nothing has confirmed that second one yet, so
 claiming `READ` for it would be a lie. `markPublished` (`store/RemarkStore.kt`) counts a remark as
@@ -1375,6 +1396,60 @@ top of `buildTreeRoot`. An answer with no id draws no row and no gutter icon, so
 question green in either view: a green question mark with nothing to click is worse than the yellow one
 it replaces. The two views have to agree here — sharing `RemarkStatusLook` is the whole point — and only
 a hand-edited `workspace.xml` can produce such an answer, since `AnswerReceipt` always mints a uuid.
+
+### The live review publish hook
+
+An agterm live review launcher writes `~/.claude-remarks/<hash>.hook.json`. `hookName(realPath)` uses
+`projectHash(realPath)` beside `publishedName`; all three names use the same project identity.
+The hook shape is:
+
+```json
+{"argv":["/absolute/path/agterm-review-flush","run-id"],"label":"my review","owner":"launcher","state":"active","port":63342}
+```
+
+The plugin reads `argv`, `label` and `port`. The launcher owns `owner` and `state`, which the plugin
+ignores. A missing or empty label becomes `live review`. `readHook` requires a non-empty array of
+strings, an absolute executable path, the current user's POSIX ownership, no group or others write
+permission, and the current IDE's bound built-in server port. A missing file skips silently. An
+existing invalid hook skips with a reason that `publishRemarks` logs at warn. The port check prevents
+a second IDE on the same checkout from feeding this review. `ReviewHandshakeService.start` has
+already waited for the server to bind, so `BuiltInServerManager.port` is the bound port at publish.
+
+A publish builds `header + "\n" + markdown` once and its UTF-8 bytes before `writePublished`.
+Only a successful file write schedules `startPublishHook`; the queued task retains a copy of those
+bytes. Replacing the published file cannot change an earlier hook's stdin. The published file's path
+is never passed to the hook. The app-wide bounded executor named `Claude Remarks publish hook`, with
+one worker, keeps calls in publish order.
+
+```mermaid
+flowchart LR
+  Publish[Publish callback] --> File[Write published file]
+  File --> Queue[Serial hook executor]
+  Queue --> Flush[agterm review flush]
+  Flush --> Ack[Published read endpoint]
+  Ack --> Store[Revision checked READ update]
+```
+
+`runHook` passes argv directly to `ProcessBuilder`. A separate daemon thread writes and closes stdin,
+and two more drain stdout and stderr. Broken stdin pipes are ignored; the exit code decides the
+outcome. The timeout starts at process start and is 10 seconds in production. On timeout the runner
+forcibly destroys descendants before the parent. After exit, pipe threads share at most one second
+of join time. The last five stderr lines collected by then describe an error.
+
+The flush command must detach long work from inherited stdio. Its worker uses `worker.log` for stdio
+in the agterm-agents plan. A child that retains pipes cannot block this runner indefinitely, but it
+can use the full drain budget and hold a daemon reader until it closes the pipe.
+
+`outcomeMessage` lives in `PublishHookMessages.kt` so validation and execution remain free of platform
+imports. Exit 0 says `Queued for <label>`; exit 3 says `The live review is closed`; timeout says
+`The live review hook timed out`. Other exits include the code and stderr tail. A start failure
+includes its reason. Error messages use warning balloons. Labels and diagnostics are escaped for
+HTML, with `<br>` between diagnostic lines. The callback checks `project.isDisposed` first.
+Clipboard delivery, the published file and PUBLISHED state survive every hook outcome.
+
+When the hook exists, the bundled skill leaves batch acknowledgement to the agterm review and
+answers through `agterm-review-flush <run> --answer`. It must not start `watch-remarks.sh` for this
+project. Writing, claiming and deleting hooks belongs to agterm-agents.
 
 ### The published file
 
