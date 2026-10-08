@@ -71,7 +71,7 @@ class RemarkState : BaseState() {
     var createdAt by property(0L)
 
     /**
-     * When the current text was first marked read, or 0 when it is unread — including every remark
+     * The stored read stamp, or 0 when unset — including every remark
      * stored before this field existed, which has no `readAt` attribute in its XML at all and
      * loads at the property's default, the same no-migration shape [startColumn]/[endColumn]/
      * [phrase] already use.
@@ -80,6 +80,8 @@ class RemarkState : BaseState() {
      * Republishing and acknowledging unchanged text keeps that stamp. A real edit of a READ
      * remark resets it to zero in `RemarksState.editRemark` and reopens the remark; a later
      * acknowledgement of the updated text supplies a fresh stamp.
+     * Publish Selected moves READ to PUBLISHED without clearing this stamp. A later edit made
+     * while PUBLISHED keeps the old stamp, and its next acknowledgement keeps it too.
      */
     var readAt by property(0L)
     var textHash by string()

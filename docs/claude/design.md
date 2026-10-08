@@ -58,9 +58,10 @@ A remark has these fields:
   list until Clear Handed Over; only READ draws gray. A real text edit of a READ remark reopens it
   as PENDING, so Clear Handed Over leaves it in the store.
 - `createdAt`: Timestamp when the remark was created.
-- `readAt`: When the current text was first marked READ, or 0 while unread, including old records
+- `readAt`: The stored read stamp, or 0 when unset, including old records
   without this field. `RemarkStore.markRead` stamps it when zero. Republishing unchanged text keeps
-  the stamp; `RemarksState.editRemark` resets it on a real READ edit. Done orders by it together
+  the stamp; `RemarksState.editRemark` resets it on a real READ edit. Publish Selected moves READ
+  back to PUBLISHED without clearing the stamp, and a later PUBLISHED edit keeps it. Done orders by it together
   with the time an answer came back; see "Open and Done" below.
 - `textHash`: The first 16 hex characters of a SHA-256 hash of the lines at creation time.
 - `contextBefore`, `contextAfter`: A few lines of context from above and below the remark, joined with newlines in a single string. Stored this way instead of as a list because the serializer handles single strings more predictably.
