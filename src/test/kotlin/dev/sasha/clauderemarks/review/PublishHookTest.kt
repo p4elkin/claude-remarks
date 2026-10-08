@@ -156,10 +156,19 @@ class PublishHookTest {
 
     @Test
     fun `a timeout also bounds a blocked stdin writer`() {
-        val start = System.nanoTime()
-        assertEquals(HookOutcome.TimedOut,
-            runHook(script("sleep 30"), ByteArray(200_000), Duration.ofSeconds(1)))
-        assertTrue("Timeout must return within three seconds", System.nanoTime() - start < Duration.ofSeconds(3).toNanos())
+        val childPid = temporary.newFile().toPath()
+        try {
+            val start = System.nanoTime()
+            assertEquals(HookOutcome.TimedOut,
+                runHook(script("sleep 30 &\necho ${'$'}! > '$childPid'\nwait"), ByteArray(200_000), Duration.ofSeconds(1)))
+            assertTrue("Timeout must return within three seconds", System.nanoTime() - start < Duration.ofSeconds(3).toNanos())
+            ProcessHandle.of(Files.readString(childPid).trim().toLong()).ifPresent { child ->
+                child.onExit().get(1, java.util.concurrent.TimeUnit.SECONDS)
+                org.junit.Assert.assertFalse("Timeout must kill descendants", child.isAlive)
+            }
+        } finally {
+            Files.readString(childPid).trim().toLongOrNull()?.let { ProcessHandle.of(it).ifPresent { child -> child.destroyForcibly() } }
+        }
     }
 
     @Test
@@ -183,12 +192,12 @@ class PublishHookTest {
 
     @Test
     fun `each outcome has its balloon text and severity`() {
-        assertEquals("Queued for my review" to NotificationType.INFORMATION, outcomeMessage(HookOutcome.Queued, "my review"))
+        assertEquals("Queued for &lt;my &amp; review&gt;" to NotificationType.INFORMATION, outcomeMessage(HookOutcome.Queued, "<my & review>"))
         assertEquals("The live review is closed" to NotificationType.WARNING, outcomeMessage(HookOutcome.Closed, "my review"))
         assertEquals("The live review hook timed out" to NotificationType.WARNING, outcomeMessage(HookOutcome.TimedOut, "my review"))
-        assertEquals("The live review hook failed (exit 7)\nlast error" to NotificationType.WARNING,
-            outcomeMessage(HookOutcome.Failed(7, "last error"), "my review"))
-        assertEquals("The live review hook could not start\nmissing executable" to NotificationType.WARNING,
-            outcomeMessage(HookOutcome.NotStarted("missing executable"), "my review"))
+        assertEquals("The live review hook failed (exit 7)<br>usage: flush &lt;run&gt;<br>last &amp; error" to NotificationType.WARNING,
+            outcomeMessage(HookOutcome.Failed(7, "usage: flush <run>\nlast & error"), "my review"))
+        assertEquals("The live review hook could not start<br>missing &lt;executable&gt;<br>check &amp; retry" to NotificationType.WARNING,
+            outcomeMessage(HookOutcome.NotStarted("missing <executable>\ncheck & retry"), "my review"))
     }
 }
