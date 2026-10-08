@@ -18,8 +18,14 @@ import dev.sasha.clauderemarks.render.collectForPrompt
 import dev.sasha.clauderemarks.render.renderPrompt
 import dev.sasha.clauderemarks.review.PublishedBatchService
 import dev.sasha.clauderemarks.review.PublishedHeader
+import dev.sasha.clauderemarks.review.HookDecision
+import dev.sasha.clauderemarks.review.HookOutcome
 import dev.sasha.clauderemarks.review.handshakeDir
+import dev.sasha.clauderemarks.review.hookName
+import dev.sasha.clauderemarks.review.outcomeMessage
 import dev.sasha.clauderemarks.review.projectIdentity
+import dev.sasha.clauderemarks.review.readHook
+import dev.sasha.clauderemarks.review.runHook
 import dev.sasha.clauderemarks.review.writePublished
 import dev.sasha.clauderemarks.settings.RemarkSettings
 import dev.sasha.clauderemarks.store.RemarkStore
@@ -28,7 +34,9 @@ import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.resolveAll
 import java.io.IOException
 import java.nio.file.Path
+import java.time.Duration
 import java.util.concurrent.CancellationException
+import org.jetbrains.ide.BuiltInServerManager
 
 private val LOG = Logger.getInstance("dev.sasha.clauderemarks.action.PublishRemarks")
 
@@ -36,6 +44,32 @@ private const val NOTIFICATION_GROUP = "Claude Remarks"
 
 /** The coalesce key standing in for "every remark that is not READ", since null cannot be one. */
 private const val ALL_UNREAD = "all-unread"
+
+/** One queue for all projects, so hook invocations keep the order in which publishes scheduled them. */
+private val PUBLISH_HOOK_EXECUTOR by lazy {
+    AppExecutorUtil.createBoundedApplicationPoolExecutor("Claude Remarks publish hook", 1)
+}
+
+/**
+ * Reads this project's hook and schedules its exact batch bytes. No published-file lookup happens
+ * in the queued task: a later publish may already have replaced that file. [onOutcome] runs on the
+ * executor's thread. The injected queue keeps snapshot delivery testable without the clipboard.
+ */
+internal fun startPublishHook(
+    root: Path,
+    published: ByteArray,
+    port: Int,
+    dir: Path,
+    run: (Runnable) -> Unit,
+    onOutcome: (HookOutcome, String) -> Unit,
+): HookDecision {
+    val decision = readHook(dir.resolve(hookName(root.toString())), port, System.getProperty("user.name"))
+    if (decision is HookDecision.Use) {
+        val snapshot = published.copyOf()
+        run(Runnable { onOutcome(runHook(decision.argv, snapshot, Duration.ofSeconds(10)), decision.label) })
+    }
+    return decision
+}
 
 /**
  * What the read action produced: the finished markdown, which remarks went into it, how many real
@@ -49,7 +83,8 @@ private const val ALL_UNREAD = "all-unread"
  * here is read. Both are null when [ids] resolves to nothing to publish, and [root] alone can be
  * null on its own when the identity does not resolve — in which case the published file is
  * never written, and only the hand check in section 12 of the phase 9 plan catches that: no unit
- * test drives the async publish pipeline (see [publishRemarks]'s own KDoc for why).
+ * test drives the clipboard and EDT callback (see [publishRemarks]'s own KDoc for why). Hook
+ * snapshot delivery has coverage through [startPublishHook].
  *
  * Internal, not private, so PublishRemarksTest can check which remarks a publish takes.
  */
@@ -87,7 +122,9 @@ internal data class Prepared(
  * The async pipeline itself is not driven from a test, the same reason PublishRemarksTest's own
  * KDoc gives for the clipboard and the balloon: pumping a read action plus an EDT callback in a
  * light fixture buys a flaky test for very little. [publishMessage] is the pure part of this and is
- * what PublishRemarksTest exercises instead. A failed published-file write and an unresolved project
+ * what PublishRemarksTest exercises instead, alongside [startPublishHook]'s exact-byte delivery and
+ * ordering. After a successful file write, the live review hook runs on a serial executor and gets
+ * its own outcome balloon. A failed published-file write and an unresolved project
  * root are both checked only by hand, the same way the phase 9 and phase 10 plans' own hand checks
  * already cover them.
  */
@@ -131,6 +168,7 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
             // A null root means the project's identity did not resolve. Same shape as an
             // IOException: the publish still hands over the clipboard, but the published file is
             // not written, and the balloon says which of the two happened.
+            var hookInput: Pair<Path, ByteArray>? = null
             val writeFailure = if (prepared.root == null) {
                 "the project root did not resolve"
             } else {
@@ -153,7 +191,11 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
                     // the synthetic bridge, BEFORE the body runs, so anything it throws would
                     // escape every try in this function — the same trap
                     // store/RemarkEdits.kt's clearHandedOverRemarks names and rejects.
-                    writePublished(prepared.root, header + "\n" + prepared.markdown, handshakeDir())
+                    val body = header + "\n" + prepared.markdown
+                    val bytes = body.toByteArray(Charsets.UTF_8)
+                    val dir = handshakeDir()
+                    writePublished(prepared.root, body, dir)
+                    hookInput = dir to bytes
                     null
                 } catch (e: ProcessCanceledException) {
                     // Never swallowed. The platform throws it to unwind, not to report a failure,
@@ -187,6 +229,26 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
                 project,
                 publishMessage(prepared.ids.size, prepared.files, clipboard.file, writeFailure),
             )
+            if (writeFailure == null) {
+                hookInput?.let { (dir, bytes) ->
+                    try {
+                        val decision = startPublishHook(
+                            prepared.root!!, bytes, BuiltInServerManager.getInstance().port, dir,
+                            { PUBLISH_HOOK_EXECUTOR.execute(it) },
+                        ) { outcome, label ->
+                            if (!project.isDisposed) {
+                                val (message, type) = outcomeMessage(outcome, label)
+                                notifyRemarks(project, message, type)
+                            }
+                        }
+                        if (decision is HookDecision.Skip && decision.reason != null) LOG.warn(decision.reason)
+                    } catch (e: ProcessCanceledException) {
+                        throw e
+                    } catch (e: Exception) {
+                        LOG.warn("the publish hook could not be scheduled", e)
+                    }
+                }
+            }
         }
         .submit(AppExecutorUtil.getAppExecutorService())
         // Everything expensive runs inside the read action: resolving, reading Documents,

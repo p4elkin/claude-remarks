@@ -5,19 +5,29 @@ import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.sasha.clauderemarks.review.PublishedBatchService
+import dev.sasha.clauderemarks.review.HookDecision
+import dev.sasha.clauderemarks.review.HookOutcome
+import dev.sasha.clauderemarks.review.handshakeDir
+import dev.sasha.clauderemarks.review.hookName
+import dev.sasha.clauderemarks.review.projectIdentity
+import dev.sasha.clauderemarks.review.publishedName
+import dev.sasha.clauderemarks.review.writePublished
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addGeneralRemark
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.markRemarksPublished
 import dev.sasha.clauderemarks.store.markRemarksRead
 import java.nio.file.Path
+import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermissions
 
 /**
  * Which remarks a publish takes, and how many files it says they cover. Publish All must leave out
  * the ones already handed over, and Publish Selected must take exactly the ids it was given even
  * when they are published — that pair IS the publish lifecycle, so it is the one part of this file
- * worth an automated test, together with the file count and [publishMessage], the pure part of the
- * balloon text. The async pipeline itself — the clipboard, the published file write, the balloon
+ * covered here, together with the file count and [publishMessage], the pure part of the
+ * balloon text. Hook dispatch has coverage through [startPublishHook], including snapshot bytes
+ * and call order. The remaining async pipeline — the clipboard and the balloon
  * actually shown — is checked by hand, per this file's own KDoc above and section 12 of the phase 9
  * plan: pumping a read action plus an EDT callback in a light fixture buys a flaky test for very
  * little.
@@ -31,12 +41,67 @@ class PublishRemarksTest : BasePlatformTestCase() {
         // otherwise depend on what an earlier class left in it.
         RemarkStore.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
+        Files.createDirectories(Path.of(project.basePath!!))
+        deletePublishFiles()
     }
 
     override fun tearDown() {
         RemarkStore.getInstance(project).clear()
         PublishedBatchService.getInstance(project).clear()
+        deletePublishFiles()
         super.tearDown()
+    }
+
+    private fun deletePublishFiles() {
+        val root = projectIdentity(project) ?: return
+        Files.deleteIfExists(handshakeDir().resolve(hookName(root.toString())))
+        Files.deleteIfExists(handshakeDir().resolve(publishedName(root.toString())))
+    }
+
+    private fun writeHook(root: Path, port: Int, script: Path) {
+        val dir = handshakeDir()
+        Files.createDirectories(dir)
+        val hook = dir.resolve(hookName(root.toString()))
+        Files.writeString(hook, """{"argv":["/bin/sh","$script"],"label":"my review","port":$port}""")
+        Files.setPosixFilePermissions(hook, PosixFilePermissions.fromString("rw-------"))
+    }
+
+    fun testHookReceivesEachPublishSnapshotInCallOrder() {
+        val root = projectIdentity(project)!!
+        val script = Files.createTempFile("publish-hook-", ".sh")
+        val output = Files.createTempFile("publish-hook-", ".out")
+        try {
+            Files.writeString(script, "cat >> '$output'")
+            writeHook(root, 8999, script)
+            val tasks = mutableListOf<Runnable>()
+            val outcomes = mutableListOf<Pair<HookOutcome, String>>()
+            val first = "first publish: hyvä\n".toByteArray(Charsets.UTF_8)
+            val second = "second publish: 日本語\n".toByteArray(Charsets.UTF_8)
+            writePublished(root, first.toString(Charsets.UTF_8))
+            assertEquals(HookDecision.Use(listOf("/bin/sh", script.toString()), "my review"),
+                startPublishHook(root, first, 8999, handshakeDir(), { tasks.add(it) }, { outcome, label -> outcomes.add(outcome to label) }))
+            writePublished(root, second.toString(Charsets.UTF_8))
+            startPublishHook(root, second, 8999, handshakeDir(), { tasks.add(it) }, { outcome, label -> outcomes.add(outcome to label) })
+
+            assertEquals(2, tasks.size)
+            assertTrue(outcomes.isEmpty())
+            tasks.forEach { it.run() }
+
+            assertEquals((first + second).toString(Charsets.UTF_8), Files.readString(output))
+            assertEquals(listOf(HookOutcome.Queued to "my review", HookOutcome.Queued to "my review"), outcomes)
+        } finally {
+            Files.deleteIfExists(script)
+            Files.deleteIfExists(output)
+        }
+    }
+
+    fun testAHookForAnotherIDEPortSkipsWithoutScheduling() {
+        val root = projectIdentity(project)!!
+        writeHook(root, 8999, Path.of("/unused-script"))
+        val decision = startPublishHook(root, byteArrayOf(), 9000, handshakeDir(),
+            { fail("A hook belonging to another IDE must not run") },
+            { _, _ -> fail("A skipped hook has no outcome") })
+        assertTrue(decision is HookDecision.Skip)
     }
 
     /**
