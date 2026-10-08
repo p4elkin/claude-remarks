@@ -1,11 +1,14 @@
 package dev.sasha.clauderemarks.review
 
 import com.google.gson.JsonParser
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFileAttributes
 import java.nio.file.attribute.PosixFilePermission
+import java.time.Duration
+import java.util.concurrent.TimeUnit
 
 /** A missing hook is silent; an unusable hook carries a reason for the caller's warning log. */
 sealed interface HookDecision {
@@ -63,5 +66,79 @@ fun readHook(file: Path, expectedPort: Int, currentUser: String): HookDecision {
         HookDecision.Use(argv, label?.asString?.takeUnless { it.isEmpty() } ?: "live review")
     } catch (e: Exception) {
         HookDecision.Skip("Cannot read hook JSON: ${e.message}")
+    }
+}
+
+/** The hook's result never changes the publish that already succeeded. */
+sealed interface HookOutcome {
+    data object Queued : HookOutcome
+    data object Closed : HookOutcome
+    data object TimedOut : HookOutcome
+    data class Failed(val exitCode: Int, val stderrTail: String) : HookOutcome
+    data class NotStarted(val reason: String) : HookOutcome
+}
+
+/**
+ * Runs argv directly, with the exact published bytes on stdin. Each pipe has its own daemon thread:
+ * neither an early exit nor a child inheriting a pipe may hold up the executor's next publish.
+ * The deadline starts when the process starts; the total drain join after exit is at most one second.
+ */
+fun runHook(argv: List<String>, input: ByteArray, timeout: Duration): HookOutcome {
+    val started = System.nanoTime()
+    val process = try {
+        ProcessBuilder(argv).start()
+    } catch (e: Exception) {
+        return HookOutcome.NotStarted(e.message ?: e.javaClass.simpleName)
+    }
+    val stderr = ArrayDeque<String>()
+    fun pipeThread(name: String, action: () -> Unit): Thread = Thread({
+        try {
+            action()
+        } catch (_: IOException) {
+            // A broken pipe is expected when the hook exits without consuming all stdin.
+        }
+    }, "Claude Remarks hook $name").apply {
+        isDaemon = true
+        start()
+    }
+    val writer = pipeThread("stdin") {
+        process.outputStream.use { it.write(input) }
+    }
+    val stdoutReader = pipeThread("stdout") {
+        process.inputStream.use { it.transferTo(java.io.OutputStream.nullOutputStream()) }
+    }
+    val stderrReader = pipeThread("stderr") {
+        process.errorStream.bufferedReader(Charsets.UTF_8).use { reader ->
+            reader.forEachLine { line ->
+                synchronized(stderr) {
+                    if (stderr.size == 5) stderr.removeFirst()
+                    stderr.addLast(line)
+                }
+            }
+        }
+    }
+    fun terminate() {
+        process.descendants().use { children -> children.forEach { it.destroyForcibly() } }
+        process.destroyForcibly()
+    }
+    return try {
+        val remaining = (timeout.toNanos() - (System.nanoTime() - started)).coerceAtLeast(0)
+        val exited = process.waitFor(remaining, TimeUnit.NANOSECONDS)
+        if (!exited) terminate()
+        val drainDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1)
+        for (thread in listOf(stdoutReader, stderrReader, writer)) {
+            val joinNanos = drainDeadline - System.nanoTime()
+            if (joinNanos > 0) TimeUnit.NANOSECONDS.timedJoin(thread, joinNanos)
+        }
+        if (!exited) HookOutcome.TimedOut
+        else when (val code = process.exitValue()) {
+            0 -> HookOutcome.Queued
+            3 -> HookOutcome.Closed
+            else -> HookOutcome.Failed(code, synchronized(stderr) { stderr.joinToString("\n") })
+        }
+    } catch (_: InterruptedException) {
+        terminate()
+        Thread.currentThread().interrupt()
+        HookOutcome.TimedOut
     }
 }
