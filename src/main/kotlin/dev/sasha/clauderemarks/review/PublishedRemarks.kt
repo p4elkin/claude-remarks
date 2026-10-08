@@ -26,6 +26,9 @@ private val PUBLISHED_WHEN =
  */
 fun publishedName(realPath: String): String = projectHash(realPath) + ".md"
 
+/** The live review's launcher-owned hook, named from the same project identity as its batches. */
+fun hookName(realPath: String): String = projectHash(realPath) + ".hook.json"
+
 /**
  * What sits above the prompt in the published file: what batch it is (the nonce, for an
  * acknowledgement to name back), how old it is and what revision it was about. A published
