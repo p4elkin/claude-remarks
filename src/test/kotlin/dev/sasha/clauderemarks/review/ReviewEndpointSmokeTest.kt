@@ -204,7 +204,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testAPublishedReadForARecordedBatchAnswersOkAndMarksTheRemarksRead() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note")
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!), emptyMap())
 
         val sent = post(
             "/api/claude-remarks/published-read",
@@ -225,7 +225,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testASecondPublishedReadForTheSameBatchAnswersAlreadyReadAndNamesTheFirstSession() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "a note")
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!), emptyMap())
         post(
             "/api/claude-remarks/published-read",
             """{"session":"s1","project":"${projectPath()}","nonce":"$nonce"}""",
@@ -281,7 +281,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testAnAnswerForARemarkItsBatchCarriedAnswersOkAndStoresIt() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!), emptyMap())
 
         val sent = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "because of X"))
         settleInvocationQueue()
@@ -298,7 +298,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testASecondAnswerForTheSameRemarkIsAlsoOk() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!), emptyMap())
         post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "the first body"))
         settleInvocationQueue()
 
@@ -318,7 +318,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testAnAnswerForAnUnmarkedRemarkIsAlsoOk() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "just a note")
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!), emptyMap())
 
         val sent = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "an answer anyway"))
         settleInvocationQueue()
@@ -346,7 +346,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
     fun testAnAnswerForARemarkItsBatchNeverCarriedAnswersUnknownRemark() {
         val shown = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
         val hidden = addRemark(project, "B.kt", listOf("beta"), 0..0, "and this?")
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(shown.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(shown.id!!), emptyMap())
 
         val sent = post("/api/claude-remarks/answer", answerBody(nonce, hidden.id!!, "because"))
         settleInvocationQueue()
@@ -363,7 +363,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testAnAnswerOverTheSizeCapAnswersTooLargeAndStoresNothing() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!), emptyMap())
 
         val sent = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "x".repeat(20_000)))
         settleInvocationQueue()
@@ -380,7 +380,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testTheAnswerSizeCapIsCheckedAtItsExactBoundary() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!), emptyMap())
 
         val atTheLimit = post("/api/claude-remarks/answer", answerBody(nonce, remark.id!!, "x".repeat(MAX_ANSWER_BYTES)))
         settleInvocationQueue()
@@ -398,7 +398,7 @@ class ReviewEndpointSmokeTest : BasePlatformTestCase() {
      */
     fun testTheAnswerSizeCapCountsBytesAndNotCharacters() {
         val remark = addRemark(project, "A.kt", listOf("alpha"), 0..0, "why?", asksForAnswer = true)
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(remark.id!!), emptyMap())
 
         // Half the cap in characters, the whole cap plus two bytes in UTF-8.
         val body = "ä".repeat(MAX_ANSWER_BYTES / 2 + 1)

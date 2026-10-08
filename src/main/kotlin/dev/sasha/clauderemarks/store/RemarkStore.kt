@@ -89,12 +89,11 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
         /**
          * Changes a remark's text in place, under the same lock every other mutator holds.
          *
-         * In place, not replace-with-a-copy. Until phase 11 took the tag off a remark this wrote
-         * two fields rather than one, and the ORDER below is what made that safe on disk:
-         * incrementModificationCount() runs after the write, so a save that landed in between
+         * Returns whether text changed. A real edit advances revision and reopens a READ remark,
+         * resetting its read stamp. Unchanged text changes no field or modification count.
+         * incrementModificationCount() runs after every field write, so a save that landed in between
          * recorded the lower count it read on the way in, and the next save saw a higher count and
-         * wrote the field again. Keep that order. One write is not a reason to reverse it — the
-         * next field added here would silently lose the argument.
+         * wrote the fields again. Keep that order.
          *
          * The other reader is the prompt and the tool window, on a pooled thread. Those walk the
          * fields long after leaving this lock, so the ordering argument says nothing about them.
@@ -103,7 +102,13 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
         @Synchronized
         fun editRemark(id: String, text: String): Boolean {
             val target = remarks.firstOrNull { it.id == id } ?: return false
+            if (target.text == text) return false
             target.text = text
+            target.revision++
+            if (target.status == RemarkStatus.READ) {
+                target.status = RemarkStatus.PENDING
+                target.readAt = 0L
+            }
             incrementModificationCount()
             return true
         }
@@ -121,18 +126,19 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
 
         /**
          * Returns how many actually changed, the same shape as markPublished. Only an agent's own
-         * acknowledgement produces READ — either of the two routes, never a publish; see
+         * acknowledgement produces READ through the single route, never a publish; see
          * CLAUDE.md's guard 6 on this.
          *
-         * Also stamps [RemarkState.readAt], the first time and only the first time: a remark
-         * whose `readAt` is already non-zero keeps that value even though its status is moving to
-         * READ again. That is what makes re-publishing and re-acknowledging the same remark safe —
-         * Publish Unread takes everything not yet READ, so a remark can pass through here more
-         * than once, and only the first pass should decide where it lands in Done's order.
+         * An id present in [revisions] is skipped when its current text revision differs.
+         * Stamps [RemarkState.readAt] when zero; republishing unchanged text retains its stamp,
+         * while editing a READ remark resets it and allows the updated text a fresh read stamp.
          */
         @Synchronized
-        fun markRead(ids: Set<String>): Int {
-            val changed = remarks.filter { it.id in ids && it.status != RemarkStatus.READ }
+        fun markRead(ids: Set<String>, revisions: Map<String, Int> = emptyMap()): Int {
+            val changed = remarks.filter {
+                it.id in ids && it.status != RemarkStatus.READ &&
+                    (it.id !in revisions || revisions[it.id] == it.revision)
+            }
             val now = System.currentTimeMillis()
             changed.forEach {
                 it.status = RemarkStatus.READ
@@ -258,7 +264,7 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
          * "a snapshot carries every field a remark is stored with" in RemarkStoreStateTest pins it.
          *
          * The cost is one small object per remark per call, and snapshot() runs on every resolve. A
-         * RemarkState is sixteen stored properties, so a project with a hundred remarks pays tens of
+         * RemarkState is seventeen stored properties, so a project with a hundred remarks pays tens of
          * microseconds — against a resolve that SHA-256s candidate positions and splits whole
          * documents into lines.
          */
@@ -301,7 +307,7 @@ class RemarkStore : PersistentStateComponentWithModificationTracker<RemarkStore.
 
     fun markPublished(ids: Set<String>): Int = liveState.markPublished(ids)
 
-    fun markRead(ids: Set<String>): Int = liveState.markRead(ids)
+    fun markRead(ids: Set<String>, revisions: Map<String, Int> = emptyMap()): Int = liveState.markRead(ids, revisions)
 
     fun setAsksForAnswer(ids: Set<String>, asksForAnswer: Boolean): Int =
         liveState.setAsksForAnswer(ids, asksForAnswer)

@@ -42,6 +42,7 @@ internal enum class BatchLookup { OK, UNKNOWN_REMARK, UNKNOWN_BATCH }
 internal data class PublishedBatch(
     val nonce: String,
     val ids: List<String>,
+    val revisions: Map<String, Int>,
     val readBy: String? = null,
     val readAt: Long = 0,
 )
@@ -82,9 +83,9 @@ internal class PublishedBatchService {
      * cannot hold a nonce this service has not recorded.
      */
     @Synchronized
-    internal fun record(ids: List<String>): String {
+    internal fun record(ids: List<String>, revisions: Map<String, Int>): String {
         val nonce = UUID.randomUUID().toString()
-        batches.add(PublishedBatch(nonce, ids))
+        batches.add(PublishedBatch(nonce, ids.toList(), revisions.toMap()))
         while (batches.size > MAX_REMEMBERED_BATCHES) batches.removeAt(0)
         return nonce
     }
@@ -105,10 +106,8 @@ internal class PublishedBatchService {
      * and [PublishedAckOutcome.UNKNOWN_BATCH] both carry null, so a caller cannot mark a batch read
      * twice by accident.
      *
-     * The whole [PublishedBatch] rather than its ids alone, which is all `reportPublishedRead` reads
-     * today. It carried a review session as well until phase 12 deleted the review, and returning the
-     * record itself rather than one field off it is what let that change be a deletion in one file
-     * instead of a signature change here.
+     * The whole [PublishedBatch] carries the ids and the text revisions the prompt rendered, so
+     * `reportPublishedRead` can skip remarks edited since that batch was prepared.
      */
     @Synchronized
     internal fun acknowledge(nonce: String, session: String): Pair<PublishedAckAnswer, PublishedBatch?> {
@@ -182,9 +181,8 @@ internal fun reportPublishedRead(project: Project, nonce: String, session: Strin
         val ids = batch.ids
         ApplicationManager.getApplication().invokeLater {
             if (project.isDisposed) return@invokeLater
-            markRemarksRead(project, ids)
-            val count = ids.size
-            notifyRemarks(project, "Claude Code read $count remark${plural(count)}.")
+            val count = markRemarksRead(project, ids, batch.revisions)
+            if (count > 0) notifyRemarks(project, "Claude Code read $count remark${plural(count)}.")
         }
     }
     return answer

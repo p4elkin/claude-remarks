@@ -33,6 +33,7 @@ internal fun remark(
     status: RemarkStatus = RemarkStatus.PENDING,
     createdAt: Long = 0L,
     readAt: Long = 0L,
+    revision: Int = 0,
     textHash: String = "0000000000000000",
     contextBefore: String? = "",
     contextAfter: String? = "",
@@ -50,6 +51,7 @@ internal fun remark(
     it.status = status
     it.createdAt = createdAt
     it.readAt = readAt
+    it.revision = revision
     it.textHash = textHash
     it.contextBefore = contextBefore
     it.contextAfter = contextAfter

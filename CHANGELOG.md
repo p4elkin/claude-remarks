@@ -15,6 +15,25 @@ the code. These entries are how the work happened; that document is what the sys
 
 ---
 
+## Unreleased — 0.13.0
+
+- An agterm live review can receive every successful publish through a project-specific hook.
+  The plugin checks POSIX ownership, write permissions, argv and IDE port. Each invocation receives the exact batch
+  bytes on stdin. Invocations run in order, with a bounded wait and an outcome balloon.
+  Clipboard delivery and the published file remain available when a hook fails.
+- Real text edits increment a persisted remark revision. Editing a READ remark moves it to PENDING
+  and resets its read stamp; unchanged edits produce no change notification.
+- Published batches keep the revisions their prompts rendered. A late acknowledgement skips edited
+  remarks, and its balloon counts only remarks actually marked READ. Publish Unread can send the
+  updated text again.
+- The bundled skill recognizes an owning agterm live review and uses its answer route. The version
+  moves to `0.13.0` so existing skill installations detect the update.
+- The IDE-to-review-room hand check remains unrun in `docs/claude/hand-checks.md`.
+
+Plan: `docs/plans/20261008-publish-hook.md`.
+
+---
+
 ## after 0.12.1 — 2026-08-13 — a remark on a diff of two commits
 
 Reported from a real IDE: every pane of a diff refused a remark, with "QueryResultImpl.java here is a

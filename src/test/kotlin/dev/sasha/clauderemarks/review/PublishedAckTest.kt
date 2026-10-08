@@ -8,6 +8,7 @@ import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.RemarkStore
 import dev.sasha.clauderemarks.store.addRemark
 import dev.sasha.clauderemarks.store.markRemarksPublished
+import dev.sasha.clauderemarks.store.editRemark
 import org.junit.Assert.assertNotEquals
 
 /**
@@ -17,6 +18,43 @@ import org.junit.Assert.assertNotEquals
  * settleInvocationQueue() after posting an answer.
  */
 class PublishedAckTest : BasePlatformTestCase() {
+
+    fun testAnAcknowledgementSkipsAnEditedRemarkAndCountsOnlyMarkedRows() {
+        val shown = capturedNotifications()
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val b = addRemark(project, "B.kt", LINES, 0..0, "another note")
+        markRemarksPublished(project, listOf(a.id!!, b.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!, b.id!!), mapOf(a.id!! to 0, b.id!! to 0))
+        editRemark(project, a.id!!, "edited note")
+        reportPublishedRead(project, nonce, "s1")
+        UIUtil.dispatchAllInvocationEvents()
+        assertEquals(RemarkStatus.PUBLISHED, statusOf(a.id!!))
+        assertEquals(RemarkStatus.READ, statusOf(b.id!!))
+        assertEquals(listOf("Claude Code read 1 remark."), shown)
+    }
+
+    fun testAnEditBeforeTheQueuedAckRunsIsAlsoSkippedAndShowsNoBalloon() {
+        val shown = capturedNotifications()
+        val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!), mapOf(a.id!! to 0))
+        reportPublishedRead(project, nonce, "s1")
+        editRemark(project, a.id!!, "edited note")
+        UIUtil.dispatchAllInvocationEvents()
+        assertEquals(RemarkStatus.PENDING, statusOf(a.id!!))
+        assertTrue(shown.toString(), shown.isEmpty())
+        val current = PublishedBatchService.getInstance(project).record(listOf(a.id!!), mapOf(a.id!! to 1))
+        reportPublishedRead(project, current, "s1")
+        UIUtil.dispatchAllInvocationEvents()
+        assertEquals(listOf("Claude Code read 1 remark."), shown)
+    }
+
+    private fun capturedNotifications(): MutableList<String> {
+        val shown = mutableListOf<String>()
+        project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {
+            override fun notify(notification: Notification) { shown.add(notification.content) }
+        })
+        return shown
+    }
 
     override fun setUp() {
         super.setUp()
@@ -35,7 +73,7 @@ class PublishedAckTest : BasePlatformTestCase() {
     fun testAnAcknowledgementOfARecordedBatchAnswersOkAndMarksItsRemarksRead() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val b = addRemark(project, "B.kt", LINES, 0..0, "another note")
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!, b.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!, b.id!!), emptyMap())
 
         val answer = reportPublishedRead(project, nonce, "s1")
         UIUtil.dispatchAllInvocationEvents()
@@ -48,7 +86,7 @@ class PublishedAckTest : BasePlatformTestCase() {
 
     fun testASecondSessionAcknowledgingTheSameBatchIsToldWhoWasFirst() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!), emptyMap())
         reportPublishedRead(project, nonce, "s1")
         UIUtil.dispatchAllInvocationEvents()
 
@@ -60,7 +98,7 @@ class PublishedAckTest : BasePlatformTestCase() {
 
     fun testTheSameSessionAcknowledgingTwiceIsToldItWasItself() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
-        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
+        val nonce = PublishedBatchService.getInstance(project).record(listOf(a.id!!), emptyMap())
         reportPublishedRead(project, nonce, "s1")
         UIUtil.dispatchAllInvocationEvents()
 
@@ -82,7 +120,7 @@ class PublishedAckTest : BasePlatformTestCase() {
 
     fun testOnlyTheLastSixteenBatchesAreRemembered() {
         val service = PublishedBatchService.getInstance(project)
-        val nonces = (0 until 17).map { service.record(emptyList()) }
+        val nonces = (0 until 17).map { service.record(emptyList(), emptyMap()) }
 
         val first = reportPublishedRead(project, nonces.first(), "s1")
         val second = reportPublishedRead(project, nonces[1], "s1")
@@ -95,8 +133,8 @@ class PublishedAckTest : BasePlatformTestCase() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "an older note")
         val b = addRemark(project, "B.kt", LINES, 0..0, "a newer note")
         markRemarksPublished(project, listOf(a.id!!, b.id!!))
-        val first = PublishedBatchService.getInstance(project).record(listOf(a.id!!))
-        PublishedBatchService.getInstance(project).record(listOf(b.id!!))
+        val first = PublishedBatchService.getInstance(project).record(listOf(a.id!!), emptyMap())
+        PublishedBatchService.getInstance(project).record(listOf(b.id!!), emptyMap())
 
         reportPublishedRead(project, first, "s1")
         UIUtil.dispatchAllInvocationEvents()
@@ -113,7 +151,7 @@ class PublishedAckTest : BasePlatformTestCase() {
     fun testEachRecordedBatchGetsItsOwnNonce() {
         val service = PublishedBatchService.getInstance(project)
 
-        assertNotEquals(service.record(emptyList()), service.record(emptyList()))
+        assertNotEquals(service.record(emptyList(), emptyMap()), service.record(emptyList(), emptyMap()))
     }
 
     /**
@@ -124,7 +162,7 @@ class PublishedAckTest : BasePlatformTestCase() {
     fun testAForgottenBatchIsUnknownAgain() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val service = PublishedBatchService.getInstance(project)
-        val nonce = service.record(listOf(a.id!!))
+        val nonce = service.record(listOf(a.id!!), emptyMap())
 
         service.forget(nonce)
         val answer = reportPublishedRead(project, nonce, "s1")
@@ -154,8 +192,8 @@ class PublishedAckTest : BasePlatformTestCase() {
         )
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val service = PublishedBatchService.getInstance(project)
-        val empty = service.record(emptyList())
-        val ordinary = service.record(listOf(a.id!!))
+        val empty = service.record(emptyList(), emptyMap())
+        val ordinary = service.record(listOf(a.id!!), emptyMap())
 
         val answer = reportPublishedRead(project, empty, "s1")
         UIUtil.dispatchAllInvocationEvents()
@@ -178,7 +216,7 @@ class PublishedAckTest : BasePlatformTestCase() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val b = addRemark(project, "B.kt", LINES, 0..0, "another note")
         val service = PublishedBatchService.getInstance(project)
-        val nonce = service.record(listOf(a.id!!, b.id!!))
+        val nonce = service.record(listOf(a.id!!, b.id!!), emptyMap())
 
         assertEquals(BatchLookup.OK, service.batchCarries(nonce, a.id!!))
         assertEquals(BatchLookup.OK, service.batchCarries(nonce, b.id!!))
@@ -193,7 +231,7 @@ class PublishedAckTest : BasePlatformTestCase() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val b = addRemark(project, "B.kt", LINES, 0..0, "another note")
         val service = PublishedBatchService.getInstance(project)
-        val nonce = service.record(listOf(a.id!!))
+        val nonce = service.record(listOf(a.id!!), emptyMap())
 
         assertEquals(BatchLookup.UNKNOWN_REMARK, service.batchCarries(nonce, b.id!!))
     }
@@ -212,7 +250,7 @@ class PublishedAckTest : BasePlatformTestCase() {
     fun testALookupAgainstABatchPushedOutOfTheRememberedSixteenAnswersUnknownBatch() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val service = PublishedBatchService.getInstance(project)
-        val nonces = (0 until 17).map { service.record(listOf(a.id!!)) }
+        val nonces = (0 until 17).map { service.record(listOf(a.id!!), emptyMap()) }
 
         assertEquals(BatchLookup.UNKNOWN_BATCH, service.batchCarries(nonces.first(), a.id!!))
         assertEquals(BatchLookup.OK, service.batchCarries(nonces[1], a.id!!))
@@ -227,7 +265,7 @@ class PublishedAckTest : BasePlatformTestCase() {
     fun testALookupNeverConsumesTheBatch() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val service = PublishedBatchService.getInstance(project)
-        val nonce = service.record(listOf(a.id!!))
+        val nonce = service.record(listOf(a.id!!), emptyMap())
 
         repeat(3) { service.batchCarries(nonce, a.id!!) }
         service.batchCarries(nonce, "not-in-this-batch")
@@ -247,7 +285,7 @@ class PublishedAckTest : BasePlatformTestCase() {
     fun testAnAcknowledgedBatchIsStillFoundByALookup() {
         val a = addRemark(project, "A.kt", LINES, 0..0, "a note")
         val service = PublishedBatchService.getInstance(project)
-        val nonce = service.record(listOf(a.id!!))
+        val nonce = service.record(listOf(a.id!!), emptyMap())
 
         reportPublishedRead(project, nonce, "s1")
         UIUtil.dispatchAllInvocationEvents()

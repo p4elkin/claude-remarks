@@ -46,6 +46,9 @@ class RemarkState : BaseState() {
     var endColumn by property(0)
     var text by string()
 
+    /** Text edit counter, defaulting to zero for remarks stored before revision existed. */
+    var revision by property(0)
+
     /**
      * True when this remark asks Claude Code for an answer rather than for work to do.
      *
@@ -68,20 +71,17 @@ class RemarkState : BaseState() {
     var createdAt by property(0L)
 
     /**
-     * When this remark was marked read, or 0 when it never has been — including every remark
+     * The stored read stamp, or 0 when unset — including every remark
      * stored before this field existed, which has no `readAt` attribute in its XML at all and
      * loads at the property's default, the same no-migration shape [startColumn]/[endColumn]/
      * [phrase] already use.
      *
-     * Stamped in exactly one place: `RemarkStore.RemarksState.markRead`, reached only through
-     * `store/RemarkEdits.kt`'s `markRemarksRead`. CLAUDE.md's guard 6 already restricts who may
-     * call that function to two files, so this field has exactly one writer by construction —
-     * there is no second path into the store that could stamp it early or move it once set. That
-     * write also only ever happens once: a remark re-published and re-acknowledged keeps the
-     * stamp from the first time it was marked read, since re-publishing and re-acknowledging the
-     * same remark is ordinary in this plugin, and a second acknowledgement must not jump the row
-     * to the top of Done for a reason the person handed it over twice, not because it was handled
-     * twice.
+     * Stamped by `RemarkStore.RemarksState.markRead`, reached through `markRemarksRead`.
+     * Republishing and acknowledging unchanged text keeps that stamp. A real edit of a READ
+     * remark resets it to zero in `RemarksState.editRemark` and reopens the remark; a later
+     * acknowledgement of the updated text supplies a fresh stamp.
+     * Publish Selected moves READ to PUBLISHED without clearing this stamp. A later edit made
+     * while PUBLISHED keeps the old stamp, and its next acknowledgement keeps it too.
      */
     var readAt by property(0L)
     var textHash by string()

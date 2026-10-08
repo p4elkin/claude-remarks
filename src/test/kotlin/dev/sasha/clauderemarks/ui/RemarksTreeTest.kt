@@ -6,6 +6,7 @@ import dev.sasha.clauderemarks.model.RemarkState
 import dev.sasha.clauderemarks.model.RemarkStatus
 import dev.sasha.clauderemarks.store.ResolvedAnswer
 import dev.sasha.clauderemarks.store.ResolvedRemark
+import dev.sasha.clauderemarks.store.RemarkStore
 import javax.swing.tree.DefaultMutableTreeNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -13,6 +14,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RemarksTreeTest {
+
+    @Test
+    fun `editing a read remark moves it to Open unless it already has an answer`() {
+        for (answered in listOf(false, true)) {
+            val resolved = row(id = "edited", status = RemarkStatus.READ, readAt = 123L)
+            val state = RemarkStore.RemarksState()
+            state.addRemark(resolved.remark)
+            assertTrue(state.editRemark("edited", "changed text"))
+            val edited = resolved.copy(remark = state.snapshot().single())
+            val root = buildTreeRoot(listOf(edited), if (answered) listOf(answerRow(remarkId = "edited")) else emptyList())
+            assertEquals(listOf(if (answered) DONE_KEY else OPEN_KEY), keysUnder(root))
+        }
+    }
 
     @Test
     fun `rows are grouped under their file, in path order`() {

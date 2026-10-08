@@ -3,8 +3,9 @@
 **A hand check is something `./gradlew test` cannot reach.** It needs a person, a running IDE, and in
 a few cases a second machine. The suite covers storage, anchoring, resolving, the renderer, the tree's
 node building and the endpoint. It cannot say that an icon reads as yellow rather than as green, that
-a popup appears at the caret, that a balloon fires, that a highlight survives typing, or that a shell
-script does what its own comments claim — `./gradlew test` runs no shell at all.
+a popup appears at the caret, that a balloon fires, that a highlight survives typing, or that the
+installed watcher or the live review flush does what it claims. `./gradlew test` runs isolated
+hook scripts, but it does not exercise those installed commands in a real review.
 
 **An item leaves this list when it has actually been run, not when the phase that added it merged.**
 Everything below is owed. A green suite is not evidence for any of it.
@@ -94,6 +95,12 @@ diff viewer, so the suite proves the decision and not the window it is made in.
 3. **A dirty working tree refuses on both sides.** Edit the file, do not commit, then reopen the same
    diff. The newer pane's text is no longer the file on disk, so it must refuse — this is the check
    that the comparison really runs rather than the pane being accepted for being the newer one.
+
+## The live review publish hook
+
+- [ ] A publish inside agterm's embedded Rebased runs the hook and the room receives the batch.
+  Install this plugin in that IDE first. Check the outcome balloon and confirm the room received the
+  exact batch. Plan: `docs/plans/20261008-publish-hook.md`.
 
 ## How the lists relate to each other
 

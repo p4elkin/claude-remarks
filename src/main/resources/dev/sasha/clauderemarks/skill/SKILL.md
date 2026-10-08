@@ -51,11 +51,30 @@ Pick the first when there are files the person should be looking at. Pick the se
 says they published something, or asks for remarks that already exist. Pick the third only when the
 person asks, in those words or plainly equivalent ones, to be watched or listened to.
 
-**There is no review mode, and nothing here waits to be answered.** The plugin has no `start` and no
+**The plugin has no built-in review mode, and nothing here waits to be answered.** The plugin has no `start` and no
 `ack` action any more, no banner above the tree, no deadline it enforces and no session id anything
 is keyed to. A publish is the only way remarks leave the IDE, and a batch's own nonce is the only
-thing an acknowledgement names. A request to "start a review" is served by the first mode below —
-open the files — followed by one of the two reading modes.
+thing an acknowledgement names. A request to "start a review" is served by "Open files in the IDE",
+followed by one of the two reading modes.
+
+## When an agterm live review owns this project
+
+An agterm live review owns this project when `~/.claude-remarks/<hash>.hook.json` exists for this
+project's identity and its `port` equals the `port` in this project's handshake file
+`~/.claude-remarks/<hash>.json`. Its `state` does not matter: the plugin runs the hook whatever it
+says. A hook naming another port belongs to another IDE: ignore it and use the modes below as usual.
+
+The plugin skips this project's hook when it is not a regular file, is not owned by the current
+user, or is writable by group or others; when its JSON is not an object; when its `argv` is not a
+non-empty array of strings starting with an absolute path; and when it has a `label` that is not a
+string, `null` included. An absent or empty label is fine: it reads as `live review`. If the hook
+fails any of these, or a publish shows the balloon "The live review is closed", tell the person the
+hook is broken or left over and stop. Do not start a watcher beside it.
+
+While a live review owns the project, it acknowledges the published batches. Do not start
+`watch-remarks.sh` for this project. Handle batches
+in that review and answer through `agterm-review-flush <run> --answer <remarkId> --nonce <nonce>`,
+using the owning review's run and the batch's nonce. Pass the answer markdown on stdin.
 
 ## Open files in the IDE
 
@@ -198,6 +217,9 @@ the repository's real path — the same name the handshake file uses, with `.md`
 So there is nothing to ask the IDE for: the name is computable here, and the file is either there
 or it is not.
 
+A real text edit of a READ remark reopens it as PENDING, so Publish Unread can send its updated text
+again. An acknowledgement skips remarks edited since its batch was prepared.
+
 **Which path exactly.** The plugin hashes the git top level — what `git rev-parse --show-toplevel`
 prints — whenever the open project sits anywhere inside a git repository, even on a module far below
 the repository root. Only for a project that is in no git repository at all does it hash the project
@@ -269,7 +291,7 @@ if [ ! -f "$pub_file" ]; then
 fi
 
 # A copy of the batch, taken before anything else in this block runs. Everything below reads the
-# copy, never $pub_file again. The acknowledgement further down marks every remark in this batch
+# copy, never $pub_file again. The acknowledgement further down marks unchanged remarks in this batch
 # READ, and Publish Unread only ever picks up remarks that are not READ — so a publish landing while
 # that request is in flight overwrites $pub_file, and the batch just marked read is gone with nobody
 # having seen a word of it. A copy cannot change under the session reading it.
@@ -357,7 +379,7 @@ rm -f "$pub_copy"
 ```
 
 ⚠️ **The batch is read from the copy, never from `$pub_file` again, and the copy is taken before the
-acknowledgement goes out.** The acknowledgement marks every remark in the batch `READ`, and Publish
+acknowledgement goes out.** The acknowledgement marks unchanged remarks in the batch `READ`, and Publish
 Unread only ever picks up remarks that are not `READ`. So a publish landing while that request is in
 flight — and the `curl` allows it twenty seconds — overwrites `$pub_file`, and the batch just marked
 read can never come back. Its remarks would sit in the IDE's Done group looking handled while nobody
@@ -608,7 +630,7 @@ listen_base_url="http://$listen_host:$listen_port/api/claude-remarks"
 # no nonce to read here and no --seen to work out.
 listen_seen=
 # A copy of the pending batch, written before the claim below and read by the session instead of the
-# published file. The claim marks every remark in that batch READ, and Publish Unread only ever picks
+# published file. The claim marks unchanged remarks in that batch READ, and Publish Unread only ever picks
 # up remarks that are not READ — so a publish landing after the claim overwrites $listen_file, and the
 # claimed batch is gone with nobody having read a word of it. A copy cannot change underneath the
 # session reading it, which is the same reason the monitor branch reads the watcher's snapshot.
@@ -782,7 +804,7 @@ had the batch in hand and wrote it down.
 
 ⚠️ **Read the snapshot. Never read the published file instead, and never fetch the batch again.**
 That looks like the same thing and is not. The published file is one file that every publish
-overwrites, and the batch was claimed — every remark in it marked `READ` in the IDE — before this
+overwrites, and the batch was claimed — unchanged remarks in it marked `READ` in the IDE — before this
 line was printed. So a publish landing between the claim and this session getting to work replaces
 the batch this line names, and the replaced one can never come back: Publish Unread only ever picks
 up remarks that are not `READ`. Those remarks would be gone while sitting in the IDE's Done group
@@ -1245,7 +1267,8 @@ watch-remarks.sh --fetch <base_url> --project <path>
   Without it the script behaves exactly as it always has: one batch to stdout whole, then exit 0.
   ⚠️ The snapshot is what a session reads, in both modes: the published file is overwritten by the
   next publish, the batch was already claimed before the line was printed, and a batch that is
-  `READ` in the IDE is never published again. The script keeps the four most recent snapshots and
+  still READ is left out by Publish Unread. Publish Selected can resend it, and a real text edit
+  reopens it as PENDING for Publish Unread. The script keeps the four most recent snapshots and
   deletes nothing on exit.
 - `--claim <base_url> --session <id>` makes the watcher send the `published-read` acknowledgement
   itself, before it prints a batch's line, and put the answer on the end of that same line: `ok`,
