@@ -59,8 +59,13 @@ followed by one of the two reading modes.
 
 ## When an agterm live review owns this project
 
-When `~/.claude-remarks/<hash>.hook.json` exists for this project's identity, an agterm live review
-acknowledges its published batches. Do not start `watch-remarks.sh` for this project. Handle batches
+An agterm live review owns this project only when `~/.claude-remarks/<hash>.hook.json` exists for
+this project's identity, its `state` is `active`, and its `port` equals the `port` in this project's
+handshake file `~/.claude-remarks/<hash>.json`. The plugin runs no other hook, so any other hook file
+is stale: ignore it and use the modes below as usual.
+
+While a live review owns the project, it acknowledges the published batches. Do not start
+`watch-remarks.sh` for this project. Handle batches
 in that review and answer through `agterm-review-flush <run> --answer <remarkId> --nonce <nonce>`,
 using the owning review's run and the batch's nonce. Pass the answer markdown on stdin.
 

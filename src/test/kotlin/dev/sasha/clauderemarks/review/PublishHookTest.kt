@@ -38,6 +38,13 @@ class PublishHookTest {
         assertEquals("662b7b62a798bb2d.hook.json", hookName("/a/b"))
     }
 
+    @Test(timeout = 5000)
+    fun `a FIFO in the hook's place is skipped without opening it`() {
+        val fifo = temporary.root.toPath().resolve("fifo.hook.json")
+        assertEquals(0, ProcessBuilder("mkfifo", "-m", "600", fifo.toString()).start().waitFor())
+        assertSkipped(fifo)
+    }
+
     @Test
     fun `an absent file skips silently`() {
         assertEquals(HookDecision.Skip(null), readHook(temporary.root.toPath().resolve("absent"), port, currentUser))

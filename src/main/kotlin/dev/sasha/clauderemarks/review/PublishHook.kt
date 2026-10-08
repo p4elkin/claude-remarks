@@ -29,6 +29,8 @@ fun readHook(file: Path, expectedPort: Int, currentUser: String): HookDecision {
     } catch (e: Exception) {
         return HookDecision.Skip("Cannot read hook attributes: ${e.message}")
     }
+    // A FIFO with no writer would block the read below forever.
+    if (!attributes.isRegularFile) return HookDecision.Skip("Hook file is not a regular file")
     if (attributes.owner().name != currentUser) {
         return HookDecision.Skip("Hook file is not owned by $currentUser")
     }

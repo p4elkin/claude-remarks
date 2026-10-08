@@ -1409,7 +1409,7 @@ The hook shape is:
 ```
 
 The plugin reads `argv`, `label` and `port`. The launcher owns `owner` and `state`, which the plugin
-ignores. A missing or empty label becomes `live review`. `readHook` requires a non-empty array of
+ignores. A missing or empty label becomes `live review`. `readHook` requires a regular file, a non-empty array of
 strings, an absolute executable path, the current user's POSIX ownership, no group or others write
 permission, and the current IDE's bound built-in server port. A missing file skips silently. An
 existing invalid hook skips with a reason that `publishRemarks` logs at warn. The port check prevents
@@ -1417,8 +1417,8 @@ a second IDE on the same checkout from feeding this review. `ReviewHandshakeServ
 already waited for the server to bind, so `BuiltInServerManager.port` is the bound port at publish.
 
 A publish builds `header + "\n" + markdown` once and its UTF-8 bytes before `writePublished`.
-Only a successful file write schedules `startPublishHook`; the queued task retains a copy of those
-bytes. Replacing the published file cannot change an earlier hook's stdin. The published file's path
+Only a successful file write queues `startPublishHook`, which reads the hook file on the queue, never
+on the EDT, and keeps a copy of those bytes. Replacing the published file cannot change an earlier hook's stdin. The published file's path
 is never passed to the hook. The app-wide bounded executor named `Claude Remarks publish hook`, with
 one worker, keeps calls in publish order.
 

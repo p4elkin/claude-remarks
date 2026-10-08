@@ -232,21 +232,21 @@ fun publishRemarks(project: Project, ids: Collection<String>?) {
             )
             if (writeFailure == null) {
                 hookInput?.let { (dir, bytes) ->
-                    try {
-                        val decision = startPublishHook(
-                            prepared.root!!, bytes, BuiltInServerManager.getInstance().port, dir,
-                            { PUBLISH_HOOK_EXECUTOR.execute(it) },
-                        ) { outcome, label ->
-                            if (!project.isDisposed) {
-                                val (message, type) = outcomeMessage(outcome, label)
-                                notifyRemarks(project, message, type)
+                    val root = prepared.root!!
+                    val port = BuiltInServerManager.getInstance().port
+                    // Reading the hook file is IO, so it runs on the queue too, never on the EDT.
+                    PUBLISH_HOOK_EXECUTOR.execute {
+                        try {
+                            val decision = startPublishHook(root, bytes, port, dir, { it.run() }) { outcome, label ->
+                                if (!project.isDisposed) {
+                                    val (message, type) = outcomeMessage(outcome, label)
+                                    notifyRemarks(project, message, type)
+                                }
                             }
+                            if (decision is HookDecision.Skip && decision.reason != null) LOG.warn(decision.reason)
+                        } catch (e: Exception) {
+                            LOG.warn("the publish hook could not run", e)
                         }
-                        if (decision is HookDecision.Skip && decision.reason != null) LOG.warn(decision.reason)
-                    } catch (e: ProcessCanceledException) {
-                        throw e
-                    } catch (e: Exception) {
-                        LOG.warn("the publish hook could not be scheduled", e)
                     }
                 }
             }
