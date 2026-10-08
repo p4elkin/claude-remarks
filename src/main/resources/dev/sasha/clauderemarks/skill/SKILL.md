@@ -59,10 +59,15 @@ followed by one of the two reading modes.
 
 ## When an agterm live review owns this project
 
-An agterm live review owns this project only when `~/.claude-remarks/<hash>.hook.json` exists for
-this project's identity, its `state` is `active`, and its `port` equals the `port` in this project's
-handshake file `~/.claude-remarks/<hash>.json`. The plugin runs no other hook, so any other hook file
-is stale: ignore it and use the modes below as usual.
+An agterm live review owns this project when `~/.claude-remarks/<hash>.hook.json` exists for this
+project's identity and its `port` equals the `port` in this project's handshake file
+`~/.claude-remarks/<hash>.json`. Its `state` does not matter: the plugin runs the hook whatever it
+says. A hook naming another port belongs to another IDE: ignore it and use the modes below as usual.
+
+The plugin skips this project's hook when it is not a regular file, is not owned by the current
+user, or is writable by group or others; when its JSON is not an object; when its `argv` is not a
+non-empty array of strings starting with an absolute path; and when its `label` is not a string. If the hook fails any of these, or a publish shows the balloon "The live review is
+closed", tell the person the hook is broken or left over and stop. Do not start a watcher beside it.
 
 While a live review owns the project, it acknowledges the published batches. Do not start
 `watch-remarks.sh` for this project. Handle batches
