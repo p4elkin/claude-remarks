@@ -1160,8 +1160,7 @@ Treating the two as the same state would let a publish claim a confirmation nobo
 **Text edits reopen work, and acknowledgements check the rendered revision.** Under its existing
 synchronized lock, `RemarksState.editRemark` returns false for unchanged text. A real edit changes the
 text, increments `revision`, and changes READ to PENDING with `readAt = 0`; PENDING and PUBLISHED keep
-their status. The modification count is incremented after all those writes. `RemarkEdits.editRemark`
-announces only a real change.
+their status. `RemarkEdits.editRemark` announces only a real change.
 
 `prepare` captures an id-to-revision map from the same rows that render the prompt. `Prepared` carries
 it to `publishRemarks`, which passes it to `PublishedBatchService.record`. The batch keeps both ids
@@ -1400,12 +1399,13 @@ a hand-edited `workspace.xml` can produce such an answer, since `AnswerReceipt` 
 
 ### The live review publish hook
 
-An agterm live review launcher writes `~/.claude-remarks/<hash>.hook.json`. `hookName(realPath)` uses
-`projectHash(realPath)` beside `publishedName`; all three names use the same project identity.
+An agterm live review launcher writes `~/.claude-remarks/<hash>.hook.json`.
+`hookName(realPath)` is `projectHash(realPath) + ".hook.json"`, the same hash as `handshakeName`
+and `publishedName`.
 The hook shape is:
 
 ```json
-{"argv":["/absolute/path/agterm-review-flush","run-id"],"label":"my review","owner":"launcher","state":"active","port":63342}
+{"argv":["/absolute/path/agterm-review-flush","run-id","--remarks"],"label":"my review","owner":"launcher","state":"active","port":63342}
 ```
 
 The plugin reads `argv`, `label` and `port`. The launcher owns `owner` and `state`, which the plugin
@@ -1421,15 +1421,6 @@ Only a successful file write schedules `startPublishHook`; the queued task retai
 bytes. Replacing the published file cannot change an earlier hook's stdin. The published file's path
 is never passed to the hook. The app-wide bounded executor named `Claude Remarks publish hook`, with
 one worker, keeps calls in publish order.
-
-```mermaid
-flowchart LR
-  Publish[Publish callback] --> File[Write published file]
-  File --> Queue[Serial hook executor]
-  Queue --> Flush[agterm review flush]
-  Flush --> Ack[Published read endpoint]
-  Ack --> Store[Revision checked READ update]
-```
 
 `runHook` passes argv directly to `ProcessBuilder`. A separate daemon thread writes and closes stdin,
 and two more drain stdout and stderr. Broken stdin pipes are ignored; the exit code decides the
@@ -1448,9 +1439,8 @@ includes its reason. Error messages use warning balloons. Labels and diagnostics
 HTML, with `<br>` between diagnostic lines. The callback checks `project.isDisposed` first.
 Clipboard delivery, the published file and PUBLISHED state survive every hook outcome.
 
-When the hook exists, the bundled skill leaves batch acknowledgement to the agterm review and
-answers through `agterm-review-flush <run> --answer`. It must not start `watch-remarks.sh` for this
-project. Writing, claiming and deleting hooks belongs to agterm-agents.
+The bundled skill's "When an agterm live review owns this project" section describes how an agent
+handles batches in that review. Writing, claiming and deleting hooks belongs to agterm-agents.
 
 ### The published file
 
@@ -1558,7 +1548,7 @@ what a batch answered. It also had to carry two failure sentences in the balloon
 ended between the check and the write and for a review an earlier publish had already answered. Phase
 12 removed the other side of the fold. `publishRemarks` no longer looks for a review, no longer stamps
 anything, and `publishMessage` lost the parameter that carried those sentences;
-`PublishedBatchService.record` takes only the ids. One writer, one acknowledgement route, and a header
+`PublishedBatchService.record` takes the ids and their rendered revisions, nothing about a review. One writer, one acknowledgement route, and a header
 that no longer has to say which of three things produced a batch.
 
 **How the skill reads it.** `SKILL.md` — at

@@ -54,17 +54,15 @@ person asks, in those words or plainly equivalent ones, to be watched or listene
 **The plugin has no built-in review mode, and nothing here waits to be answered.** The plugin has no `start` and no
 `ack` action any more, no banner above the tree, no deadline it enforces and no session id anything
 is keyed to. A publish is the only way remarks leave the IDE, and a batch's own nonce is the only
-thing an acknowledgement names. A request to "start a review" is served by the first mode below —
-open the files — followed by one of the two reading modes.
+thing an acknowledgement names. A request to "start a review" is served by "Open files in the IDE",
+followed by one of the two reading modes.
 
 ## When an agterm live review owns this project
 
 When `~/.claude-remarks/<hash>.hook.json` exists for this project's identity, an agterm live review
 acknowledges its published batches. Do not start `watch-remarks.sh` for this project. Handle batches
-in that review and answer through `agterm-review-flush <run> --answer`, using the owning review's run.
-
-A real text edit of a READ remark reopens it as PENDING, so Publish Unread can send its updated text
-again. An acknowledgement skips remarks edited since its batch was prepared.
+in that review and answer through `agterm-review-flush <run> --answer <remarkId> --nonce <nonce>`,
+using the owning review's run and the batch's nonce. Pass the answer markdown on stdin.
 
 ## Open files in the IDE
 
@@ -206,6 +204,9 @@ The Publish actions in the tool window put the same markdown the clipboard gets 
 the repository's real path — the same name the handshake file uses, with `.md` instead of `.json`.
 So there is nothing to ask the IDE for: the name is computable here, and the file is either there
 or it is not.
+
+A real text edit of a READ remark reopens it as PENDING, so Publish Unread can send its updated text
+again. An acknowledgement skips remarks edited since its batch was prepared.
 
 **Which path exactly.** The plugin hashes the git top level — what `git rev-parse --show-toplevel`
 prints — whenever the open project sits anywhere inside a git repository, even on a module far below

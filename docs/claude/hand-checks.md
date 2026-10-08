@@ -4,7 +4,7 @@
 a few cases a second machine. The suite covers storage, anchoring, resolving, the renderer, the tree's
 node building and the endpoint. It cannot say that an icon reads as yellow rather than as green, that
 a popup appears at the caret, that a balloon fires, that a highlight survives typing, or that the
-installed watcher and live review flush work together. `./gradlew test` runs isolated
+installed watcher or the live review flush does what it claims. `./gradlew test` runs isolated
 hook scripts, but it does not exercise those installed commands in a real review.
 
 **An item leaves this list when it has actually been run, not when the phase that added it merged.**
